@@ -155,8 +155,8 @@ export function SidebarShell() {
         right: 0,
         width: 48,
         height: '100vh',
-        background: 'rgba(0,0,0,0.85)',
-        borderLeft: '1px solid rgba(255,255,255,0.07)',
+        background: 'rgba(15,15,25,0.95)',
+        borderLeft: '1px solid rgba(255,255,255,0.15)',
         backdropFilter: 'blur(8px)',
         zIndex: 201,
         display: 'flex',
@@ -176,18 +176,19 @@ export function SidebarShell() {
               aria-label={icon.label}
               aria-pressed={active}
               style={{
-                width: 36,
-                height: 36,
-                background: active ? 'rgba(52,152,219,0.3)' : 'none',
-                border: active ? '1px solid rgba(52,152,219,0.6)' : '1px solid transparent',
-                borderRadius: 6,
+                width: 38,
+                height: 38,
+                background: active ? 'rgba(52,152,219,0.35)' : 'rgba(255,255,255,0.08)',
+                border: active ? '1px solid rgba(52,152,219,0.8)' : '1px solid rgba(255,255,255,0.18)',
+                borderRadius: 8,
                 cursor: 'pointer',
-                fontSize: 18,
+                fontSize: 20,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 transition: 'all 0.15s',
                 flexShrink: 0,
+                boxShadow: active ? '0 0 8px rgba(52,152,219,0.4)' : 'none',
               }}
             >
               {icon.glyph}

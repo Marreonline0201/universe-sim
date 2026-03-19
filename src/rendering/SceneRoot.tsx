@@ -19,11 +19,6 @@ export function SceneRoot() {
   const [pointerLocked, setPointerLocked] = useState(false)
 
   useEffect(() => {
-    const onLock = () => setPointerLocked(true)
-    const onUnlock = () => setPointerLocked(false)
-    document.addEventListener('pointerlockchange', onLock)
-    document.addEventListener('pointerlockchange', onUnlock)
-    // More reliable: check actual lock state
     const check = () => setPointerLocked(!!document.pointerLockElement)
     document.addEventListener('pointerlockchange', check)
     return () => document.removeEventListener('pointerlockchange', check)

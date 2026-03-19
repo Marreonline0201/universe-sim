@@ -1,19 +1,10 @@
 import { neon } from '@neondatabase/serverless'
 import { verifyToken } from '@clerk/backend'
 
+export const config = { runtime: 'edge' }
+
 export default async function handler(req: Request) {
   const sql = neon(process.env.DATABASE_URL!)
-
-  // Ensure table exists
-  await sql`
-    CREATE TABLE IF NOT EXISTS world_settings (
-      id          INT PRIMARY KEY DEFAULT 1,
-      time_scale  REAL DEFAULT 1,
-      updated_at  TIMESTAMPTZ DEFAULT NOW(),
-      CHECK (id = 1)
-    )
-  `
-  await sql`INSERT INTO world_settings (id, time_scale) VALUES (1, 1) ON CONFLICT DO NOTHING`
 
   // GET — public, any client polls this
   if (req.method === 'GET') {

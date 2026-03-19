@@ -1,7 +1,7 @@
 // ── CraftingPanel ──────────────────────────────────────────────────────────────
 // Recipe browser. Filters by available materials. Crafts on button click.
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { inventory, techTree } from '../../game/GameSingletons'
 import { CRAFTING_RECIPES, MAT, ITEM, type CraftingRecipe } from '../../player/Inventory'
 import { usePlayerStore } from '../../store/playerStore'
@@ -16,6 +16,11 @@ const ITEM_NAMES: Record<number, string> = Object.fromEntries(
 
 function canCraft(recipe: CraftingRecipe, civTier: number): boolean {
   if (civTier < recipe.tier) return false
+  // Mirror the knowledge gate from Inventory.craft()
+  if (recipe.knowledgeRequired.length > 0) {
+    const known = new Set(inventory.getKnownRecipes())
+    if (!known.has(recipe.id)) return false
+  }
   for (const input of recipe.inputs) {
     const idx = inventory.findItem(input.materialId)
     if (idx === -1) return false
@@ -30,6 +35,12 @@ export function CraftingPanel() {
   const addNotification = useUiStore(s => s.addNotification)
   const [, forceRefresh] = useState(0)
   const [filter, setFilter] = useState<'all' | 'available'>('available')
+
+  // Poll every 200ms so recipe availability updates as materials are gathered
+  useEffect(() => {
+    const id = setInterval(() => forceRefresh(r => r + 1), 200)
+    return () => clearInterval(id)
+  }, [])
   const [selectedRecipe, setSelectedRecipe] = useState<CraftingRecipe | null>(null)
 
   const recipes = CRAFTING_RECIPES.filter(r => {
@@ -132,7 +143,7 @@ export function CraftingPanel() {
 
           <div style={{ fontSize: 11, color: '#ccc', marginTop: 4 }}>Produces:</div>
           <div style={{ fontSize: 11, color: '#f1c40f' }}>
-            {selectedRecipe.output.quantity}× {ITEM_NAMES[selectedRecipe.output.itemId] ?? selectedRecipe.output.itemId}
+            {selectedRecipe.output.quantity}× {ITEM_NAMES[selectedRecipe.output.itemId] ?? MAT_NAMES[selectedRecipe.output.itemId] ?? `id:${selectedRecipe.output.itemId}`}
           </div>
 
           <button

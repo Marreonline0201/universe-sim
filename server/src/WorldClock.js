@@ -26,7 +26,7 @@ function epochFromSeconds(secs) {
 export class WorldClock {
   constructor() {
     this.simTimeSec = 0
-    this.timeScale = 1
+    this.timeScale = 1_000_000  // 1 real second = 1M sim-seconds by default
     this.paused = false
     this.epoch = 'stellar'
     this._lastWall = Date.now()

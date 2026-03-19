@@ -42,6 +42,7 @@ export class PlayerController {
   cameraMode: CameraMode = 'third_person'
 
   private keys = new Set<string>()
+  private _interactConsumed = false
   private yaw   = 0   // radians — horizontal look
   private pitch = 0   // radians — vertical look
 
@@ -80,6 +81,21 @@ export class PlayerController {
     this.input.mouseX = 0
     this.input.mouseY = 0
     this.input.scrollDelta = 0
+  }
+
+  /**
+   * Returns true once when the player presses F (rising-edge, consumed on read).
+   * Call from the game loop to detect one-shot gather actions.
+   */
+  popInteract(): boolean {
+    if (this.keys.has('KeyF') && !this._interactConsumed) {
+      this._interactConsumed = true
+      return true
+    }
+    if (!this.keys.has('KeyF')) {
+      this._interactConsumed = false
+    }
+    return false
   }
 
   /** Request pointer lock (call from a click handler) */

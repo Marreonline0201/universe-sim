@@ -6,12 +6,63 @@ import type { RefObject } from 'react'
 import { SimulationEngine } from '../engine/SimulationEngine'
 import { useGameStore } from '../store/gameStore'
 import { usePlayerStore } from '../store/playerStore'
+import { useUiStore } from '../store/uiStore'
 import { CreatureRenderer } from './entities/CreatureRenderer'
 import { RemotePlayersRenderer } from './RemotePlayersRenderer'
 import { useMultiplayerStore } from '../store/multiplayerStore'
 import { world, createPlayerEntity, Metabolism, Health, Position, Rotation } from '../ecs/world'
 import { PlayerController } from '../player/PlayerController'
 import { MetabolismSystem, setMetabolismDt } from '../ecs/systems/MetabolismSystem'
+import { inventory } from '../game/GameSingletons'
+import { MAT } from '../player/Inventory'
+
+// ── Resource node definitions ─────────────────────────────────────────────────
+
+interface ResourceNode {
+  id: number
+  type: string
+  label: string
+  matId: number
+  color: string
+  x: number
+  z: number
+}
+
+const NODE_TYPES = [
+  { type: 'stone', label: 'Stone',  matId: MAT.STONE, color: '#888888', count: 15 },
+  { type: 'flint', label: 'Flint',  matId: MAT.FLINT, color: '#556677', count: 8  },
+  { type: 'wood',  label: 'Wood',   matId: MAT.WOOD,  color: '#8B5E3C', count: 15 },
+  { type: 'clay',  label: 'Clay',   matId: MAT.CLAY,  color: '#CC7744', count: 8  },
+  { type: 'fiber', label: 'Fiber',  matId: MAT.FIBER, color: '#66BB44', count: 12 },
+]
+
+function seededRand(seed: number): () => number {
+  let s = seed >>> 0
+  return () => {
+    s = (Math.imul(s, 1664525) + 1013904223) >>> 0
+    return s / 0xffffffff
+  }
+}
+
+function generateResourceNodes(): ResourceNode[] {
+  const rand = seededRand(99991)
+  const nodes: ResourceNode[] = []
+  let id = 0
+  for (const nt of NODE_TYPES) {
+    for (let i = 0; i < nt.count; i++) {
+      const angle = rand() * Math.PI * 2
+      const dist  = 12 + rand() * 160
+      nodes.push({ id: id++, type: nt.type, label: nt.label, matId: nt.matId, color: nt.color,
+        x: Math.cos(angle) * dist, z: Math.sin(angle) * dist })
+    }
+  }
+  return nodes
+}
+
+// Module-level constants so they survive across renders
+const RESOURCE_NODES: ResourceNode[] = generateResourceNodes()
+// Mutable set — mutated by game loop when player gathers a node
+const gatheredNodeIds = new Set<number>()
 
 export function SceneRoot() {
   const engineRef = useRef<SimulationEngine | null>(null)
@@ -27,6 +78,7 @@ export function SceneRoot() {
   const setEngineReady = useGameStore(s => s.setEngineReady)
   const timeScale = useGameStore(s => s.timeScale)
   const paused = useGameStore(s => s.paused)
+  const gatherPrompt = useGameStore(s => s.gatherPrompt)
 
   const setEntityId = usePlayerStore(s => s.setEntityId)
   const entityId = usePlayerStore(s => s.entityId)
@@ -96,6 +148,20 @@ export function SceneRoot() {
         </div>
       </div>
     )}
+    {/* Gather prompt */}
+    {gatherPrompt && (
+      <div style={{
+        position: 'fixed', bottom: '30%', left: '50%',
+        transform: 'translateX(-50%)',
+        zIndex: 50, pointerEvents: 'none',
+        background: 'rgba(0,0,0,0.6)',
+        border: '1px solid rgba(255,255,255,0.2)',
+        borderRadius: 6, padding: '6px 16px',
+        color: '#fff', fontFamily: 'monospace', fontSize: 13,
+      }}>
+        {gatherPrompt}
+      </div>
+    )}
     {/* Crosshair */}
     {pointerLocked && (
       <div style={{
@@ -131,6 +197,7 @@ export function SceneRoot() {
       <Stars radius={500} depth={50} count={5000} factor={4} />
       <Suspense fallback={null}>
         <TerrainMesh />
+        <ResourceNodes />
         <CreatureRenderer />
         <RemotePlayersRenderer />
         <ServerNpcsRenderer />
@@ -188,11 +255,40 @@ function GameLoop({ controllerRef, entityId }: GameLoopProps) {
     })
 
     // 4. Sync player world position
-    setPosition(
-      Position.x[entityId],
-      Position.y[entityId],
-      Position.z[entityId],
-    )
+    const px = Position.x[entityId]
+    const pz = Position.z[entityId]
+    setPosition(px, Position.y[entityId], pz)
+
+    // 5. Resource proximity + gather
+    const gs = useGameStore.getState()
+    let nearNode: ResourceNode | null = null
+    let nearDist = Infinity
+    for (const node of RESOURCE_NODES) {
+      if (gatheredNodeIds.has(node.id)) continue
+      const dx = px - node.x
+      const dz = pz - node.z
+      const d2 = dx * dx + dz * dz
+      if (d2 < nearDist) { nearDist = d2; nearNode = node }
+    }
+
+    if (nearNode && nearDist < 9) { // within 3m
+      const label = `[F] Gather ${nearNode.label}`
+      if (gs.gatherPrompt !== label) gs.setGatherPrompt(label)
+
+      if (controllerRef.current?.popInteract()) {
+        gatheredNodeIds.add(nearNode.id)
+        gs.setGatherPrompt(null)
+        inventory.addItem({ itemId: nearNode.matId, materialId: nearNode.matId, quantity: 1, quality: 0.8 })
+        // Unlock stone tool recipe on first stone or flint gather
+        if (nearNode.matId === MAT.STONE || nearNode.matId === MAT.FLINT) {
+          inventory.discoverRecipe(1)
+        }
+        const addNotification = useUiStore.getState().addNotification
+        addNotification(`Gathered ${nearNode.label}`, 'info')
+      }
+    } else {
+      if (gs.gatherPrompt !== null) gs.setGatherPrompt(null)
+    }
   })
 
   return null
@@ -256,6 +352,47 @@ function ServerNpcsRenderer() {
           <meshStandardMaterial color="#e67e22" />
         </mesh>
       ))}
+    </>
+  )
+}
+
+// ── Resource nodes ────────────────────────────────────────────────────────────
+
+function ResourceNodes() {
+  const meshRefs = useRef<(THREE.Mesh | null)[]>([])
+
+  useFrame(() => {
+    for (let i = 0; i < RESOURCE_NODES.length; i++) {
+      const m = meshRefs.current[i]
+      if (m) m.visible = !gatheredNodeIds.has(RESOURCE_NODES[i].id)
+    }
+  })
+
+  return (
+    <>
+      {RESOURCE_NODES.map((node, i) => {
+        const isTree = node.type === 'wood'
+        return (
+          <group key={node.id} position={[node.x, 0, node.z]}>
+            <mesh
+              ref={el => { meshRefs.current[i] = el }}
+              position={[0, isTree ? 1.5 : 0.4, 0]}
+              castShadow
+            >
+              {isTree
+                ? <cylinderGeometry args={[0.2, 0.3, 3, 8]} />
+                : <boxGeometry args={[0.6, 0.5, 0.6]} />}
+              <meshStandardMaterial color={isTree ? '#6B4226' : node.color} />
+            </mesh>
+            {isTree && (
+              <mesh position={[0, 3.5, 0]} castShadow>
+                <sphereGeometry args={[1.2, 8, 8]} />
+                <meshStandardMaterial color="#2D6A2D" />
+              </mesh>
+            )}
+          </group>
+        )
+      })}
     </>
   )
 }

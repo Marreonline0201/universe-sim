@@ -28,6 +28,10 @@ interface GameState {
   // Admin spectate: set to move camera to a world position
   spectateTarget: { x: number; y: number; z: number } | null
   setSpectateTarget: (pos: { x: number; y: number; z: number } | null) => void
+
+  // HUD prompt shown when player is near a gatherable resource
+  gatherPrompt: string | null
+  setGatherPrompt: (s: string | null) => void
 }
 
 export const useGameStore = create<GameState>((set) => ({
@@ -37,7 +41,7 @@ export const useGameStore = create<GameState>((set) => ({
   paused: false,
   togglePause: () => set((s) => ({ paused: !s.paused })),
 
-  timeScale: 1,
+  timeScale: 1_000_000,
   setTimeScale: (ts) => set({ timeScale: ts }),
 
   epoch: 'stellar',
@@ -68,6 +72,9 @@ export const useGameStore = create<GameState>((set) => ({
 
   spectateTarget: null,
   setSpectateTarget: (pos) => set({ spectateTarget: pos }),
+
+  gatherPrompt: null,
+  setGatherPrompt: (s) => set({ gatherPrompt: s }),
 }))
 
 // ── Helpers ────────────────────────────────────────────────────────────────

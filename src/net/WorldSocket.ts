@@ -96,8 +96,13 @@ export class WorldSocket {
           msg.timeScale as number,
           msg.paused as boolean,
         )
-        // Sync game store time/scale with server authority
+        // Sync game store time/scale/simTime with server authority
         game.setTimeScale(msg.timeScale as number)
+        // Only snap simTime if difference > 2s (avoids jitter, handles refresh)
+        const serverSim = msg.simTime as number
+        if (Math.abs(serverSim - game.simSeconds) > 2) {
+          game.setSimSeconds(serverSim)
+        }
         if (msg.paused !== undefined) {
           const paused = msg.paused as boolean
           if (paused !== game.paused) game.togglePause()

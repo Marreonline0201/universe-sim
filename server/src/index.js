@@ -2,6 +2,7 @@
 // Railway always-on Node.js process. Owns the authoritative world clock.
 // Broadcasts WorldSnapshot to all connected clients at 10 Hz.
 
+import { createServer } from 'http'
 import { WebSocketServer, WebSocket } from 'ws'
 import { WorldClock } from './WorldClock.js'
 import { PlayerRegistry } from './PlayerRegistry.js'
@@ -44,10 +45,17 @@ async function main() {
     }, PERSIST_INTERVAL_MS)
   }
 
-  // ── WebSocket Server ─────────────────────────────────────────────────────────
+  // ── HTTP + WebSocket Server ───────────────────────────────────────────────────
 
-  const wss = new WebSocketServer({ port: PORT })
-  console.log(`[server] WebSocket server listening on ws://0.0.0.0:${PORT}`)
+  const httpServer = createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/plain' })
+    res.end(`Universe Sim WS Server — players: ${players.count}`)
+  })
+
+  const wss = new WebSocketServer({ server: httpServer })
+  httpServer.listen(PORT, () => {
+    console.log(`[server] Listening on port ${PORT} (HTTP + WebSocket)`)
+  })
 
   wss.on('connection', (ws, req) => {
     const ip = req.socket.remoteAddress

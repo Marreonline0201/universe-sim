@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { PerspectiveCamera, Sky, Stars } from '@react-three/drei'
-import { Suspense, useEffect, useRef, useState } from 'react'
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import type { RefObject } from 'react'
 import { SimulationEngine } from '../engine/SimulationEngine'
 import { useGameStore } from '../store/gameStore'
@@ -10,7 +10,7 @@ import { useUiStore } from '../store/uiStore'
 import { CreatureRenderer } from './entities/CreatureRenderer'
 import { RemotePlayersRenderer } from './RemotePlayersRenderer'
 import { useMultiplayerStore } from '../store/multiplayerStore'
-import { world, createPlayerEntity, Metabolism, Health, Position, Rotation } from '../ecs/world'
+import { world, createPlayerEntity, Metabolism, Health, Position, Rotation, Velocity } from '../ecs/world'
 import { PlayerController } from '../player/PlayerController'
 import { MetabolismSystem, setMetabolismDt } from '../ecs/systems/MetabolismSystem'
 import { inventory } from '../game/GameSingletons'
@@ -63,6 +63,38 @@ function generateResourceNodes(): ResourceNode[] {
 const RESOURCE_NODES: ResourceNode[] = generateResourceNodes()
 // Mutable set — mutated by game loop when player gathers a node
 const gatheredNodeIds = new Set<number>()
+
+// ── Terrain noise ─────────────────────────────────────────────────────────────
+
+function _hash(ix: number, iz: number): number {
+  let h = ((ix * 374761393) ^ (iz * 668265263)) >>> 0
+  h = ((h ^ (h >>> 13)) * 1274126177) >>> 0
+  return ((h ^ (h >>> 16)) >>> 0) / 0xffffffff
+}
+
+function _smoothNoise(x: number, z: number): number {
+  const ix = Math.floor(x), iz = Math.floor(z)
+  const fx = x - ix, fz = z - iz
+  const ux = fx * fx * (3 - 2 * fx)
+  const uz = fz * fz * (3 - 2 * fz)
+  return (
+    _hash(ix,   iz)   * (1-ux) * (1-uz) +
+    _hash(ix+1, iz)   *   ux   * (1-uz) +
+    _hash(ix,   iz+1) * (1-ux) *   uz   +
+    _hash(ix+1, iz+1) *   ux   *   uz
+  ) * 2 - 1
+}
+
+export function terrainHeight(x: number, z: number): number {
+  let h = 0
+  h += _smoothNoise(x * 0.012, z * 0.012) * 12  // large hills
+  h += _smoothNoise(x * 0.035, z * 0.035) * 5   // mid bumps
+  h += _smoothNoise(x * 0.09,  z * 0.09)  * 1.5 // small detail
+  // Fade to flat within 30 units of spawn
+  const d = Math.sqrt(x * x + z * z)
+  const fade = Math.min(1, Math.max(0, (d - 20) / 30))
+  return h * fade
+}
 
 export function SceneRoot() {
   const engineRef = useRef<SimulationEngine | null>(null)
@@ -179,22 +211,24 @@ export function SceneRoot() {
       style={{ position: 'fixed', inset: 0 }}
       shadows
     >
-      <PerspectiveCamera makeDefault fov={75} near={0.1} far={10000} position={[0, 10, 20]} />
-      <ambientLight intensity={0.8} />
+      <PerspectiveCamera makeDefault fov={70} near={0.1} far={2000} position={[0, 10, 20]} />
+      <fog attach="fog" args={['#b0c8e8', 80, 600]} />
+      <ambientLight intensity={0.4} />
+      <hemisphereLight args={['#87ceeb', '#3a6b2a', 0.6]} />
       <directionalLight
-        position={[100, 200, 100]}
-        intensity={1.5}
+        position={[150, 250, 100]}
+        intensity={2.0}
         castShadow
         shadow-mapSize={[2048, 2048]}
         shadow-camera-near={1}
-        shadow-camera-far={1000}
-        shadow-camera-left={-256}
-        shadow-camera-right={256}
-        shadow-camera-top={256}
-        shadow-camera-bottom={-256}
+        shadow-camera-far={800}
+        shadow-camera-left={-200}
+        shadow-camera-right={200}
+        shadow-camera-top={200}
+        shadow-camera-bottom={-200}
       />
-      <Sky sunPosition={[100, 20, 100]} />
-      <Stars radius={500} depth={50} count={5000} factor={4} />
+      <Sky sunPosition={[150, 40, 100]} turbidity={6} rayleigh={0.5} />
+      <Stars radius={400} depth={50} count={3000} factor={3} />
       <Suspense fallback={null}>
         <TerrainMesh />
         <ResourceNodes />
@@ -254,9 +288,14 @@ function GameLoop({ controllerRef, entityId }: GameLoopProps) {
       fatigue: Metabolism.fatigue[entityId],
     })
 
-    // 4. Sync player world position
+    // 4. Sync player world position + clamp to terrain
     const px = Position.x[entityId]
     const pz = Position.z[entityId]
+    const floorY = terrainHeight(px, pz) + 0.9
+    if (Position.y[entityId] < floorY) {
+      Position.y[entityId] = floorY
+      if (Velocity.y[entityId] < 0) Velocity.y[entityId] = 0
+    }
     setPosition(px, Position.y[entityId], pz)
 
     // 5. Resource proximity + gather
@@ -296,6 +335,92 @@ function GameLoop({ controllerRef, entityId }: GameLoopProps) {
 
 // ── Player mesh (visible body in third-person) ────────────────────────────────
 
+function HumanoidFigure({ skinColor, shirtColor, pantsColor }: { skinColor: string; shirtColor: string; pantsColor: string }) {
+  return (
+    <>
+      {/* Torso */}
+      <mesh position={[0, 0.55, 0]} castShadow>
+        <boxGeometry args={[0.44, 0.58, 0.22]} />
+        <meshStandardMaterial color={shirtColor} />
+      </mesh>
+      {/* Hips */}
+      <mesh position={[0, 0.18, 0]} castShadow>
+        <boxGeometry args={[0.42, 0.22, 0.22]} />
+        <meshStandardMaterial color={pantsColor} />
+      </mesh>
+      {/* Head */}
+      <mesh position={[0, 1.0, 0]} castShadow>
+        <boxGeometry args={[0.34, 0.34, 0.32]} />
+        <meshStandardMaterial color={skinColor} />
+      </mesh>
+      {/* Eyes */}
+      <mesh position={[0.1, 1.03, -0.17]} castShadow>
+        <boxGeometry args={[0.07, 0.05, 0.04]} />
+        <meshStandardMaterial color="#1a1a1a" />
+      </mesh>
+      <mesh position={[-0.1, 1.03, -0.17]} castShadow>
+        <boxGeometry args={[0.07, 0.05, 0.04]} />
+        <meshStandardMaterial color="#1a1a1a" />
+      </mesh>
+      {/* Neck */}
+      <mesh position={[0, 0.86, 0]} castShadow>
+        <boxGeometry args={[0.14, 0.12, 0.14]} />
+        <meshStandardMaterial color={skinColor} />
+      </mesh>
+      {/* Left upper arm */}
+      <mesh position={[-0.30, 0.60, 0]} castShadow>
+        <boxGeometry args={[0.14, 0.36, 0.14]} />
+        <meshStandardMaterial color={shirtColor} />
+      </mesh>
+      {/* Left forearm */}
+      <mesh position={[-0.30, 0.26, 0]} castShadow>
+        <boxGeometry args={[0.12, 0.30, 0.12]} />
+        <meshStandardMaterial color={skinColor} />
+      </mesh>
+      {/* Right upper arm */}
+      <mesh position={[0.30, 0.60, 0]} castShadow>
+        <boxGeometry args={[0.14, 0.36, 0.14]} />
+        <meshStandardMaterial color={shirtColor} />
+      </mesh>
+      {/* Right forearm */}
+      <mesh position={[0.30, 0.26, 0]} castShadow>
+        <boxGeometry args={[0.12, 0.30, 0.12]} />
+        <meshStandardMaterial color={skinColor} />
+      </mesh>
+      {/* Left thigh */}
+      <mesh position={[-0.13, -0.10, 0]} castShadow>
+        <boxGeometry args={[0.16, 0.36, 0.16]} />
+        <meshStandardMaterial color={pantsColor} />
+      </mesh>
+      {/* Right thigh */}
+      <mesh position={[0.13, -0.10, 0]} castShadow>
+        <boxGeometry args={[0.16, 0.36, 0.16]} />
+        <meshStandardMaterial color={pantsColor} />
+      </mesh>
+      {/* Left shin */}
+      <mesh position={[-0.13, -0.44, 0]} castShadow>
+        <boxGeometry args={[0.14, 0.32, 0.14]} />
+        <meshStandardMaterial color="#4a3a2a" />
+      </mesh>
+      {/* Right shin */}
+      <mesh position={[0.13, -0.44, 0]} castShadow>
+        <boxGeometry args={[0.14, 0.32, 0.14]} />
+        <meshStandardMaterial color="#4a3a2a" />
+      </mesh>
+      {/* Left foot */}
+      <mesh position={[-0.13, -0.63, -0.04]} castShadow>
+        <boxGeometry args={[0.14, 0.08, 0.22]} />
+        <meshStandardMaterial color="#2a2010" />
+      </mesh>
+      {/* Right foot */}
+      <mesh position={[0.13, -0.63, -0.04]} castShadow>
+        <boxGeometry args={[0.14, 0.08, 0.22]} />
+        <meshStandardMaterial color="#2a2010" />
+      </mesh>
+    </>
+  )
+}
+
 function PlayerMesh({ entityId }: { entityId: number }) {
   const meshRef = useRef<THREE.Group>(null)
 
@@ -306,7 +431,6 @@ function PlayerMesh({ entityId }: { entityId: number }) {
       Position.y[entityId],
       Position.z[entityId],
     )
-    // Face the direction the player is moving (from rotation quaternion)
     meshRef.current.quaternion.set(
       Rotation.x[entityId],
       Rotation.y[entityId],
@@ -317,79 +441,124 @@ function PlayerMesh({ entityId }: { entityId: number }) {
 
   return (
     <group ref={meshRef}>
-      {/* Body */}
-      <mesh position={[0, 0, 0]} castShadow>
-        <capsuleGeometry args={[0.35, 1.1, 8, 16]} />
-        <meshStandardMaterial color="#4a9eff" />
-      </mesh>
-      {/* Head */}
-      <mesh position={[0, 1.0, 0]} castShadow>
-        <sphereGeometry args={[0.28, 16, 16]} />
-        <meshStandardMaterial color="#f5c5a3" />
-      </mesh>
-      {/* Eyes (direction indicator) */}
-      <mesh position={[0.12, 1.05, -0.22]} castShadow>
-        <sphereGeometry args={[0.06, 8, 8]} />
-        <meshStandardMaterial color="#111" />
-      </mesh>
-      <mesh position={[-0.12, 1.05, -0.22]} castShadow>
-        <sphereGeometry args={[0.06, 8, 8]} />
-        <meshStandardMaterial color="#111" />
-      </mesh>
+      <HumanoidFigure skinColor="#f5c5a3" shirtColor="#3a7ecf" pantsColor="#2a4a7a" />
     </group>
   )
 }
 
 // ── Server NPC renderer ───────────────────────────────────────────────────────
 
+const NPC_SKIN_TONES = ['#c8926e', '#d4a574', '#8b5e3c', '#f0d4b0', '#a0724a']
+const NPC_SHIRT_COLS = ['#8b4513', '#556b2f', '#8b0000', '#4682b4', '#a0522d']
+const NPC_PANTS_COLS = ['#3b2f2f', '#2f4f2f', '#1a1a3a', '#4a3a20', '#2a2a2a']
+
 function ServerNpcsRenderer() {
   const remoteNpcs = useMultiplayerStore(s => s.remoteNpcs)
   return (
     <>
-      {remoteNpcs.map(npc => (
-        <mesh key={npc.id} position={[npc.x, npc.y + 0.5, npc.z]} castShadow>
-          <sphereGeometry args={[0.3, 8, 8]} />
-          <meshStandardMaterial color="#e67e22" />
-        </mesh>
-      ))}
+      {remoteNpcs.map((npc, idx) => {
+        const si = idx % NPC_SKIN_TONES.length
+        return (
+          <group key={npc.id} position={[npc.x, npc.y, npc.z]}>
+            <HumanoidFigure
+              skinColor={NPC_SKIN_TONES[si]}
+              shirtColor={NPC_SHIRT_COLS[si]}
+              pantsColor={NPC_PANTS_COLS[si]}
+            />
+          </group>
+        )
+      })}
     </>
   )
 }
 
 // ── Resource nodes ────────────────────────────────────────────────────────────
 
+// Per-node visual variation (deterministic from node id)
+function nodeRand(id: number, offset: number): number {
+  let h = ((id * 374761 + offset * 668265) * 1274127) >>> 0
+  return (h >>> 0) / 0xffffffff
+}
+
+function TreeMesh({ id, groundY }: { id: number; groundY: number }) {
+  const scale    = 0.8 + nodeRand(id, 0) * 0.7
+  const trunkH   = 3.5 * scale
+  const trunkBot = 0.28 * scale
+  const trunkTop = 0.12 * scale
+  const lean     = (nodeRand(id, 1) - 0.5) * 0.06
+  const leafG1   = '#1e5c1e'
+  const leafG2   = nodeRand(id, 2) > 0.5 ? '#2a7030' : '#174d17'
+  const leafG3   = '#3a8a2a'
+
+  return (
+    <group position={[0, groundY, 0]}>
+      {/* Trunk */}
+      <mesh position={[lean * trunkH * 0.5, trunkH * 0.5, 0]} castShadow rotation={[0, 0, lean]}>
+        <cylinderGeometry args={[trunkTop, trunkBot, trunkH, 7]} />
+        <meshStandardMaterial color="#5c3a1e" roughness={1} />
+      </mesh>
+      {/* Lower foliage layer */}
+      <mesh position={[lean * trunkH, trunkH * 0.62, 0]} castShadow>
+        <coneGeometry args={[2.2 * scale, 2.8 * scale, 7]} />
+        <meshStandardMaterial color={leafG1} roughness={0.9} />
+      </mesh>
+      {/* Mid foliage layer */}
+      <mesh position={[lean * trunkH * 0.9, trunkH * 0.82, 0]} castShadow>
+        <coneGeometry args={[1.6 * scale, 2.2 * scale, 6]} />
+        <meshStandardMaterial color={leafG2} roughness={0.9} />
+      </mesh>
+      {/* Top foliage layer */}
+      <mesh position={[lean * trunkH * 0.8, trunkH * 0.98, 0]} castShadow>
+        <coneGeometry args={[1.0 * scale, 1.6 * scale, 6]} />
+        <meshStandardMaterial color={leafG3} roughness={0.9} />
+      </mesh>
+    </group>
+  )
+}
+
+function RockMesh({ id, color, groundY }: { id: number; color: string; groundY: number }) {
+  const scale = 0.5 + nodeRand(id, 3) * 0.6
+  const rot   = nodeRand(id, 4) * Math.PI * 2
+  const tilt  = (nodeRand(id, 5) - 0.5) * 0.4
+  return (
+    <group position={[0, groundY + 0.3 * scale, 0]} rotation={[tilt, rot, 0]} scale={[scale, scale * 0.7, scale]}>
+      <mesh castShadow>
+        <dodecahedronGeometry args={[0.55, 0]} />
+        <meshStandardMaterial color={color} roughness={0.95} metalness={0.05} />
+      </mesh>
+    </group>
+  )
+}
+
 function ResourceNodes() {
-  const meshRefs = useRef<(THREE.Mesh | null)[]>([])
+  const groupRefs = useRef<(THREE.Group | null)[]>([])
+
+  const nodeGroundY = useMemo(
+    () => RESOURCE_NODES.map(n => terrainHeight(n.x, n.z)),
+    []
+  )
 
   useFrame(() => {
     for (let i = 0; i < RESOURCE_NODES.length; i++) {
-      const m = meshRefs.current[i]
-      if (m) m.visible = !gatheredNodeIds.has(RESOURCE_NODES[i].id)
+      const g = groupRefs.current[i]
+      if (g) g.visible = !gatheredNodeIds.has(RESOURCE_NODES[i].id)
     }
   })
 
   return (
     <>
       {RESOURCE_NODES.map((node, i) => {
-        const isTree = node.type === 'wood'
+        const groundY = nodeGroundY[i]
         return (
-          <group key={node.id} position={[node.x, 0, node.z]}>
-            <mesh
-              ref={el => { meshRefs.current[i] = el }}
-              position={[0, isTree ? 1.5 : 0.4, 0]}
-              castShadow
-            >
-              {isTree
-                ? <cylinderGeometry args={[0.2, 0.3, 3, 8]} />
-                : <boxGeometry args={[0.6, 0.5, 0.6]} />}
-              <meshStandardMaterial color={isTree ? '#6B4226' : node.color} />
-            </mesh>
-            {isTree && (
-              <mesh position={[0, 3.5, 0]} castShadow>
-                <sphereGeometry args={[1.2, 8, 8]} />
-                <meshStandardMaterial color="#2D6A2D" />
-              </mesh>
-            )}
+          <group
+            key={node.id}
+            ref={el => { groupRefs.current[i] = el }}
+            position={[node.x, 0, node.z]}
+          >
+            {node.type === 'wood'
+              ? <TreeMesh id={node.id} groundY={groundY} />
+              : <RockMesh id={node.id} color={node.color} groundY={groundY} />
+            }
           </group>
         )
       })}
@@ -400,10 +569,41 @@ function ResourceNodes() {
 // ── Scene geometry ────────────────────────────────────────────────────────────
 
 function TerrainMesh() {
+  const geometry = useMemo(() => {
+    const SEG = 127
+    const SIZE = 512
+    const geo = new THREE.PlaneGeometry(SIZE, SIZE, SEG, SEG)
+    geo.rotateX(-Math.PI / 2)
+    const pos = geo.attributes.position as THREE.BufferAttribute
+    const count = pos.count
+    const colors = new Float32Array(count * 3)
+    const col = new THREE.Color()
+
+    for (let i = 0; i < count; i++) {
+      const wx = pos.getX(i)
+      const wz = pos.getZ(i)
+      const h = terrainHeight(wx, wz)
+      pos.setY(i, h)
+
+      // Vertex color by height
+      if (h < 0.3)       col.setStyle('#4a7a35')  // low grass
+      else if (h < 2.0)  col.setStyle('#5a8a3a')  // mid grass
+      else if (h < 5.0)  col.setStyle('#7a9a50')  // upper grass
+      else if (h < 8.0)  col.setStyle('#9a8060')  // rocky dirt
+      else               col.setStyle('#b8a090')  // high rock
+      colors[i * 3]     = col.r
+      colors[i * 3 + 1] = col.g
+      colors[i * 3 + 2] = col.b
+    }
+
+    geo.setAttribute('color', new THREE.BufferAttribute(colors, 3))
+    geo.computeVertexNormals()
+    return geo
+  }, [])
+
   return (
-    <mesh receiveShadow rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]}>
-      <planeGeometry args={[512, 512, 63, 63]} />
-      <meshStandardMaterial color="#3a5c2a" wireframe={false} />
+    <mesh geometry={geometry} receiveShadow>
+      <meshStandardMaterial vertexColors roughness={0.95} metalness={0} />
     </mesh>
   )
 }

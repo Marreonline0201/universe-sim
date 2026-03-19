@@ -1092,3 +1092,83 @@ This is a more realistic and thorough way to test the game going forward.
 2. Confirm resource nodes appear in the world and the F key collects materials into the Inventory.
 3. Confirm the Crafting panel shows available recipes once materials are present.
 4. Run a browser-automation test session to verify all three changes from the player's point of view.
+
+---
+
+### Planning Entry: World Bootstrap Timelapse System — 2026-03-19
+
+**Status: Implementation Starting Now**
+
+---
+
+#### What the User Wants
+
+When the universe simulation starts fresh — on a brand new server with no history — the game should not let players join right away. Instead, the world needs to "build itself" first. This process is called the World Bootstrap.
+
+Think of it like a new planet being born. Before life can exist, billions of years of cosmic history have to happen first: the Big Bang, the formation of stars, the birth of solar systems, and eventually an Earth-like world capable of supporting life. The Bootstrap runs all of that automatically before the game officially "opens."
+
+---
+
+#### How It Works, Step by Step
+
+**Step 1 — Server starts and checks the database.**
+The very first thing the server does when it boots up is ask the database a simple question: "Has this world already been bootstrapped?" If the answer is yes, the game opens normally and players can log in. If the answer is no, the Bootstrap begins.
+
+**Step 2 — Players are locked out.**
+While the Bootstrap is running, players who try to connect see a special waiting screen instead of the login screen. They cannot join the world yet. The server sends their browser a message saying "world is bootstrapping."
+
+**Step 3 — The simulation runs at extreme speed.**
+The server cranks the simulation clock up to 100 trillion times faster than real time. To put that in perspective: at this speed, 9 billion years of cosmic history takes only about 36 minutes of real-world time. The technical name for this setting is `timeScale = 1e14` (that is the number 1 followed by 14 zeros).
+
+**Step 4 — Players see a beautiful waiting screen.**
+Instead of a blank page, players who connect during the Bootstrap see an animated timelapse screen. It shows the stages of the universe forming in order:
+
+- Big Bang — the universe explodes into existence
+- Quark Soup — the earliest particles form
+- First Stars — giant stars ignite across the cosmos
+- Galaxies — stars group into spiral galaxies
+- Solar System Forming — a sun and planets take shape
+- A world ready for life — the bootstrap is complete
+
+This screen updates automatically as the simulation progresses through each stage. Players are watching the real simulation run — they are not watching a pre-made video.
+
+**Step 5 — Bootstrap completes.**
+When the simulation clock reaches approximately 9 billion simulated years, the server considers the Bootstrap done. This corresponds to the "galactic" epoch — the point where a solar system like ours would have had time to form and stabilise.
+
+**Step 6 — The result is saved permanently.**
+The server writes a record to the database: "bootstrap complete." From this moment on, every time the server restarts, it checks the database, sees that the Bootstrap is already done, and skips it entirely. The Bootstrap only ever runs once per world — unless a developer manually resets it.
+
+**Step 7 — Players can now join.**
+The server lifts the lockout. Players see the normal login screen. The world is open.
+
+---
+
+#### Files That Need to Change
+
+| File | What Changes |
+|------|-------------|
+| `server/src/WorldClock.ts` | Add bootstrap mode that runs the clock at 100 trillion x speed, then returns to normal speed when done |
+| `server/src/WorldSettingsSync.ts` | Add the ability to save and load the "bootstrap complete" flag from the Neon database |
+| `server/src/index.ts` | Broadcast the current bootstrap status (running / complete / which stage) to all connected clients |
+| `src/App.tsx` | Check the bootstrap status from the server; show the Bootstrap screen instead of the login screen while bootstrap is running |
+| `src/net/WorldSocket.ts` | Receive and store the bootstrap status messages that come from the server |
+| `src/ui/WorldBootstrapScreen.tsx` | New file — the animated waiting screen that players see during the bootstrap timelapse |
+
+---
+
+#### Why This Matters for Players
+
+Without the Bootstrap, when a new server starts, players would join an empty universe with no history. There would be no stars, no planets, no geology, no context — just a blank simulation. The Bootstrap gives the world its deep history before anyone sets foot in it. When a player finally logs in, they are joining a universe that already has 9 billion years of cosmic events behind it.
+
+The Bootstrap also prevents players from accidentally interfering with the universe-formation process before the world is ready. It is a clean separation between "the universe being built" and "the game being played."
+
+---
+
+#### What Comes Next
+
+1. Implement the high-speed bootstrap mode in `WorldClock.ts`.
+2. Add the bootstrap-complete flag to the database schema in `WorldSettingsSync.ts`.
+3. Update the server's WebSocket broadcast to include bootstrap status.
+4. Build the `WorldBootstrapScreen.tsx` animated UI component.
+5. Update `App.tsx` to show the Bootstrap screen when appropriate.
+6. Test the full flow: fresh server start, Bootstrap runs, players see the timelapse screen, Bootstrap finishes, players can log in.

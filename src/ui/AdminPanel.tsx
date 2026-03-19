@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '@clerk/react'
+import { useGameStore } from '../store/gameStore'
 
 interface PlayerRow {
   user_id: string
@@ -36,6 +37,7 @@ export function AdminPanel() {
   const [open, setOpen] = useState(false)
   const [players, setPlayers] = useState<PlayerRow[]>([])
   const [loading, setLoading] = useState(false)
+  const { setSpectateTarget, spectateTarget } = useGameStore()
 
   const isAdmin = userId === import.meta.env.VITE_ADMIN_USER_ID
   if (!isAdmin) return null
@@ -79,6 +81,11 @@ export function AdminPanel() {
                 <button onClick={load} style={{ background: '#333', color: '#fff', border: '1px solid #555', padding: '4px 12px', borderRadius: 4, cursor: 'pointer' }}>
                   Refresh
                 </button>
+                {spectateTarget && (
+                  <button onClick={() => setSpectateTarget(null)} style={{ background: '#555', color: '#fff', border: '1px solid #777', padding: '4px 12px', borderRadius: 4, cursor: 'pointer' }}>
+                    Free Camera
+                  </button>
+                )}
                 <button onClick={() => setOpen(false)} style={{ background: '#333', color: '#fff', border: '1px solid #555', padding: '4px 12px', borderRadius: 4, cursor: 'pointer' }}>
                   Close
                 </button>
@@ -107,6 +114,7 @@ export function AdminPanel() {
                     <th style={{ textAlign: 'left', padding: '4px 8px' }}>Tier</th>
                     <th style={{ textAlign: 'left', padding: '4px 8px' }}>Goal</th>
                     <th style={{ textAlign: 'left', padding: '4px 8px' }}>Last Seen</th>
+                    <th style={{ textAlign: 'left', padding: '4px 8px' }}>Camera</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -122,6 +130,14 @@ export function AdminPanel() {
                       <td style={{ padding: '6px 8px' }}>T{p.civ_tier}</td>
                       <td style={{ padding: '6px 8px', opacity: 0.7 }}>{p.current_goal}</td>
                       <td style={{ padding: '6px 8px', opacity: 0.5 }}>{new Date(p.updated_at).toLocaleString()}</td>
+                      <td style={{ padding: '6px 8px' }}>
+                        <button
+                          onClick={() => setSpectateTarget({ x: p.pos_x, y: p.pos_y, z: p.pos_z })}
+                          style={{ background: '#1a6bff', color: '#fff', border: 'none', padding: '3px 8px', borderRadius: 4, cursor: 'pointer', fontSize: 11 }}
+                        >
+                          Focus
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>

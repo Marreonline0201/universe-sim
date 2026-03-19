@@ -8,6 +8,7 @@ import { useGameStore } from '../store/gameStore'
 import { usePlayerStore } from '../store/playerStore'
 import { CreatureRenderer } from './entities/CreatureRenderer'
 import { RemotePlayersRenderer } from './RemotePlayersRenderer'
+import { useMultiplayerStore } from '../store/multiplayerStore'
 import { world, createPlayerEntity, Metabolism, Health, Position, Rotation } from '../ecs/world'
 import { PlayerController } from '../player/PlayerController'
 import { MetabolismSystem, setMetabolismDt } from '../ecs/systems/MetabolismSystem'
@@ -88,6 +89,7 @@ export function SceneRoot() {
         <TerrainMesh />
         <CreatureRenderer />
         <RemotePlayersRenderer />
+        <ServerNpcsRenderer />
       </Suspense>
       {entityId !== null && (
         <>
@@ -110,10 +112,18 @@ function GameLoop({ controllerRef, entityId }: GameLoopProps) {
   const { camera } = useThree()
   const updateVitals = usePlayerStore(s => s.updateVitals)
   const setPosition  = usePlayerStore(s => s.setPosition)
+  const spectateTarget = useGameStore(s => s.spectateTarget)
 
   useFrame((_, delta) => {
     // Cap dt to avoid spiral-of-death on slow frames
     const dt = Math.min(delta, 0.1)
+
+    // Admin spectate overrides player camera
+    if (spectateTarget) {
+      camera.position.set(spectateTarget.x, spectateTarget.y + 20, spectateTarget.z + 15)
+      camera.lookAt(spectateTarget.x, spectateTarget.y, spectateTarget.z)
+      return
+    }
 
     // 1. Player movement + camera
     controllerRef.current?.update(dt, camera)
@@ -186,6 +196,22 @@ function PlayerMesh({ entityId }: { entityId: number }) {
         <meshStandardMaterial color="#111" />
       </mesh>
     </group>
+  )
+}
+
+// ── Server NPC renderer ───────────────────────────────────────────────────────
+
+function ServerNpcsRenderer() {
+  const remoteNpcs = useMultiplayerStore(s => s.remoteNpcs)
+  return (
+    <>
+      {remoteNpcs.map(npc => (
+        <mesh key={npc.id} position={[npc.x, npc.y + 0.5, npc.z]} castShadow>
+          <sphereGeometry args={[0.3, 8, 8]} />
+          <meshStandardMaterial color="#e67e22" />
+        </mesh>
+      ))}
+    </>
   )
 }
 

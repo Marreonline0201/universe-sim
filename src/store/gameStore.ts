@@ -24,6 +24,10 @@ interface GameState {
   // Blocks WASD/mouse game input while a UI panel is open
   inputBlocked: boolean
   setInputBlocked: (b: boolean) => void
+
+  // Admin spectate: set to move camera to a world position
+  spectateTarget: { x: number; y: number; z: number } | null
+  setSpectateTarget: (pos: { x: number; y: number; z: number } | null) => void
 }
 
 export const useGameStore = create<GameState>((set) => ({
@@ -61,6 +65,9 @@ export const useGameStore = create<GameState>((set) => ({
 
   inputBlocked: false,
   setInputBlocked: (b) => set({ inputBlocked: b }),
+
+  spectateTarget: null,
+  setSpectateTarget: (pos) => set({ spectateTarget: pos }),
 }))
 
 // ── Helpers ────────────────────────────────────────────────────────────────

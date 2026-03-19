@@ -44,7 +44,7 @@ export const useGameStore = create<GameState>((set) => ({
   timeScale: 1_000_000,
   setTimeScale: (ts) => set({ timeScale: ts }),
 
-  epoch: 'stellar',
+  epoch: 'planck',
   setEpoch: (e) => set({ epoch: e }),
 
   simTime: '0 s',

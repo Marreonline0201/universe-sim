@@ -47,10 +47,12 @@ function SlotCell({ slot, index, selected, onSelect }: {
       {slot && (
         <>
           <div style={{ fontSize: 11, color: '#ccc', textAlign: 'center', lineHeight: 1.2, padding: '0 2px' }}>
-            {ITEM_NAMES[slot.itemId]?.split(' ')[0] ?? '?'}
+            {slot.itemId === 0
+              ? (MAT_NAMES[slot.materialId]?.split(' ')[0] ?? '?')
+              : (ITEM_NAMES[slot.itemId]?.split(' ')[0] ?? '?')}
           </div>
           <div style={{ fontSize: 9, color: '#888', marginTop: 2 }}>
-            {MAT_NAMES[slot.materialId]?.split(' ')[0] ?? ''}
+            {slot.itemId === 0 ? 'raw' : (MAT_NAMES[slot.materialId]?.split(' ')[0] ?? '')}
           </div>
           {slot.quantity > 1 && (
             <div style={{
@@ -120,7 +122,9 @@ export function InventoryPanel() {
           border: '1px solid rgba(255,255,255,0.1)',
         }}>
           <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>
-            {ITEM_NAMES[selectedSlot.itemId] ?? `item #${selectedSlot.itemId}`}
+            {selectedSlot.itemId === 0
+              ? (MAT_NAMES[selectedSlot.materialId] ?? `material #${selectedSlot.materialId}`)
+              : (ITEM_NAMES[selectedSlot.itemId] ?? `item #${selectedSlot.itemId}`)}
           </div>
           <div style={{ fontSize: 11, color: '#aaa', marginBottom: 2 }}>
             Material: {MAT_NAMES[selectedSlot.materialId] ?? selectedSlot.materialId}

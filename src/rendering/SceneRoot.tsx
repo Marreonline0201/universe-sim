@@ -275,10 +275,10 @@ function GameLoop({ controllerRef, entityId }: GameLoopProps) {
       const label = `[F] Gather ${nearNode.label}`
       if (gs.gatherPrompt !== label) gs.setGatherPrompt(label)
 
-      if (controllerRef.current?.popInteract()) {
+      if (!gs.inputBlocked && controllerRef.current?.popInteract()) {
         gatheredNodeIds.add(nearNode.id)
         gs.setGatherPrompt(null)
-        inventory.addItem({ itemId: nearNode.matId, materialId: nearNode.matId, quantity: 1, quality: 0.8 })
+        inventory.addItem({ itemId: 0, materialId: nearNode.matId, quantity: 1, quality: 0.8 })
         // Unlock stone tool recipe on first stone or flint gather
         if (nearNode.matId === MAT.STONE || nearNode.matId === MAT.FLINT) {
           inventory.discoverRecipe(1)

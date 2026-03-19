@@ -65,7 +65,7 @@ export class Inventory {
   craft(recipeId: number, currentTier = 0): boolean {
     const recipe = CRAFTING_RECIPES.find(r => r.id === recipeId)
     if (!recipe) return false
-    if (!this.knownRecipes.has(recipeId)) return false
+    if (recipe.knowledgeRequired.length > 0 && !this.knownRecipes.has(recipeId)) return false
     if (currentTier < recipe.tier) return false
 
     // Verify all inputs available

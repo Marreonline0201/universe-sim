@@ -19,6 +19,10 @@ interface GameState {
   // Cumulative raw sim seconds (for internal use)
   simSeconds: number
   addSimSeconds: (dt: number) => void
+
+  // Blocks WASD/mouse game input while a UI panel is open
+  inputBlocked: boolean
+  setInputBlocked: (b: boolean) => void
 }
 
 export const useGameStore = create<GameState>((set) => ({
@@ -47,6 +51,9 @@ export const useGameStore = create<GameState>((set) => ({
         epoch: epochFromSeconds(next),
       }
     }),
+
+  inputBlocked: false,
+  setInputBlocked: (b) => set({ inputBlocked: b }),
 }))
 
 // ── Helpers ────────────────────────────────────────────────────────────────

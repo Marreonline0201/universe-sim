@@ -7,6 +7,7 @@ import { SimulationEngine } from '../engine/SimulationEngine'
 import { useGameStore } from '../store/gameStore'
 import { usePlayerStore } from '../store/playerStore'
 import { CreatureRenderer } from './entities/CreatureRenderer'
+import { RemotePlayersRenderer } from './RemotePlayersRenderer'
 import { world, createPlayerEntity, Metabolism, Health, Position, Rotation } from '../ecs/world'
 import { PlayerController } from '../player/PlayerController'
 import { MetabolismSystem, setMetabolismDt } from '../ecs/systems/MetabolismSystem'
@@ -86,6 +87,7 @@ export function SceneRoot() {
       <Suspense fallback={null}>
         <TerrainMesh />
         <CreatureRenderer />
+        <RemotePlayersRenderer />
       </Suspense>
       {entityId !== null && (
         <>

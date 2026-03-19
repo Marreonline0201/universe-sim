@@ -4,6 +4,7 @@ import { SceneRoot } from './rendering/SceneRoot'
 import { HUD } from './ui/HUD'
 import { AdminPanel } from './ui/AdminPanel'
 import { loadSave, saveGame } from './store/saveStore'
+import { useWorldSocket } from './net/useWorldSocket'
 
 export default function App() {
   const { isSignedIn, isLoaded } = useAuth()
@@ -42,6 +43,9 @@ function GameWithSave() {
   const { getToken } = useAuth()
   const { user } = useUser()
   const loaded = useRef(false)
+
+  // Connect to the persistent Railway WebSocket server
+  useWorldSocket()
 
   // Load save on first sign-in
   useEffect(() => {

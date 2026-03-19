@@ -1,8 +1,8 @@
-import React, { useEffect } from 'react'
-import { useAuth } from '@clerk/react'
+import React from 'react'
 import { useGameStore } from '../store/gameStore'
 import { usePlayerStore } from '../store/playerStore'
-import { TimeControls } from './TimeControls'
+import { SidebarShell } from './SidebarShell'
+import { NotificationSystem } from './NotificationSystem'
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
@@ -65,112 +65,92 @@ function GoalBadge({ goal }: GoalBadgeProps) {
 // ── Main HUD ──────────────────────────────────────────────────────────────────
 
 export function HUD() {
-  const { paused, simTime, epoch, setTimeScale } = useGameStore()
+  const { paused, simTime, epoch } = useGameStore()
   const { health, hunger, thirst, energy, fatigue, evolutionPoints, currentGoal } = usePlayerStore()
-  const { userId } = useAuth()
-  const isAdmin = userId === import.meta.env.VITE_ADMIN_USER_ID
-
-  // Non-admin clients poll world time scale every 10 seconds
-  useEffect(() => {
-    if (isAdmin) return
-    const apply = () =>
-      fetch('/api/world-settings')
-        .then(r => r.json())
-        .then(d => { if (typeof d.timeScale === 'number') setTimeScale(d.timeScale) })
-        .catch(() => {})
-    apply()
-    const id = setInterval(apply, 10_000)
-    return () => clearInterval(id)
-  }, [isAdmin, setTimeScale])
 
   return (
-    <div style={{
-      position: 'fixed',
-      inset: 0,
-      pointerEvents: 'none',
-      fontFamily: 'monospace',
-      color: '#fff',
-      zIndex: 100,
-    }}>
-      {/* ── Top-left: vitals ── */}
+    <>
       <div style={{
-        position: 'absolute',
-        top: 16,
-        left: 16,
-        pointerEvents: 'auto',
-        background: 'rgba(0,0,0,0.65)',
-        border: '1px solid rgba(255,255,255,0.08)',
-        borderRadius: 8,
-        padding: '10px 14px',
-        backdropFilter: 'blur(6px)',
-        minWidth: 150,
+        position: 'fixed',
+        inset: 0,
+        pointerEvents: 'none',
+        fontFamily: 'monospace',
+        color: '#fff',
+        zIndex: 100,
       }}>
-        <div style={{ fontSize: 10, color: '#555', marginBottom: 6, letterSpacing: 1 }}>VITALS</div>
-        <VitalBar value={health}      color="#e74c3c" label="HEALTH"  warning />
-        <VitalBar value={1 - hunger}  color="#f39c12" label="SATIETY" warning />
-        <VitalBar value={1 - thirst}  color="#3498db" label="HYDRATION" warning />
-        <VitalBar value={energy}      color="#2ecc71" label="ENERGY"  warning />
-        <VitalBar value={1 - fatigue} color="#9b59b6" label="STAMINA" warning />
-
-        <div style={{
-          marginTop: 10,
-          borderTop: '1px solid rgba(255,255,255,0.07)',
-          paddingTop: 6,
-          fontSize: 11,
-          color: '#f1c40f',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 5,
-        }}>
-          <span style={{ opacity: 0.6, fontSize: 9 }}>EP</span>
-          <span style={{ fontWeight: 'bold' }}>{evolutionPoints.toLocaleString()}</span>
-        </div>
-
-        <GoalBadge goal={currentGoal} />
-      </div>
-
-      {/* ── Top-right: clock + epoch ── */}
-      <div style={{
-        position: 'absolute',
-        top: 16,
-        right: 16,
-        textAlign: 'right',
-        pointerEvents: 'auto',
-        background: 'rgba(0,0,0,0.65)',
-        border: '1px solid rgba(255,255,255,0.08)',
-        borderRadius: 8,
-        padding: '10px 14px',
-        backdropFilter: 'blur(6px)',
-      }}>
-        <div style={{ fontSize: 10, color: '#888', letterSpacing: 2, marginBottom: 2 }}>
-          {epoch.toUpperCase().replace(/_/g, ' ')}
-        </div>
-        <div style={{ fontSize: 20, fontWeight: 'bold', letterSpacing: 1 }}>{simTime}</div>
-        {paused && (
-          <div style={{
-            marginTop: 4,
-            fontSize: 11,
-            color: '#e74c3c',
-            fontWeight: 'bold',
-            letterSpacing: 2,
-          }}>
-            PAUSED
-          </div>
-        )}
-      </div>
-
-      {/* ── Bottom-center: time controls (admin only) ── */}
-      {isAdmin && (
+        {/* ── Top-left: vitals ── */}
         <div style={{
           position: 'absolute',
-          bottom: 24,
-          left: '50%',
-          transform: 'translateX(-50%)',
+          top: 16,
+          left: 16,
           pointerEvents: 'auto',
+          background: 'rgba(0,0,0,0.65)',
+          border: '1px solid rgba(255,255,255,0.08)',
+          borderRadius: 8,
+          padding: '10px 14px',
+          backdropFilter: 'blur(6px)',
+          minWidth: 150,
         }}>
-          <TimeControls />
+          <div style={{ fontSize: 10, color: '#555', marginBottom: 6, letterSpacing: 1 }}>VITALS</div>
+          <VitalBar value={health}      color="#e74c3c" label="HEALTH"  warning />
+          <VitalBar value={1 - hunger}  color="#f39c12" label="SATIETY" warning />
+          <VitalBar value={1 - thirst}  color="#3498db" label="HYDRATION" warning />
+          <VitalBar value={energy}      color="#2ecc71" label="ENERGY"  warning />
+          <VitalBar value={1 - fatigue} color="#9b59b6" label="STAMINA" warning />
+
+          <div style={{
+            marginTop: 10,
+            borderTop: '1px solid rgba(255,255,255,0.07)',
+            paddingTop: 6,
+            fontSize: 11,
+            color: '#f1c40f',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 5,
+          }}>
+            <span style={{ opacity: 0.6, fontSize: 9 }}>EP</span>
+            <span style={{ fontWeight: 'bold' }}>{evolutionPoints.toLocaleString()}</span>
+          </div>
+
+          <GoalBadge goal={currentGoal} />
         </div>
-      )}
-    </div>
+
+        {/* ── Top-right: clock + epoch ── */}
+        <div style={{
+          position: 'absolute',
+          top: 16,
+          right: 64, // offset for icon strip (48px) + gap
+          textAlign: 'right',
+          pointerEvents: 'auto',
+          background: 'rgba(0,0,0,0.65)',
+          border: '1px solid rgba(255,255,255,0.08)',
+          borderRadius: 8,
+          padding: '10px 14px',
+          backdropFilter: 'blur(6px)',
+        }}>
+          <div style={{ fontSize: 10, color: '#888', letterSpacing: 2, marginBottom: 2 }}>
+            {epoch.toUpperCase().replace(/_/g, ' ')}
+          </div>
+          <div style={{ fontSize: 20, fontWeight: 'bold', letterSpacing: 1 }}>{simTime}</div>
+          {paused && (
+            <div style={{
+              marginTop: 4,
+              fontSize: 11,
+              color: '#e74c3c',
+              fontWeight: 'bold',
+              letterSpacing: 2,
+            }}>
+              PAUSED
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── Sidebar panels + icon strip ── */}
+      <SidebarShell />
+
+      {/* ── Toast notifications ── */}
+      <NotificationSystem />
+    </>
   )
 }

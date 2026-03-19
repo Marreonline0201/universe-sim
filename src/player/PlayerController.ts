@@ -1,5 +1,6 @@
 import { Vector3, Euler, type Camera } from 'three'
 import { world, Position, Velocity, Rotation } from '../ecs/world'
+import { useGameStore } from '../store/gameStore'
 
 export type CameraMode = 'first_person' | 'third_person' | 'orbit'
 
@@ -147,6 +148,13 @@ export class PlayerController {
   // ── Movement ───────────────────────────────────────────────────────────────
 
   private applyMovement(dt: number): void {
+    // Suppress all movement while a UI panel is open
+    if (useGameStore.getState().inputBlocked) {
+      Velocity.x[this.entityId] = 0
+      Velocity.z[this.entityId] = 0
+      return
+    }
+
     const inp = this.input
 
     let speed = WALK_SPEED

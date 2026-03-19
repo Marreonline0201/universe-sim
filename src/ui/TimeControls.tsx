@@ -2,8 +2,8 @@ import type { CSSProperties } from 'react'
 import { useAuth } from '@clerk/react'
 import { useGameStore } from '../store/gameStore'
 
-const TIME_SCALES = [0.1, 0.5, 1, 10, 100, 1000, 10000, 100000, 1000000]
-const LABELS      = ['0.1×', '0.5×', '1×', '10×', '100×', '1k×', '10k×', '100k×', '1M×']
+const TIME_SCALES = [0.1, 0.5, 1, 10, 100, 1000, 10000, 100000, 1000000, 1e8, 1e9, 1e10, 1e12]
+const LABELS      = ['0.1×', '0.5×', '1×', '10×', '100×', '1k×', '10k×', '100k×', '1M×', '100M×', '1B×', '10B×', '1T×']
 
 const styles = {
   container: {

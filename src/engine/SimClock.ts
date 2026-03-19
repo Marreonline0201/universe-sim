@@ -59,7 +59,7 @@ export class SimClock {
   stop(): void { this.running = false }
 
   setTimeScale(scale: number): void {
-    this.timeScale = Math.max(0.01, Math.min(1e6, scale))
+    this.timeScale = Math.max(0.01, Math.min(1e12, scale))
   }
 
   onTick(cb: (dtSim: number, dtPhysics: number, dtWall: number) => void): void {

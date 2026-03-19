@@ -75,7 +75,7 @@ export const SIMULATION = {
   MAX_CHEMICALS_PER_CELL: 8, // max chemical species per cell
   // Time
   BASE_TICK_MS: 16.67,       // ~60fps target
-  MAX_TIME_SCALE: 1e6,       // 1M× speed (for geological epochs)
+  MAX_TIME_SCALE: 1e12,      // 1T× speed (for cosmological timescales)
   MIN_TIME_SCALE: 0.01,      // slow-mo for quantum events
   // AI
   VISION_RAYS: 32,           // raycasts per creature vision update

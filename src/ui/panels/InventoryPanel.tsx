@@ -49,7 +49,7 @@ function SlotCell({ slot, index, selected, onSelect }: {
           <div style={{ fontSize: 11, color: '#ccc', textAlign: 'center', lineHeight: 1.2, padding: '0 2px' }}>
             {slot.itemId === 0
               ? (MAT_NAMES[slot.materialId]?.split(' ')[0] ?? '?')
-              : (ITEM_NAMES[slot.itemId]?.split(' ')[0] ?? '?')}
+              : (ITEM_NAMES[slot.itemId]?.split(' ')[0] ?? MAT_NAMES[slot.itemId]?.split(' ')[0] ?? '?')}
           </div>
           <div style={{ fontSize: 9, color: '#888', marginTop: 2 }}>
             {slot.itemId === 0 ? 'raw' : (MAT_NAMES[slot.materialId]?.split(' ')[0] ?? '')}

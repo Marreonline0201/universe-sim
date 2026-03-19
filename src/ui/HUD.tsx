@@ -1,4 +1,5 @@
-import React from 'react'
+import React, { useEffect } from 'react'
+import { useAuth } from '@clerk/react'
 import { useGameStore } from '../store/gameStore'
 import { usePlayerStore } from '../store/playerStore'
 import { TimeControls } from './TimeControls'
@@ -64,8 +65,23 @@ function GoalBadge({ goal }: GoalBadgeProps) {
 // ── Main HUD ──────────────────────────────────────────────────────────────────
 
 export function HUD() {
-  const { paused, simTime, epoch } = useGameStore()
+  const { paused, simTime, epoch, setTimeScale } = useGameStore()
   const { health, hunger, thirst, energy, fatigue, evolutionPoints, currentGoal } = usePlayerStore()
+  const { userId } = useAuth()
+  const isAdmin = userId === import.meta.env.VITE_ADMIN_USER_ID
+
+  // Non-admin clients poll world time scale every 10 seconds
+  useEffect(() => {
+    if (isAdmin) return
+    const apply = () =>
+      fetch('/api/world-settings')
+        .then(r => r.json())
+        .then(d => { if (typeof d.timeScale === 'number') setTimeScale(d.timeScale) })
+        .catch(() => {})
+    apply()
+    const id = setInterval(apply, 10_000)
+    return () => clearInterval(id)
+  }, [isAdmin, setTimeScale])
 
   return (
     <div style={{
@@ -143,16 +159,18 @@ export function HUD() {
         )}
       </div>
 
-      {/* ── Bottom-center: time controls ── */}
-      <div style={{
-        position: 'absolute',
-        bottom: 24,
-        left: '50%',
-        transform: 'translateX(-50%)',
-        pointerEvents: 'auto',
-      }}>
-        <TimeControls />
-      </div>
+      {/* ── Bottom-center: time controls (admin only) ── */}
+      {isAdmin && (
+        <div style={{
+          position: 'absolute',
+          bottom: 24,
+          left: '50%',
+          transform: 'translateX(-50%)',
+          pointerEvents: 'auto',
+        }}>
+          <TimeControls />
+        </div>
+      )}
     </div>
   )
 }

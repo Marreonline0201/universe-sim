@@ -1,4 +1,5 @@
 import type { CSSProperties } from 'react'
+import { useAuth } from '@clerk/react'
 import { useGameStore } from '../store/gameStore'
 
 const TIME_SCALES = [0.1, 0.5, 1, 10, 100, 1000, 10000, 100000, 1000000]
@@ -41,6 +42,18 @@ const styles = {
 
 export function TimeControls() {
   const { paused, togglePause, timeScale, setTimeScale } = useGameStore()
+  const { getToken } = useAuth()
+
+  async function handleSetTimeScale(s: number) {
+    setTimeScale(s)
+    // Persist to server so all players get the new time scale
+    const token = await getToken()
+    fetch('/api/world-settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ timeScale: s }),
+    }).catch(() => {})
+  }
 
   return (
     <div style={styles.container}>
@@ -56,7 +69,7 @@ export function TimeControls() {
       {TIME_SCALES.map((s, i) => (
         <button
           key={s}
-          onClick={() => setTimeScale(s)}
+          onClick={() => handleSetTimeScale(s)}
           style={styles.scaleBtn(timeScale === s)}
           title={`Set time scale to ${LABELS[i]}`}
           aria-label={`Time scale ${LABELS[i]}`}

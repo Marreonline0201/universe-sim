@@ -50,8 +50,12 @@ export function SidebarShell() {
   const { setInputBlocked } = useGameStore()
 
   // Block/unblock game input when panel opens/closes
+  // Also release pointer lock so the cursor becomes visible for panel interaction
   useEffect(() => {
     setInputBlocked(activePanel !== null)
+    if (activePanel !== null && document.pointerLockElement) {
+      document.exitPointerLock()
+    }
   }, [activePanel, setInputBlocked])
 
   // Global hotkey listener

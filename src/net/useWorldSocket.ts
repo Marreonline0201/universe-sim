@@ -27,6 +27,7 @@ export function useWorldSocket(): void {
     const username = user.username ?? user.firstName ?? userId
     const socket = new WorldSocket(WS_URL, userId, username)
     socketRef.current = socket
+    _adminSocket = socket
     socket.connect()
 
     // Send player position updates at 10 Hz via rAF throttle
@@ -51,6 +52,7 @@ export function useWorldSocket(): void {
       cancelAnimationFrame(rafId)
       socket.destroy()
       socketRef.current = null
+      _adminSocket = null
     }
   }, [userId, user])
 }

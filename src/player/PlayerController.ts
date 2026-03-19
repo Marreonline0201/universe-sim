@@ -25,7 +25,7 @@ const CROUCH_MULT  = 0.4
 const JUMP_IMPULSE = 6.0   // m/s upward
 const MOUSE_SENS   = 0.002 // radians per pixel
 
-const THIRD_PERSON_DIST_DEFAULT = 6   // meters behind player
+const THIRD_PERSON_DIST_DEFAULT = 8   // meters behind player
 const THIRD_PERSON_DIST_MIN     = 2
 const THIRD_PERSON_DIST_MAX     = 20
 

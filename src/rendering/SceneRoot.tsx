@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { PerspectiveCamera, Sky, Stars } from '@react-three/drei'
-import { Suspense, useEffect, useRef } from 'react'
+import { Suspense, useEffect, useRef, useState } from 'react'
 import type { RefObject } from 'react'
 import { SimulationEngine } from '../engine/SimulationEngine'
 import { useGameStore } from '../store/gameStore'
@@ -16,6 +16,18 @@ import { MetabolismSystem, setMetabolismDt } from '../ecs/systems/MetabolismSyst
 export function SceneRoot() {
   const engineRef = useRef<SimulationEngine | null>(null)
   const controllerRef = useRef<PlayerController | null>(null)
+  const [pointerLocked, setPointerLocked] = useState(false)
+
+  useEffect(() => {
+    const onLock = () => setPointerLocked(true)
+    const onUnlock = () => setPointerLocked(false)
+    document.addEventListener('pointerlockchange', onLock)
+    document.addEventListener('pointerlockchange', onUnlock)
+    // More reliable: check actual lock state
+    const check = () => setPointerLocked(!!document.pointerLockElement)
+    document.addEventListener('pointerlockchange', check)
+    return () => document.removeEventListener('pointerlockchange', check)
+  }, [])
 
   const setEngineReady = useGameStore(s => s.setEngineReady)
   const timeScale = useGameStore(s => s.timeScale)
@@ -63,11 +75,48 @@ export function SceneRoot() {
   }, [setEngineReady, setEntityId])
 
   return (
+    <>
+    {/* Click-to-play overlay */}
+    {!pointerLocked && (
+      <div
+        onClick={() => controllerRef.current?.requestPointerLock()}
+        style={{
+          position: 'fixed', inset: 0, zIndex: 50,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          background: 'rgba(0,0,0,0.35)',
+          cursor: 'pointer',
+          backdropFilter: 'blur(2px)',
+        }}
+      >
+        <div style={{
+          color: '#fff', fontFamily: 'monospace', textAlign: 'center',
+          padding: '20px 36px',
+          background: 'rgba(0,0,0,0.6)',
+          border: '1px solid rgba(255,255,255,0.15)',
+          borderRadius: 10,
+        }}>
+          <div style={{ fontSize: 22, fontWeight: 700, marginBottom: 6 }}>CLICK TO PLAY</div>
+          <div style={{ fontSize: 11, color: '#aaa' }}>WASD — Move &nbsp;·&nbsp; Mouse — Look &nbsp;·&nbsp; Space — Jump</div>
+          <div style={{ fontSize: 11, color: '#aaa', marginTop: 4 }}>ESC — Settings &nbsp;·&nbsp; I/C/T/E/J/Tab/M — Panels</div>
+        </div>
+      </div>
+    )}
+    {/* Crosshair */}
+    {pointerLocked && (
+      <div style={{
+        position: 'fixed', top: '50%', left: '50%',
+        transform: 'translate(-50%, -50%)',
+        width: 16, height: 16, zIndex: 50,
+        pointerEvents: 'none',
+      }}>
+        <div style={{ position: 'absolute', top: '50%', left: 0, right: 0, height: 1.5, background: 'rgba(255,255,255,0.8)', transform: 'translateY(-50%)' }} />
+        <div style={{ position: 'absolute', left: '50%', top: 0, bottom: 0, width: 1.5, background: 'rgba(255,255,255,0.8)', transform: 'translateX(-50%)' }} />
+      </div>
+    )}
     <Canvas
       gl={{ antialias: true, powerPreference: 'high-performance' }}
       style={{ position: 'fixed', inset: 0 }}
       shadows
-      onClick={() => controllerRef.current?.requestPointerLock()}
     >
       <PerspectiveCamera makeDefault fov={75} near={0.1} far={10000} position={[0, 10, 20]} />
       <ambientLight intensity={0.8} />
@@ -98,6 +147,7 @@ export function SceneRoot() {
         </>
       )}
     </Canvas>
+    </>
   )
 }
 

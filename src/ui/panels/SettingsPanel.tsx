@@ -35,16 +35,23 @@ export function SettingsPanel() {
   async function handleSetTimeScale(s: number) {
     setTimeScale(s)
     try {
-      // Fire-and-forget: persist to server + WebSocket broadcast is handled by useWorldSocket
       const { sendAdminSetTime } = await import('../../net/useWorldSocket')
-      sendAdminSetTime(s)
+      sendAdminSetTime(s, paused)
     } catch { /* no WS configured */ }
-    // Also persist via REST for backward compat
     fetch('/api/world-settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ timeScale: s }),
     }).catch(() => {})
+  }
+
+  async function handleTogglePause() {
+    const newPaused = !paused
+    togglePause()
+    try {
+      const { sendAdminSetTime } = await import('../../net/useWorldSocket')
+      sendAdminSetTime(timeScale, newPaused)
+    } catch { /* no WS configured */ }
   }
 
   async function handleLogout() {
@@ -64,7 +71,7 @@ export function SettingsPanel() {
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 8 }}>
             <button
-              onClick={togglePause}
+              onClick={handleTogglePause}
               style={{
                 color: paused ? '#e74c3c' : '#2ecc71',
                 background: 'none',

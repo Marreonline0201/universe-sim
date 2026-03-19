@@ -1,24 +1,24 @@
 import { neon } from '@neondatabase/serverless'
 import { verifyToken } from '@clerk/backend'
 
-export const config = { runtime: 'edge' }
+export default async function handler(req: any, res: any) {
+  if (req.method !== 'POST') { res.status(405).send('Method Not Allowed'); return }
 
-export default async function handler(req: Request) {
-  if (req.method !== 'POST') return new Response('Method Not Allowed', { status: 405 })
-
-  // Verify Clerk JWT
-  const token = req.headers.get('Authorization')?.replace('Bearer ', '')
-  if (!token) return new Response('Unauthorized', { status: 401 })
+  // Verify Clerk JWT — req.headers is a plain object in Node.js runtime
+  const auth: string | undefined = req.headers['authorization']
+  const token = auth?.replace('Bearer ', '')
+  if (!token) { res.status(401).send('Unauthorized'); return }
 
   let userId: string
   try {
     const payload = await verifyToken(token, { secretKey: process.env.CLERK_SECRET_KEY! })
     userId = payload.sub
   } catch {
-    return new Response('Unauthorized', { status: 401 })
+    res.status(401).send('Unauthorized'); return
   }
 
-  const body = await req.json()
+  // req.body is auto-parsed JSON by Vercel Node.js runtime
+  const body = req.body ?? {}
   const sql = neon(process.env.DATABASE_URL!)
 
   await sql`
@@ -52,5 +52,5 @@ export default async function handler(req: Request) {
       updated_at   = NOW()
   `
 
-  return Response.json({ ok: true })
+  res.json({ ok: true })
 }

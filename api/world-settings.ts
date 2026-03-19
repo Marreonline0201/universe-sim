@@ -1,37 +1,37 @@
 import { neon } from '@neondatabase/serverless'
 import { verifyToken } from '@clerk/backend'
 
-export const config = { runtime: 'edge' }
-
-export default async function handler(req: Request) {
+export default async function handler(req: any, res: any) {
   const sql = neon(process.env.DATABASE_URL!)
 
   // GET — public, any client polls this
   if (req.method === 'GET') {
     const rows = await sql`SELECT time_scale FROM world_settings WHERE id = 1`
-    return Response.json({ timeScale: rows[0]?.time_scale ?? 1 })
+    res.json({ timeScale: rows[0]?.time_scale ?? 1 }); return
   }
 
   // POST — admin only
   if (req.method === 'POST') {
-    const token = req.headers.get('Authorization')?.replace('Bearer ', '')
-    if (!token) return new Response('Unauthorized', { status: 401 })
+    const auth: string | undefined = req.headers['authorization']
+    const token = auth?.replace('Bearer ', '')
+    if (!token) { res.status(401).send('Unauthorized'); return }
 
     try {
       const payload = await verifyToken(token, { secretKey: process.env.CLERK_SECRET_KEY! })
-      if (payload.sub !== process.env.ADMIN_USER_ID) return new Response('Forbidden', { status: 403 })
+      if (payload.sub !== process.env.ADMIN_USER_ID) { res.status(403).send('Forbidden'); return }
     } catch {
-      return new Response('Unauthorized', { status: 401 })
+      res.status(401).send('Unauthorized'); return
     }
 
-    const { timeScale } = await req.json()
+    const body = req.body ?? {}
+    const { timeScale } = body
     if (typeof timeScale !== 'number' || timeScale <= 0) {
-      return new Response('Invalid timeScale', { status: 400 })
+      res.status(400).send('Invalid timeScale'); return
     }
 
     await sql`UPDATE world_settings SET time_scale = ${timeScale}, updated_at = NOW() WHERE id = 1`
-    return Response.json({ ok: true, timeScale })
+    res.json({ ok: true, timeScale }); return
   }
 
-  return new Response('Method Not Allowed', { status: 405 })
+  res.status(405).send('Method Not Allowed')
 }

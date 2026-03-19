@@ -84,6 +84,14 @@ export class PlayerController {
   }
 
   /**
+   * Called by GameLoop each frame with the terrain-aware floor result.
+   * Keeps onGround in sync without hardcoding y=0.9.
+   */
+  setOnGround(v: boolean): void {
+    this.onGround = v
+  }
+
+  /**
    * Returns true once when the player presses F (rising-edge, consumed on read).
    * Call from the game loop to detect one-shot gather actions.
    */
@@ -208,8 +216,9 @@ export class PlayerController {
     Position.z[this.entityId] += Velocity.z[this.entityId] * dt
     Position.y[this.entityId] += Velocity.y[this.entityId] * dt
 
-    // Floor clamp
-    if (Position.y[this.entityId] <= 0.9) {
+    // Floor clamp is handled externally by GameLoop (terrain-aware).
+    // Fallback only for extreme cases (below the world).
+    if (Position.y[this.entityId] < -10) {
       Position.y[this.entityId] = 0.9
       Velocity.y[this.entityId] = 0
       this.onGround = true

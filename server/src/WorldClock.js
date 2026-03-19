@@ -1,8 +1,19 @@
 // ── WorldClock ─────────────────────────────────────────────────────────────────
 // setInterval-based simulation clock. Owns authoritative simTime.
 // Runs 24/7 on Railway regardless of connected clients.
+//
+// Bootstrap mode: if simTime has not yet reached BOOTSTRAP_TARGET_SECS,
+// the clock runs at 1e14× speed (~47 min real time to reach 9 billion years).
+// Players are shown a timelapse screen until bootstrap completes.
 
 const TICK_MS = 100 // 10 Hz
+
+// ── Bootstrap constants ────────────────────────────────────────────────────────
+// Target: solar system forming (~9 billion years into universe history)
+const BOOTSTRAP_TARGET_YEARS = 9e9
+const BOOTSTRAP_TARGET_SECS  = BOOTSTRAP_TARGET_YEARS * 31_557_600  // ~2.84e17 s
+const BOOTSTRAP_TIMESCALE    = 1e14   // at 10Hz ticks: reaches target in ~47 min
+const NORMAL_TIMESCALE       = 1_000_000  // 1 real second = 1M sim-seconds (normal play)
 
 // Real cosmological epoch thresholds (in sim-seconds → years)
 function epochFromSeconds(secs) {
@@ -25,13 +36,32 @@ function epochFromSeconds(secs) {
 
 export class WorldClock {
   constructor() {
-    this.simTimeSec = 0
-    this.timeScale = 1_000_000  // 1 real second = 1M sim-seconds by default
-    this.paused = false
-    this.epoch = 'stellar'
-    this._lastWall = Date.now()
-    this._interval = null
+    this.simTimeSec   = 0
+    this.timeScale    = NORMAL_TIMESCALE
+    this.paused       = false
+    this.epoch        = 'stellar'
+    this.bootstrapPhase    = false
+    this.bootstrapProgress = 0
+    this._bootstrapCompleteCallbacks = []
+    this._lastWall  = Date.now()
+    this._interval  = null
     this._tickCallbacks = []
+  }
+
+  /**
+   * Enter bootstrap mode — run at extreme speed until the solar system forms.
+   * Only call this when simTimeSec < BOOTSTRAP_TARGET_SECS.
+   */
+  startBootstrap() {
+    this.bootstrapPhase    = true
+    this.bootstrapProgress = Math.min(this.simTimeSec / BOOTSTRAP_TARGET_SECS, 0.999)
+    this.timeScale         = BOOTSTRAP_TIMESCALE
+    console.log(`[WorldClock] Bootstrap mode — timeScale=1e14, target=${(BOOTSTRAP_TARGET_YEARS/1e9).toFixed(1)}B years (~47 min)`)
+  }
+
+  /** Register a callback to run when bootstrap completes. */
+  onBootstrapComplete(cb) {
+    this._bootstrapCompleteCallbacks.push(cb)
   }
 
   start() {
@@ -53,7 +83,8 @@ export class WorldClock {
   }
 
   setTimeScale(ts) {
-    this.timeScale = ts
+    // Don't override bootstrap timescale from outside during bootstrap
+    if (!this.bootstrapPhase) this.timeScale = ts
   }
 
   setSimTime(secs) {
@@ -66,16 +97,31 @@ export class WorldClock {
   }
 
   _tick() {
-    const now = Date.now()
-    const dtWall = (now - this._lastWall) / 1000 // seconds
+    const now    = Date.now()
+    const dtWall = (now - this._lastWall) / 1000 // real seconds
     this._lastWall = now
 
     if (!this.paused) {
       const dtSim = dtWall * this.timeScale
       this.simTimeSec += dtSim
       this.epoch = epochFromSeconds(this.simTimeSec)
+
+      // Bootstrap completion check
+      if (this.bootstrapPhase) {
+        if (this.simTimeSec >= BOOTSTRAP_TARGET_SECS) {
+          this.bootstrapPhase    = false
+          this.bootstrapProgress = 1
+          this.timeScale         = NORMAL_TIMESCALE
+          console.log('[WorldClock] Bootstrap complete — world formed! Players can now join.')
+          for (const cb of this._bootstrapCompleteCallbacks) cb()
+        } else {
+          this.bootstrapProgress = this.simTimeSec / BOOTSTRAP_TARGET_SECS
+        }
+      }
     }
 
     for (const cb of this._tickCallbacks) cb()
   }
 }
+
+export { BOOTSTRAP_TARGET_SECS, NORMAL_TIMESCALE }

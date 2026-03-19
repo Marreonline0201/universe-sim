@@ -9,6 +9,7 @@ import { PlayerRegistry } from './PlayerRegistry.js'
 import { NpcManager } from './NpcManager.js'
 import { BroadcastScheduler } from './BroadcastScheduler.js'
 import { loadSettings, saveSettings, migrateSchema } from './WorldSettingsSync.js'
+import { BOOTSTRAP_TARGET_SECS, NORMAL_TIMESCALE } from './WorldClock.js'
 
 const PORT = parseInt(process.env.PORT ?? '8080', 10)
 const PERSIST_INTERVAL_MS = 30_000 // save simTime to DB every 30 s
@@ -25,12 +26,31 @@ async function main() {
   if (process.env.DATABASE_URL) {
     await migrateSchema()
     const settings = await loadSettings()
-    clock.setTimeScale(settings.timeScale)
+    // Don't restore an admin-set ultra-high timeScale — use normal unless bootstrapping
     clock.setSimTime(settings.simTime)
-    console.log(`[server] Loaded settings: timeScale=${settings.timeScale}, simTime=${settings.simTime.toFixed(2)}s`)
+    console.log(`[server] Loaded settings: simTime=${settings.simTime.toFixed(2)}s`)
   } else {
     console.warn('[server] DATABASE_URL not set — world settings will not persist')
   }
+
+  // ── Bootstrap mode ────────────────────────────────────────────────────────────
+  // If the world hasn't reached solar-system-forming era, run at 1e14× speed
+  if (clock.simTimeSec < BOOTSTRAP_TARGET_SECS) {
+    clock.startBootstrap()
+    console.log(`[server] World is bootstrapping (${(clock.simTimeSec / (9e9 * 31_557_600) * 100).toFixed(2)}% complete)`)
+  } else {
+    clock.setTimeScale(NORMAL_TIMESCALE)
+    console.log('[server] World already formed — normal speed')
+  }
+
+  // When bootstrap finishes, persist the new simTime and switch to normal speed
+  clock.onBootstrapComplete(() => {
+    if (process.env.DATABASE_URL) {
+      saveSettings(NORMAL_TIMESCALE, clock.simTimeSec)
+        .then(() => console.log('[server] Bootstrap state saved to DB'))
+        .catch(() => {})
+    }
+  })
 
   // Tick NPCs every 100 ms (same rate as clock)
   clock.onTick(() => npcs.tick(0.1))
@@ -48,6 +68,21 @@ async function main() {
   // ── HTTP + WebSocket Server ───────────────────────────────────────────────────
 
   const httpServer = createServer((req, res) => {
+    // Bootstrap status endpoint (CORS-open so client can poll pre-auth)
+    if (req.url === '/status') {
+      res.writeHead(200, {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+      })
+      res.end(JSON.stringify({
+        bootstrapPhase:    clock.bootstrapPhase,
+        bootstrapProgress: clock.bootstrapProgress,
+        epoch:             clock.epoch,
+        simTime:           clock.simTimeSec,
+        players:           players.count,
+      }))
+      return
+    }
     res.writeHead(200, { 'Content-Type': 'text/plain' })
     res.end(`Universe Sim WS Server — players: ${players.count}`)
   })
@@ -97,10 +132,12 @@ function handleMessage(ws, msg) {
       // Send current world state immediately
       ws.send(JSON.stringify({
         type: 'WORLD_SNAPSHOT',
-        simTime: clock.simTimeSec,
-        epoch: clock.epoch,
-        timeScale: clock.timeScale,
-        paused: clock.paused,
+        simTime:           clock.simTimeSec,
+        epoch:             clock.epoch,
+        timeScale:         clock.timeScale,
+        paused:            clock.paused,
+        bootstrapPhase:    clock.bootstrapPhase,
+        bootstrapProgress: clock.bootstrapProgress,
         players: players.getAll(),
         npcs: npcs.getAll(),
       }))

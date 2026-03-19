@@ -10,11 +10,13 @@ import { useUiStore } from '../store/uiStore'
 import { CreatureRenderer } from './entities/CreatureRenderer'
 import { RemotePlayersRenderer } from './RemotePlayersRenderer'
 import { useMultiplayerStore } from '../store/multiplayerStore'
+import type { RemoteNpc } from '../store/multiplayerStore'
 import { world, createPlayerEntity, Metabolism, Health, Position, Rotation, Velocity } from '../ecs/world'
 import { PlayerController } from '../player/PlayerController'
 import { MetabolismSystem, setMetabolismDt } from '../ecs/systems/MetabolismSystem'
-import { inventory } from '../game/GameSingletons'
+import { inventory, buildingSystem } from '../game/GameSingletons'
 import { MAT } from '../player/Inventory'
+import { BUILDING_TYPES } from '../civilization/BuildingSystem'
 
 // ── Resource node definitions ─────────────────────────────────────────────────
 
@@ -40,6 +42,7 @@ const NODE_TYPES = [
   { type: 'tin_ore',     label: 'Tin Ore',     matId: MAT.TIN_ORE,    color: '#9aacb8', count: 5  },
   { type: 'sand',        label: 'Sand',        matId: MAT.SAND,       color: '#d4c47a', count: 8  },
   { type: 'sulfur',      label: 'Sulfur',      matId: MAT.SULFUR,     color: '#cccc22', count: 4  },
+  { type: 'bark',        label: 'Bark',        matId: MAT.BARK,       color: '#7a5a2a', count: 15 },
 ]
 
 function seededRand(seed: number): () => number {
@@ -72,6 +75,9 @@ const gatheredNodeIds = new Set<number>()
 // Respawn: map nodeId → real timestamp when it can reappear (60s)
 const NODE_RESPAWN_AT = new Map<number, number>()
 const NODE_RESPAWN_DELAY = 60_000 // ms
+
+// Shared mutable position for building ghost — BuildingGhost writes, GameLoop reads
+let ghostBuildPos: [number, number, number] = [0, 0, 0]
 
 // ── Terrain noise ─────────────────────────────────────────────────────────────
 
@@ -120,6 +126,8 @@ export function SceneRoot() {
   const timeScale = useGameStore(s => s.timeScale)
   const paused = useGameStore(s => s.paused)
   const gatherPrompt = useGameStore(s => s.gatherPrompt)
+  const placementMode = useGameStore(s => s.placementMode)
+  const setPlacementMode = useGameStore(s => s.setPlacementMode)
 
   const setEntityId = usePlayerStore(s => s.setEntityId)
   const entityId = usePlayerStore(s => s.entityId)
@@ -184,8 +192,8 @@ export function SceneRoot() {
           borderRadius: 10,
         }}>
           <div style={{ fontSize: 22, fontWeight: 700, marginBottom: 6 }}>CLICK TO PLAY</div>
-          <div style={{ fontSize: 11, color: '#aaa' }}>WASD — Move &nbsp;·&nbsp; Mouse — Look &nbsp;·&nbsp; Space — Jump</div>
-          <div style={{ fontSize: 11, color: '#aaa', marginTop: 4 }}>ESC — Settings &nbsp;·&nbsp; I/C/T/E/J/Tab/M — Panels</div>
+          <div style={{ fontSize: 11, color: '#aaa' }}>WASD — Move &nbsp;·&nbsp; Mouse — Look &nbsp;·&nbsp; Space — Jump &nbsp;·&nbsp; F — Interact</div>
+          <div style={{ fontSize: 11, color: '#aaa', marginTop: 4 }}>ESC — Settings &nbsp;·&nbsp; I — Inventory &nbsp;·&nbsp; C — Craft &nbsp;·&nbsp; B — Build &nbsp;·&nbsp; T/E/J/Tab/M — More</div>
         </div>
       </div>
     )}
@@ -201,6 +209,34 @@ export function SceneRoot() {
         color: '#fff', fontFamily: 'monospace', fontSize: 13,
       }}>
         {gatherPrompt}
+      </div>
+    )}
+    {/* Build placement mode banner */}
+    {placementMode && (
+      <div style={{
+        position: 'fixed', top: 16, left: '50%',
+        transform: 'translateX(-50%)',
+        zIndex: 50, pointerEvents: 'auto',
+        background: 'rgba(52,152,219,0.85)',
+        border: '1px solid #3498db',
+        borderRadius: 6, padding: '6px 16px',
+        color: '#fff', fontFamily: 'monospace', fontSize: 13,
+        display: 'flex', alignItems: 'center', gap: 12,
+      }}>
+        <span>
+          🏗 Building: <b>{BUILDING_TYPES.find(b => b.id === placementMode)?.name}</b>
+          &nbsp;·&nbsp; Look at spot &nbsp;·&nbsp; <b>[F]</b> place &nbsp;·&nbsp; <b>[Esc]</b> cancel
+        </span>
+        <button
+          onClick={() => setPlacementMode(null)}
+          style={{
+            background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.3)',
+            borderRadius: 4, color: '#fff', cursor: 'pointer',
+            fontSize: 11, padding: '2px 8px', fontFamily: 'monospace',
+          }}
+        >
+          Cancel
+        </button>
       </div>
     )}
     {/* Crosshair */}
@@ -241,6 +277,7 @@ export function SceneRoot() {
       <Suspense fallback={null}>
         <TerrainMesh />
         <ResourceNodes />
+        <PlacedBuildingsRenderer />
         <CreatureRenderer />
         <RemotePlayersRenderer />
         <ServerNpcsRenderer />
@@ -249,6 +286,7 @@ export function SceneRoot() {
         <>
           <GameLoop controllerRef={controllerRef} entityId={entityId} />
           <PlayerMesh entityId={entityId} />
+          <BuildingGhost entityId={entityId} />
         </>
       )}
     </Canvas>
@@ -269,7 +307,11 @@ function GameLoop({ controllerRef, entityId }: GameLoopProps) {
   const setPosition         = usePlayerStore(s => s.setPosition)
   const addEvolutionPoints  = usePlayerStore(s => s.addEvolutionPoints)
   const spectateTarget      = useGameStore(s => s.spectateTarget)
+  const placementMode       = useGameStore(s => s.placementMode)
+  const setPlacementMode    = useGameStore(s => s.setPlacementMode)
+  const bumpBuildVersion    = useGameStore(s => s.bumpBuildVersion)
   const epAccumRef          = useRef(0)
+  const fwdVec              = useRef(new THREE.Vector3())
 
   useFrame((_, delta) => {
     // Cap dt to avoid spiral-of-death on slow frames
@@ -318,13 +360,16 @@ function GameLoop({ controllerRef, entityId }: GameLoopProps) {
       }
     }
 
-    // 4. Sync player world position + clamp to terrain
+    // 4. Sync player world position + terrain-aware floor clamp
     const px = Position.x[entityId]
     const pz = Position.z[entityId]
     const floorY = terrainHeight(px, pz) + 0.9
-    if (Position.y[entityId] < floorY) {
+    if (Position.y[entityId] <= floorY) {
       Position.y[entityId] = floorY
       if (Velocity.y[entityId] < 0) Velocity.y[entityId] = 0
+      controllerRef.current?.setOnGround(true)
+    } else {
+      controllerRef.current?.setOnGround(false)
     }
     setPosition(px, Position.y[entityId], pz)
 
@@ -338,6 +383,59 @@ function GameLoop({ controllerRef, entityId }: GameLoopProps) {
       const dz = pz - node.z
       const d2 = dx * dx + dz * dz
       if (d2 < nearDist) { nearDist = d2; nearNode = node }
+    }
+
+    // 6. Placement mode — update ghost position + handle F key to confirm
+    if (placementMode) {
+      const btype = BUILDING_TYPES.find(t => t.id === placementMode)
+      if (btype) {
+        // Project camera forward onto XZ plane for ghost position (6m ahead)
+        fwdVec.current.set(0, 0, -1).applyQuaternion(camera.quaternion)
+        fwdVec.current.y = 0
+        if (fwdVec.current.lengthSq() < 0.001) fwdVec.current.set(0, 0, -1)
+        else fwdVec.current.normalize()
+        const gx = px + fwdVec.current.x * 6
+        const gz = pz + fwdVec.current.z * 6
+        ghostBuildPos = [gx, terrainHeight(gx, gz), gz]
+
+        const placeLabel = `[F] Place ${btype.name}  ·  [B/Esc] Cancel`
+        if (gs.gatherPrompt !== placeLabel) gs.setGatherPrompt(placeLabel)
+
+        if (controllerRef.current?.popInteract()) {
+          // Check materials
+          const canBuild = btype.materialsRequired.every(req => {
+            const idx = inventory.findItem(req.materialId)
+            if (idx === -1) return false
+            const slot = inventory.getSlot(idx)
+            return slot !== null && slot.quantity >= req.quantity
+          })
+          const addNotification = useUiStore.getState().addNotification
+          if (canBuild) {
+            // Consume materials
+            for (const req of btype.materialsRequired) {
+              let remaining = req.quantity
+              for (let i = 0; i < 40 && remaining > 0; i++) {
+                const slot = inventory.getSlot(i)
+                if (slot && slot.materialId === req.materialId) {
+                  const take = Math.min(slot.quantity, remaining)
+                  inventory.removeItem(i, take)
+                  remaining -= take
+                }
+              }
+            }
+            buildingSystem.place(placementMode, ghostBuildPos, 0, useGameStore.getState().simSeconds)
+            bumpBuildVersion()
+            setPlacementMode(null)
+            gs.setGatherPrompt(null)
+            addNotification(`Built: ${btype.name}`, 'discovery')
+          } else {
+            addNotification('Not enough materials to build!', 'warning')
+            setPlacementMode(null)
+            gs.setGatherPrompt(null)
+          }
+        }
+      }
+      return
     }
 
     if (nearNode && nearDist < 9) { // within 3m
@@ -369,6 +467,96 @@ function GameLoop({ controllerRef, entityId }: GameLoopProps) {
   })
 
   return null
+}
+
+// ── Building ghost (shown during placement mode) ──────────────────────────────
+
+function BuildingGhost({ entityId }: { entityId: number }) {
+  const { camera } = useThree()
+  const placementMode = useGameStore(s => s.placementMode)
+  const ghostRef = useRef<THREE.Group>(null)
+  const fwdVec = useRef(new THREE.Vector3())
+
+  useFrame(() => {
+    if (!ghostRef.current || !placementMode) return
+    const btype = BUILDING_TYPES.find(t => t.id === placementMode)
+    if (!btype) return
+
+    const px = Position.x[entityId]
+    const pz = Position.z[entityId]
+    fwdVec.current.set(0, 0, -1).applyQuaternion(camera.quaternion)
+    fwdVec.current.y = 0
+    if (fwdVec.current.lengthSq() < 0.001) fwdVec.current.set(0, 0, -1)
+    else fwdVec.current.normalize()
+    const gx = px + fwdVec.current.x * 6
+    const gz = pz + fwdVec.current.z * 6
+    const gy = terrainHeight(gx, gz)
+    ghostRef.current.position.set(gx, gy + btype.size[1] / 2, gz)
+  })
+
+  if (!placementMode) return null
+  const btype = BUILDING_TYPES.find(t => t.id === placementMode)
+  if (!btype) return null
+  const [w, h, d] = btype.size
+
+  return (
+    <group ref={ghostRef}>
+      <mesh>
+        <boxGeometry args={[w, h, d]} />
+        <meshStandardMaterial color="#4488ff" opacity={0.25} transparent />
+      </mesh>
+      <lineSegments>
+        <edgesGeometry args={[new THREE.BoxGeometry(w, h, d)]} />
+        <lineBasicMaterial color="#88aaff" />
+      </lineSegments>
+    </group>
+  )
+}
+
+// ── Placed buildings renderer ─────────────────────────────────────────────────
+
+const BUILDING_COLORS: Record<number, string> = {
+  0: '#8B7355',  // tier 0: earth/wood
+  1: '#B8860B',  // tier 1: clay/bronze
+  2: '#7A8070',  // tier 2: stone
+  3: '#9A9A8A',  // tier 3: classical stone
+  4: '#6A7090',  // tier 4: medieval
+  5: '#8A6A4A',  // tier 5: industrial brick
+  6: '#5A7A9A',  // tier 6: modern glass+steel
+  7: '#4A5A8A',  // tier 7: info age
+  8: '#7A4A9A',  // tier 8: fusion
+  9: '#9A4A7A',  // tier 9: simulation
+}
+
+function PlacedBuildingsRenderer() {
+  const buildVersion = useGameStore(s => s.buildVersion)
+  const buildings = buildingSystem.getAllBuildings()
+
+  return (
+    <>
+      {buildings.map(b => {
+        const btype = BUILDING_TYPES.find(t => t.id === b.typeId)
+        if (!btype) return null
+        const [w, h, d] = btype.size
+        const color = BUILDING_COLORS[btype.tier] ?? '#888'
+        const [bx, by, bz] = b.position
+        return (
+          <group key={b.id} position={[bx, by + h / 2, bz]}>
+            {/* Main structure */}
+            <mesh castShadow receiveShadow>
+              <boxGeometry args={[w, h, d]} />
+              <meshStandardMaterial color={color} roughness={0.85} metalness={0.05} />
+            </mesh>
+            {/* Roof (slightly wider, flat top) */}
+            <mesh position={[0, h / 2 + 0.15, 0]} castShadow>
+              <boxGeometry args={[w + 0.4, 0.3, d + 0.4]} />
+              <meshStandardMaterial color={color} roughness={0.9} />
+            </mesh>
+          </group>
+        )
+      })}
+    </>
+  )
 }
 
 // ── Player mesh (visible body in third-person) ────────────────────────────────
@@ -606,6 +794,143 @@ const NPC_SKIN_TONES = ['#c8926e', '#d4a574', '#8b5e3c', '#f0d4b0', '#a0724a']
 const NPC_SHIRT_COLS = ['#8b4513', '#556b2f', '#8b0000', '#4682b4', '#a0522d']
 const NPC_PANTS_COLS = ['#3b2f2f', '#2f4f2f', '#1a1a3a', '#4a3a20', '#2a2a2a']
 
+function AnimatedNpcMesh({ npc, skinColor, shirtColor, pantsColor }: {
+  npc: RemoteNpc; skinColor: string; shirtColor: string; pantsColor: string
+}) {
+  const groupRef = useRef<THREE.Group>(null)
+  const lLegRef  = useRef<THREE.Group>(null)
+  const rLegRef  = useRef<THREE.Group>(null)
+  const lArmRef  = useRef<THREE.Group>(null)
+  const rArmRef  = useRef<THREE.Group>(null)
+  const walkRef  = useRef(0)
+  const prevXZ   = useRef({ x: npc.x, z: npc.z })
+
+  useFrame((_, delta) => {
+    const root = groupRef.current
+    if (!root) return
+
+    // Snap Y to terrain (server sends y=0.9 flat; client knows terrain)
+    root.position.set(npc.x, terrainHeight(npc.x, npc.z) + 0.9, npc.z)
+
+    // Detect lateral speed for walk cycle
+    const dx = npc.x - prevXZ.current.x
+    const dz = npc.z - prevXZ.current.z
+    const speed = Math.sqrt(dx * dx + dz * dz) / Math.max(delta, 0.001)
+    prevXZ.current = { x: npc.x, z: npc.z }
+
+    const moving = speed > 0.3 && npc.state !== 'eat' && npc.state !== 'rest'
+    if (moving) walkRef.current += delta * Math.min(speed, 8) * 1.8
+    const swing = moving ? Math.sin(walkRef.current) * 0.5 : 0
+
+    if (lLegRef.current) lLegRef.current.rotation.x =  swing
+    if (rLegRef.current) rLegRef.current.rotation.x = -swing
+    if (lArmRef.current) lArmRef.current.rotation.x = -swing * 0.55
+    if (rArmRef.current) rArmRef.current.rotation.x =  swing * 0.55
+
+    // Face direction of travel
+    if (speed > 0.5 && (Math.abs(dx) + Math.abs(dz)) > 0) {
+      root.rotation.y = Math.atan2(dx, dz)
+    }
+  })
+
+  // Indicator dot above head shows state
+  const dotColor =
+    npc.state === 'eat'       ? '#ff6644' :
+    npc.state === 'rest'      ? '#4488ff' :
+    npc.state === 'socialize' ? '#ffcc00' :
+    npc.state === 'gather'    ? '#44dd88' : null
+
+  return (
+    <group ref={groupRef} position={[npc.x, terrainHeight(npc.x, npc.z) + 0.9, npc.z]}>
+      {dotColor && (
+        <mesh position={[0, 1.55, 0]}>
+          <sphereGeometry args={[0.12, 6, 6]} />
+          <meshStandardMaterial color={dotColor} emissive={dotColor} emissiveIntensity={0.6} />
+        </mesh>
+      )}
+      {/* Torso */}
+      <mesh position={[0, 0.55, 0]} castShadow>
+        <boxGeometry args={[0.44, 0.58, 0.22]} />
+        <meshStandardMaterial color={shirtColor} />
+      </mesh>
+      {/* Hips */}
+      <mesh position={[0, 0.18, 0]} castShadow>
+        <boxGeometry args={[0.42, 0.22, 0.22]} />
+        <meshStandardMaterial color={pantsColor} />
+      </mesh>
+      {/* Head */}
+      <mesh position={[0, 1.0, 0]} castShadow>
+        <boxGeometry args={[0.34, 0.34, 0.32]} />
+        <meshStandardMaterial color={skinColor} />
+      </mesh>
+      <mesh position={[0.1, 1.03, -0.17]}>
+        <boxGeometry args={[0.07, 0.05, 0.04]} />
+        <meshStandardMaterial color="#1a1a1a" />
+      </mesh>
+      <mesh position={[-0.1, 1.03, -0.17]}>
+        <boxGeometry args={[0.07, 0.05, 0.04]} />
+        <meshStandardMaterial color="#1a1a1a" />
+      </mesh>
+      <mesh position={[0, 0.86, 0]}>
+        <boxGeometry args={[0.14, 0.12, 0.14]} />
+        <meshStandardMaterial color={skinColor} />
+      </mesh>
+      {/* Left arm */}
+      <group ref={lArmRef} position={[-0.30, 0.75, 0]}>
+        <mesh position={[0, -0.18, 0]} castShadow>
+          <boxGeometry args={[0.14, 0.36, 0.14]} />
+          <meshStandardMaterial color={shirtColor} />
+        </mesh>
+        <mesh position={[0, -0.44, 0]}>
+          <boxGeometry args={[0.12, 0.30, 0.12]} />
+          <meshStandardMaterial color={skinColor} />
+        </mesh>
+      </group>
+      {/* Right arm */}
+      <group ref={rArmRef} position={[0.30, 0.75, 0]}>
+        <mesh position={[0, -0.18, 0]} castShadow>
+          <boxGeometry args={[0.14, 0.36, 0.14]} />
+          <meshStandardMaterial color={shirtColor} />
+        </mesh>
+        <mesh position={[0, -0.44, 0]}>
+          <boxGeometry args={[0.12, 0.30, 0.12]} />
+          <meshStandardMaterial color={skinColor} />
+        </mesh>
+      </group>
+      {/* Left leg */}
+      <group ref={lLegRef} position={[-0.13, 0.09, 0]}>
+        <mesh position={[0, -0.18, 0]} castShadow>
+          <boxGeometry args={[0.16, 0.36, 0.16]} />
+          <meshStandardMaterial color={pantsColor} />
+        </mesh>
+        <mesh position={[0, -0.44, 0]}>
+          <boxGeometry args={[0.14, 0.32, 0.14]} />
+          <meshStandardMaterial color="#4a3a2a" />
+        </mesh>
+        <mesh position={[0, -0.62, -0.04]}>
+          <boxGeometry args={[0.14, 0.08, 0.22]} />
+          <meshStandardMaterial color="#2a2010" />
+        </mesh>
+      </group>
+      {/* Right leg */}
+      <group ref={rLegRef} position={[0.13, 0.09, 0]}>
+        <mesh position={[0, -0.18, 0]} castShadow>
+          <boxGeometry args={[0.16, 0.36, 0.16]} />
+          <meshStandardMaterial color={pantsColor} />
+        </mesh>
+        <mesh position={[0, -0.44, 0]}>
+          <boxGeometry args={[0.14, 0.32, 0.14]} />
+          <meshStandardMaterial color="#4a3a2a" />
+        </mesh>
+        <mesh position={[0, -0.62, -0.04]}>
+          <boxGeometry args={[0.14, 0.08, 0.22]} />
+          <meshStandardMaterial color="#2a2010" />
+        </mesh>
+      </group>
+    </group>
+  )
+}
+
 function ServerNpcsRenderer() {
   const remoteNpcs = useMultiplayerStore(s => s.remoteNpcs)
   return (
@@ -613,13 +938,13 @@ function ServerNpcsRenderer() {
       {remoteNpcs.map((npc, idx) => {
         const si = idx % NPC_SKIN_TONES.length
         return (
-          <group key={npc.id} position={[npc.x, npc.y, npc.z]}>
-            <HumanoidFigure
-              skinColor={NPC_SKIN_TONES[si]}
-              shirtColor={NPC_SHIRT_COLS[si]}
-              pantsColor={NPC_PANTS_COLS[si]}
-            />
-          </group>
+          <AnimatedNpcMesh
+            key={npc.id}
+            npc={npc}
+            skinColor={NPC_SKIN_TONES[si]}
+            shirtColor={NPC_SHIRT_COLS[si]}
+            pantsColor={NPC_PANTS_COLS[si]}
+          />
         )
       })}
     </>
@@ -670,6 +995,26 @@ function TreeMesh({ id, groundY }: { id: number; groundY: number }) {
   )
 }
 
+function BarkMesh({ id, groundY }: { id: number; groundY: number }) {
+  const scale = 0.7 + nodeRand(id, 6) * 0.5
+  const rot   = nodeRand(id, 7) * Math.PI
+  const tilt  = (nodeRand(id, 8) - 0.5) * 0.3
+  return (
+    <group position={[0, groundY + 0.06 * scale, 0]} rotation={[tilt, rot, 0]} scale={[scale, scale, scale]}>
+      {/* Main bark plank */}
+      <mesh castShadow>
+        <boxGeometry args={[0.8, 0.12, 0.35]} />
+        <meshStandardMaterial color="#7a5a2a" roughness={1} />
+      </mesh>
+      {/* Second piece slightly offset */}
+      <mesh position={[0.15, 0.06, 0.1]} rotation={[0, 0.4, 0.1]} castShadow>
+        <boxGeometry args={[0.55, 0.10, 0.28]} />
+        <meshStandardMaterial color="#6a4a1e" roughness={1} />
+      </mesh>
+    </group>
+  )
+}
+
 function RockMesh({ id, color, groundY }: { id: number; color: string; groundY: number }) {
   const scale = 0.5 + nodeRand(id, 3) * 0.6
   const rot   = nodeRand(id, 4) * Math.PI * 2
@@ -711,7 +1056,9 @@ function ResourceNodes() {
           >
             {node.type === 'wood'
               ? <TreeMesh id={node.id} groundY={groundY} />
-              : <RockMesh id={node.id} color={node.color} groundY={groundY} />
+              : node.type === 'bark'
+                ? <BarkMesh id={node.id} groundY={groundY} />
+                : <RockMesh id={node.id} color={node.color} groundY={groundY} />
             }
           </group>
         )

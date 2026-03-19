@@ -96,6 +96,10 @@ export class WorldSocket {
           msg.timeScale as number,
           msg.paused as boolean,
         )
+        mp.setBootstrapState(
+          !!(msg.bootstrapPhase),
+          (msg.bootstrapProgress as number) ?? 0,
+        )
         // Sync game store time/scale/simTime with server authority
         game.setTimeScale(msg.timeScale as number)
         // Only snap simTime if difference > 2s (avoids jitter, handles refresh)

@@ -14,6 +14,7 @@ import { JournalPanel } from './panels/JournalPanel'
 import { CharacterPanel } from './panels/CharacterPanel'
 import { MapPanel } from './panels/MapPanel'
 import { SettingsPanel } from './panels/SettingsPanel'
+import { BuildPanel } from './panels/BuildPanel'
 
 interface IconDef {
   id: PanelId
@@ -25,6 +26,7 @@ interface IconDef {
 const ICONS: IconDef[] = [
   { id: 'inventory',  label: 'Inventory',    hotkey: 'I',   glyph: '🎒' },
   { id: 'crafting',   label: 'Crafting',     hotkey: 'C',   glyph: '⚒' },
+  { id: 'build',      label: 'Build',        hotkey: 'B',   glyph: '🏗' },
   { id: 'tech',       label: 'Tech Tree',    hotkey: 'T',   glyph: '🔬' },
   { id: 'evolution',  label: 'Evolution',    hotkey: 'E',   glyph: '🧬' },
   { id: 'journal',    label: 'Journal',      hotkey: 'J',   glyph: '📖' },
@@ -38,6 +40,7 @@ const PANEL_WIDTH = 480
 const PANEL_COMPONENTS: Record<PanelId, React.ComponentType> = {
   inventory:  InventoryPanel,
   crafting:   CraftingPanel,
+  build:      BuildPanel,
   tech:       TechTreePanel,
   evolution:  EvolutionPanel,
   journal:    JournalPanel,
@@ -48,7 +51,7 @@ const PANEL_COMPONENTS: Record<PanelId, React.ComponentType> = {
 
 export function SidebarShell() {
   const { activePanel, togglePanel, closePanel } = useUiStore()
-  const { setInputBlocked } = useGameStore()
+  const { setInputBlocked, placementMode, setPlacementMode } = useGameStore()
 
   // Block/unblock game input when panel opens/closes
   // Also release pointer lock so the cursor becomes visible for panel interaction
@@ -71,6 +74,7 @@ export function SidebarShell() {
       switch (e.key) {
         case 'i': case 'I':   e.preventDefault(); togglePanel('inventory');  break
         case 'c': case 'C':   e.preventDefault(); togglePanel('crafting');   break
+        case 'b': case 'B':   e.preventDefault(); togglePanel('build');      break
         case 't': case 'T':   e.preventDefault(); togglePanel('tech');       break
         case 'e': case 'E':   e.preventDefault(); togglePanel('evolution');  break
         case 'j': case 'J':   e.preventDefault(); togglePanel('journal');    break
@@ -78,7 +82,8 @@ export function SidebarShell() {
         case 'm': case 'M':   e.preventDefault(); togglePanel('map');        break
         case 'Escape':
           e.preventDefault()
-          if (activePanel !== null) closePanel()
+          if (placementMode) setPlacementMode(null)
+          else if (activePanel !== null) closePanel()
           else togglePanel('settings')
           break
         default: break
@@ -86,7 +91,7 @@ export function SidebarShell() {
     }
     document.addEventListener('keydown', onKeyDown)
     return () => document.removeEventListener('keydown', onKeyDown)
-  }, [activePanel, togglePanel, closePanel])
+  }, [activePanel, placementMode, togglePanel, closePanel, setPlacementMode])
 
   const ActivePanel = activePanel ? PANEL_COMPONENTS[activePanel] : null
 

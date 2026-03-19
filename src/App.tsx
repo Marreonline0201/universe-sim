@@ -5,13 +5,27 @@ import { HUD } from './ui/HUD'
 import { AdminPanel } from './ui/AdminPanel'
 import { loadSave, saveGame } from './store/saveStore'
 import { useWorldSocket } from './net/useWorldSocket'
+import { useBootstrapStatus } from './hooks/useBootstrapStatus'
+import { WorldBootstrapScreen } from './ui/WorldBootstrapScreen'
 
 // Dev bypass: set VITE_DEV_BYPASS_AUTH=true in .env.local to skip Clerk login
 const DEV_BYPASS = import.meta.env.DEV && import.meta.env.VITE_DEV_BYPASS_AUTH === 'true'
 
 export default function App() {
+  // Bootstrap check must run before any conditional returns (rules of hooks)
+  const bootstrap = useBootstrapStatus()
+
   if (DEV_BYPASS) return <DevGame />
 
+  // Show timelapse screen while world is forming — blocks all players
+  if (bootstrap.resolved && bootstrap.bootstrapping) {
+    return <WorldBootstrapScreen status={bootstrap} />
+  }
+
+  return <AuthedApp />
+}
+
+function AuthedApp() {
   const { isSignedIn, isLoaded } = useAuth()
 
   if (!isLoaded) return (

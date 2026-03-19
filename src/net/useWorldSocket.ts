@@ -14,17 +14,22 @@ if (!WS_URL) console.warn('[WorldSocket] VITE_WS_URL is not set — multiplayer 
 const UPDATE_HZ = 10
 const UPDATE_MS = 1000 / UPDATE_HZ
 
+const DEV_BYPASS = import.meta.env.DEV && import.meta.env.VITE_DEV_BYPASS_AUTH === 'true'
+
 export function useWorldSocket(): void {
-  const { userId } = useAuth()
+  const { userId: clerkUserId } = useAuth()
   const { user } = useUser()
   const socketRef = useRef<WorldSocket | null>(null)
   const lastUpdateRef = useRef(0)
 
-  useEffect(() => {
-    // Skip if no WS URL configured or not signed in
-    if (!WS_URL || !userId || !user) return
+  // In dev bypass mode use a stable local identity so the socket can connect
+  const userId   = DEV_BYPASS ? 'dev-local' : clerkUserId
+  const username = DEV_BYPASS ? 'DevUser' : (user?.username ?? user?.firstName ?? clerkUserId ?? 'unknown')
 
-    const username = user.username ?? user.firstName ?? userId
+  useEffect(() => {
+    // Skip if no WS URL configured or (in prod) not signed in
+    if (!WS_URL || !userId) return
+    if (!DEV_BYPASS && !user) return
     const socket = new WorldSocket(WS_URL, userId, username)
     socketRef.current = socket
     _adminSocket = socket

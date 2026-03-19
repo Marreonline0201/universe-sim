@@ -32,6 +32,14 @@ interface GameState {
   // HUD prompt shown when player is near a gatherable resource
   gatherPrompt: string | null
   setGatherPrompt: (s: string | null) => void
+
+  // Building placement mode — typeId of building being placed, or null
+  placementMode: string | null
+  setPlacementMode: (typeId: string | null) => void
+
+  // Incremented when a building is placed (triggers re-render of placed buildings)
+  buildVersion: number
+  bumpBuildVersion: () => void
 }
 
 export const useGameStore = create<GameState>((set) => ({
@@ -75,6 +83,12 @@ export const useGameStore = create<GameState>((set) => ({
 
   gatherPrompt: null,
   setGatherPrompt: (s) => set({ gatherPrompt: s }),
+
+  placementMode: null,
+  setPlacementMode: (typeId) => set({ placementMode: typeId }),
+
+  buildVersion: 0,
+  bumpBuildVersion: () => set((s) => ({ buildVersion: s.buildVersion + 1 })),
 }))
 
 // ── Helpers ────────────────────────────────────────────────────────────────

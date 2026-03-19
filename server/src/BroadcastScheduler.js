@@ -36,13 +36,15 @@ export class BroadcastScheduler {
     if (this._players.count === 0) return
 
     const snapshot = JSON.stringify({
-      type: 'WORLD_SNAPSHOT',
-      simTime: this._clock.simTimeSec,
-      epoch: this._clock.epoch,
-      timeScale: this._clock.timeScale,
-      paused: this._clock.paused,
-      players: this._players.getAll(),
-      npcs: this._npcs.getAll(),
+      type:              'WORLD_SNAPSHOT',
+      simTime:           this._clock.simTimeSec,
+      epoch:             this._clock.epoch,
+      timeScale:         this._clock.timeScale,
+      paused:            this._clock.paused,
+      bootstrapPhase:    this._clock.bootstrapPhase,
+      bootstrapProgress: this._clock.bootstrapProgress,
+      players:           this._players.getAll(),
+      npcs:              this._npcs.getAll(),
     })
 
     this._players.forEachSocket((ws) => {

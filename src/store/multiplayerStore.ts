@@ -14,6 +14,8 @@ export interface RemoteNpc {
   x: number
   y: number
   z: number
+  state?: string
+  hunger?: number
 }
 
 export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected'
@@ -35,6 +37,11 @@ interface MultiplayerState {
   serverTimeScale: number
   serverPaused: boolean
   setServerWorld: (simTime: number, timeScale: number, paused: boolean) => void
+
+  // Bootstrap phase — world is still forming, players cannot yet join
+  bootstrapPhase: boolean
+  bootstrapProgress: number
+  setBootstrapState: (phase: boolean, progress: number) => void
 }
 
 export const useMultiplayerStore = create<MultiplayerState>((set) => ({
@@ -68,4 +75,8 @@ export const useMultiplayerStore = create<MultiplayerState>((set) => ({
   serverPaused: false,
   setServerWorld: (simTime, timeScale, paused) =>
     set({ serverSimTime: simTime, serverTimeScale: timeScale, serverPaused: paused }),
+
+  bootstrapPhase: false,
+  bootstrapProgress: 0,
+  setBootstrapState: (phase, progress) => set({ bootstrapPhase: phase, bootstrapProgress: progress }),
 }))

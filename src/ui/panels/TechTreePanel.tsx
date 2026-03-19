@@ -1,7 +1,7 @@
 // ── TechTreePanel ──────────────────────────────────────────────────────────────
 // 150-node tech tree across 10 tiers. Click node to research.
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { ReactFlow, Background, Controls, type Node, type Edge, MarkerType } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { techTree } from '../../game/GameSingletons'
@@ -125,13 +125,13 @@ export function TechTreePanel() {
   const [graphView, setGraphView] = useState(false)
 
   // Tick in-progress research
-  const newlyCompleted = techTree.tickResearch(simSeconds)
-  if (newlyCompleted.length > 0) {
+  useEffect(() => {
+    const newlyCompleted = techTree.tickResearch(simSeconds)
     for (const id of newlyCompleted) {
       const node = TECH_NODES.find(n => n.id === id)
       addNotification(`Research complete: ${node?.name ?? id}`, 'discovery')
     }
-  }
+  }, [simSeconds, addNotification])
 
   function handleResearch(nodeId: string) {
     const ok = techTree.startResearch(nodeId, simSeconds)
@@ -145,6 +145,8 @@ export function TechTreePanel() {
   const tiers = selectedTier !== null
     ? [selectedTier]
     : Array.from({ length: 10 }, (_, i) => i)
+
+  const techGraph = buildTechGraph(simSeconds)
 
   return (
     <div style={{ color: '#fff', fontFamily: 'monospace' }}>
@@ -167,8 +169,8 @@ export function TechTreePanel() {
       {graphView ? (
         <div style={{ height: 520, borderRadius: 8, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.08)' }}>
           <ReactFlow
-            nodes={buildTechGraph(simSeconds).nodes}
-            edges={buildTechGraph(simSeconds).edges}
+            nodes={techGraph.nodes}
+            edges={techGraph.edges}
             onNodeClick={(_, node) => handleResearch(node.id)}
             fitView
             colorMode="dark"

@@ -105,8 +105,9 @@ function handleMessage(ws, msg) {
         npcs: npcs.getAll(),
       }))
 
-      // Notify others
-      broadcast({ type: 'PLAYER_JOINED', player: players.get(userId) }, ws)
+      // Notify others (use getAll() to get serializable player without ws socket)
+      const safePlayer = players.getAll().find(p => p.userId === userId)
+      broadcast({ type: 'PLAYER_JOINED', player: safePlayer }, ws)
       break
     }
 

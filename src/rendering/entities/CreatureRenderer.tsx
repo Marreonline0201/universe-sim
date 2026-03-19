@@ -1,10 +1,11 @@
 import { useFrame } from '@react-three/fiber'
 import { useRef } from 'react'
 import { InstancedMesh, Matrix4, Color } from 'three'
-import { world, Position, CreatureBody } from '../../ecs/world'
-import { defineQuery } from 'bitecs'
+import { world, Position, CreatureBody, PlayerControlled } from '../../ecs/world'
+import { defineQuery, Not } from 'bitecs'
 
-const creatureQuery = defineQuery([Position, CreatureBody])
+// Exclude the player entity — it has its own humanoid mesh
+const creatureQuery = defineQuery([Position, CreatureBody, Not(PlayerControlled)])
 
 const MAX_INSTANCES = 10_000
 

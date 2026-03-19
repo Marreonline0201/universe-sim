@@ -335,7 +335,15 @@ function GameLoop({ controllerRef, entityId }: GameLoopProps) {
 
 // ── Player mesh (visible body in third-person) ────────────────────────────────
 
-function HumanoidFigure({ skinColor, shirtColor, pantsColor }: { skinColor: string; shirtColor: string; pantsColor: string }) {
+function HumanoidFigure({
+  skinColor, shirtColor, pantsColor,
+  leftLegAngle = 0, rightLegAngle = 0,
+  leftArmAngle = 0, rightArmAngle = 0,
+}: {
+  skinColor: string; shirtColor: string; pantsColor: string
+  leftLegAngle?: number; rightLegAngle?: number
+  leftArmAngle?: number; rightArmAngle?: number
+}) {
   return (
     <>
       {/* Torso */}
@@ -367,71 +375,100 @@ function HumanoidFigure({ skinColor, shirtColor, pantsColor }: { skinColor: stri
         <boxGeometry args={[0.14, 0.12, 0.14]} />
         <meshStandardMaterial color={skinColor} />
       </mesh>
-      {/* Left upper arm */}
-      <mesh position={[-0.30, 0.60, 0]} castShadow>
-        <boxGeometry args={[0.14, 0.36, 0.14]} />
-        <meshStandardMaterial color={shirtColor} />
-      </mesh>
-      {/* Left forearm */}
-      <mesh position={[-0.30, 0.26, 0]} castShadow>
-        <boxGeometry args={[0.12, 0.30, 0.12]} />
-        <meshStandardMaterial color={skinColor} />
-      </mesh>
-      {/* Right upper arm */}
-      <mesh position={[0.30, 0.60, 0]} castShadow>
-        <boxGeometry args={[0.14, 0.36, 0.14]} />
-        <meshStandardMaterial color={shirtColor} />
-      </mesh>
-      {/* Right forearm */}
-      <mesh position={[0.30, 0.26, 0]} castShadow>
-        <boxGeometry args={[0.12, 0.30, 0.12]} />
-        <meshStandardMaterial color={skinColor} />
-      </mesh>
-      {/* Left thigh */}
-      <mesh position={[-0.13, -0.10, 0]} castShadow>
-        <boxGeometry args={[0.16, 0.36, 0.16]} />
-        <meshStandardMaterial color={pantsColor} />
-      </mesh>
-      {/* Right thigh */}
-      <mesh position={[0.13, -0.10, 0]} castShadow>
-        <boxGeometry args={[0.16, 0.36, 0.16]} />
-        <meshStandardMaterial color={pantsColor} />
-      </mesh>
-      {/* Left shin */}
-      <mesh position={[-0.13, -0.44, 0]} castShadow>
-        <boxGeometry args={[0.14, 0.32, 0.14]} />
-        <meshStandardMaterial color="#4a3a2a" />
-      </mesh>
-      {/* Right shin */}
-      <mesh position={[0.13, -0.44, 0]} castShadow>
-        <boxGeometry args={[0.14, 0.32, 0.14]} />
-        <meshStandardMaterial color="#4a3a2a" />
-      </mesh>
-      {/* Left foot */}
-      <mesh position={[-0.13, -0.63, -0.04]} castShadow>
-        <boxGeometry args={[0.14, 0.08, 0.22]} />
-        <meshStandardMaterial color="#2a2010" />
-      </mesh>
-      {/* Right foot */}
-      <mesh position={[0.13, -0.63, -0.04]} castShadow>
-        <boxGeometry args={[0.14, 0.08, 0.22]} />
-        <meshStandardMaterial color="#2a2010" />
-      </mesh>
+      {/* Left arm (rotates from shoulder at y=0.75) */}
+      <group position={[-0.30, 0.75, 0]} rotation={[leftArmAngle, 0, 0]}>
+        <mesh position={[0, -0.18, 0]} castShadow>
+          <boxGeometry args={[0.14, 0.36, 0.14]} />
+          <meshStandardMaterial color={shirtColor} />
+        </mesh>
+        <mesh position={[0, -0.44, 0]} castShadow>
+          <boxGeometry args={[0.12, 0.30, 0.12]} />
+          <meshStandardMaterial color={skinColor} />
+        </mesh>
+      </group>
+      {/* Right arm */}
+      <group position={[0.30, 0.75, 0]} rotation={[rightArmAngle, 0, 0]}>
+        <mesh position={[0, -0.18, 0]} castShadow>
+          <boxGeometry args={[0.14, 0.36, 0.14]} />
+          <meshStandardMaterial color={shirtColor} />
+        </mesh>
+        <mesh position={[0, -0.44, 0]} castShadow>
+          <boxGeometry args={[0.12, 0.30, 0.12]} />
+          <meshStandardMaterial color={skinColor} />
+        </mesh>
+      </group>
+      {/* Left leg (rotates from hip at y=0.09) */}
+      <group position={[-0.13, 0.09, 0]} rotation={[leftLegAngle, 0, 0]}>
+        <mesh position={[0, -0.18, 0]} castShadow>
+          <boxGeometry args={[0.16, 0.36, 0.16]} />
+          <meshStandardMaterial color={pantsColor} />
+        </mesh>
+        <mesh position={[0, -0.44, 0]} castShadow>
+          <boxGeometry args={[0.14, 0.32, 0.14]} />
+          <meshStandardMaterial color="#4a3a2a" />
+        </mesh>
+        <mesh position={[0, -0.62, -0.04]} castShadow>
+          <boxGeometry args={[0.14, 0.08, 0.22]} />
+          <meshStandardMaterial color="#2a2010" />
+        </mesh>
+      </group>
+      {/* Right leg */}
+      <group position={[0.13, 0.09, 0]} rotation={[rightLegAngle, 0, 0]}>
+        <mesh position={[0, -0.18, 0]} castShadow>
+          <boxGeometry args={[0.16, 0.36, 0.16]} />
+          <meshStandardMaterial color={pantsColor} />
+        </mesh>
+        <mesh position={[0, -0.44, 0]} castShadow>
+          <boxGeometry args={[0.14, 0.32, 0.14]} />
+          <meshStandardMaterial color="#4a3a2a" />
+        </mesh>
+        <mesh position={[0, -0.62, -0.04]} castShadow>
+          <boxGeometry args={[0.14, 0.08, 0.22]} />
+          <meshStandardMaterial color="#2a2010" />
+        </mesh>
+      </group>
     </>
   )
 }
 
 function PlayerMesh({ entityId }: { entityId: number }) {
-  const meshRef = useRef<THREE.Group>(null)
+  const rootRef  = useRef<THREE.Group>(null)
+  const walkTime = useRef(0)
+  const lastPos  = useRef({ x: 0, z: 0 })
+  // Refs for animated limb groups
+  const lLegRef  = useRef<THREE.Group>(null)
+  const rLegRef  = useRef<THREE.Group>(null)
+  const lArmRef  = useRef<THREE.Group>(null)
+  const rArmRef  = useRef<THREE.Group>(null)
 
-  useFrame(() => {
-    if (!meshRef.current) return
-    meshRef.current.position.set(
-      Position.x[entityId],
-      Position.y[entityId],
-      Position.z[entityId],
-    )
-    meshRef.current.quaternion.set(
+  useFrame((_, delta) => {
+    if (!rootRef.current) return
+
+    const px = Position.x[entityId]
+    const py = Position.y[entityId]
+    const pz = Position.z[entityId]
+
+    // Detect movement speed
+    const dx = px - lastPos.current.x
+    const dz = pz - lastPos.current.z
+    const speed = Math.sqrt(dx * dx + dz * dz) / delta
+    lastPos.current = { x: px, z: pz }
+
+    // Advance walk cycle only when moving
+    const isMoving = speed > 0.3
+    if (isMoving) walkTime.current += delta * Math.min(speed, 14) * 1.6
+
+    const swing = isMoving ? Math.sin(walkTime.current) * 0.55 : 0
+
+    // Apply leg/arm rotations directly via refs (no React re-render needed)
+    if (lLegRef.current)  lLegRef.current.rotation.x  =  swing
+    if (rLegRef.current)  rLegRef.current.rotation.x  = -swing
+    if (lArmRef.current)  lArmRef.current.rotation.x  = -swing * 0.6
+    if (rArmRef.current)  rArmRef.current.rotation.x  =  swing * 0.6
+
+    // Root position + facing
+    rootRef.current.position.set(px, py, pz)
+    rootRef.current.quaternion.set(
       Rotation.x[entityId],
       Rotation.y[entityId],
       Rotation.z[entityId],
@@ -440,8 +477,87 @@ function PlayerMesh({ entityId }: { entityId: number }) {
   })
 
   return (
-    <group ref={meshRef}>
-      <HumanoidFigure skinColor="#f5c5a3" shirtColor="#3a7ecf" pantsColor="#2a4a7a" />
+    <group ref={rootRef}>
+      {/* Static body parts */}
+      {/* Torso */}
+      <mesh position={[0, 0.55, 0]} castShadow>
+        <boxGeometry args={[0.44, 0.58, 0.22]} />
+        <meshStandardMaterial color="#3a7ecf" />
+      </mesh>
+      {/* Hips */}
+      <mesh position={[0, 0.18, 0]} castShadow>
+        <boxGeometry args={[0.42, 0.22, 0.22]} />
+        <meshStandardMaterial color="#2a4a7a" />
+      </mesh>
+      {/* Head */}
+      <mesh position={[0, 1.0, 0]} castShadow>
+        <boxGeometry args={[0.34, 0.34, 0.32]} />
+        <meshStandardMaterial color="#f5c5a3" />
+      </mesh>
+      <mesh position={[0.1, 1.03, -0.17]} castShadow>
+        <boxGeometry args={[0.07, 0.05, 0.04]} />
+        <meshStandardMaterial color="#1a1a1a" />
+      </mesh>
+      <mesh position={[-0.1, 1.03, -0.17]} castShadow>
+        <boxGeometry args={[0.07, 0.05, 0.04]} />
+        <meshStandardMaterial color="#1a1a1a" />
+      </mesh>
+      <mesh position={[0, 0.86, 0]} castShadow>
+        <boxGeometry args={[0.14, 0.12, 0.14]} />
+        <meshStandardMaterial color="#f5c5a3" />
+      </mesh>
+      {/* Left arm (pivot at shoulder) */}
+      <group ref={lArmRef} position={[-0.30, 0.75, 0]}>
+        <mesh position={[0, -0.18, 0]} castShadow>
+          <boxGeometry args={[0.14, 0.36, 0.14]} />
+          <meshStandardMaterial color="#3a7ecf" />
+        </mesh>
+        <mesh position={[0, -0.44, 0]} castShadow>
+          <boxGeometry args={[0.12, 0.30, 0.12]} />
+          <meshStandardMaterial color="#f5c5a3" />
+        </mesh>
+      </group>
+      {/* Right arm */}
+      <group ref={rArmRef} position={[0.30, 0.75, 0]}>
+        <mesh position={[0, -0.18, 0]} castShadow>
+          <boxGeometry args={[0.14, 0.36, 0.14]} />
+          <meshStandardMaterial color="#3a7ecf" />
+        </mesh>
+        <mesh position={[0, -0.44, 0]} castShadow>
+          <boxGeometry args={[0.12, 0.30, 0.12]} />
+          <meshStandardMaterial color="#f5c5a3" />
+        </mesh>
+      </group>
+      {/* Left leg (pivot at hip) */}
+      <group ref={lLegRef} position={[-0.13, 0.09, 0]}>
+        <mesh position={[0, -0.18, 0]} castShadow>
+          <boxGeometry args={[0.16, 0.36, 0.16]} />
+          <meshStandardMaterial color="#2a4a7a" />
+        </mesh>
+        <mesh position={[0, -0.44, 0]} castShadow>
+          <boxGeometry args={[0.14, 0.32, 0.14]} />
+          <meshStandardMaterial color="#4a3a2a" />
+        </mesh>
+        <mesh position={[0, -0.62, -0.04]} castShadow>
+          <boxGeometry args={[0.14, 0.08, 0.22]} />
+          <meshStandardMaterial color="#2a2010" />
+        </mesh>
+      </group>
+      {/* Right leg */}
+      <group ref={rLegRef} position={[0.13, 0.09, 0]}>
+        <mesh position={[0, -0.18, 0]} castShadow>
+          <boxGeometry args={[0.16, 0.36, 0.16]} />
+          <meshStandardMaterial color="#2a4a7a" />
+        </mesh>
+        <mesh position={[0, -0.44, 0]} castShadow>
+          <boxGeometry args={[0.14, 0.32, 0.14]} />
+          <meshStandardMaterial color="#4a3a2a" />
+        </mesh>
+        <mesh position={[0, -0.62, -0.04]} castShadow>
+          <boxGeometry args={[0.14, 0.08, 0.22]} />
+          <meshStandardMaterial color="#2a2010" />
+        </mesh>
+      </group>
     </group>
   )
 }

@@ -10,6 +10,7 @@ import { WorldSocket } from './WorldSocket'
 import { usePlayerStore } from '../store/playerStore'
 
 const WS_URL = import.meta.env.VITE_WS_URL as string | undefined
+if (!WS_URL) console.warn('[WorldSocket] VITE_WS_URL is not set — multiplayer disabled')
 const UPDATE_HZ = 10
 const UPDATE_MS = 1000 / UPDATE_HZ
 

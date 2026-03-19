@@ -1,6 +1,7 @@
 import React from 'react'
 import { useGameStore } from '../store/gameStore'
 import { usePlayerStore } from '../store/playerStore'
+import { useMultiplayerStore } from '../store/multiplayerStore'
 import { SidebarShell } from './SidebarShell'
 import { NotificationSystem } from './NotificationSystem'
 
@@ -67,6 +68,7 @@ function GoalBadge({ goal }: GoalBadgeProps) {
 export function HUD() {
   const { paused, simTime, epoch } = useGameStore()
   const { health, hunger, thirst, energy, fatigue, evolutionPoints, currentGoal } = usePlayerStore()
+  const { connectionStatus, remotePlayers } = useMultiplayerStore()
 
   return (
     <>
@@ -132,6 +134,18 @@ export function HUD() {
             {epoch.toUpperCase().replace(/_/g, ' ')}
           </div>
           <div style={{ fontSize: 20, fontWeight: 'bold', letterSpacing: 1 }}>{simTime}</div>
+          {/* Connection status */}
+          <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 5, justifyContent: 'flex-end' }}>
+            <div style={{
+              width: 7, height: 7, borderRadius: '50%',
+              background: connectionStatus === 'connected' ? '#2ecc71' : connectionStatus === 'connecting' ? '#f1c40f' : '#e74c3c',
+            }} />
+            <span style={{ fontSize: 9, color: '#888', letterSpacing: 1 }}>
+              {connectionStatus === 'connected'
+                ? `ONLINE · ${remotePlayers.size} player${remotePlayers.size !== 1 ? 's' : ''}`
+                : connectionStatus === 'connecting' ? 'CONNECTING...' : 'OFFLINE'}
+            </span>
+          </div>
           {paused && (
             <div style={{
               marginTop: 4,

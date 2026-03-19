@@ -1,7 +1,5 @@
 import { neon } from '@neondatabase/serverless'
-import { createClerkClient } from '@clerk/backend'
-
-const clerk = createClerkClient({ secretKey: process.env.CLERK_SECRET_KEY! })
+import { verifyToken } from '@clerk/backend'
 
 export default async function handler(req: Request) {
   if (req.method !== 'GET') return new Response('Method Not Allowed', { status: 405 })
@@ -11,7 +9,7 @@ export default async function handler(req: Request) {
 
   let userId: string
   try {
-    const payload = await clerk.verifyToken(token)
+    const payload = await verifyToken(token, { secretKey: process.env.CLERK_SECRET_KEY! })
     userId = payload.sub
   } catch {
     return new Response('Unauthorized', { status: 401 })

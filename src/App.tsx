@@ -1,20 +1,19 @@
 import { Suspense, useEffect, useRef } from 'react'
-import { SignedIn, SignedOut, SignIn, useAuth, useUser } from '@clerk/clerk-react'
+import { SignIn, useAuth, useUser } from '@clerk/react'
 import { SceneRoot } from './rendering/SceneRoot'
 import { HUD } from './ui/HUD'
 import { loadSave, saveGame } from './store/saveStore'
 
 export default function App() {
-  return (
-    <>
-      <SignedOut>
-        <LoginScreen />
-      </SignedOut>
-      <SignedIn>
-        <GameWithSave />
-      </SignedIn>
-    </>
+  const { isSignedIn, isLoaded } = useAuth()
+
+  if (!isLoaded) return (
+    <div style={{ position: 'fixed', inset: 0, background: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
+      Loading...
+    </div>
   )
+
+  return isSignedIn ? <GameWithSave /> : <LoginScreen />
 }
 
 // ── Login screen ─────────────────────────────────────────────────────────────

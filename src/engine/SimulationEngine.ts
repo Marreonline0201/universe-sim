@@ -3,6 +3,13 @@ import { SimClock } from './SimClock'
 import { SIMULATION } from './constants'
 import { useGameStore } from '../store/gameStore'
 
+// Vite ?worker imports → emitted as real files served from same origin
+// (avoids data: URI workers being blocked by Cross-Origin-Embedder-Policy)
+import PhysicsWorker  from './workers/physics.worker.ts?worker'
+import FluidWorker    from './workers/fluid.worker.ts?worker'
+import ThermalWorker  from './workers/thermal.worker.ts?worker'
+import ChemWorker     from './workers/chem.worker.ts?worker'
+
 export interface SimulationConfig {
   gridX: number
   gridY: number
@@ -25,15 +32,15 @@ export class SimulationEngine {
     if (this.initialized) return
 
     // Step 1: spawn all workers (don't wait for 'ready' yet)
-    const entries: Array<{ name: string; worker: Worker; ready: Promise<void> }> = []
-    const workerDefs: Array<[string, URL]> = [
-      ['physics', new URL('./workers/physics.worker.ts', import.meta.url)],
-      ['fluid',   new URL('./workers/fluid.worker.ts',   import.meta.url)],
-      ['thermal', new URL('./workers/thermal.worker.ts', import.meta.url)],
-      ['chem',    new URL('./workers/chem.worker.ts',    import.meta.url)],
+    const workerDefs: Array<[string, Worker]> = [
+      ['physics', new PhysicsWorker()],
+      ['fluid',   new FluidWorker()],
+      ['thermal', new ThermalWorker()],
+      ['chem',    new ChemWorker()],
     ]
-    for (const [name, url] of workerDefs) {
-      const w = new Worker(url, { type: 'module' })
+
+    const entries: Array<{ name: string; worker: Worker; ready: Promise<void> }> = []
+    for (const [name, w] of workerDefs) {
       const ready = new Promise<void>((resolve, reject) => {
         w.onmessage = (e) => { if (e.data?.type === 'ready') resolve() }
         w.onerror   = reject

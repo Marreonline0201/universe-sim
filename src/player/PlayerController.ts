@@ -176,10 +176,10 @@ export class PlayerController {
       this.onGround = false
     }
 
-    // Gravity integration (simple — Rapier will override when physics is active)
+    // Gravity integration — floor at y=0.9 (capsule half-height so bottom touches ground)
     Velocity.y[this.entityId] -= 9.81 * dt
-    if (Position.y[this.entityId] <= 0) {
-      Position.y[this.entityId] = 0
+    if (Position.y[this.entityId] <= 0.9) {
+      Position.y[this.entityId] = 0.9
       Velocity.y[this.entityId] = 0
       this.onGround = true
     }

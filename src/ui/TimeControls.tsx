@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react'
 import { useGameStore } from '../store/gameStore'
 
 const TIME_SCALES = [0.1, 0.5, 1, 10, 100, 1000, 10000, 100000, 1000000]
@@ -13,8 +14,8 @@ const styles = {
     borderRadius: 8,
     padding: '6px 14px',
     backdropFilter: 'blur(6px)',
-  } as React.CSSProperties,
-  pauseBtn: (paused: boolean): React.CSSProperties => ({
+  } as CSSProperties,
+  pauseBtn: (paused: boolean): CSSProperties => ({
     color: paused ? '#e74c3c' : '#2ecc71',
     background: 'none',
     border: `1px solid ${paused ? '#e74c3c' : '#2ecc71'}`,
@@ -25,7 +26,7 @@ const styles = {
     minWidth: 36,
     transition: 'all 0.15s',
   }),
-  scaleBtn: (active: boolean): React.CSSProperties => ({
+  scaleBtn: (active: boolean): CSSProperties => ({
     color: active ? '#f1c40f' : '#888',
     background: active ? 'rgba(241,196,15,0.15)' : 'none',
     border: `1px solid ${active ? '#f1c40f' : '#333'}`,

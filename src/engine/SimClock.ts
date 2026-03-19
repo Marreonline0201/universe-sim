@@ -37,7 +37,7 @@ export class SimClock {
   /** Current epoch */
   epoch: Epoch = 'stellar'
   /** Callbacks registered for tick */
-  private tickCallbacks: Array<(dtSim: number, dtWall: number) => void> = []
+  private tickCallbacks: Array<(dtSim: number, dtPhysics: number, dtWall: number) => void> = []
 
   private static readonly EPOCH_THRESHOLDS: Array<[number, Epoch]> = [
     [1e-43, 'planck'],
@@ -62,7 +62,7 @@ export class SimClock {
     this.timeScale = Math.max(0.01, Math.min(1e6, scale))
   }
 
-  onTick(cb: (dtSim: number, dtWall: number) => void): void {
+  onTick(cb: (dtSim: number, dtPhysics: number, dtWall: number) => void): void {
     this.tickCallbacks.push(cb)
   }
 
@@ -71,10 +71,11 @@ export class SimClock {
     const now = performance.now()
     const dtWall = (now - this.lastWallMs) / 1000 // wall-clock seconds
     this.lastWallMs = now
-    const dtSim = Math.min(dtWall * this.timeScale, 10) // cap at 10 simulated seconds/tick
+    const dtSim     = dtWall * this.timeScale          // full uncapped sim time for display
+    const dtPhysics = Math.min(dtSim, 10)              // capped for physics stability (10 sim-sec max/tick)
     this.simTimeSec += dtSim
     this._updateEpoch()
-    for (const cb of this.tickCallbacks) cb(dtSim, dtWall)
+    for (const cb of this.tickCallbacks) cb(dtSim, dtPhysics, dtWall)
     requestAnimationFrame(this._loop)
   }
 

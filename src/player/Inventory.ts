@@ -194,7 +194,7 @@ export const CRAFTING_RECIPES: CraftingRecipe[] = [
   {
     id: 5, name: 'Rope', tier: 0, time: 15,
     inputs: [{ materialId: MAT.FIBER, quantity: 5 }],
-    output: { itemId: ITEM.FIRE, quantity: 1 },
+    output: { itemId: MAT.ROPE, quantity: 1 },
     knowledgeRequired: [],
   },
   {
@@ -244,7 +244,7 @@ export const CRAFTING_RECIPES: CraftingRecipe[] = [
   {
     id: 13, name: 'Bronze', tier: 1, time: 180,
     inputs: [{ materialId: MAT.COPPER_ORE, quantity: 3 }, { materialId: MAT.TIN_ORE, quantity: 1 }, { materialId: MAT.CHARCOAL, quantity: 2 }],
-    output: { itemId: ITEM.FORGE, quantity: 0 },   // output is material MAT.BRONZE
+    output: { itemId: MAT.BRONZE, quantity: 1 },
     knowledgeRequired: ['metallurgy', 'smelting'],
   },
   {
@@ -314,7 +314,7 @@ export const CRAFTING_RECIPES: CraftingRecipe[] = [
   {
     id: 24, name: 'Glass', tier: 3, time: 120,
     inputs: [{ materialId: MAT.SAND, quantity: 10 }, { materialId: MAT.CHARCOAL, quantity: 3 }],
-    output: { itemId: ITEM.CLAY_POT, quantity: 0 },   // material output MAT.GLASS
+    output: { itemId: MAT.GLASS, quantity: 1 },
     knowledgeRequired: ['glassblowing'],
   },
   {
@@ -378,7 +378,7 @@ export const CRAFTING_RECIPES: CraftingRecipe[] = [
   {
     id: 34, name: 'Gunpowder', tier: 5, time: 120,
     inputs: [{ materialId: MAT.SULFUR, quantity: 1 }, { materialId: MAT.SALTPETER, quantity: 2 }, { materialId: MAT.CHARCOAL_POWDER, quantity: 1 }],
-    output: { itemId: ITEM.STONE_TOOL, quantity: 0 },  // output: material MAT.GUNPOWDER
+    output: { itemId: MAT.GUNPOWDER, quantity: 1 },
     knowledgeRequired: ['chemistry', 'alchemy'],
   },
 
@@ -424,7 +424,7 @@ export const CRAFTING_RECIPES: CraftingRecipe[] = [
   {
     id: 41, name: 'Circuit Board', tier: 7, time: 3600,
     inputs: [{ materialId: MAT.SILICON, quantity: 5 }, { materialId: MAT.COPPER, quantity: 8 }, { materialId: MAT.PLASTIC, quantity: 3 }],
-    output: { itemId: ITEM.COMPUTER, quantity: 0 },  // material MAT.CIRCUIT
+    output: { itemId: MAT.CIRCUIT, quantity: 1 },
     knowledgeRequired: ['electronics', 'semiconductor_physics'],
   },
   {

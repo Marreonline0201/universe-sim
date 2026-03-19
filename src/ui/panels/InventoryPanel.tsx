@@ -1,7 +1,7 @@
 // ── InventoryPanel ─────────────────────────────────────────────────────────────
 // 8×5 grid of inventory slots. Reads from GameSingletons.inventory.
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { inventory } from '../../game/GameSingletons'
 import { MAT, ITEM, type InventorySlot } from '../../player/Inventory'
 
@@ -75,6 +75,12 @@ function SlotCell({ slot, index, selected, onSelect }: {
 export function InventoryPanel() {
   const [selected, setSelected] = useState<number | null>(null)
   const [, forceRefresh] = useState(0)
+
+  // Poll inventory every 200ms so newly gathered items appear immediately
+  useEffect(() => {
+    const id = setInterval(() => forceRefresh(r => r + 1), 200)
+    return () => clearInterval(id)
+  }, [])
 
   function handleSelect(i: number) {
     setSelected(prev => prev === i ? null : i)

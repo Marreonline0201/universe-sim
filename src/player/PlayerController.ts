@@ -156,7 +156,7 @@ export class PlayerController {
     this.input.right     = k.has('KeyD') || k.has('ArrowRight')
     this.input.jump      = k.has('Space')
     this.input.sprint    = k.has('ShiftLeft') || k.has('ShiftRight')
-    this.input.crouch    = k.has('ControlLeft') || k.has('KeyC')
+    this.input.crouch    = k.has('ControlLeft')
     this.input.interact  = k.has('KeyE') || k.has('KeyF')
     this.input.attack    = k.has('MouseLeft') || k.has('KeyQ')
   }

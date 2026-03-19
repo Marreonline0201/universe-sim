@@ -4,3 +4,5 @@ dist/
 *.wasm
 rust/*/target/
 .vercel
+
+.env*.local

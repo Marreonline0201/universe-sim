@@ -2,6 +2,7 @@ import { Suspense, useEffect, useRef } from 'react'
 import { SignIn, useAuth, useUser } from '@clerk/react'
 import { SceneRoot } from './rendering/SceneRoot'
 import { HUD } from './ui/HUD'
+import { AdminPanel } from './ui/AdminPanel'
 import { loadSave, saveGame } from './store/saveStore'
 
 export default function App() {
@@ -67,6 +68,7 @@ function GameWithSave() {
         <SceneRoot />
       </Suspense>
       <HUD />
+      <AdminPanel />
     </>
   )
 }

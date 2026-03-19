@@ -6,7 +6,12 @@ import { AdminPanel } from './ui/AdminPanel'
 import { loadSave, saveGame } from './store/saveStore'
 import { useWorldSocket } from './net/useWorldSocket'
 
+// Dev bypass: set VITE_DEV_BYPASS_AUTH=true in .env.local to skip Clerk login
+const DEV_BYPASS = import.meta.env.DEV && import.meta.env.VITE_DEV_BYPASS_AUTH === 'true'
+
 export default function App() {
+  if (DEV_BYPASS) return <DevGame />
+
   const { isSignedIn, isLoaded } = useAuth()
 
   if (!isLoaded) return (
@@ -16,6 +21,29 @@ export default function App() {
   )
 
   return isSignedIn ? <GameWithSave /> : <LoginScreen />
+}
+
+// ── Dev mode game (no auth, no save) ─────────────────────────────────────────
+
+function DevGame() {
+  useWorldSocket()
+  return (
+    <>
+      <Suspense fallback={<div style={{ color: '#fff', padding: 20 }}>Initializing universe...</div>}>
+        <SceneRoot />
+      </Suspense>
+      <HUD />
+      <AdminPanel />
+      <div style={{
+        position: 'fixed', bottom: 8, left: '50%', transform: 'translateX(-50%)',
+        background: 'rgba(230,100,0,0.85)', color: '#fff', fontFamily: 'monospace',
+        fontSize: 11, padding: '3px 12px', borderRadius: 4, zIndex: 9999,
+        pointerEvents: 'none',
+      }}>
+        DEV MODE — auth bypassed
+      </div>
+    </>
+  )
 }
 
 // ── Login screen ─────────────────────────────────────────────────────────────

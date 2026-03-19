@@ -8,6 +8,7 @@ import { techTree } from '../../game/GameSingletons'
 import { TECH_NODES, type TechNode } from '../../civilization/TechTree'
 import { useGameStore } from '../../store/gameStore'
 import { useUiStore } from '../../store/uiStore'
+import { usePlayerStore } from '../../store/playerStore'
 
 const TIER_LABELS = [
   'Stone Age', 'Bronze Age', 'Iron Age', 'Classical', 'Medieval',
@@ -120,18 +121,27 @@ function buildTechGraph(_simSeconds: number): { nodes: Node[]; edges: Edge[] } {
 export function TechTreePanel() {
   const simSeconds = useGameStore(s => s.simSeconds)
   const addNotification = useUiStore(s => s.addNotification)
+  const setCivTier = usePlayerStore(s => s.setCivTier)
+  const addEvolutionPoints = usePlayerStore(s => s.addEvolutionPoints)
   const [, forceRefresh] = useState(0)
   const [selectedTier, setSelectedTier] = useState<number | null>(null)
   const [graphView, setGraphView] = useState(false)
 
-  // Tick in-progress research
+  // Tick in-progress research + wire downstream effects on completion
   useEffect(() => {
     const newlyCompleted = techTree.tickResearch(simSeconds)
-    for (const id of newlyCompleted) {
-      const node = TECH_NODES.find(n => n.id === id)
-      addNotification(`Research complete: ${node?.name ?? id}`, 'discovery')
+    if (newlyCompleted.length > 0) {
+      for (const id of newlyCompleted) {
+        const node = TECH_NODES.find(n => n.id === id)
+        addNotification(`Research complete: ${node?.name ?? id}`, 'discovery')
+        // Award EP per completed node
+        addEvolutionPoints(5 + (node?.tier ?? 0) * 3)
+      }
+      // Advance civTier to match highest researched tech tier
+      setCivTier(techTree.getCurrentTier())
+      forceRefresh(r => r + 1)
     }
-  }, [simSeconds, addNotification])
+  }, [simSeconds, addNotification, setCivTier, addEvolutionPoints])
 
   function handleResearch(nodeId: string) {
     const ok = techTree.startResearch(nodeId, simSeconds)

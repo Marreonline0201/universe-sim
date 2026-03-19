@@ -4,8 +4,80 @@
 import { useState, useEffect } from 'react'
 import { inventory, techTree } from '../../game/GameSingletons'
 import { CRAFTING_RECIPES, MAT, ITEM, type CraftingRecipe } from '../../player/Inventory'
+import { TECH_NODES } from '../../civilization/TechTree'
 import { usePlayerStore } from '../../store/playerStore'
 import { useUiStore } from '../../store/uiStore'
+
+/** Map each knowledge string to the tech node IDs that unlock it */
+const KNOWLEDGE_TO_TECH: Record<string, string[]> = (() => {
+  const map: Record<string, string[]> = {}
+  // Hand-coded mapping from recipe knowledgeRequired strings → tech node IDs
+  const entries: [string, string[]][] = [
+    ['tool_use',            ['stone_knapping']],
+    ['fire_making',         ['fire']],
+    ['ranged_weapons',      ['hunting']],
+    ['pottery',             ['pottery']],
+    ['metallurgy',          ['copper_smelting']],
+    ['smelting',            ['copper_smelting']],
+    ['weapon_smithing',     ['copper_smelting', 'iron_smelting', 'steel_making']],
+    ['armor_smithing',      ['copper_smelting', 'iron_smelting']],
+    ['agriculture',         ['agriculture']],
+    ['navigation',          ['sailing']],
+    ['carpentry',           ['wheel']],
+    ['iron_smelting',       ['iron_smelting']],
+    ['steel_making',        ['steel_making']],
+    ['mechanics',           ['mechanics']],
+    ['glassblowing',        ['glassblowing']],
+    ['wind_power',          ['windmill']],
+    ['hydraulics',          ['watermill']],
+    ['writing',             ['writing']],
+    ['optics',              ['optics']],
+    ['thermodynamics',      ['steam_engine']],
+    ['steam_power',         ['steam_engine']],
+    ['engineering',         ['structural_engineering']],
+    ['electromagnetism',    ['electromagnetism']],
+    ['communication',       ['telegraph']],
+    ['chemistry',           ['chemistry']],
+    ['alchemy',             ['alchemy']],
+    ['internal_combustion', ['internal_combustion']],
+    ['aerodynamics',        ['aerodynamics']],
+    ['electronics',         ['electronics']],
+    ['nuclear_physics',     ['nuclear_fission']],
+    ['semiconductor_physics',['transistor']],
+    ['logic',               ['computer_science']],
+    ['aerospace',           ['rocketry']],
+    ['orbital_mechanics',   ['orbital_mechanics']],
+    ['propulsion',          ['advanced_propulsion']],
+    ['plasma_physics',      ['nuclear_fusion']],
+    ['superconductivity',   ['superconductivity']],
+    ['nanotechnology',      ['nanotechnology']],
+    ['molecular_assembly',  ['molecular_assembly']],
+    ['AI',                  ['artificial_intelligence']],
+    ['quantum_mechanics',   ['quantum_computing']],
+    ['cryogenics',          ['cryogenics']],
+    ['exotic_matter',       ['exotic_matter']],
+    ['general_relativity',  ['general_relativity']],
+    ['fusion_power',        ['nuclear_fusion']],
+    ['megastructure_engineering', ['megastructure_engineering']],
+    ['stellar_engineering', ['stellar_engineering']],
+    ['self_replicating_machines', ['von_neumann_probes']],
+    ['computronium',        ['computronium']],
+    ['dyson_sphere',        ['dyson_sphere']],
+    ['superintelligence',   ['superintelligence']],
+    ['matrioshka_brain',    ['matrioshka_brain']],
+    ['simulation_hypothesis',['simulation_hypothesis']],
+    ['reality_engineering', ['reality_engineering']],
+    ['materials_science',   ['steel_making', 'iron_smelting']],
+  ]
+  for (const [k, nodes] of entries) map[k] = nodes
+  return map
+})()
+
+function hasKnowledge(key: string): boolean {
+  const techIds = KNOWLEDGE_TO_TECH[key]
+  if (!techIds) return true  // unknown key — don't gate it
+  return techIds.some(id => techTree.isResearched(id))
+}
 
 const MAT_NAMES: Record<number, string> = Object.fromEntries(
   Object.entries(MAT).map(([k, v]) => [v, k.toLowerCase().replace(/_/g, ' ')])
@@ -14,13 +86,13 @@ const ITEM_NAMES: Record<number, string> = Object.fromEntries(
   Object.entries(ITEM).map(([k, v]) => [v, k.toLowerCase().replace(/_/g, ' ')])
 )
 
+function hasAllKnowledge(recipe: CraftingRecipe): boolean {
+  return recipe.knowledgeRequired.every(k => hasKnowledge(k))
+}
+
 function canCraft(recipe: CraftingRecipe, civTier: number): boolean {
   if (civTier < recipe.tier) return false
-  // Mirror the knowledge gate from Inventory.craft()
-  if (recipe.knowledgeRequired.length > 0) {
-    const known = new Set(inventory.getKnownRecipes())
-    if (!known.has(recipe.id)) return false
-  }
+  if (!hasAllKnowledge(recipe)) return false
   for (const input of recipe.inputs) {
     const idx = inventory.findItem(input.materialId)
     if (idx === -1) return false
@@ -28,6 +100,10 @@ function canCraft(recipe: CraftingRecipe, civTier: number): boolean {
     if (!slot || slot.quantity < input.quantity) return false
   }
   return true
+}
+
+function isUnlocked(recipe: CraftingRecipe, civTier: number): boolean {
+  return civTier >= recipe.tier && hasAllKnowledge(recipe)
 }
 
 export function CraftingPanel() {
@@ -45,7 +121,7 @@ export function CraftingPanel() {
 
   const recipes = CRAFTING_RECIPES.filter(r => {
     if (filter === 'available') return canCraft(r, civTier)
-    return r.tier <= civTier + 1 // show current + next tier
+    return true  // "All" shows every recipe — grayed out if not unlocked
   })
 
   function handleCraft() {
@@ -91,6 +167,7 @@ export function CraftingPanel() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           {recipes.map(r => {
             const craftable = canCraft(r, civTier)
+            const unlocked  = isUnlocked(r, civTier)
             const active = selectedRecipe?.id === r.id
             return (
               <div
@@ -102,13 +179,15 @@ export function CraftingPanel() {
                   border: `1px solid ${active ? 'rgba(52,152,219,0.5)' : 'rgba(255,255,255,0.07)'}`,
                   borderRadius: 6,
                   cursor: 'pointer',
-                  opacity: craftable ? 1 : 0.5,
+                  opacity: craftable ? 1 : unlocked ? 0.65 : 0.3,
                 }}
               >
-                <div style={{ fontSize: 12, fontWeight: 700 }}>{r.name}</div>
+                <div style={{ fontSize: 12, fontWeight: 700 }}>
+                  {!unlocked && <span style={{ color: '#555' }}>🔒 </span>}
+                  {r.name}
+                </div>
                 <div style={{ fontSize: 10, color: '#888', marginTop: 2 }}>
-                  Tier {r.tier} · {r.time}s ·{' '}
-                  {r.inputs.map(inp => `${inp.quantity}× ${MAT_NAMES[inp.materialId] ?? inp.materialId}`).join(', ')}
+                  Tier {r.tier} · {r.inputs.map(inp => `${inp.quantity}× ${MAT_NAMES[inp.materialId] ?? inp.materialId}`).join(', ')}
                 </div>
               </div>
             )

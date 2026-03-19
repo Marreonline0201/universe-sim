@@ -29,11 +29,17 @@ interface ResourceNode {
 }
 
 const NODE_TYPES = [
-  { type: 'stone', label: 'Stone',  matId: MAT.STONE, color: '#888888', count: 15 },
-  { type: 'flint', label: 'Flint',  matId: MAT.FLINT, color: '#556677', count: 8  },
-  { type: 'wood',  label: 'Wood',   matId: MAT.WOOD,  color: '#8B5E3C', count: 15 },
-  { type: 'clay',  label: 'Clay',   matId: MAT.CLAY,  color: '#CC7744', count: 8  },
-  { type: 'fiber', label: 'Fiber',  matId: MAT.FIBER, color: '#66BB44', count: 12 },
+  { type: 'stone',       label: 'Stone',       matId: MAT.STONE,      color: '#888888', count: 20 },
+  { type: 'flint',       label: 'Flint',       matId: MAT.FLINT,      color: '#556677', count: 10 },
+  { type: 'wood',        label: 'Wood',        matId: MAT.WOOD,       color: '#8B5E3C', count: 20 },
+  { type: 'clay',        label: 'Clay',        matId: MAT.CLAY,       color: '#CC7744', count: 12 },
+  { type: 'fiber',       label: 'Fiber',       matId: MAT.FIBER,      color: '#66BB44', count: 15 },
+  { type: 'copper_ore',  label: 'Copper Ore',  matId: MAT.COPPER_ORE, color: '#b87333', count: 8  },
+  { type: 'iron_ore',    label: 'Iron Ore',    matId: MAT.IRON_ORE,   color: '#7a6a5a', count: 8  },
+  { type: 'coal',        label: 'Coal',        matId: MAT.COAL,       color: '#2a2a2a', count: 6  },
+  { type: 'tin_ore',     label: 'Tin Ore',     matId: MAT.TIN_ORE,    color: '#9aacb8', count: 5  },
+  { type: 'sand',        label: 'Sand',        matId: MAT.SAND,       color: '#d4c47a', count: 8  },
+  { type: 'sulfur',      label: 'Sulfur',      matId: MAT.SULFUR,     color: '#cccc22', count: 4  },
 ]
 
 function seededRand(seed: number): () => number {
@@ -63,6 +69,9 @@ function generateResourceNodes(): ResourceNode[] {
 const RESOURCE_NODES: ResourceNode[] = generateResourceNodes()
 // Mutable set — mutated by game loop when player gathers a node
 const gatheredNodeIds = new Set<number>()
+// Respawn: map nodeId → real timestamp when it can reappear (60s)
+const NODE_RESPAWN_AT = new Map<number, number>()
+const NODE_RESPAWN_DELAY = 60_000 // ms
 
 // ── Terrain noise ─────────────────────────────────────────────────────────────
 
@@ -256,9 +265,11 @@ interface GameLoopProps {
 
 function GameLoop({ controllerRef, entityId }: GameLoopProps) {
   const { camera } = useThree()
-  const updateVitals = usePlayerStore(s => s.updateVitals)
-  const setPosition  = usePlayerStore(s => s.setPosition)
-  const spectateTarget = useGameStore(s => s.spectateTarget)
+  const updateVitals        = usePlayerStore(s => s.updateVitals)
+  const setPosition         = usePlayerStore(s => s.setPosition)
+  const addEvolutionPoints  = usePlayerStore(s => s.addEvolutionPoints)
+  const spectateTarget      = useGameStore(s => s.spectateTarget)
+  const epAccumRef          = useRef(0)
 
   useFrame((_, delta) => {
     // Cap dt to avoid spiral-of-death on slow frames
@@ -288,6 +299,25 @@ function GameLoop({ controllerRef, entityId }: GameLoopProps) {
       fatigue: Metabolism.fatigue[entityId],
     })
 
+    // 4a. EP trickle — 1 EP per 30 real seconds of survival
+    epAccumRef.current += dt
+    if (epAccumRef.current >= 30) {
+      epAccumRef.current -= 30
+      addEvolutionPoints(1)
+    }
+
+    // 4b. Node respawn — check if any gathered nodes are ready to come back
+    if (gatheredNodeIds.size > 0) {
+      const now = Date.now()
+      for (const id of gatheredNodeIds) {
+        const at = NODE_RESPAWN_AT.get(id)
+        if (at !== undefined && now >= at) {
+          gatheredNodeIds.delete(id)
+          NODE_RESPAWN_AT.delete(id)
+        }
+      }
+    }
+
     // 4. Sync player world position + clamp to terrain
     const px = Position.x[entityId]
     const pz = Position.z[entityId]
@@ -316,14 +346,22 @@ function GameLoop({ controllerRef, entityId }: GameLoopProps) {
 
       if (!gs.inputBlocked && controllerRef.current?.popInteract()) {
         gatheredNodeIds.add(nearNode.id)
+        NODE_RESPAWN_AT.set(nearNode.id, Date.now() + NODE_RESPAWN_DELAY)
         gs.setGatherPrompt(null)
-        inventory.addItem({ itemId: 0, materialId: nearNode.matId, quantity: 1, quality: 0.8 })
+        const qty = nearNode.matId === MAT.COPPER_ORE || nearNode.matId === MAT.IRON_ORE
+          || nearNode.matId === MAT.COAL || nearNode.matId === MAT.TIN_ORE ? 3 : 1
+        inventory.addItem({ itemId: 0, materialId: nearNode.matId, quantity: qty, quality: 0.8 })
         // Unlock stone tool recipe on first stone or flint gather
         if (nearNode.matId === MAT.STONE || nearNode.matId === MAT.FLINT) {
           inventory.discoverRecipe(1)
         }
         const addNotification = useUiStore.getState().addNotification
-        addNotification(`Gathered ${nearNode.label}`, 'info')
+        addNotification(`Gathered ${qty > 1 ? qty + '× ' : ''}${nearNode.label}`, 'info')
+        // Award EP for discovery gathers (ores)
+        const oreMatIds: number[] = [MAT.COPPER_ORE, MAT.IRON_ORE, MAT.COAL, MAT.TIN_ORE, MAT.SULFUR]
+        if (oreMatIds.includes(nearNode.matId)) {
+          addEvolutionPoints(2)
+        }
       }
     } else {
       if (gs.gatherPrompt !== null) gs.setGatherPrompt(null)

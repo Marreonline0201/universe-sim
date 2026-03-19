@@ -200,8 +200,15 @@ export class PlayerController {
       this.onGround = false
     }
 
-    // Gravity integration — floor at y=0.9 (capsule half-height so bottom touches ground)
+    // Gravity
     Velocity.y[this.entityId] -= 9.81 * dt
+
+    // Integrate velocity → position
+    Position.x[this.entityId] += Velocity.x[this.entityId] * dt
+    Position.z[this.entityId] += Velocity.z[this.entityId] * dt
+    Position.y[this.entityId] += Velocity.y[this.entityId] * dt
+
+    // Floor clamp
     if (Position.y[this.entityId] <= 0.9) {
       Position.y[this.entityId] = 0.9
       Velocity.y[this.entityId] = 0

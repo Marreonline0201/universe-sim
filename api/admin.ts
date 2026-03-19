@@ -1,20 +1,23 @@
 import { neon } from '@neondatabase/serverless'
 import { verifyToken } from '@clerk/backend'
 
-export default async function handler(req: Request) {
-  const token = req.headers.get('Authorization')?.replace('Bearer ', '')
-  if (!token) return new Response('Unauthorized', { status: 401 })
+export default async function handler(req: any, res: any) {
+  if (req.method !== 'GET') { res.status(405).send('Method Not Allowed'); return }
+
+  const auth: string | undefined = req.headers['authorization']
+  const token = auth?.replace('Bearer ', '')
+  if (!token) { res.status(401).send('Unauthorized'); return }
 
   let userId: string
   try {
     const payload = await verifyToken(token, { secretKey: process.env.CLERK_SECRET_KEY! })
     userId = payload.sub
   } catch {
-    return new Response('Unauthorized', { status: 401 })
+    res.status(401).send('Unauthorized'); return
   }
 
   if (userId !== process.env.ADMIN_USER_ID) {
-    return new Response('Forbidden', { status: 403 })
+    res.status(403).send('Forbidden'); return
   }
 
   const sql = neon(process.env.DATABASE_URL!)
@@ -26,5 +29,5 @@ export default async function handler(req: Request) {
     ORDER BY updated_at DESC
   `
 
-  return Response.json({ players: rows })
+  res.json({ players: rows })
 }

@@ -26,7 +26,7 @@ const HOTKEYS = [
 
 export function SettingsPanel() {
   const { signOut } = useClerk()
-  const { userId } = useAuth()
+  const { userId, getToken } = useAuth()
   const { paused, togglePause, timeScale, setTimeScale } = useGameStore()
   const addNotification = useUiStore(s => s.addNotification)
   const closePanel = useUiStore(s => s.closePanel)
@@ -38,11 +38,14 @@ export function SettingsPanel() {
       const { sendAdminSetTime } = await import('../../net/useWorldSocket')
       sendAdminSetTime(s, paused)
     } catch { /* no WS configured */ }
-    fetch('/api/world-settings', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ timeScale: s }),
-    }).catch(() => {})
+    getToken().then(token => {
+      if (!token) return
+      fetch('/api/world-settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ timeScale: s }),
+      }).catch(() => {})
+    })
   }
 
   async function handleTogglePause() {

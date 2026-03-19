@@ -3,6 +3,7 @@
 // Registers global hotkeys. Blocks game input while any panel is open.
 
 import React, { useEffect } from 'react'
+import { AnimatePresence, motion } from 'framer-motion'
 import { useUiStore, type PanelId } from '../store/uiStore'
 import { useGameStore } from '../store/gameStore'
 import { InventoryPanel } from './panels/InventoryPanel'
@@ -92,25 +93,30 @@ export function SidebarShell() {
   return (
     <>
       {/* Sliding panel */}
-      <div style={{
-        position: 'fixed',
-        top: 0,
-        right: 48, // sits left of icon strip
-        width: PANEL_WIDTH,
-        height: '100vh',
-        background: 'rgba(10,10,20,0.95)',
-        borderLeft: '1px solid rgba(255,255,255,0.1)',
-        backdropFilter: 'blur(12px)',
-        zIndex: 200,
-        transform: activePanel ? 'translateX(0)' : `translateX(${PANEL_WIDTH + 48}px)`,
-        transition: 'transform 0.25s cubic-bezier(0.4,0,0.2,1)',
-        overflowY: 'auto',
-        display: 'flex',
-        flexDirection: 'column',
-        pointerEvents: activePanel ? 'auto' : 'none',
-      }}>
-        {ActivePanel && (
-          <>
+      <AnimatePresence>
+        {activePanel && (
+          <motion.div
+            key={activePanel}
+            initial={{ x: PANEL_WIDTH + 48 }}
+            animate={{ x: 0 }}
+            exit={{ x: PANEL_WIDTH + 48 }}
+            transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+            style={{
+              position: 'fixed',
+              top: 0,
+              right: 48,
+              width: PANEL_WIDTH,
+              height: '100vh',
+              background: 'rgba(10,10,20,0.95)',
+              borderLeft: '1px solid rgba(255,255,255,0.1)',
+              backdropFilter: 'blur(12px)',
+              zIndex: 200,
+              overflowY: 'auto',
+              display: 'flex',
+              flexDirection: 'column',
+              pointerEvents: 'auto',
+            }}
+          >
             {/* Panel header */}
             <div style={{
               display: 'flex',
@@ -136,11 +142,11 @@ export function SidebarShell() {
             </div>
             {/* Panel content */}
             <div style={{ flex: 1, overflow: 'auto', padding: 16 }}>
-              <ActivePanel />
+              {ActivePanel && <ActivePanel />}
             </div>
-          </>
+          </motion.div>
         )}
-      </div>
+      </AnimatePresence>
 
       {/* Right-edge icon strip */}
       <div style={{

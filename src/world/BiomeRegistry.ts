@@ -1,0 +1,273 @@
+export interface Biome {
+  id: string
+  name: string
+  // Temperature range (°C)
+  tempMin: number
+  tempMax: number
+  // Precipitation range (mm/year)
+  precipMin: number
+  precipMax: number
+  // Real carrying capacity (animals/km²) — mixed species
+  carryingCapacity: Record<string, number>
+  // Dominant plant types
+  vegetation: string[]
+  // Colors for rendering
+  groundColorHex: string
+  foliageColorHex: string | null
+  // Real data: net primary productivity (g C/m²/year)
+  // Sources: IPCC AR6, Whittaker (1975), Schlesinger (1997)
+  nppGCm2yr: number
+  // Decomposition rate (0-1, affects organic chemistry cycling speed)
+  decompositionRate: number
+}
+
+/**
+ * 20 real biomes with ecologically accurate data.
+ * Data sources:
+ *   - Whittaker (1975) Communities and Ecosystems
+ *   - Olson et al. (2001) Terrestrial Ecoregions of the World
+ *   - IPCC AR6 WG1 Chapter 5 (carbon cycle)
+ *   - WWF Biome definitions
+ */
+export const BIOMES: Record<string, Biome> = {
+  tropical_rainforest: {
+    id: 'tropical_rainforest',
+    name: 'Tropical Rainforest',
+    tempMin: 20, tempMax: 35,
+    precipMin: 2000, precipMax: 10000,
+    carryingCapacity: { large_herbivore: 0.5, small_herbivore: 80, predator: 0.2, bird: 200, insect: 50000 },
+    vegetation: ['broadleaf_evergreen', 'epiphyte', 'fern', 'liana', 'palm'],
+    groundColorHex: '#2d4a1e',
+    foliageColorHex: '#1a6b2a',
+    nppGCm2yr: 2000,
+    decompositionRate: 0.95,
+  },
+  tropical_dry_forest: {
+    id: 'tropical_dry_forest',
+    name: 'Tropical Dry Forest',
+    tempMin: 18, tempMax: 35,
+    precipMin: 1000, precipMax: 2000,
+    carryingCapacity: { large_herbivore: 1.2, small_herbivore: 50, predator: 0.3, bird: 120, insect: 20000 },
+    vegetation: ['deciduous_tropical', 'thorny_shrub', 'bamboo', 'cactus'],
+    groundColorHex: '#7a6030',
+    foliageColorHex: '#4a8c2e',
+    nppGCm2yr: 1000,
+    decompositionRate: 0.7,
+  },
+  tropical_savanna: {
+    id: 'tropical_savanna',
+    name: 'Tropical Savanna',
+    tempMin: 18, tempMax: 38,
+    precipMin: 500, precipMax: 1500,
+    carryingCapacity: { large_herbivore: 8, small_herbivore: 40, predator: 0.8, bird: 80, insect: 15000 },
+    vegetation: ['c4_grass', 'acacia', 'baobab', 'thorn_bush'],
+    groundColorHex: '#b8922a',
+    foliageColorHex: '#7aab3c',
+    nppGCm2yr: 700,
+    decompositionRate: 0.6,
+  },
+  desert: {
+    id: 'desert',
+    name: 'Desert',
+    tempMin: -10, tempMax: 55,
+    precipMin: 0, precipMax: 250,
+    carryingCapacity: { large_herbivore: 0.05, small_herbivore: 2, predator: 0.02, bird: 5, insect: 500 },
+    vegetation: ['cactus', 'succulent', 'xerophyte', 'dry_scrub'],
+    groundColorHex: '#c8a84b',
+    foliageColorHex: '#9aad5c',
+    nppGCm2yr: 40,
+    decompositionRate: 0.1,
+  },
+  mediterranean: {
+    id: 'mediterranean',
+    name: 'Mediterranean Shrubland',
+    tempMin: 5, tempMax: 30,
+    precipMin: 300, precipMax: 900,
+    carryingCapacity: { large_herbivore: 1.5, small_herbivore: 30, predator: 0.4, bird: 90, insect: 8000 },
+    vegetation: ['sclerophyll_shrub', 'olive', 'oak', 'lavender', 'rosemary'],
+    groundColorHex: '#8f7a50',
+    foliageColorHex: '#7a9c3a',
+    nppGCm2yr: 400,
+    decompositionRate: 0.4,
+  },
+  temperate_grassland: {
+    id: 'temperate_grassland',
+    name: 'Temperate Grassland / Steppe',
+    tempMin: -10, tempMax: 25,
+    precipMin: 250, precipMax: 750,
+    carryingCapacity: { large_herbivore: 5, small_herbivore: 60, predator: 0.5, bird: 50, insect: 10000 },
+    vegetation: ['c3_grass', 'c4_grass', 'forb', 'sedge'],
+    groundColorHex: '#a89a50',
+    foliageColorHex: '#c8b84a',
+    nppGCm2yr: 500,
+    decompositionRate: 0.45,
+  },
+  temperate_forest: {
+    id: 'temperate_forest',
+    name: 'Temperate Deciduous / Mixed Forest',
+    tempMin: -5, tempMax: 22,
+    precipMin: 600, precipMax: 1500,
+    carryingCapacity: { large_herbivore: 2, small_herbivore: 40, predator: 0.4, bird: 150, insect: 12000 },
+    vegetation: ['oak', 'maple', 'beech', 'birch', 'pine', 'fern_understory'],
+    groundColorHex: '#4a5c2a',
+    foliageColorHex: '#2e6b1a',
+    nppGCm2yr: 800,
+    decompositionRate: 0.55,
+  },
+  taiga: {
+    id: 'taiga',
+    name: 'Taiga / Boreal Forest',
+    tempMin: -50, tempMax: 10,
+    precipMin: 200, precipMax: 800,
+    carryingCapacity: { large_herbivore: 0.3, small_herbivore: 15, predator: 0.1, bird: 40, insect: 3000 },
+    vegetation: ['spruce', 'fir', 'pine', 'larch', 'lichen', 'moss'],
+    groundColorHex: '#3a4c2a',
+    foliageColorHex: '#1e4a1a',
+    nppGCm2yr: 360,
+    decompositionRate: 0.2,
+  },
+  tundra: {
+    id: 'tundra',
+    name: 'Tundra',
+    tempMin: -40, tempMax: 5,
+    precipMin: 100, precipMax: 400,
+    carryingCapacity: { large_herbivore: 0.2, small_herbivore: 8, predator: 0.05, bird: 20, insect: 500 },
+    vegetation: ['sedge', 'moss', 'lichen', 'dwarf_shrub', 'grass'],
+    groundColorHex: '#7a8a5a',
+    foliageColorHex: '#8aaa6a',
+    nppGCm2yr: 100,
+    decompositionRate: 0.08,
+  },
+  polar_ice: {
+    id: 'polar_ice',
+    name: 'Polar Ice / Glacial',
+    tempMin: -90, tempMax: -5,
+    precipMin: 0, precipMax: 200,
+    carryingCapacity: { large_herbivore: 0, small_herbivore: 0, predator: 0.01, bird: 5, insect: 0 },
+    vegetation: [],
+    groundColorHex: '#e8f0f8',
+    foliageColorHex: null,
+    nppGCm2yr: 3,
+    decompositionRate: 0.01,
+  },
+  mangrove: {
+    id: 'mangrove',
+    name: 'Mangrove',
+    tempMin: 18, tempMax: 35,
+    precipMin: 1500, precipMax: 6000,
+    carryingCapacity: { large_herbivore: 0.1, small_herbivore: 20, predator: 0.3, bird: 100, insect: 8000 },
+    vegetation: ['mangrove_tree', 'salt_grass', 'reed'],
+    groundColorHex: '#3a5a2a',
+    foliageColorHex: '#2a7c3a',
+    nppGCm2yr: 1500,
+    decompositionRate: 0.8,
+  },
+  coral_reef: {
+    id: 'coral_reef',
+    name: 'Coral Reef',
+    tempMin: 18, tempMax: 30,
+    precipMin: 0, precipMax: 9999,
+    carryingCapacity: { large_herbivore: 0.2, small_herbivore: 200, predator: 1.0, bird: 0, insect: 0 },
+    vegetation: ['coral', 'seagrass', 'algae'],
+    groundColorHex: '#4a8caa',
+    foliageColorHex: '#3ab88c',
+    nppGCm2yr: 2500,
+    decompositionRate: 0.85,
+  },
+  deep_ocean: {
+    id: 'deep_ocean',
+    name: 'Deep Ocean',
+    tempMin: -2, tempMax: 4,
+    precipMin: 0, precipMax: 9999,
+    carryingCapacity: { large_herbivore: 0, small_herbivore: 1, predator: 0.05, bird: 0, insect: 0 },
+    vegetation: ['marine_snow', 'chemosynthetic_bacteria'],
+    groundColorHex: '#0a1a2a',
+    foliageColorHex: null,
+    nppGCm2yr: 25,
+    decompositionRate: 0.05,
+  },
+  shallow_ocean: {
+    id: 'shallow_ocean',
+    name: 'Shallow Ocean / Continental Shelf',
+    tempMin: 0, tempMax: 28,
+    precipMin: 0, precipMax: 9999,
+    carryingCapacity: { large_herbivore: 0.5, small_herbivore: 100, predator: 0.8, bird: 10, insect: 0 },
+    vegetation: ['kelp', 'seagrass', 'phytoplankton', 'algae'],
+    groundColorHex: '#1a4a6a',
+    foliageColorHex: '#2a6a5a',
+    nppGCm2yr: 350,
+    decompositionRate: 0.6,
+  },
+  freshwater: {
+    id: 'freshwater',
+    name: 'Freshwater Lake / River',
+    tempMin: -5, tempMax: 30,
+    precipMin: 200, precipMax: 9999,
+    carryingCapacity: { large_herbivore: 0.3, small_herbivore: 50, predator: 0.5, bird: 30, insect: 5000 },
+    vegetation: ['algae', 'water_lily', 'reed', 'submerged_grass'],
+    groundColorHex: '#2a5a7a',
+    foliageColorHex: '#3a8a5a',
+    nppGCm2yr: 600,
+    decompositionRate: 0.7,
+  },
+  wetland: {
+    id: 'wetland',
+    name: 'Wetland / Marsh / Bog',
+    tempMin: -10, tempMax: 28,
+    precipMin: 500, precipMax: 9999,
+    carryingCapacity: { large_herbivore: 1.0, small_herbivore: 60, predator: 0.6, bird: 200, insect: 20000 },
+    vegetation: ['cattail', 'sedge', 'sphagnum_moss', 'reed', 'willow'],
+    groundColorHex: '#3a5c3a',
+    foliageColorHex: '#5a8c3a',
+    nppGCm2yr: 1200,
+    decompositionRate: 0.3,
+  },
+  alpine: {
+    id: 'alpine',
+    name: 'Alpine / Mountain',
+    tempMin: -30, tempMax: 10,
+    precipMin: 300, precipMax: 2000,
+    carryingCapacity: { large_herbivore: 0.5, small_herbivore: 10, predator: 0.1, bird: 30, insect: 1000 },
+    vegetation: ['alpine_grass', 'cushion_plant', 'lichen', 'moss'],
+    groundColorHex: '#8a8a8a',
+    foliageColorHex: '#9aaa7a',
+    nppGCm2yr: 200,
+    decompositionRate: 0.12,
+  },
+  volcanic: {
+    id: 'volcanic',
+    name: 'Volcanic / Lava Field',
+    tempMin: -5, tempMax: 1000,
+    precipMin: 0, precipMax: 9999,
+    carryingCapacity: { large_herbivore: 0, small_herbivore: 0.5, predator: 0.01, bird: 2, insect: 100 },
+    vegetation: ['pioneer_moss', 'thermophile_bacteria', 'fern'],
+    groundColorHex: '#3a2a1a',
+    foliageColorHex: null,
+    nppGCm2yr: 10,
+    decompositionRate: 0.05,
+  },
+  cave: {
+    id: 'cave',
+    name: 'Cave / Subsurface',
+    tempMin: 4, tempMax: 20,
+    precipMin: 50, precipMax: 1000,
+    carryingCapacity: { large_herbivore: 0, small_herbivore: 2, predator: 0.05, bird: 5, insect: 500 },
+    vegetation: ['chemosynthetic_bacteria', 'cave_moss', 'fungus'],
+    groundColorHex: '#2a2020',
+    foliageColorHex: null,
+    nppGCm2yr: 5,
+    decompositionRate: 0.15,
+  },
+  hydrothermal_vent: {
+    id: 'hydrothermal_vent',
+    name: 'Hydrothermal Vent',
+    tempMin: 2, tempMax: 400,
+    precipMin: 0, precipMax: 9999,
+    carryingCapacity: { large_herbivore: 0, small_herbivore: 10, predator: 0.5, bird: 0, insect: 0 },
+    vegetation: ['chemosynthetic_bacteria', 'tube_worm', 'archaea'],
+    groundColorHex: '#4a2a0a',
+    foliageColorHex: '#8a5a2a',
+    nppGCm2yr: 800,
+    decompositionRate: 0.9,
+  },
+}

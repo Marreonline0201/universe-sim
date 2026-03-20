@@ -31,6 +31,11 @@ interface PlayerState {
   // Civilization tier the player belongs to
   civTier: number
   setCivTier: (t: number) => void
+
+  // Currently equipped item slot (0–39 into inventory.slots, or null)
+  equippedSlot: number | null
+  equip: (slotIndex: number | null) => void
+  unequip: () => void
 }
 
 export const usePlayerStore = create<PlayerState>((set, get) => ({
@@ -68,4 +73,8 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
 
   civTier: 0,
   setCivTier: (t) => set({ civTier: t }),
+
+  equippedSlot: null,
+  equip: (slotIndex) => set({ equippedSlot: slotIndex }),
+  unequip: () => set({ equippedSlot: null }),
 }))

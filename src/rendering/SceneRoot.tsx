@@ -476,7 +476,7 @@ function GameLoop({ controllerRef, entityId }: GameLoopProps) {
     }
 
     // ── Tool use: left click harvests with equipped item ─────────────────
-    if (controllerRef.current?.popAttack()) {
+    if (!gs.inputBlocked && controllerRef.current?.popAttack()) {
       const equippedSlot = usePlayerStore.getState().equippedSlot
       const equippedItem = equippedSlot !== null ? inventory.getSlot(equippedSlot) : null
       const itemId       = equippedItem?.itemId ?? 0

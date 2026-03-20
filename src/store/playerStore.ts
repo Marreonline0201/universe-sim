@@ -34,7 +34,7 @@ interface PlayerState {
 
   // Currently equipped item slot (0–39 into inventory.slots, or null)
   equippedSlot: number | null
-  equip: (slotIndex: number | null) => void
+  equip: (slotIndex: number) => void
   unequip: () => void
 }
 

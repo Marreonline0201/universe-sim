@@ -17,6 +17,8 @@ import { MetabolismSystem, setMetabolismDt } from '../ecs/systems/MetabolismSyst
 import { inventory, buildingSystem } from '../game/GameSingletons'
 import { MAT } from '../player/Inventory'
 import { BUILDING_TYPES } from '../civilization/BuildingSystem'
+import { PlanetTerrain } from './PlanetTerrain'
+import { surfaceRadiusAt, terrainHeightAt, getSpawnPosition, PLANET_RADIUS } from '../world/SpherePlanet'
 
 // ── Resource node definitions ─────────────────────────────────────────────────
 
@@ -53,16 +55,27 @@ function seededRand(seed: number): () => number {
   }
 }
 
+// Resource nodes placed on the sphere surface near the spawn point (north pole)
 function generateResourceNodes(): ResourceNode[] {
   const rand = seededRand(99991)
   const nodes: ResourceNode[] = []
   let id = 0
+  const spawnDir = new THREE.Vector3(0, 1, 0)  // north pole spawn
   for (const nt of NODE_TYPES) {
     for (let i = 0; i < nt.count; i++) {
-      const angle = rand() * Math.PI * 2
-      const dist  = 12 + rand() * 160
-      nodes.push({ id: id++, type: nt.type, label: nt.label, matId: nt.matId, color: nt.color,
-        x: Math.cos(angle) * dist, z: Math.sin(angle) * dist })
+      // Random angle and arc distance from spawn point on sphere surface
+      const angle   = rand() * Math.PI * 2
+      const arcDist = (12 + rand() * 200) / PLANET_RADIUS  // radians offset from spawn
+      // Rotate spawn direction by arcDist around a random horizontal axis
+      const axis = new THREE.Vector3(Math.cos(angle), 0, Math.sin(angle)).normalize()
+      const dir  = spawnDir.clone().applyAxisAngle(axis, arcDist)
+      // Place on sphere surface
+      const h = terrainHeightAt(dir)
+      const r = PLANET_RADIUS + Math.max(h, 0)
+      nodes.push({
+        id: id++, type: nt.type, label: nt.label, matId: nt.matId, color: nt.color,
+        x: dir.x * r, z: dir.z * r,
+      })
     }
   }
   return nodes
@@ -70,45 +83,22 @@ function generateResourceNodes(): ResourceNode[] {
 
 // Module-level constants so they survive across renders
 const RESOURCE_NODES: ResourceNode[] = generateResourceNodes()
-// Mutable set — mutated by game loop when player gathers a node
 const gatheredNodeIds = new Set<number>()
-// Respawn: map nodeId → real timestamp when it can reappear (60s)
 const NODE_RESPAWN_AT = new Map<number, number>()
-const NODE_RESPAWN_DELAY = 60_000 // ms
+const NODE_RESPAWN_DELAY = 60_000
 
 // Shared mutable position for building ghost — BuildingGhost writes, GameLoop reads
 let ghostBuildPos: [number, number, number] = [0, 0, 0]
 
-// ── Terrain noise ─────────────────────────────────────────────────────────────
+// ── Sphere-aware terrain height helper ───────────────────────────────────────
 
-function _hash(ix: number, iz: number): number {
-  let h = ((ix * 374761393) ^ (iz * 668265263)) >>> 0
-  h = ((h ^ (h >>> 13)) * 1274126177) >>> 0
-  return ((h ^ (h >>> 16)) >>> 0) / 0xffffffff
-}
-
-function _smoothNoise(x: number, z: number): number {
-  const ix = Math.floor(x), iz = Math.floor(z)
-  const fx = x - ix, fz = z - iz
-  const ux = fx * fx * (3 - 2 * fx)
-  const uz = fz * fz * (3 - 2 * fz)
-  return (
-    _hash(ix,   iz)   * (1-ux) * (1-uz) +
-    _hash(ix+1, iz)   *   ux   * (1-uz) +
-    _hash(ix,   iz+1) * (1-ux) *   uz   +
-    _hash(ix+1, iz+1) *   ux   *   uz
-  ) * 2 - 1
-}
-
-export function terrainHeight(x: number, z: number): number {
-  let h = 0
-  h += _smoothNoise(x * 0.012, z * 0.012) * 12  // large hills
-  h += _smoothNoise(x * 0.035, z * 0.035) * 5   // mid bumps
-  h += _smoothNoise(x * 0.09,  z * 0.09)  * 1.5 // small detail
-  // Fade to flat within 30 units of spawn
-  const d = Math.sqrt(x * x + z * z)
-  const fade = Math.min(1, Math.max(0, (d - 20) / 30))
-  return h * fade
+// Returns the world-space Y coordinate of the terrain surface at (px, pz),
+// assuming the sphere sits at (0,0,0) and the player is near the top (north pole).
+// Used only for building ghost placement (approximate but good enough near spawn).
+function terrainYAt(px: number, pz: number): number {
+  const r = surfaceRadiusAt(px, PLANET_RADIUS, pz)
+  const py2 = Math.sqrt(Math.max(0, r * r - px * px - pz * pz))
+  return py2
 }
 
 export function SceneRoot() {
@@ -153,8 +143,9 @@ export function SceneRoot() {
     engine.init().then(() => {
       engine.start()
 
-      // Spawn player at world centre — Y=0.9 so capsule bottom rests on ground
-      const eid = createPlayerEntity(world, 0, 0.9, 0)
+      // Spawn player at north pole of sphere, on the terrain surface
+      const [spawnX, spawnY, spawnZ] = getSpawnPosition()
+      const eid = createPlayerEntity(world, spawnX, spawnY, spawnZ)
       setEntityId(eid)
 
       // Create keyboard/mouse controller for the player
@@ -256,26 +247,27 @@ export function SceneRoot() {
       style={{ position: 'fixed', inset: 0 }}
       shadows
     >
-      <PerspectiveCamera makeDefault fov={70} near={0.1} far={2000} position={[0, 10, 20]} />
-      <fog attach="fog" args={['#b0c8e8', 80, 600]} />
-      <ambientLight intensity={0.4} />
-      <hemisphereLight args={['#87ceeb', '#3a6b2a', 0.6]} />
+      <PerspectiveCamera makeDefault fov={70} near={0.5} far={8000} position={[0, PLANET_RADIUS + 200, 0]} />
+      <fog attach="fog" args={['#a8c8e8', 200, 3000]} />
+      <ambientLight intensity={0.45} />
+      <hemisphereLight args={['#87ceeb', '#3a4a1a', 0.7]} />
       <directionalLight
-        position={[150, 250, 100]}
-        intensity={2.0}
+        position={[2000, 3000, 1500]}
+        intensity={2.2}
         castShadow
         shadow-mapSize={[2048, 2048]}
         shadow-camera-near={1}
-        shadow-camera-far={800}
-        shadow-camera-left={-200}
-        shadow-camera-right={200}
-        shadow-camera-top={200}
-        shadow-camera-bottom={-200}
+        shadow-camera-far={5000}
+        shadow-camera-left={-500}
+        shadow-camera-right={500}
+        shadow-camera-top={500}
+        shadow-camera-bottom={-500}
       />
-      <Sky sunPosition={[150, 40, 100]} turbidity={6} rayleigh={0.5} />
-      <Stars radius={400} depth={50} count={3000} factor={3} />
+      {/* Sun — a simple point in the sky far from the planet */}
+      <Sky sunPosition={[2000, 3000, 1500]} turbidity={4} rayleigh={0.4} />
+      <Stars radius={4000} depth={100} count={5000} factor={4} />
       <Suspense fallback={null}>
-        <TerrainMesh />
+        <PlanetTerrain />
         <ResourceNodes />
         <PlacedBuildingsRenderer />
         <CreatureRenderer />
@@ -360,28 +352,47 @@ function GameLoop({ controllerRef, entityId }: GameLoopProps) {
       }
     }
 
-    // 4. Sync player world position + terrain-aware floor clamp
+    // 4. Sphere-aware ground clamp
+    // "Down" = toward planet center (0,0,0). Player is on the surface when
+    // dist(pos, origin) <= surfaceRadiusAt(pos) + capsuleHeight.
     const px = Position.x[entityId]
+    const py = Position.y[entityId]
     const pz = Position.z[entityId]
-    const floorY = terrainHeight(px, pz) + 0.9
-    if (Position.y[entityId] <= floorY) {
-      Position.y[entityId] = floorY
-      if (Velocity.y[entityId] < 0) Velocity.y[entityId] = 0
+    const playerDist = Math.sqrt(px * px + py * py + pz * pz)
+    const capsuleH   = 0.9   // half-height of player capsule above surface
+    const groundR    = surfaceRadiusAt(px, py, pz) + capsuleH
+
+    if (playerDist <= groundR && playerDist > 0.1) {
+      // Snap to surface along radial direction
+      const scale = groundR / playerDist
+      Position.x[entityId] = px * scale
+      Position.y[entityId] = py * scale
+      Position.z[entityId] = pz * scale
+      // Kill negative radial velocity (prevent tunneling through floor)
+      const upX = px / playerDist, upY = py / playerDist, upZ = pz / playerDist
+      const vr = Velocity.x[entityId] * upX + Velocity.y[entityId] * upY + Velocity.z[entityId] * upZ
+      if (vr < 0) {
+        Velocity.x[entityId] -= vr * upX
+        Velocity.y[entityId] -= vr * upY
+        Velocity.z[entityId] -= vr * upZ
+      }
       controllerRef.current?.setOnGround(true)
     } else {
       controllerRef.current?.setOnGround(false)
     }
-    setPosition(px, Position.y[entityId], pz)
+    setPosition(Position.x[entityId], Position.y[entityId], Position.z[entityId])
 
-    // 5. Resource proximity + gather
+    // 5. Resource proximity + gather (3D distance on sphere surface)
     const gs = useGameStore.getState()
     let nearNode: ResourceNode | null = null
     let nearDist = Infinity
     for (const node of RESOURCE_NODES) {
       if (gatheredNodeIds.has(node.id)) continue
+      const nodeY = terrainYAt(node.x, node.z)
       const dx = px - node.x
+      const dy = py - nodeY
       const dz = pz - node.z
-      const d2 = dx * dx + dz * dz
+      const d2 = dx * dx + dy * dy + dz * dz
       if (d2 < nearDist) { nearDist = d2; nearNode = node }
     }
 
@@ -389,14 +400,17 @@ function GameLoop({ controllerRef, entityId }: GameLoopProps) {
     if (placementMode) {
       const btype = BUILDING_TYPES.find(t => t.id === placementMode)
       if (btype) {
-        // Project camera forward onto XZ plane for ghost position (6m ahead)
+        // Project camera forward, tangent to sphere surface, 6m ahead
+        const playerPos = new THREE.Vector3(px, py, pz)
+        const playerUp  = playerPos.clone().normalize()
         fwdVec.current.set(0, 0, -1).applyQuaternion(camera.quaternion)
-        fwdVec.current.y = 0
-        if (fwdVec.current.lengthSq() < 0.001) fwdVec.current.set(0, 0, -1)
+        fwdVec.current.addScaledVector(playerUp, -fwdVec.current.dot(playerUp))
+        if (fwdVec.current.lengthSq() < 0.001) fwdVec.current.copy(playerUp).cross(new THREE.Vector3(1,0,0)).normalize()
         else fwdVec.current.normalize()
-        const gx = px + fwdVec.current.x * 6
-        const gz = pz + fwdVec.current.z * 6
-        ghostBuildPos = [gx, terrainHeight(gx, gz), gz]
+        // Ghost position: step 6m along tangent plane, then snap to surface
+        const ghostDir = playerPos.clone().addScaledVector(fwdVec.current, 6).normalize()
+        const ghostSR  = surfaceRadiusAt(ghostDir.x * PLANET_RADIUS, ghostDir.y * PLANET_RADIUS, ghostDir.z * PLANET_RADIUS)
+        ghostBuildPos = [ghostDir.x * ghostSR, ghostDir.y * ghostSR, ghostDir.z * ghostSR]
 
         const placeLabel = `[F] Place ${btype.name}  ·  [B/Esc] Cancel`
         if (gs.gatherPrompt !== placeLabel) gs.setGatherPrompt(placeLabel)
@@ -483,14 +497,17 @@ function BuildingGhost({ entityId }: { entityId: number }) {
     if (!btype) return
 
     const px = Position.x[entityId]
+    const py = Position.y[entityId]
     const pz = Position.z[entityId]
+    const playerPos = new THREE.Vector3(px, py, pz)
+    const playerUp  = playerPos.clone().normalize()
     fwdVec.current.set(0, 0, -1).applyQuaternion(camera.quaternion)
-    fwdVec.current.y = 0
+    fwdVec.current.addScaledVector(playerUp, -fwdVec.current.dot(playerUp))
     if (fwdVec.current.lengthSq() < 0.001) fwdVec.current.set(0, 0, -1)
     else fwdVec.current.normalize()
-    const gx = px + fwdVec.current.x * 6
-    const gz = pz + fwdVec.current.z * 6
-    const gy = terrainHeight(gx, gz)
+    const ghostDir = playerPos.clone().addScaledVector(fwdVec.current, 6).normalize()
+    const ghostSR  = surfaceRadiusAt(ghostDir.x * PLANET_RADIUS, ghostDir.y * PLANET_RADIUS, ghostDir.z * PLANET_RADIUS)
+    const gx = ghostDir.x * ghostSR, gy = ghostDir.y * ghostSR, gz = ghostDir.z * ghostSR
     ghostRef.current.position.set(gx, gy + btype.size[1] / 2, gz)
   })
 
@@ -810,7 +827,7 @@ function AnimatedNpcMesh({ npc, skinColor, shirtColor, pantsColor }: {
     if (!root) return
 
     // Snap Y to terrain (server sends y=0.9 flat; client knows terrain)
-    root.position.set(npc.x, terrainHeight(npc.x, npc.z) + 0.9, npc.z)
+    root.position.set(npc.x, terrainYAt(npc.x, npc.z) + 0.9, npc.z)
 
     // Detect lateral speed for walk cycle
     const dx = npc.x - prevXZ.current.x
@@ -841,7 +858,7 @@ function AnimatedNpcMesh({ npc, skinColor, shirtColor, pantsColor }: {
     npc.state === 'gather'    ? '#44dd88' : null
 
   return (
-    <group ref={groupRef} position={[npc.x, terrainHeight(npc.x, npc.z) + 0.9, npc.z]}>
+    <group ref={groupRef} position={[npc.x, terrainYAt(npc.x, npc.z) + 0.9, npc.z]}>
       {dotColor && (
         <mesh position={[0, 1.55, 0]}>
           <sphereGeometry args={[0.12, 6, 6]} />
@@ -1032,11 +1049,6 @@ function RockMesh({ id, color, groundY }: { id: number; color: string; groundY: 
 function ResourceNodes() {
   const groupRefs = useRef<(THREE.Group | null)[]>([])
 
-  const nodeGroundY = useMemo(
-    () => RESOURCE_NODES.map(n => terrainHeight(n.x, n.z)),
-    []
-  )
-
   useFrame(() => {
     for (let i = 0; i < RESOURCE_NODES.length; i++) {
       const g = groupRefs.current[i]
@@ -1047,18 +1059,20 @@ function ResourceNodes() {
   return (
     <>
       {RESOURCE_NODES.map((node, i) => {
-        const groundY = nodeGroundY[i]
+        // Nodes are stored with full (x, y, z) sphere coordinates (x = node.x, z = node.z stored for compat)
+        // For sphere placement, reconstruct y from sphere surface
+        const nodeY = terrainYAt(node.x, node.z)
         return (
           <group
             key={node.id}
             ref={el => { groupRefs.current[i] = el }}
-            position={[node.x, 0, node.z]}
+            position={[node.x, nodeY, node.z]}
           >
             {node.type === 'wood'
-              ? <TreeMesh id={node.id} groundY={groundY} />
+              ? <TreeMesh id={node.id} groundY={nodeY} />
               : node.type === 'bark'
-                ? <BarkMesh id={node.id} groundY={groundY} />
-                : <RockMesh id={node.id} color={node.color} groundY={groundY} />
+                ? <BarkMesh id={node.id} groundY={nodeY} />
+                : <RockMesh id={node.id} color={node.color} groundY={nodeY} />
             }
           </group>
         )
@@ -1069,42 +1083,4 @@ function ResourceNodes() {
 
 // ── Scene geometry ────────────────────────────────────────────────────────────
 
-function TerrainMesh() {
-  const geometry = useMemo(() => {
-    const SEG = 127
-    const SIZE = 512
-    const geo = new THREE.PlaneGeometry(SIZE, SIZE, SEG, SEG)
-    geo.rotateX(-Math.PI / 2)
-    const pos = geo.attributes.position as THREE.BufferAttribute
-    const count = pos.count
-    const colors = new Float32Array(count * 3)
-    const col = new THREE.Color()
-
-    for (let i = 0; i < count; i++) {
-      const wx = pos.getX(i)
-      const wz = pos.getZ(i)
-      const h = terrainHeight(wx, wz)
-      pos.setY(i, h)
-
-      // Vertex color by height
-      if (h < 0.3)       col.setStyle('#4a7a35')  // low grass
-      else if (h < 2.0)  col.setStyle('#5a8a3a')  // mid grass
-      else if (h < 5.0)  col.setStyle('#7a9a50')  // upper grass
-      else if (h < 8.0)  col.setStyle('#9a8060')  // rocky dirt
-      else               col.setStyle('#b8a090')  // high rock
-      colors[i * 3]     = col.r
-      colors[i * 3 + 1] = col.g
-      colors[i * 3 + 2] = col.b
-    }
-
-    geo.setAttribute('color', new THREE.BufferAttribute(colors, 3))
-    geo.computeVertexNormals()
-    return geo
-  }, [])
-
-  return (
-    <mesh geometry={geometry} receiveShadow>
-      <meshStandardMaterial vertexColors roughness={0.95} metalness={0} />
-    </mesh>
-  )
-}
+// TerrainMesh is replaced by <PlanetTerrain /> — see imports at top of file

@@ -300,30 +300,35 @@ export function surfaceRadiusAt(px: number, py: number, pz: number): number {
  * The player spawns at the north pole of the sphere, standing on the terrain.
  */
 export function getSpawnPosition(): [number, number, number] {
-  // Scan candidate directions to find land (terrain height >= 5m above sea level).
-  // North pole is the first candidate; if it's ocean we try nearby directions.
-  const candidates: [number, number, number][] = [
-    [0, 1, 0],
-    [0.1, 0.99, 0],
-    [-0.1, 0.99, 0],
-    [0, 0.99, 0.1],
-    [0, 0.99, -0.1],
-    [0.2, 0.98, 0],
-    [0, 0.98, 0.2],
-    [-0.2, 0.98, 0],
-    [0, 0.98, -0.2],
-    [0.15, 0.985, 0.15],
-  ]
+  // Scan the sphere in a grid of latitude/longitude steps to find land.
+  // Uses a deterministic spiral so results are stable across reloads.
   const v = new THREE.Vector3()
-  for (const [cx, cy, cz] of candidates) {
-    v.set(cx, cy, cz).normalize()
-    const h = terrainHeightAt(v)
-    if (h >= 5) {
-      const r = PLANET_RADIUS + h + 1.0
-      return [v.x * r, v.y * r, v.z * r]
+  let bestH = -Infinity
+  let bestDir: [number, number, number] = [0, 1, 0]
+
+  const LAT_STEPS = 18   // every 10° latitude
+  const LON_STEPS = 36   // every 10° longitude
+
+  for (let la = 0; la <= LAT_STEPS; la++) {
+    const lat = (la / LAT_STEPS) * Math.PI  // 0 = north pole, π = south pole
+    const sinLat = Math.sin(lat)
+    const cosLat = Math.cos(lat)
+    for (let lo = 0; lo < LON_STEPS; lo++) {
+      const lon = (lo / LON_STEPS) * Math.PI * 2
+      v.set(sinLat * Math.cos(lon), cosLat, sinLat * Math.sin(lon)).normalize()
+      const h = terrainHeightAt(v)
+      if (h > bestH) {
+        bestH = h
+        bestDir = [v.x, v.y, v.z]
+        // Early exit: first spot with solid land (>10m above sea) wins
+        if (h >= 10) break
+      }
     }
+    if (bestH >= 10) break
   }
-  // Fallback: use north pole at sea level
-  const r = PLANET_RADIUS + SEA_LEVEL + 1.0
-  return [0, r, 0]
+
+  const [bx, by, bz] = bestDir
+  v.set(bx, by, bz).normalize()
+  const r = PLANET_RADIUS + Math.max(bestH, SEA_LEVEL) + 1.0
+  return [v.x * r, v.y * r, v.z * r]
 }

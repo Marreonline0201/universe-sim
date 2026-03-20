@@ -48,14 +48,6 @@ function DevGame() {
       </Suspense>
       <HUD />
       <AdminPanel />
-      <div style={{
-        position: 'fixed', bottom: 8, left: '50%', transform: 'translateX(-50%)',
-        background: 'rgba(230,100,0,0.85)', color: '#fff', fontFamily: 'monospace',
-        fontSize: 11, padding: '3px 12px', borderRadius: 4, zIndex: 9999,
-        pointerEvents: 'none',
-      }}>
-        DEV MODE — auth bypassed
-      </div>
     </>
   )
 }

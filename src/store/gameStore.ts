@@ -40,6 +40,12 @@ interface GameState {
   // Incremented when a building is placed (triggers re-render of placed buildings)
   buildVersion: number
   bumpBuildVersion: () => void
+
+  // Admin/dev controls
+  flyMode: boolean
+  setFlyMode: (v: boolean) => void
+  adminSpeedMult: number
+  setAdminSpeedMult: (v: number) => void
 }
 
 export const useGameStore = create<GameState>((set) => ({
@@ -89,6 +95,11 @@ export const useGameStore = create<GameState>((set) => ({
 
   buildVersion: 0,
   bumpBuildVersion: () => set((s) => ({ buildVersion: s.buildVersion + 1 })),
+
+  flyMode: false,
+  setFlyMode: (v) => set({ flyMode: v }),
+  adminSpeedMult: 1,
+  setAdminSpeedMult: (v) => set({ adminSpeedMult: v }),
 }))
 
 // ── Helpers ────────────────────────────────────────────────────────────────

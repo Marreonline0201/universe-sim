@@ -899,6 +899,101 @@ _This manual covers all major systems as designed in the game design document (V
 
 ---
 
+### Session: Real Physics Engine Added — 2026-03-19
+
+**What happened in this session:**
+This is a big milestone. For the first time, the game now uses a real physics engine — not hand-written math guesses — to decide how the player interacts with the ground and world. The physics engine is called Rapier (pronounced "RAY-pee-ay"), and it is the same type of system used in professional video games.
+
+---
+
+#### What Is a Physics Engine, in Plain Language?
+
+Think of a physics engine like a tiny invisible scientist living inside the game. Every moment, that scientist applies the rules of the real world — gravity, collision, surfaces — to every object in the scene. Before this change, the game was doing this work itself, by hand, with simple math. That is like estimating where a ball will land by guessing instead of calculating. It mostly worked, but it had limits: slopes were tricky, ledges were hard to handle, and the player could clip through geometry.
+
+Now Rapier does all of that work automatically, using proper physics simulation. The result is more reliable and correct behavior in all cases.
+
+---
+
+#### What Was Built
+
+**1. A Rapier physics world**
+
+A new file called `src/physics/RapierWorld.ts` was added. Think of this as the "physics brain" of the game — a single place that controls all physical simulation. It is created once when the game starts and stays active the whole time.
+
+**2. The planet is now a real solid object**
+
+The terrain (the planet surface the player walks on) was turned into what is called a "trimesh collider." A trimesh is basically a description of every triangle that makes up the surface — about 21,000 of them. Rapier uses this detailed shape to know exactly where the ground is, so the player cannot fall through it or float above it.
+
+Think of it like replacing a rough sketch of a floor with a perfectly detailed architectural blueprint. The physics engine can now "feel" every bump and slope of the terrain.
+
+**3. The player now has a physical body**
+
+The player character was given two things:
+- A "capsule collider" — imagine a pill shape wrapped around the player, 1.8 metres tall. This is the physical outline that Rapier uses to detect when the player touches something.
+- A "KinematicCharacterController" — this is a special physics object that handles moving a character correctly: sliding along slopes, stepping up over ledges, stopping at walls, and so on.
+
+**4. Gravity now points toward the planet center**
+
+This is the most interesting part. Gravity in this game is not just "down." It points toward the center of the planet — exactly how gravity works in real life (Isaac Newton's law: every mass pulls toward every other mass). This means if you are standing on top of the planet, gravity pulls you straight down through your feet into the core. If you were somehow on the underside, gravity would pull you the other way.
+
+This is important because the game is meant to simulate a real spherical world, not a flat floor.
+
+---
+
+#### Two Bugs Found and Fixed
+
+After the physics system was added, a testing agent played the game and found two problems. Both were fixed before this session ended.
+
+**Bug 1: Player fell through the planet floor**
+
+When Rapier was first told about the planet surface, the player fell straight through it as if the ground did not exist. The cause: the triangles making up the terrain surface had their "normals" (the direction the triangle faces) pointing inward — toward the center of the planet — instead of outward toward the player. Think of it like a door that is installed backwards: it opens the wrong way and does nothing useful. The fix was to flip the order of the triangle corners (called "winding order") so that every triangle faces the right direction. After the fix, the player stands solidly on the surface.
+
+**Bug 2: A ghost copy of the player appeared ("DevUser" floating capsule)**
+
+In development mode, the game has a way to log in quickly without going through the full login screen. The bug: when using this shortcut, the game was also treating the player as a "remote player" — someone else in the world — and drawing a second floating copy of them as if there were two people. This made the player appear to be watching themselves from outside their own body.
+
+The fix was in the part of the code that manages which remote players are displayed. It now checks the player's own ID before storing any incoming player data, and skips storing it if it belongs to the current player. After the fix, the ghost copy no longer appears.
+
+---
+
+#### Confirmed Working by Playtester Agent
+
+A game-testing agent verified both fixes after they were applied:
+
+- The player character stands upright on the terrain surface and does not fall through it.
+- No duplicate "DevUser" entity appears in the scene.
+- Movement feels correct — the player stops at walls and can navigate the terrain naturally.
+
+---
+
+#### What This Means Going Forward
+
+This is the foundation for everything physical in the game:
+
+- When hills and terrain variation are added, the player will walk up and down them correctly without any extra work.
+- Picking up objects, pushing things, and dropping items will all behave realistically.
+- Future creatures and NPCs can be given physics bodies and they will interact with the world in physically correct ways.
+
+The physics engine is now the single source of truth for how objects relate to each other in space. This is the right way to build a game, and it opens the door to far more complex and believable interactions than hand-written math ever could.
+
+---
+
+#### Status Summary
+
+| Item | Status |
+|---|---|
+| Rapier physics engine integrated | Done |
+| Planet surface as physics mesh (~21k triangles) | Done |
+| Player capsule collider + character controller | Done |
+| Gravity toward planet center | Done |
+| Triangle winding fix (player no longer falls through floor) | Done |
+| DevUser ghost copy fix | Done |
+| Confirmed working by playtester agent | Done |
+
+**Next steps:** The physics foundation is solid. The gathering mechanic (letting players pick up materials) and terrain height variation are the most valuable things to build next.
+
+---
+
 ## Development Progress Log
 
 _This section records what was tested, what was found, and what was fixed during each development session. It is written for the project owner, not for players._
@@ -1172,3 +1267,166 @@ The Bootstrap also prevents players from accidentally interfering with the unive
 4. Build the `WorldBootstrapScreen.tsx` animated UI component.
 5. Update `App.tsx` to show the Bootstrap screen when appropriate.
 6. Test the full flow: fresh server start, Bootstrap runs, players see the timelapse screen, Bootstrap finishes, players can log in.
+
+---
+
+### Session: Game Vision Redesigned — 2026-03-19
+
+**What happened in this session:**
+The entire vision for the game was rethought from the ground up. This is not a small adjustment — it is a complete change of direction. Everything that was designed before still exists as a foundation, but the core experience the player has will be completely different going forward.
+
+This session documents what the new vision is, why it changed, and what the rules are for building features from here on.
+
+---
+
+#### The Old Vision vs. The New Vision
+
+**Before this session**, the game was designed as a "god-game observer" experience. That means:
+- You did not play as a character in the world.
+- You watched the world from above, like a scientist with a bird's eye view.
+- You spent "Evolution Points" to nudge creatures in certain directions.
+- You clicked menus to craft items and unlock technology trees.
+
+This is a valid kind of game — games like Spore and Civilisation work this way. But the user decided it was not the right fit for this project.
+
+**After this session**, the game is a first-person survival game. That means:
+- You are a person inside the world. You have a body. You experience the world from your own eyes.
+- The world runs on real physics, chemistry, and biology — not simplified game rules.
+- You survive by learning how the world actually works, not by reading recipe lists.
+- The simulation is the world. It is not something you observe — it is something you live in.
+
+The closest games to compare it to are Minecraft, Rust, and Red Dead Redemption — but set inside a world where everything operates on real science.
+
+---
+
+#### The "Overgeared" Concept — What This Means
+
+The word "Overgeared" is the team's internal shorthand for what this game should feel like. Here is what it means in plain language:
+
+The world should feel like a real alternate universe — not like a video game.
+
+In most video games, the "game systems" are visible. You can see your health bar, your tech tree, your recipe list. The game is always reminding you that it is a game.
+
+In this game, those systems should be invisible. The world just works — the way the real world works. You discover things by doing them, not by unlocking them in a menu. You get better at medicine by actually studying how living things heal, not by clicking "Research: Medicine" in a tech tree. The simulation is not a backdrop you click through — it is the actual world you are living inside.
+
+Think of it this way: if a meteor hits the ground near you in this game, it is not because you clicked "Trigger Meteor Event." It happened because a rock was on a collision course with the planet, the physics simulated the impact, and you were there when it hit.
+
+---
+
+#### How the New Game Works — The Key Rules
+
+**1. You start with nothing.**
+
+Every player spawns into the world at the very beginning — the stone age. No tools. No shelter. No map. No tutorial popup. You have to figure out how to survive using the rules of the world around you.
+
+This is just like Minecraft when you first spawn: you are in a world, it is getting dark, and you have to figure out what to do. Except in this game, the rules of the world are the rules of real science.
+
+**2. No recipe lists. Crafting works because chemistry works.**
+
+In most crafting games, there is a list of recipes — a menu you open that says "combine A + B = C." You just follow instructions.
+
+In this game, that list does not exist. Instead, crafting works because the underlying chemistry of the world actually works. If you have flint and you strike it against iron, a spark is produced because that is what those materials do in real chemistry. If you have the right dry materials and a spark, you get fire — because that is what combustion is.
+
+You discover how to make things by experimenting with the world around you. If you have seen flint make sparks and you have dry grass nearby, you can try combining them. If it works, you have just discovered fire — not because a menu said you could, but because you understood how the world works.
+
+**3. No tech tree menus. You advance by doing things.**
+
+There is no screen where you click "Research: Iron Smelting" and wait for a progress bar. Instead, you advance by doing things. You discover iron smelting by working with heat and iron ore until something happens. You learn medicine by observing what happens when creatures are sick and what things in the world help them recover.
+
+Your knowledge is built from experience inside the world, not from spending points in a menu.
+
+**4. The world is persistent and runs 24 hours a day, 7 days a week.**
+
+The world does not pause when you log off. Other players are still in it. NPC civilisations are still growing, trading, building, and fighting. Resources that were plentiful when you last played might be depleted now. The world has a history that continues whether you are watching or not.
+
+When you log in, you are joining a world that has been alive without you. This makes the world feel real in a way that single-player or "pause on exit" games never can.
+
+**5. Resources are finite and shared by everyone.**
+
+There is only so much iron ore in a given region of the world. If other players have been mining there, it will be depleted. If a civilisation of NPCs has been farming a valley for a hundred years, that soil may be exhausted. The world does not magically refill when you need something.
+
+This means where you settle, what you take, and how you manage resources actually matters — the same way it matters in the real world.
+
+**6. The simulation scales its detail based on where you are.**
+
+Running a full, atom-by-atom simulation of an entire planet at all times would require more computing power than currently exists. So the game uses a smart trick: the closer something is to you, the more detailed and accurate the simulation of that thing is. The further away it is, the simpler the simulation becomes.
+
+Think of it like how a camera works. Things right in front of the lens are sharp and detailed. Things far in the background are blurry and simplified. As you walk toward something, it comes into sharper focus. Walk away, and it simplifies again.
+
+The physics laws never change — gravity, chemistry, and biology work the same everywhere. What changes is how precisely the game calculates them. Up close, very precisely. Far away, approximately. This lets the game run on real computers while still feeling like a real universe.
+
+**7. Roles emerge from what you do — not from what you pick at the start.**
+
+There is no character creation screen. There is no class selection. You do not choose to be a warrior, a healer, or a merchant.
+
+Instead, you become those things by doing them. If you spend your time studying how plants and injuries interact with living bodies, other players will start coming to you for help. You have become the healer — not because you clicked a button, but because you are the person who knows how healing works.
+
+If you spend your time building walls, stockpiling weapons, and convincing other players to follow you, you have become a warlord. If you master trade routes and understand what different settlements need, you have become a merchant. Your role is defined by your actions and your reputation in the world.
+
+---
+
+#### The Companion Website — A Player's Field Guide
+
+Alongside the game, a separate website will be built. Think of it as a field guide — the kind of book a scientist or explorer carries to understand the world around them.
+
+The website will explain the real-world science that powers the game. If you encounter something in the game and want to understand why it works, the field guide explains it in plain language. It does not spoil the game or hand you answers — it teaches you the science so you can figure out the answers yourself.
+
+For example: the website might explain how fire actually works at a chemical level, so that players understand what conditions are needed to make it in the game. It teaches the science. The player applies it in the world.
+
+This website is a companion to the game, not a strategy guide. It helps you become better at the game by helping you understand how the real world works.
+
+---
+
+#### The Core Rule for Building Features Going Forward
+
+This is the most important change in how the game gets built from here on.
+
+**Rule: Every feature must be fully wired end-to-end before the next one begins. No half-built features.**
+
+Here is what that means in plain language:
+
+If you open the inventory, you must be able to put something in it. Not "the inventory panel opens" — actually put an item in it.
+
+If you can craft a tool, you must be able to pick it up and equip it. Not "the crafting panel shows a recipe" — actually use the tool in the world.
+
+If there is a cave in the world, you must be able to walk into it. Not "a cave shape exists in the terrain" — actually enter it and have it be a real place.
+
+Before this rule was established, it was easy to build many partial features — a crafting panel with no items, an inventory with no way to fill it, NPC characters that cannot be interacted with. These half-built features look like progress but they do not give the player anything to actually do.
+
+From now on, one complete thing is worth more than five incomplete things.
+
+---
+
+#### Status Summary
+
+| Item | Status |
+|------|--------|
+| God-game observer vision | Replaced |
+| First-person survival game vision | Confirmed |
+| "Overgeared" design principle | Confirmed |
+| No recipe lists — chemistry-driven crafting | Confirmed |
+| No tech tree menus — experience-driven advancement | Confirmed |
+| Persistent 24/7 world with finite shared resources | Confirmed |
+| Adaptive simulation resolution (detail near player) | Confirmed |
+| Emergent roles, no class selection | Confirmed |
+| Companion field guide website | Planned |
+| End-to-end feature rule | In effect immediately |
+
+**What comes next:** All future development sessions will follow the new vision. The first feature to be built end-to-end under the new rules will be confirmed in the next session.
+
+---
+Session: Equip System + Vitals + Tool Use Implemented — 2026-03-19
+
+What was built:
+- Equip system: players can now equip crafted items from inventory. Press I, click any crafted item (itemId > 0), click Equip. The slot gets a green border.
+- Hand mesh: a small gray box appears near the player's right hand when something is equipped. It uses the player's real rotation from the physics engine, not the camera.
+- Tool use: left-click near a resource node while holding a tool. If the tool can harvest that node type and you're in range, the node disappears and materials go into your inventory.
+- Vitals depletion: hunger and thirst bars now slowly decrease in real time. Hunger empties in ~20 minutes, thirst in ~12 minutes. Standing still lets energy regenerate.
+- All features wired end-to-end: nothing works in isolation. Equip flows to the hand mesh, hand mesh tells the game what you're holding, tool use reads that to decide what you can harvest, vitals run independently on every frame.
+
+Technical notes:
+- EquipSystem.ts defines what each item harvests and how far. harvestTypes must match node type strings exactly.
+- MetabolismSystem drain rates: hunger 0.00083/s, thirst 0.00139/s (0=full, 1=starving convention).
+- popAttack() uses consumed-flag pattern like popInteract() — fires once per click, not every frame.
+- Hand mesh slot is re-read inside useFrame every frame to avoid stale-closure bugs.
+- Left-click harvest is blocked when UI panels are open (inputBlocked guard).

@@ -67,8 +67,11 @@ function GoalBadge({ goal }: GoalBadgeProps) {
 
 export function HUD() {
   const { paused, simTime, epoch } = useGameStore()
-  const { health, hunger, thirst, energy, fatigue, evolutionPoints, currentGoal } = usePlayerStore()
+  const { health, hunger, thirst, energy, fatigue, ambientTemp, evolutionPoints, currentGoal } = usePlayerStore()
   const { connectionStatus, remotePlayers } = useMultiplayerStore()
+
+  // Color-coded temperature display
+  const tempColor = ambientTemp < 0 ? '#88bbff' : ambientTemp < 30 ? '#88ff88' : ambientTemp < 50 ? '#ffaa44' : '#ff4444'
 
   return (
     <>
@@ -99,6 +102,10 @@ export function HUD() {
           <VitalBar value={1 - thirst}  color="#3498db" label="HYDRATION" warning />
           <VitalBar value={energy}      color="#2ecc71" label="ENERGY"  warning />
           <VitalBar value={1 - fatigue} color="#9b59b6" label="STAMINA" warning />
+
+          <div style={{ marginTop: 8, fontSize: 11, color: tempColor, fontFamily: 'monospace' }}>
+            {ambientTemp.toFixed(0)}\u00B0C
+          </div>
 
           <div style={{
             marginTop: 10,

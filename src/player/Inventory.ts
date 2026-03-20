@@ -114,6 +114,14 @@ export class Inventory {
     return -1
   }
 
+  /** Returns true if any slot contains an item with the given itemId. */
+  hasItemById(itemId: number): boolean {
+    for (let i = 0; i < SLOT_COUNT; i++) {
+      if (this.slots[i]?.itemId === itemId) return true
+    }
+    return false
+  }
+
   getKnownRecipes(): number[] {
     return Array.from(this.knownRecipes)
   }

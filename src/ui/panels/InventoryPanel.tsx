@@ -4,6 +4,8 @@
 import { useState, useEffect } from 'react'
 import { inventory } from '../../game/GameSingletons'
 import { MAT, ITEM, type InventorySlot } from '../../player/Inventory'
+import { usePlayerStore } from '../../store/playerStore'
+import { getItemStats, getFoodStats } from '../../player/EquipSystem'
 
 // Reverse lookup maps for display names
 const MAT_NAMES: Record<number, string> = Object.fromEntries(
@@ -13,10 +15,11 @@ const ITEM_NAMES: Record<number, string> = Object.fromEntries(
   Object.entries(ITEM).map(([k, v]) => [v, k.toLowerCase().replace(/_/g, ' ')])
 )
 
-function SlotCell({ slot, index, selected, onSelect }: {
+function SlotCell({ slot, index, selected, equipped, onSelect }: {
   slot: InventorySlot | null
   index: number
   selected: boolean
+  equipped: boolean
   onSelect: (i: number) => void
 }) {
   return (
@@ -33,7 +36,9 @@ function SlotCell({ slot, index, selected, onSelect }: {
             : 'rgba(255,255,255,0.03)',
         border: selected
           ? '1px solid rgba(52,152,219,0.8)'
-          : '1px solid rgba(255,255,255,0.1)',
+          : equipped
+            ? '2px solid #22c55e'
+            : '1px solid rgba(255,255,255,0.1)',
         borderRadius: 6,
         cursor: slot ? 'pointer' : 'default',
         display: 'flex',
@@ -78,6 +83,11 @@ export function InventoryPanel() {
   const [selected, setSelected] = useState<number | null>(null)
   const [, forceRefresh] = useState(0)
 
+  const equippedSlot  = usePlayerStore(s => s.equippedSlot)
+  const equipAction   = usePlayerStore(s => s.equip)
+  const unequipAction = usePlayerStore(s => s.unequip)
+  const updateVitals  = usePlayerStore(s => s.updateVitals)
+
   // Poll inventory every 200ms so newly gathered items appear immediately
   useEffect(() => {
     const id = setInterval(() => forceRefresh(r => r + 1), 200)
@@ -96,6 +106,9 @@ export function InventoryPanel() {
   }
 
   const selectedSlot = selected !== null ? inventory.getSlot(selected) : null
+  const isEquippable = selectedSlot !== null && selectedSlot.itemId > 0
+  const isEquipped   = selected !== null && equippedSlot === selected
+  const foodStats    = selectedSlot ? getFoodStats(selectedSlot.materialId) : null
 
   return (
     <div style={{ color: '#fff', fontFamily: 'monospace' }}>
@@ -107,6 +120,7 @@ export function InventoryPanel() {
             index={i}
             slot={inventory.getSlot(i)}
             selected={selected === i}
+            equipped={equippedSlot === i}
             onSelect={handleSelect}
           />
         ))}
@@ -135,6 +149,49 @@ export function InventoryPanel() {
           <div style={{ fontSize: 11, color: '#aaa', marginBottom: 10 }}>
             Quality: {Math.round(selectedSlot.quality * 100)}%
           </div>
+          {isEquippable && (
+            <button
+              onClick={() => isEquipped ? unequipAction() : equipAction(selected!)}
+              style={{
+                padding: '4px 12px',
+                marginRight: 8,
+                background: isEquipped ? '#22c55e' : '#3b82f6',
+                color: '#fff',
+                border: 'none',
+                borderRadius: 4,
+                cursor: 'pointer',
+                fontWeight: 600,
+              }}
+            >
+              {isEquipped ? 'Unequip' : 'Equip'}
+            </button>
+          )}
+          {foodStats && (
+            <button
+              onClick={() => {
+                if (selected === null || !foodStats) return
+                const current = usePlayerStore.getState()
+                updateVitals({
+                  hunger: Math.max(0, current.hunger - foodStats.hungerRestore),
+                  thirst: Math.max(0, current.thirst - foodStats.thirstRestore),
+                })
+                inventory.removeItem(selected, 1)
+                setSelected(null)
+              }}
+              style={{
+                padding: '4px 12px',
+                marginRight: 8,
+                background: '#f59e0b',
+                color: '#fff',
+                border: 'none',
+                borderRadius: 4,
+                cursor: 'pointer',
+                fontWeight: 600,
+              }}
+            >
+              Eat
+            </button>
+          )}
           <button
             onClick={handleDrop}
             style={{

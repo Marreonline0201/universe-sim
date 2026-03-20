@@ -54,6 +54,7 @@ export class PlayerController {
 
   private keys = new Set<string>()
   private _interactConsumed = false
+  private _attackConsumed = false
 
   private yaw   = 0
   private pitch = 0
@@ -82,16 +83,22 @@ export class PlayerController {
   private boundKeyUp:     (e: KeyboardEvent) => void
   private boundMouseMove: (e: MouseEvent)    => void
   private boundWheel:     (e: WheelEvent)    => void
+  private boundMouseDown: (e: MouseEvent) => void = () => {}
+  private boundMouseUp:   (e: MouseEvent) => void = () => {}
 
   constructor(private entityId: number) {
     this.boundKeyDown   = (e) => this.onKeyDown(e)
     this.boundKeyUp     = (e) => this.onKeyUp(e)
     this.boundMouseMove = (e) => this.onMouseMove(e)
     this.boundWheel     = (e) => this.onWheel(e)
+    this.boundMouseDown = (e: MouseEvent) => { if (e.button === 0) this.keys.add('MouseLeft') }
+    this.boundMouseUp   = (e: MouseEvent) => { if (e.button === 0) this.keys.delete('MouseLeft') }
     document.addEventListener('keydown',   this.boundKeyDown)
     document.addEventListener('keyup',     this.boundKeyUp)
     document.addEventListener('mousemove', this.boundMouseMove)
     document.addEventListener('wheel',     this.boundWheel, { passive: true })
+    window.addEventListener('mousedown', this.boundMouseDown)
+    window.addEventListener('mouseup',   this.boundMouseUp)
   }
 
   /** Call once per frame — updates physics, ECS position, and camera. */
@@ -114,6 +121,17 @@ export class PlayerController {
     return false
   }
 
+  /** Consume the pending attack input. Returns true once per left-click. */
+  popAttack(): boolean {
+    const held = this.keys.has('MouseLeft') || this.keys.has('KeyQ')
+    if (held && !this._attackConsumed) {
+      this._attackConsumed = true
+      return true
+    }
+    if (!held) this._attackConsumed = false
+    return false
+  }
+
   requestPointerLock(): void { document.body.requestPointerLock() }
 
   dispose(): void {
@@ -121,6 +139,8 @@ export class PlayerController {
     document.removeEventListener('keyup',     this.boundKeyUp)
     document.removeEventListener('mousemove', this.boundMouseMove)
     document.removeEventListener('wheel',     this.boundWheel)
+    window.removeEventListener('mousedown', this.boundMouseDown)
+    window.removeEventListener('mouseup',   this.boundMouseUp)
     document.exitPointerLock?.()
   }
 

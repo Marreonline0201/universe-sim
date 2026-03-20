@@ -1,17 +1,20 @@
 // ── PlayerController ──────────────────────────────────────────────────────────
-// Handles keyboard + mouse input for a player character standing on a sphere.
+// Keyboard + mouse input for a player character standing on a sphere planet.
 //
-// Key changes from flat-world version:
-//   • "Up" direction = normalize(playerPos) — points away from planet center
-//   • Gravity acts along -up (toward center), not world -Y
-//   • WASD movement is in the local tangent plane at the player's surface position
-//   • Camera aligns camera.up to the surface normal so the horizon stays level
-//   • Jump impulse is along the local up axis
+// Physics model:
+//   • Gravity = -9.81 m/s² toward the planet center (Newton's law: F toward CoM)
+//   • "Up" at any surface point = normalize(playerPosition)
+//   • WASD moves in the local tangent plane; jump impulse is radially outward
+//   • Collision resolution delegated to Rapier KinematicCharacterController
+//   • Character orientation: rotation matrix columns = (right, up, -fwd) where
+//     up = normalize(position) — this is the exact gravitational reference frame,
+//     ensuring the character stands perpendicular to the surface everywhere
 
 import * as THREE from 'three'
 import { world, Position, Velocity, Rotation } from '../ecs/world'
 import { useGameStore } from '../store/gameStore'
-import { PLANET_RADIUS, SEA_LEVEL, surfaceRadiusAt } from '../world/SpherePlanet'
+import { PLANET_RADIUS, SEA_LEVEL } from '../world/SpherePlanet'
+import { rapierWorld } from '../physics/RapierWorld'
 
 export type CameraMode = 'first_person' | 'third_person' | 'orbit'
 
@@ -30,16 +33,16 @@ export interface InputState {
   scrollDelta: number
 }
 
-const WALK_SPEED    = 6.0
-const SPRINT_MULT   = 2.4
-const CROUCH_MULT   = 0.4
-const JUMP_IMPULSE  = 7.0    // m/s radially outward
-const MOUSE_SENS    = 0.002
-const GRAVITY       = 9.81   // m/s² toward center
-const SWIM_SPEED    = 3.5    // m/s horizontal in water
-const BUOYANCY      = 6.0    // upward acceleration in water (m/s²), net upward = BUOYANCY - GRAVITY
-const WATER_DRAG    = 4.0    // velocity damping coefficient in water (per second)
-const OCEAN_RADIUS  = PLANET_RADIUS + SEA_LEVEL  // 2000 m from center
+const WALK_SPEED   = 6.0
+const SPRINT_MULT  = 2.4
+const CROUCH_MULT  = 0.4
+const JUMP_IMPULSE = 7.0    // m/s radially outward
+const MOUSE_SENS   = 0.002
+const GRAVITY      = 9.81   // m/s² toward center (Newton)
+const SWIM_SPEED   = 3.5    // m/s horizontal in water
+const BUOYANCY     = 6.0    // net upward accel in water = BUOYANCY - GRAVITY
+const WATER_DRAG   = 4.0    // velocity damping in water (per second)
+const OCEAN_RADIUS = PLANET_RADIUS + SEA_LEVEL
 
 const THIRD_PERSON_DIST_DEFAULT = 8
 const THIRD_PERSON_DIST_MIN     = 2
@@ -52,14 +55,19 @@ export class PlayerController {
   private keys = new Set<string>()
   private _interactConsumed = false
 
-  // Yaw and pitch in local surface frame
   private yaw   = 0
   private pitch = 0
 
   private thirdPersonDist = THIRD_PERSON_DIST_DEFAULT
-  private onGround = false
 
-  // Reusable vectors to avoid per-frame allocations
+  // Radial velocity (m/s) — positive = away from planet center.
+  // Carried between frames for gravity/jump arcs.
+  // Using a dedicated scalar avoids the "extract radial from world-space velocity"
+  // problem when up-vector changes between frames.
+  private _radialVel = 0
+  private _onGround  = false
+
+  // Reusable vectors — no per-frame allocations
   private readonly _up      = new THREE.Vector3()
   private readonly _north   = new THREE.Vector3()
   private readonly _east    = new THREE.Vector3()
@@ -70,10 +78,10 @@ export class PlayerController {
   private readonly _rotMat  = new THREE.Matrix4()
   private readonly _rotQuat = new THREE.Quaternion()
 
-  private boundKeyDown: (e: KeyboardEvent) => void
-  private boundKeyUp:   (e: KeyboardEvent) => void
-  private boundMouseMove: (e: MouseEvent) => void
-  private boundWheel: (e: WheelEvent) => void
+  private boundKeyDown:   (e: KeyboardEvent) => void
+  private boundKeyUp:     (e: KeyboardEvent) => void
+  private boundMouseMove: (e: MouseEvent)    => void
+  private boundWheel:     (e: WheelEvent)    => void
 
   constructor(private entityId: number) {
     this.boundKeyDown   = (e) => this.onKeyDown(e)
@@ -86,7 +94,7 @@ export class PlayerController {
     document.addEventListener('wheel',     this.boundWheel, { passive: true })
   }
 
-  /** Call once per frame. Updates ECS velocity and repositions camera. */
+  /** Call once per frame — updates physics, ECS position, and camera. */
   update(dt: number, camera: THREE.Camera): void {
     this.pollInput()
     this.applyMovement(dt)
@@ -95,8 +103,6 @@ export class PlayerController {
     this.input.mouseY      = 0
     this.input.scrollDelta = 0
   }
-
-  setOnGround(v: boolean): void { this.onGround = v }
 
   /** Returns true on the frame the player presses F (consumed once). */
   popInteract(): boolean {
@@ -150,32 +156,45 @@ export class PlayerController {
     this.input.attack   = k.has('MouseLeft') || k.has('KeyQ')
   }
 
-  // ── Movement (sphere-aware) ───────────────────────────────────────────────
+  // ── Movement ───────────────────────────────────────────────────────────────
 
   private applyMovement(dt: number): void {
     const id  = this.entityId
     const inp = this.input
+    const gs  = useGameStore.getState()
 
-    // Build local surface basis at player's current position
-    const up    = this._up
-    const north = this._north
-    const east  = this._east
-    this.computeLocalBasis(up, north, east)
+    const physics = rapierWorld.getPlayer()
 
-    if (useGameStore.getState().inputBlocked) {
-      // Keep only radial velocity (gravity), kill tangential
-      const vr = Velocity.x[id] * up.x + Velocity.y[id] * up.y + Velocity.z[id] * up.z
-      const newR = vr - GRAVITY * dt
-      Velocity.x[id] = up.x * newR
-      Velocity.y[id] = up.y * newR
-      Velocity.z[id] = up.z * newR
-      Position.x[id] += Velocity.x[id] * dt
-      Position.y[id] += Velocity.y[id] * dt
-      Position.z[id] += Velocity.z[id] * dt
+    if (!physics) {
+      // Rapier not yet initialised — hold still (first frame only)
       return
     }
 
-    // Compute forward/right in the tangent plane, rotated by yaw
+    const { body, collider, controller } = physics
+
+    // ── Read authoritative position from Rapier ──────────────────────────────
+    const t = body.translation()
+    const px = t.x, py = t.y, pz = t.z
+
+    // ── Build local gravitational reference frame ────────────────────────────
+    // up = normalize(pos) = direction gravity acts away from (Newton: F toward CoM)
+    const up    = this._up
+    const north = this._north
+    const east  = this._east
+    this.computeLocalBasisAt(px, py, pz, up, north, east)
+
+    // ── Mouse look ───────────────────────────────────────────────────────────
+    if (!gs.inputBlocked) {
+      this.yaw   -= inp.mouseX * MOUSE_SENS
+      this.pitch -= inp.mouseY * MOUSE_SENS
+      this.pitch  = Math.max(-Math.PI / 2.1, Math.min(Math.PI / 2.1, this.pitch))
+      if (this.cameraMode === 'third_person') {
+        this.thirdPersonDist += inp.scrollDelta * 0.01
+        this.thirdPersonDist  = Math.max(THIRD_PERSON_DIST_MIN, Math.min(THIRD_PERSON_DIST_MAX, this.thirdPersonDist))
+      }
+    }
+
+    // ── Facing direction from yaw ────────────────────────────────────────────
     const sinY = Math.sin(this.yaw), cosY = Math.cos(this.yaw)
     const fwd   = this._fwd
     const right = this._right
@@ -190,16 +209,62 @@ export class PlayerController {
       east.z * cosY - north.z * sinY,
     )
 
-    const px = Position.x[id], py = Position.y[id], pz = Position.z[id]
     const distFromCenter = Math.sqrt(px * px + py * py + pz * pz)
-    const inWater = distFromCenter < OCEAN_RADIUS + 0.5  // player center below ocean surface
+    const inWater  = distFromCenter < OCEAN_RADIUS + 0.5
+    const speedMult = gs.adminSpeedMult ?? 1
 
-    let speed = inWater ? SWIM_SPEED : WALK_SPEED
+    // ── Input blocked (panel open) ───────────────────────────────────────────
+    // Keep radial velocity (gravity), kill tangential.
+    if (gs.inputBlocked) {
+      this._radialVel -= GRAVITY * dt
+      const dx = up.x * this._radialVel * dt
+      const dy = up.y * this._radialVel * dt
+      const dz = up.z * this._radialVel * dt
+      controller.computeColliderMovement(collider, { x: dx, y: dy, z: dz })
+      const actual = controller.computedMovement()
+      const actualR = actual.x * up.x + actual.y * up.y + actual.z * up.z
+      if (this._radialVel < 0 && actualR > this._radialVel * dt * 0.1) {
+        this._radialVel = 0  // ground blocked the fall
+      }
+      const nx = px + actual.x, ny = py + actual.y, nz = pz + actual.z
+      body.setNextKinematicTranslation({ x: nx, y: ny, z: nz })
+      Position.x[id] = nx; Position.y[id] = ny; Position.z[id] = nz
+      this.writeRotation(id, right, up, fwd)
+      return
+    }
+
+    // ── Fly mode (admin) ─────────────────────────────────────────────────────
+    if (gs.flyMode) {
+      const FLY_SPEED = WALK_SPEED * 4 * speedMult
+      let fx = 0, fy = 0, fz = 0
+      if (inp.forward)  { fx += fwd.x;   fy += fwd.y;   fz += fwd.z   }
+      if (inp.backward) { fx -= fwd.x;   fy -= fwd.y;   fz -= fwd.z   }
+      if (inp.left)     { fx -= right.x; fy -= right.y; fz -= right.z  }
+      if (inp.right)    { fx += right.x; fy += right.y; fz += right.z  }
+      if (inp.jump)     { fx += up.x;    fy += up.y;    fz += up.z     }
+      if (inp.crouch)   { fx -= up.x;    fy -= up.y;    fz -= up.z     }
+      const fLen = Math.sqrt(fx * fx + fy * fy + fz * fz)
+      if (fLen > 1) { fx /= fLen; fy /= fLen; fz /= fLen }
+      // Fly bypasses collision (intentional: fly through terrain for admin use)
+      const nx = px + fx * FLY_SPEED * dt
+      const ny = py + fy * FLY_SPEED * dt
+      const nz = pz + fz * FLY_SPEED * dt
+      body.setNextKinematicTranslation({ x: nx, y: ny, z: nz })
+      Position.x[id] = nx; Position.y[id] = ny; Position.z[id] = nz
+      Velocity.x[id] = fx * FLY_SPEED
+      Velocity.y[id] = fy * FLY_SPEED
+      Velocity.z[id] = fz * FLY_SPEED
+      this._radialVel = 0
+      if (fLen > 0) this.writeRotation(id, right, up, fwd)
+      return
+    }
+
+    // ── Normal movement (land + water) ───────────────────────────────────────
+    let speed = inWater ? SWIM_SPEED : WALK_SPEED * speedMult
     if (!inWater && inp.sprint) speed *= SPRINT_MULT
     if (!inWater && inp.crouch) speed *= CROUCH_MULT
 
-    // Desired lateral move in world space (tangent plane only)
-    // fwd points in the direction the player faces (+lookDir), so W adds fwd.
+    // WASD: desired tangential velocity in the surface plane
     let mx = 0, my = 0, mz = 0
     if (inp.forward)  { mx += fwd.x;   my += fwd.y;   mz += fwd.z   }
     if (inp.backward) { mx -= fwd.x;   my -= fwd.y;   mz -= fwd.z   }
@@ -210,79 +275,83 @@ export class PlayerController {
     if (moveLen > 1) { mx /= moveLen; my /= moveLen; mz /= moveLen }
     mx *= speed; my *= speed; mz *= speed
 
-    // Decompose current velocity into radial + tangential
-    const vx = Velocity.x[id], vy = Velocity.y[id], vz = Velocity.z[id]
-    const vRadial = vx * up.x + vy * up.y + vz * up.z
-
-    let newRadial: number
+    // Radial velocity: gravity acts toward center (Newton) at -9.81 m/s²
+    let rv = this._radialVel
     if (inWater) {
-      // Buoyancy: net upward = BUOYANCY - GRAVITY (positive = floats up)
-      // Space bar: swim upward; ctrl: swim downward
-      newRadial = vRadial + (BUOYANCY - GRAVITY) * dt
-      if (inp.jump)   newRadial += BUOYANCY * dt  // swim up
-      if (inp.crouch) newRadial -= BUOYANCY * dt  // dive down
-      // Water drag on radial velocity
-      newRadial *= Math.max(0, 1 - WATER_DRAG * dt)
-      // Drag on tangential velocity too
-      const dragFactor = Math.max(0, 1 - WATER_DRAG * dt)
-      mx *= dragFactor; my *= dragFactor; mz *= dragFactor
+      rv += (BUOYANCY - GRAVITY) * dt
+      if (inp.jump)   rv += BUOYANCY * dt
+      if (inp.crouch) rv -= BUOYANCY * dt
+      const drag = Math.max(0, 1 - WATER_DRAG * dt)
+      rv *= drag
+      mx *= drag; my *= drag; mz *= drag
     } else {
-      // Land: normal gravity
-      newRadial = vRadial - GRAVITY * dt
-
-      // Jump: impulse radially outward
-      if (inp.jump && this.onGround) {
-        newRadial = JUMP_IMPULSE
-        this.onGround = false
+      rv -= GRAVITY * dt
+      if (inp.jump && this._onGround) {
+        rv = JUMP_IMPULSE
+        this._onGround = false
       }
     }
 
-    // New velocity = tangential (WASD) + radial (gravity/buoyancy/jump)
-    Velocity.x[id] = mx + up.x * newRadial
-    Velocity.y[id] = my + up.y * newRadial
-    Velocity.z[id] = mz + up.z * newRadial
+    // Compose desired movement: tangential (WASD) + radial (gravity/jump)
+    const dx = (mx + up.x * rv) * dt
+    const dy = (my + up.y * rv) * dt
+    const dz = (mz + up.z * rv) * dt
 
-    // Integrate position
-    Position.x[id] += Velocity.x[id] * dt
-    Position.y[id] += Velocity.y[id] * dt
-    Position.z[id] += Velocity.z[id] * dt
+    // ── Rapier KCC collision resolution ─────────────────────────────────────
+    // Sweeps the capsule along (dx, dy, dz) and resolves slope/wall/step collisions.
+    // The planet trimesh collider stops the character at the terrain surface.
+    controller.computeColliderMovement(collider, { x: dx, y: dy, z: dz })
+    const actual = controller.computedMovement()
 
-    // Safety: if player falls below planet core, teleport to north pole surface
-    const dist = Math.sqrt(Position.x[id] ** 2 + Position.y[id] ** 2 + Position.z[id] ** 2)
-    if (dist < 800) {
-      Position.x[id] = 0; Position.y[id] = 2002; Position.z[id] = 0
-      Velocity.x[id] = 0; Velocity.y[id] = 0;    Velocity.z[id] = 0
+    // Ground detection: was the radially-downward component blocked?
+    // If desired radial is negative (falling) and actual radial is near zero → grounded.
+    const desiredR = dx * up.x + dy * up.y + dz * up.z
+    const actualR  = actual.x * up.x + actual.y * up.y + actual.z * up.z
+    const groundBlocked = desiredR < -0.001 && actualR > desiredR * 0.1
+    this._onGround = groundBlocked
+
+    if (groundBlocked) {
+      rv = 0  // kill radial velocity on landing (prevents tunneling re-attempt)
     }
 
-    // Mouse look
-    this.yaw   -= inp.mouseX * MOUSE_SENS
-    this.pitch -= inp.mouseY * MOUSE_SENS
-    this.pitch  = Math.max(-Math.PI / 2.1, Math.min(Math.PI / 2.1, this.pitch))
+    this._radialVel = rv
 
-    if (this.cameraMode === 'third_person') {
-      this.thirdPersonDist += inp.scrollDelta * 0.01
-      this.thirdPersonDist  = Math.max(THIRD_PERSON_DIST_MIN, Math.min(THIRD_PERSON_DIST_MAX, this.thirdPersonDist))
+    // Move kinematic body to resolved position
+    const nx = px + actual.x
+    const ny = py + actual.y
+    const nz = pz + actual.z
+    body.setNextKinematicTranslation({ x: nx, y: ny, z: nz })
+
+    // Write back to ECS (other systems read from here)
+    Position.x[id] = nx; Position.y[id] = ny; Position.z[id] = nz
+    Velocity.x[id] = mx + up.x * rv
+    Velocity.y[id] = my + up.y * rv
+    Velocity.z[id] = mz + up.z * rv
+
+    // Safety: if player somehow falls below planet core, teleport to spawn surface
+    const dist2 = nx * nx + ny * ny + nz * nz
+    if (dist2 < 800 * 800) {
+      const safeR = PLANET_RADIUS + 5
+      const mag   = Math.sqrt(dist2)
+      if (mag > 0.1) {
+        const sx = (nx / mag) * safeR
+        const sy = (ny / mag) * safeR
+        const sz = (nz / mag) * safeR
+        body.setNextKinematicTranslation({ x: sx, y: sy, z: sz })
+        Position.x[id] = sx; Position.y[id] = sy; Position.z[id] = sz
+      } else {
+        body.setNextKinematicTranslation({ x: 0, y: safeR, z: 0 })
+        Position.x[id] = 0; Position.y[id] = safeR; Position.z[id] = 0
+      }
+      this._radialVel = 0
     }
 
-    // Entity rotation quaternion: align local Y to surface normal, face movement direction.
-    // Build rotation matrix from basis (right=col0, up=col1, -fwd=col2) so the mesh
-    // stays perpendicular to the sphere surface regardless of latitude.
-    if (moveLen > 0) {
-      this._rotMat.set(
-        right.x, up.x, -fwd.x, 0,
-        right.y, up.y, -fwd.y, 0,
-        right.z, up.z, -fwd.z, 0,
-        0,       0,    0,      1,
-      )
-      this._rotQuat.setFromRotationMatrix(this._rotMat)
-      Rotation.x[id] = this._rotQuat.x
-      Rotation.y[id] = this._rotQuat.y
-      Rotation.z[id] = this._rotQuat.z
-      Rotation.w[id] = this._rotQuat.w
-    }
+    // Character rotation: surface-normal aligned, facing direction of travel.
+    // Applied every frame (not just when moving) — ensures no tilt anywhere.
+    this.writeRotation(id, right, up, fwd)
   }
 
-  // ── Camera (sphere-aware) ─────────────────────────────────────────────────
+  // ── Camera ─────────────────────────────────────────────────────────────────
 
   private updateCamera(camera: THREE.Camera): void {
     const id = this.entityId
@@ -293,25 +362,24 @@ export class PlayerController {
     const east  = this._east
     this.computeLocalBasisAt(ex, ey, ez, up, north, east)
 
-    // Build look direction: yaw in tangent plane, then pitched up/down
     const sinY = Math.sin(this.yaw), cosY = Math.cos(this.yaw)
     const hx = north.x * cosY + east.x * sinY
     const hy = north.y * cosY + east.y * sinY
     const hz = north.z * cosY + east.z * sinY
     const cosPitch = Math.cos(this.pitch), sinPitch = Math.sin(this.pitch)
-    const lookDir = this._lookDir
+    const lookDir  = this._lookDir
     lookDir.set(
       hx * cosPitch + up.x * sinPitch,
       hy * cosPitch + up.y * sinPitch,
       hz * cosPitch + up.z * sinPitch,
     )
 
-    // CRITICAL: camera.up = surface normal so horizon stays level as you walk around
+    // CRITICAL: camera.up = surface normal → horizon stays level everywhere
     camera.up.copy(up)
 
     switch (this.cameraMode) {
       case 'first_person': {
-        const dist = Math.sqrt(ex * ex + ey * ey + ez * ez)
+        const dist  = Math.sqrt(ex * ex + ey * ey + ez * ez)
         const headR = dist + 0.8
         camera.position.set(ex / dist * headR, ey / dist * headR, ez / dist * headR)
         camera.lookAt(
@@ -345,16 +413,31 @@ export class PlayerController {
     }
   }
 
-  // ── Local surface basis ───────────────────────────────────────────────────
+  // ── Helpers ────────────────────────────────────────────────────────────────
 
-  private computeLocalBasis(
-    out_up: THREE.Vector3, out_north: THREE.Vector3, out_east: THREE.Vector3,
+  /**
+   * Write character rotation quaternion to ECS.
+   * Columns of the rotation matrix: right, up (surface normal), -forward.
+   * This is the physically correct orientation: up = normalize(position) is
+   * exactly the gravitational reference frame on a sphere.
+   */
+  private writeRotation(
+    id: number,
+    right: THREE.Vector3,
+    up:    THREE.Vector3,
+    fwd:   THREE.Vector3,
   ): void {
-    const id = this.entityId
-    this.computeLocalBasisAt(
-      Position.x[id], Position.y[id], Position.z[id],
-      out_up, out_north, out_east,
+    this._rotMat.set(
+      right.x, up.x, -fwd.x, 0,
+      right.y, up.y, -fwd.y, 0,
+      right.z, up.z, -fwd.z, 0,
+      0,       0,    0,      1,
     )
+    this._rotQuat.setFromRotationMatrix(this._rotMat)
+    Rotation.x[id] = this._rotQuat.x
+    Rotation.y[id] = this._rotQuat.y
+    Rotation.z[id] = this._rotQuat.z
+    Rotation.w[id] = this._rotQuat.w
   }
 
   private computeLocalBasisAt(
@@ -368,14 +451,12 @@ export class PlayerController {
     }
     out_up.set(px / len, py / len, pz / len)
 
-    // North = world Z projected onto tangent plane
-    // At Z-poles, degenerate — use world Y instead
     let nx = 0, ny = 0, nz = 1
     if (Math.abs(out_up.z) > 0.99) { nx = 0; ny = 1; nz = 0 }
     const dot = nx * out_up.x + ny * out_up.y + nz * out_up.z
     nx -= dot * out_up.x; ny -= dot * out_up.y; nz -= dot * out_up.z
     const nLen = Math.sqrt(nx * nx + ny * ny + nz * nz)
-    if (nLen < 0.001) { out_north.set(1, 0, 0) }
+    if (nLen < 0.001) out_north.set(1, 0, 0)
     else out_north.set(nx / nLen, ny / nLen, nz / nLen)
 
     out_east.crossVectors(out_up, out_north).normalize()

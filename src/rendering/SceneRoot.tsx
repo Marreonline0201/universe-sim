@@ -4,6 +4,7 @@ import { PerspectiveCamera, Sky, Stars } from '@react-three/drei'
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import type { RefObject } from 'react'
 import { SimulationEngine } from '../engine/SimulationEngine'
+import { rapierWorld } from '../physics/RapierWorld'
 import { useGameStore } from '../store/gameStore'
 import { usePlayerStore } from '../store/playerStore'
 import { useUiStore } from '../store/uiStore'
@@ -11,7 +12,7 @@ import { CreatureRenderer } from './entities/CreatureRenderer'
 import { RemotePlayersRenderer } from './RemotePlayersRenderer'
 import { useMultiplayerStore } from '../store/multiplayerStore'
 import type { RemoteNpc } from '../store/multiplayerStore'
-import { world, createPlayerEntity, Metabolism, Health, Position, Rotation, Velocity } from '../ecs/world'
+import { world, createPlayerEntity, Metabolism, Health, Position, Rotation } from '../ecs/world'
 import { PlayerController } from '../player/PlayerController'
 import { MetabolismSystem, setMetabolismDt } from '../ecs/systems/MetabolismSystem'
 import { inventory, buildingSystem } from '../game/GameSingletons'
@@ -140,11 +141,16 @@ export function SceneRoot() {
     const engine = new SimulationEngine({ gridX: 64, gridY: 32, gridZ: 64, seed: 42 })
     engineRef.current = engine
 
-    engine.init().then(() => {
+    engine.init().then(async () => {
       engine.start()
 
-      // Spawn player at north pole of sphere, on the terrain surface
+      // Spawn player at a land position on the sphere surface
       const [spawnX, spawnY, spawnZ] = getSpawnPosition()
+
+      // Init Rapier physics BEFORE creating the player entity.
+      // Builds planet trimesh collider + player capsule KCC.
+      await rapierWorld.init(spawnX, spawnY, spawnZ)
+
       const eid = createPlayerEntity(world, spawnX, spawnY, spawnZ)
       setEntityId(eid)
 
@@ -317,10 +323,13 @@ function GameLoop({ controllerRef, entityId }: GameLoopProps) {
       return
     }
 
-    // 1. Player movement + camera
+    // 1. Player movement + camera (computes desired movement, calls Rapier KCC)
     controllerRef.current?.update(dt, camera)
 
-    // 2. Metabolism (hunger, thirst, fatigue, health regen)
+    // 2. Step Rapier physics world (commits kinematic body positions)
+    rapierWorld.step(dt)
+
+    // 3. Metabolism (hunger, thirst, fatigue, health regen)
     setMetabolismDt(dt)
     MetabolismSystem(world)
 
@@ -353,35 +362,12 @@ function GameLoop({ controllerRef, entityId }: GameLoopProps) {
       }
     }
 
-    // 4. Sphere-aware ground clamp
-    // "Down" = toward planet center (0,0,0). Player is on the surface when
-    // dist(pos, origin) <= surfaceRadiusAt(pos) + capsuleHeight.
+    // Ground detection and position sync are now handled by Rapier KCC
+    // inside PlayerController.applyMovement(). Just sync to playerStore here.
     const px = Position.x[entityId]
     const py = Position.y[entityId]
     const pz = Position.z[entityId]
-    const playerDist = Math.sqrt(px * px + py * py + pz * pz)
-    const capsuleH   = 0.9   // half-height of player capsule above surface
-    const groundR    = surfaceRadiusAt(px, py, pz) + capsuleH
-
-    if (playerDist <= groundR && playerDist > 0.1) {
-      // Snap to surface along radial direction
-      const scale = groundR / playerDist
-      Position.x[entityId] = px * scale
-      Position.y[entityId] = py * scale
-      Position.z[entityId] = pz * scale
-      // Kill negative radial velocity (prevent tunneling through floor)
-      const upX = px / playerDist, upY = py / playerDist, upZ = pz / playerDist
-      const vr = Velocity.x[entityId] * upX + Velocity.y[entityId] * upY + Velocity.z[entityId] * upZ
-      if (vr < 0) {
-        Velocity.x[entityId] -= vr * upX
-        Velocity.y[entityId] -= vr * upY
-        Velocity.z[entityId] -= vr * upZ
-      }
-      controllerRef.current?.setOnGround(true)
-    } else {
-      controllerRef.current?.setOnGround(false)
-    }
-    setPosition(Position.x[entityId], Position.y[entityId], Position.z[entityId])
+    setPosition(px, py, pz)
 
     // 5. Resource proximity + gather (3D distance on sphere surface)
     const gs = useGameStore.getState()

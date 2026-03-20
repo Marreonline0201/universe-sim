@@ -25,7 +25,7 @@ export async function loadSave(getToken: () => Promise<string | null>) {
   ps.setCurrentGoal(data.currentGoal)
   data.discoveries.forEach((d: string) => ps.addDiscovery(d))
   ps.addEvolutionPoints(data.evolutionPoints)
-  gs.addSimSeconds(data.simSeconds)
+  gs.setSimSeconds(data.simSeconds)
 
   return true
 }

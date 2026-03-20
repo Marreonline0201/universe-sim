@@ -102,9 +102,16 @@ export class WorldSocket {
         )
         // Sync game store time/scale/simTime with server authority
         game.setTimeScale(msg.timeScale as number)
-        // Only snap simTime if difference > 2s (avoids jitter, handles refresh)
+        // Only snap simTime if server is significantly ahead (e.g. first connect, long disconnect).
+        // Never snap backwards — local RAF clock runs slightly faster than server 10Hz clock,
+        // so the client is typically ~20 sim-seconds ahead each tick at 1,000,000× — that is fine.
+        // Only snap backwards if client is outrageously ahead (admin time-reset scenario).
         const serverSim = msg.simTime as number
-        if (Math.abs(serverSim - game.simSeconds) > 2) {
+        const diff = serverSim - game.simSeconds          // positive = server ahead
+        const ts   = Math.max(1, game.timeScale)
+        const snapFwd = diff > ts * 5                     // server >5 real-sec ahead → snap up
+        const snapBwd = diff < -ts * 60                   // client >60 real-sec ahead → snap down
+        if (snapFwd || snapBwd) {
           game.setSimSeconds(serverSim)
         }
         if (msg.paused !== undefined) {

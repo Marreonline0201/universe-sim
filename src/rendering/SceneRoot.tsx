@@ -285,6 +285,7 @@ export function SceneRoot() {
         <>
           <GameLoop controllerRef={controllerRef} entityId={entityId} />
           <PlayerMesh entityId={entityId} />
+          <EquippedItemMesh entityId={entityId} />
           <BuildingGhost entityId={entityId} />
         </>
       )}
@@ -567,6 +568,59 @@ function PlacedBuildingsRenderer() {
         )
       })}
     </>
+  )
+}
+
+// ── EquippedItemMesh ──────────────────────────────────────────────────────────
+// Renders a plain colored box at the player's right-hand position.
+// Uses the player's ECS rotation quaternion (not the camera) because the
+// camera is behind the player in third-person mode.
+//
+// Slot is re-read every frame inside useFrame to avoid stale closure bugs.
+// If the player drops/consumes the equipped item, the mesh hides immediately.
+function EquippedItemMesh({ entityId }: { entityId: number }) {
+  const meshRef = useRef<THREE.Mesh>(null)
+
+  useFrame(() => {
+    if (!meshRef.current) return
+
+    // Re-read slot every frame — avoids stale closure
+    const eSlot = usePlayerStore.getState().equippedSlot
+    const slot  = eSlot !== null ? inventory.getSlot(eSlot) : null
+
+    if (!slot) {
+      meshRef.current.visible = false
+      return
+    }
+    meshRef.current.visible = true
+
+    // Player world position from ECS
+    const px = Position.x[entityId]
+    const py = Position.y[entityId]
+    const pz = Position.z[entityId]
+
+    // Player rotation quaternion from ECS (not camera — third-person game)
+    const q = new THREE.Quaternion(
+      Rotation.x[entityId],
+      Rotation.y[entityId],
+      Rotation.z[entityId],
+      Rotation.w[entityId],
+    )
+
+    // Hand offset in player-local space: right, slightly forward, slightly down
+    const localOffset = new THREE.Vector3(0.5, -0.3, 0.4)
+    localOffset.applyQuaternion(q)
+
+    meshRef.current.position.set(px + localOffset.x, py + localOffset.y, pz + localOffset.z)
+    meshRef.current.quaternion.copy(q)
+  })
+
+  // Always mount the mesh — visibility controlled by useFrame
+  return (
+    <mesh ref={meshRef} visible={false}>
+      <boxGeometry args={[0.08, 0.08, 0.45]} />
+      <meshStandardMaterial color="#9ca3af" />
+    </mesh>
   )
 }
 

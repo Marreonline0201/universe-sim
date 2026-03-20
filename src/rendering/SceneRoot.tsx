@@ -21,6 +21,8 @@ import { BUILDING_TYPES } from '../civilization/BuildingSystem'
 import { getItemStats, canHarvest } from '../player/EquipSystem'
 import { PlanetTerrain } from './PlanetTerrain'
 import { surfaceRadiusAt, terrainHeightAt, getSpawnPosition, PLANET_RADIUS } from '../world/SpherePlanet'
+import { LocalSimManager } from '../engine/LocalSimManager'
+import { FireRenderer } from './FireRenderer'
 
 // ── Resource node definitions ─────────────────────────────────────────────────
 
@@ -106,7 +108,9 @@ function terrainYAt(px: number, pz: number): number {
 export function SceneRoot() {
   const engineRef = useRef<SimulationEngine | null>(null)
   const controllerRef = useRef<PlayerController | null>(null)
+  const simManagerRef = useRef<LocalSimManager | null>(null)
   const [pointerLocked, setPointerLocked] = useState(false)
+  const [simManager, setSimManager] = useState<LocalSimManager | null>(null)
 
   useEffect(() => {
     const check = () => setPointerLocked(!!document.pointerLockElement)
@@ -159,12 +163,20 @@ export function SceneRoot() {
       controllerRef.current = new PlayerController(eid)
 
       setEngineReady(true)
+
+      // Initialize local simulation grid from terrain
+      const simMgr = new LocalSimManager(engine)
+      simMgr.initFromSpawn(spawnX, spawnY, spawnZ)
+      simManagerRef.current = simMgr
+      setSimManager(simMgr)
     })
 
     return () => {
       engine.dispose()
       controllerRef.current?.dispose()
       controllerRef.current = null
+      simManagerRef.current = null
+      setSimManager(null)
     }
   }, [setEngineReady, setEntityId])
 
@@ -281,10 +293,11 @@ export function SceneRoot() {
         <RemotePlayersRenderer />
         <ServerNpcsRenderer />
         <LocalNpcsRenderer />
+        <FireRenderer simManager={simManager} />
       </Suspense>
       {entityId !== null && (
         <>
-          <GameLoop controllerRef={controllerRef} entityId={entityId} />
+          <GameLoop controllerRef={controllerRef} simManagerRef={simManagerRef} entityId={entityId} />
           <PlayerMesh entityId={entityId} />
           <EquippedItemMesh entityId={entityId} />
           <BuildingGhost entityId={entityId} />
@@ -299,10 +312,11 @@ export function SceneRoot() {
 
 interface GameLoopProps {
   controllerRef: RefObject<PlayerController | null>
+  simManagerRef: RefObject<LocalSimManager | null>
   entityId: number
 }
 
-function GameLoop({ controllerRef, entityId }: GameLoopProps) {
+function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
   const { camera } = useThree()
   const updateVitals        = usePlayerStore(s => s.updateVitals)
   const setPosition         = usePlayerStore(s => s.setPosition)
@@ -475,16 +489,42 @@ function GameLoop({ controllerRef, entityId }: GameLoopProps) {
       if (gs.gatherPrompt !== null) gs.setGatherPrompt(null)
     }
 
+    // ── Ambient temperature update ────────────────────────────────────────────
+    if (simManagerRef.current) {
+      const ps = usePlayerStore.getState()
+      const tempC = simManagerRef.current.getTemperatureAt(ps.x, ps.y, ps.z)
+      usePlayerStore.getState().setAmbientTemp(tempC)
+    }
+
     // ── Tool use: left click harvests with equipped item ─────────────────
-    if (!gs.inputBlocked && controllerRef.current?.popAttack()) {
-      const equippedSlot = usePlayerStore.getState().equippedSlot
-      const equippedItem = equippedSlot !== null ? inventory.getSlot(equippedSlot) : null
+    const ps2 = usePlayerStore.getState()
+    const equippedSlot2 = ps2.equippedSlot ?? null
+    const equippedItem2 = equippedSlot2 !== null ? inventory.getSlot(equippedSlot2) : null
+    const hasFlint = equippedItem2?.materialId === MAT.FLINT
+
+    // ── Fire-starting: equipped flint + left-click near wood/bark/fiber ───
+    if (hasFlint && !gs.inputBlocked && controllerRef.current?.popAttack() && simManagerRef.current) {
+      let nearestFireNode: ResourceNode | null = null
+      let nearestFireDist = 3.0
+      for (const node of RESOURCE_NODES) {
+        if (gatheredNodeIds.has(node.id)) continue
+        if (node.matId !== MAT.WOOD && node.matId !== MAT.BARK && node.matId !== MAT.FIBER) continue
+        const nodeY = terrainYAt(node.x, node.z)
+        const dx = px - node.x, dy = py - nodeY, dz = pz - node.z
+        const dist = Math.sqrt(dx * dx + dy * dy + dz * dz)
+        if (dist < nearestFireDist) { nearestFireDist = dist; nearestFireNode = node }
+      }
+      if (nearestFireNode) {
+        const nodeY = terrainYAt(nearestFireNode.x, nearestFireNode.z)
+        simManagerRef.current.placeWood(nearestFireNode.x, nodeY, nearestFireNode.z, nearestFireNode.matId)
+        simManagerRef.current.ignite(nearestFireNode.x, nodeY, nearestFireNode.z)
+        gs.setGatherPrompt('Fire started!')
+        setTimeout(() => useGameStore.getState().setGatherPrompt(null), 2000)
+      }
+    } else if (!gs.inputBlocked && controllerRef.current?.popAttack()) {
+      const equippedItem = equippedItem2
       const itemId       = equippedItem?.itemId ?? 0
       const stats        = getItemStats(itemId)
-
-      const px = Position.x[entityId]
-      const py = Position.y[entityId]
-      const pz = Position.z[entityId]
 
       let nearest: (typeof RESOURCE_NODES)[0] | null = null
       let nearestDist = Infinity
@@ -492,7 +532,7 @@ function GameLoop({ controllerRef, entityId }: GameLoopProps) {
       for (const node of RESOURCE_NODES) {
         if (gatheredNodeIds.has(node.id)) continue
         const dx = node.x - px
-        const dy = terrainYAt(node.x, node.z) - py   // ResourceNode has no y field — compute from terrain
+        const dy = terrainYAt(node.x, node.z) - py
         const dz = node.z - pz
         const dist = Math.sqrt(dx * dx + dy * dy + dz * dz)
         if (dist < stats.range && dist < nearestDist && canHarvest(itemId, node.type)) {

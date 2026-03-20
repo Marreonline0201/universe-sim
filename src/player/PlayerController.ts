@@ -188,9 +188,10 @@ export class PlayerController {
     if (inp.crouch) speed *= CROUCH_MULT
 
     // Desired lateral move in world space (tangent plane only)
+    // fwd points in the direction the player faces (+lookDir), so W adds fwd.
     let mx = 0, my = 0, mz = 0
-    if (inp.forward)  { mx -= fwd.x;   my -= fwd.y;   mz -= fwd.z   }
-    if (inp.backward) { mx += fwd.x;   my += fwd.y;   mz += fwd.z   }
+    if (inp.forward)  { mx += fwd.x;   my += fwd.y;   mz += fwd.z   }
+    if (inp.backward) { mx -= fwd.x;   my -= fwd.y;   mz -= fwd.z   }
     if (inp.left)     { mx -= right.x; my -= right.y; mz -= right.z  }
     if (inp.right)    { mx += right.x; my += right.y; mz += right.z  }
 

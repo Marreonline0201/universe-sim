@@ -91,6 +91,8 @@ function hasAllKnowledge(recipe: CraftingRecipe): boolean {
 }
 
 function canCraft(recipe: CraftingRecipe, civTier: number): boolean {
+  // God mode: all recipes craftable regardless of tier, knowledge, or materials
+  if (inventory.isGodMode()) return true
   if (civTier < recipe.tier) return false
   if (!hasAllKnowledge(recipe)) return false
   for (const input of recipe.inputs) {
@@ -103,6 +105,7 @@ function canCraft(recipe: CraftingRecipe, civTier: number): boolean {
 }
 
 function isUnlocked(recipe: CraftingRecipe, civTier: number): boolean {
+  if (inventory.isGodMode()) return true
   return civTier >= recipe.tier && hasAllKnowledge(recipe)
 }
 
@@ -111,6 +114,9 @@ export function CraftingPanel() {
   const addNotification = useUiStore(s => s.addNotification)
   const [, forceRefresh] = useState(0)
   const [filter, setFilter] = useState<'all' | 'available'>('available')
+  const godMode = inventory.isGodMode()
+  // In god mode, override filter to show all (every recipe becomes craftable)
+  const effectiveFilter = godMode ? 'available' : filter
 
   // Poll every 200ms so recipe availability updates as materials are gathered
   useEffect(() => {
@@ -120,8 +126,8 @@ export function CraftingPanel() {
   const [selectedRecipe, setSelectedRecipe] = useState<CraftingRecipe | null>(null)
 
   const recipes = CRAFTING_RECIPES.filter(r => {
-    if (filter === 'available') return canCraft(r, civTier)
-    return true  // "All" shows every recipe — grayed out if not unlocked
+    if (effectiveFilter === 'available') return canCraft(r, civTier)
+    return true
   })
 
   function handleCraft() {
@@ -140,9 +146,9 @@ export function CraftingPanel() {
     <div style={{ color: '#fff', fontFamily: 'monospace', display: 'flex', gap: 12, height: '100%' }}>
       {/* Recipe list */}
       <div style={{ flex: 1, minWidth: 0 }}>
-        {/* Filter toggle */}
+        {/* Filter toggle — hidden in god mode (all recipes always craftable) */}
         <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
-          {(['available', 'all'] as const).map(f => (
+          {!godMode && (['available', 'all'] as const).map(f => (
             <button
               key={f}
               onClick={() => setFilter(f)}

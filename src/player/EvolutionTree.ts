@@ -25,6 +25,10 @@ export interface EvolutionNode {
 export class EvolutionTree {
   private points = 0
   private unlocked = new Set<string>()
+  private _godMode = false
+
+  setGodMode(on: boolean) { this._godMode = on }
+  isGodMode() { return this._godMode }
 
   addPoints(ep: number): void {
     this.points = Math.max(0, this.points + ep)
@@ -36,17 +40,19 @@ export class EvolutionTree {
 
   /**
    * Attempt to unlock a node. Returns true on success.
-   * Fails if insufficient EP or prerequisites not met.
+   * In god mode: bypasses EP cost and prerequisites.
    */
   unlock(nodeId: string): boolean {
     const node = EVOLUTION_NODES.find(n => n.id === nodeId)
     if (!node) return false
     if (this.unlocked.has(nodeId)) return false
-    if (this.points < node.epCost) return false
-    for (const req of node.prerequisites) {
-      if (!this.unlocked.has(req)) return false
+    if (!this._godMode) {
+      if (this.points < node.epCost) return false
+      for (const req of node.prerequisites) {
+        if (!this.unlocked.has(req)) return false
+      }
+      this.points -= node.epCost
     }
-    this.points -= node.epCost
     this.unlocked.add(nodeId)
     return true
   }

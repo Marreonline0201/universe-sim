@@ -66,7 +66,11 @@ export async function loadSave(getToken: () => Promise<string | null>) {
 
   // God mode — stored in localStorage (admin pref, not game state)
   const savedGodMode = localStorage.getItem(GOD_MODE_KEY) === 'true'
-  if (savedGodMode) inventory.setGodMode(true)
+  if (savedGodMode) {
+    inventory.setGodMode(true)
+    evolutionTree.setGodMode(true)
+    techTree.setGodMode(true)
+  }
 
   return true
 }

@@ -26,16 +26,25 @@ export interface TechNode {
 export class TechTree {
   private researched = new Set<string>()
   private inProgress: Map<string, { startTime: number; endTime: number }> = new Map()
+  private _godMode = false
+
+  setGodMode(on: boolean) { this._godMode = on }
+  isGodMode() { return this._godMode }
 
   /**
    * Start researching a node. Returns true on success.
-   * Prerequisites must be researched; node must not already be done/in-progress.
+   * In god mode: bypasses prerequisites and completes instantly.
    */
   startResearch(nodeId: string, simTime: number): boolean {
     const node = TECH_NODES.find(n => n.id === nodeId)
     if (!node) return false
     if (this.researched.has(nodeId)) return false
     if (this.inProgress.has(nodeId)) return false
+    if (this._godMode) {
+      // Instant research — no prerequisites, no wait
+      this.researched.add(nodeId)
+      return true
+    }
     for (const req of node.prerequisites) {
       if (!this.researched.has(req)) return false
     }

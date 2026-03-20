@@ -16,24 +16,17 @@ import { MapPanel } from './panels/MapPanel'
 import { SettingsPanel } from './panels/SettingsPanel'
 import { BuildPanel } from './panels/BuildPanel'
 
-interface IconDef {
-  id: PanelId
-  label: string
-  hotkey: string
-  glyph: string
+const PANEL_LABEL: Record<PanelId, string> = {
+  inventory: 'INVENTORY',
+  crafting:  'CRAFTING',
+  build:     'BUILD',
+  tech:      'TECH TREE',
+  evolution: 'EVOLUTION',
+  journal:   'JOURNAL',
+  character: 'CHARACTER',
+  map:       'MAP',
+  settings:  'SETTINGS',
 }
-
-const ICONS: IconDef[] = [
-  { id: 'inventory',  label: 'Inventory',    hotkey: 'I',   glyph: '🎒' },
-  { id: 'crafting',   label: 'Crafting',     hotkey: 'C',   glyph: '⚒' },
-  { id: 'build',      label: 'Build',        hotkey: 'B',   glyph: '🏗' },
-  { id: 'tech',       label: 'Tech Tree',    hotkey: 'T',   glyph: '🔬' },
-  { id: 'evolution',  label: 'Evolution',    hotkey: 'E',   glyph: '🧬' },
-  { id: 'journal',    label: 'Journal',      hotkey: 'J',   glyph: '📖' },
-  { id: 'character',  label: 'Character',    hotkey: 'Tab', glyph: '👤' },
-  { id: 'map',        label: 'Map',          hotkey: 'M',   glyph: '🗺' },
-  { id: 'settings',   label: 'Settings',     hotkey: 'Esc', glyph: '⚙' },
-]
 
 const PANEL_WIDTH = 480
 
@@ -102,14 +95,14 @@ export function SidebarShell() {
         {activePanel && (
           <motion.div
             key={activePanel}
-            initial={{ x: PANEL_WIDTH + 48 }}
+            initial={{ x: PANEL_WIDTH }}
             animate={{ x: 0 }}
-            exit={{ x: PANEL_WIDTH + 48 }}
+            exit={{ x: PANEL_WIDTH }}
             transition={{ type: 'spring', stiffness: 300, damping: 30 }}
             style={{
               position: 'fixed',
               top: 0,
-              right: 48,
+              right: 0,
               width: PANEL_WIDTH,
               height: '100vh',
               background: 'rgba(14,14,14,0.97)',
@@ -132,7 +125,7 @@ export function SidebarShell() {
               flexShrink: 0,
             }}>
               <span style={{ color: '#fff', fontFamily: 'monospace', fontSize: 13, letterSpacing: 2, fontWeight: 700 }}>
-                {ICONS.find(i => i.id === activePanel)?.label.toUpperCase()}
+                {activePanel ? PANEL_LABEL[activePanel] : ''}
               </span>
               <button
                 onClick={closePanel}
@@ -156,53 +149,6 @@ export function SidebarShell() {
         )}
       </AnimatePresence>
 
-      {/* Right-edge icon strip */}
-      <div style={{
-        position: 'fixed',
-        top: 0,
-        right: 0,
-        width: 48,
-        height: '100vh',
-        background: 'rgba(12,12,12,0.97)',
-        borderLeft: '1px solid #2a2a2a',
-        zIndex: 201,
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        paddingTop: 16,
-        gap: 4,
-        pointerEvents: 'auto',
-      }}>
-        {ICONS.map(icon => {
-          const active = activePanel === icon.id
-          return (
-            <button
-              key={icon.id}
-              onClick={() => togglePanel(icon.id)}
-              title={`${icon.label} [${icon.hotkey}]`}
-              aria-label={icon.label}
-              aria-pressed={active}
-              style={{
-                width: 36,
-                height: 36,
-                background: active ? 'rgba(205,68,32,0.25)' : 'rgba(255,255,255,0.04)',
-                border: active ? '1px solid #cd4420' : '1px solid rgba(255,255,255,0.1)',
-                borderRadius: 3,
-                cursor: 'pointer',
-                fontSize: 18,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                transition: 'all 0.15s',
-                flexShrink: 0,
-                boxShadow: active ? '0 0 6px rgba(205,68,32,0.4)' : 'none',
-              }}
-            >
-              {icon.glyph}
-            </button>
-          )
-        })}
-      </div>
     </>
   )
 }

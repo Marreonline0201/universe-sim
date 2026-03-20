@@ -76,14 +76,16 @@ export class Inventory {
   craft(recipeId: number, currentTier = 0): boolean {
     const recipe = CRAFTING_RECIPES.find(r => r.id === recipeId)
     if (!recipe) return false
-    if (recipe.knowledgeRequired.length > 0 && !this.knownRecipes.has(recipeId)) return false
-    if (currentTier < recipe.tier) return false
 
-    // Verify all inputs available
-    for (const input of recipe.inputs) {
-      if (this.findItem(input.materialId) === -1) return false
-      const slot = this.slots[this.findItem(input.materialId)]
-      if (!slot || slot.quantity < input.quantity) return false
+    if (!this._godMode) {
+      // Normal mode: require recipe knowledge, tier, and materials
+      if (recipe.knowledgeRequired.length > 0 && !this.knownRecipes.has(recipeId)) return false
+      if (currentTier < recipe.tier) return false
+      for (const input of recipe.inputs) {
+        if (this.findItem(input.materialId) === -1) return false
+        const slot = this.slots[this.findItem(input.materialId)]
+        if (!slot || slot.quantity < input.quantity) return false
+      }
     }
 
     // Consume inputs (skipped in god mode — materials never depleted)
@@ -109,6 +111,15 @@ export class Inventory {
       quantity: recipe.output.quantity,
       quality: 0.7,
     })
+  }
+
+  /** Remove items unconditionally — used for Drop (bypasses god mode protection). */
+  dropItem(slotIndex: number, quantity: number): boolean {
+    const s = this.slots[slotIndex]
+    if (!s || s.quantity < quantity) return false
+    s.quantity -= quantity
+    if (s.quantity <= 0) this.slots[slotIndex] = null
+    return true
   }
 
   discoverRecipe(recipeId: number): void {

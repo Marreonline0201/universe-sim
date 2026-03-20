@@ -59,27 +59,53 @@ function seededRand(seed: number): () => number {
   }
 }
 
-// Resource nodes placed on the sphere surface near the spawn point (north pole)
+// Resource nodes placed on the sphere surface near the actual land spawn point.
+// getSpawnPosition() scans the sphere to find solid land (h >= 10m) rather than
+// using the hard-coded north pole, which may be ocean on some planet seeds.
 function generateResourceNodes(): ResourceNode[] {
   const rand = seededRand(99991)
   const nodes: ResourceNode[] = []
   let id = 0
-  const spawnDir = new THREE.Vector3(0, 1, 0)  // north pole spawn
+
+  // Use the real land spawn direction instead of the north pole
+  const [sx, sy, sz] = getSpawnPosition()
+  const spawnDir = new THREE.Vector3(sx, sy, sz).normalize()
+
+  // Build a stable perpendicular basis around spawnDir for arc rotation
+  const perpBase = Math.abs(spawnDir.y) < 0.9
+    ? new THREE.Vector3(0, 1, 0)
+    : new THREE.Vector3(1, 0, 0)
+  const tangent = new THREE.Vector3().crossVectors(spawnDir, perpBase).normalize()
+
   for (const nt of NODE_TYPES) {
     for (let i = 0; i < nt.count; i++) {
-      // Random angle and arc distance from spawn point on sphere surface
-      const angle   = rand() * Math.PI * 2
-      const arcDist = (12 + rand() * 200) / PLANET_RADIUS  // radians offset from spawn
-      // Rotate spawn direction by arcDist around a random horizontal axis
-      const axis = new THREE.Vector3(Math.cos(angle), 0, Math.sin(angle)).normalize()
-      const dir  = spawnDir.clone().applyAxisAngle(axis, arcDist)
-      // Place on sphere surface
-      const h = terrainHeightAt(dir)
-      const r = PLANET_RADIUS + Math.max(h, 0)
-      nodes.push({
-        id: id++, type: nt.type, label: nt.label, matId: nt.matId, color: nt.color,
-        x: dir.x * r, z: dir.z * r,
-      })
+      // Try up to 40 random positions until we find one above sea level
+      let placed = false
+      for (let attempt = 0; attempt < 40; attempt++) {
+        const angle   = rand() * Math.PI * 2
+        const arcDist = (15 + rand() * 500) / PLANET_RADIUS  // 15–515 m from spawn
+        // Rotate tangent around spawnDir by angle → random great-circle axis
+        const axis = tangent.clone().applyAxisAngle(spawnDir, angle)
+        const dir  = spawnDir.clone().applyAxisAngle(axis, arcDist)
+        const h    = terrainHeightAt(dir)
+        if (h < 0) continue  // underwater — try again
+        const r = PLANET_RADIUS + h
+        nodes.push({
+          id: id++, type: nt.type, label: nt.label, matId: nt.matId, color: nt.color,
+          x: dir.x * r, z: dir.z * r,
+        })
+        placed = true
+        break
+      }
+      if (!placed) {
+        // Fallback: place exactly at spawn (guaranteed land)
+        const h = terrainHeightAt(spawnDir)
+        const r = PLANET_RADIUS + Math.max(h, 0)
+        nodes.push({
+          id: id++, type: nt.type, label: nt.label, matId: nt.matId, color: nt.color,
+          x: spawnDir.x * r, z: spawnDir.z * r,
+        })
+      }
     }
   }
   return nodes

@@ -4,7 +4,7 @@
 import { useEffect, useState } from 'react'
 import { ReactFlow, Background, Controls, type Node, type Edge, MarkerType } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
-import { evolutionTree } from '../../game/GameSingletons'
+import { evolutionTree, inventory } from '../../game/GameSingletons'
 import { EVOLUTION_NODES, type EvolutionNode } from '../../player/EvolutionTree'
 import { usePlayerStore } from '../../store/playerStore'
 import { useUiStore } from '../../store/uiStore'
@@ -36,28 +36,29 @@ function NodeCard({ node, ep, onUnlock }: {
   ep: number
   onUnlock: (id: string) => void
 }) {
+  const godMode     = inventory.isGodMode()
   const unlocked    = evolutionTree.isUnlocked(node.id)
-  const prereqsMet  = node.prerequisites.every(p => evolutionTree.isUnlocked(p))
-  const canAfford   = ep >= node.epCost
-  const available   = !unlocked && prereqsMet
+  const prereqsMet  = godMode || node.prerequisites.every(p => evolutionTree.isUnlocked(p))
+  const canAfford   = godMode || ep >= node.epCost
+  const clickable   = !unlocked && (godMode || (prereqsMet && canAfford))
 
   const color = CATEGORY_COLORS[node.category]
 
   return (
     <div
       title={`${node.description}\n\nPrereqs: ${node.prerequisites.join(', ') || 'none'}`}
-      onClick={() => available && canAfford && onUnlock(node.id)}
+      onClick={() => clickable && onUnlock(node.id)}
       style={{
         padding: '6px 8px',
         background: unlocked
           ? `${color}22`
-          : available && canAfford
+          : clickable
             ? 'rgba(255,255,255,0.06)'
             : 'rgba(255,255,255,0.02)',
-        border: `1px solid ${unlocked ? color : available ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.06)'}`,
+        border: `1px solid ${unlocked ? color : clickable ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.06)'}`,
         borderRadius: 6,
-        cursor: available && canAfford ? 'pointer' : 'default',
-        opacity: !unlocked && (!prereqsMet || !canAfford) ? 0.4 : 1,
+        cursor: clickable ? 'pointer' : 'default',
+        opacity: !unlocked && !clickable ? 0.4 : 1,
         transition: 'all 0.15s',
       }}
     >
@@ -66,9 +67,9 @@ function NodeCard({ node, ep, onUnlock }: {
         {unlocked && <span style={{ marginLeft: 4, fontSize: 10 }}>✓</span>}
       </div>
       <div style={{ fontSize: 9, color: '#777', marginTop: 2 }}>
-        {node.epCost} EP
-        {!prereqsMet && ' · locked'}
-        {prereqsMet && !canAfford && !unlocked && ' · need EP'}
+        {godMode ? 'FREE' : `${node.epCost} EP`}
+        {!godMode && !prereqsMet && ' · locked'}
+        {!godMode && prereqsMet && !canAfford && !unlocked && ' · need EP'}
       </div>
     </div>
   )
@@ -77,6 +78,7 @@ function NodeCard({ node, ep, onUnlock }: {
 function buildEvoGraph(ep: number): { nodes: Node[]; edges: Edge[] } {
   const nodes: Node[] = []
   const edges: Edge[] = []
+  const godMode = inventory.isGodMode()
 
   const categories = Array.from(new Set(EVOLUTION_NODES.map(n => n.category)))
   const byCategory: Record<string, EvolutionNode[]> = {}
@@ -86,8 +88,8 @@ function buildEvoGraph(ep: number): { nodes: Node[]; edges: Edge[] } {
 
   for (const node of EVOLUTION_NODES) {
     const unlocked   = evolutionTree.isUnlocked(node.id)
-    const prereqsMet = node.prerequisites.every(p => evolutionTree.isUnlocked(p))
-    const canAfford  = ep >= node.epCost
+    const prereqsMet = godMode || node.prerequisites.every(p => evolutionTree.isUnlocked(p))
+    const canAfford  = godMode || ep >= node.epCost
     const available  = !unlocked && prereqsMet
 
     const color    = CATEGORY_COLORS[node.category]
@@ -159,7 +161,7 @@ export function EvolutionPanel() {
     const node = EVOLUTION_NODES.find(n => n.id === nodeId)
     if (!node) return
     if (evolutionTree.unlock(nodeId)) {
-      addEP(-node.epCost)
+      if (!inventory.isGodMode()) addEP(-node.epCost)
       addNotification(`Evolved: ${node.name}`, 'discovery')
       forceRefresh(r => r + 1)
     }

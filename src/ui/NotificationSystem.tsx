@@ -63,7 +63,7 @@ export function NotificationSystem() {
       <div style={{
         position: 'fixed',
         bottom: 24,
-        right: 64,   // clear the 48px icon strip
+        right: 16,
         display: 'flex',
         flexDirection: 'column-reverse',
         gap: 6,

@@ -197,7 +197,7 @@ export function HUD() {
         <div style={{
           position: 'absolute',
           top: 14,
-          right: 64,
+          right: 16,
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'flex-end',

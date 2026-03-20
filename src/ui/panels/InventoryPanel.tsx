@@ -107,7 +107,7 @@ export function InventoryPanel() {
     const slot = inventory.getSlot(selected)
     if (!slot) return
     const qty = Math.min(dropQty, slot.quantity)
-    inventory.removeItem(selected, qty)
+    inventory.dropItem(selected, qty)  // always removes, even in god mode
     setSelected(null)
     setDropQty(1)
     forceRefresh(r => r + 1)

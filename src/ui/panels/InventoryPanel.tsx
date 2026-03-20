@@ -81,6 +81,7 @@ function SlotCell({ slot, index, selected, equipped, onSelect }: {
 
 export function InventoryPanel() {
   const [selected, setSelected] = useState<number | null>(null)
+  const [dropQty, setDropQty] = useState(1)
   const [, forceRefresh] = useState(0)
 
   const equippedSlot  = usePlayerStore(s => s.equippedSlot)
@@ -95,13 +96,20 @@ export function InventoryPanel() {
   }, [])
 
   function handleSelect(i: number) {
-    setSelected(prev => prev === i ? null : i)
+    setSelected(prev => {
+      if (prev !== i) setDropQty(1)
+      return prev === i ? null : i
+    })
   }
 
   function handleDrop() {
     if (selected === null) return
-    inventory.removeItem(selected, 1)
+    const slot = inventory.getSlot(selected)
+    if (!slot) return
+    const qty = Math.min(dropQty, slot.quantity)
+    inventory.removeItem(selected, qty)
     setSelected(null)
+    setDropQty(1)
     forceRefresh(r => r + 1)
   }
 
@@ -192,20 +200,61 @@ export function InventoryPanel() {
               Eat
             </button>
           )}
-          <button
-            onClick={handleDrop}
-            style={{
-              background: 'rgba(231,76,60,0.2)',
-              border: '1px solid rgba(231,76,60,0.5)',
-              borderRadius: 4,
-              color: '#e74c3c',
-              cursor: 'pointer',
-              padding: '4px 12px',
-              fontSize: 11,
-            }}
-          >
-            Drop 1
-          </button>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 2 }}>
+            {[1, 10, 100].map(n => (
+              <button
+                key={n}
+                onClick={() => setDropQty(Math.min(n, selectedSlot.quantity))}
+                style={{
+                  padding: '3px 7px',
+                  fontSize: 10,
+                  fontFamily: 'monospace',
+                  background: dropQty === n ? 'rgba(231,76,60,0.35)' : 'rgba(231,76,60,0.1)',
+                  border: dropQty === n ? '1px solid rgba(231,76,60,0.8)' : '1px solid rgba(231,76,60,0.3)',
+                  borderRadius: 4,
+                  color: '#e74c3c',
+                  cursor: 'pointer',
+                }}
+              >
+                {n}×
+              </button>
+            ))}
+            <input
+              type="number"
+              min={1}
+              max={selectedSlot.quantity}
+              value={dropQty}
+              onChange={e => {
+                const v = Math.max(1, Math.min(parseInt(e.target.value) || 1, selectedSlot.quantity))
+                setDropQty(v)
+              }}
+              style={{
+                width: 46,
+                padding: '3px 5px',
+                fontSize: 11,
+                fontFamily: 'monospace',
+                background: 'rgba(255,255,255,0.08)',
+                border: '1px solid rgba(255,255,255,0.2)',
+                borderRadius: 4,
+                color: '#fff',
+                textAlign: 'center',
+              }}
+            />
+            <button
+              onClick={handleDrop}
+              style={{
+                padding: '3px 10px',
+                fontSize: 11,
+                background: 'rgba(231,76,60,0.2)',
+                border: '1px solid rgba(231,76,60,0.5)',
+                borderRadius: 4,
+                color: '#e74c3c',
+                cursor: 'pointer',
+              }}
+            >
+              Drop
+            </button>
+          </div>
         </div>
       )}
 

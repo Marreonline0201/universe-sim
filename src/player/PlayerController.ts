@@ -240,11 +240,13 @@ export class PlayerController {
     }
 
     // Entity rotation quaternion to face movement direction
+    // +π offset: mesh default facing is -Z, but yaw=0 means +Z forward on sphere
     if (moveLen > 0) {
+      const rotYaw = this.yaw + Math.PI
       Rotation.x[id] = 0
-      Rotation.y[id] = Math.sin(this.yaw / 2)
+      Rotation.y[id] = Math.sin(rotYaw / 2)
       Rotation.z[id] = 0
-      Rotation.w[id] = Math.cos(this.yaw / 2)
+      Rotation.w[id] = Math.cos(rotYaw / 2)
     }
   }
 

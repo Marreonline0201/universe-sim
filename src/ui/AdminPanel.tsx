@@ -39,6 +39,7 @@ export function AdminPanel() {
   const [open, setOpen] = useState(false)
   const [players, setPlayers] = useState<PlayerRow[]>([])
   const [loading, setLoading] = useState(false)
+  const [godMode, setGodMode] = useState(false)
   const { setSpectateTarget, spectateTarget } = useGameStore()
 
   const DEV_BYPASS = import.meta.env.DEV && import.meta.env.VITE_DEV_BYPASS_AUTH === 'true'
@@ -90,6 +91,16 @@ export function AdminPanel() {
                   style={{ background: '#7c3aed', color: '#fff', border: '1px solid #9f67ff', padding: '4px 12px', borderRadius: 4, cursor: 'pointer' }}
                 >
                   Give All Materials
+                </button>
+                <button
+                  onClick={() => {
+                    const next = !godMode
+                    setGodMode(next)
+                    inventory.setGodMode(next)
+                  }}
+                  style={{ background: godMode ? '#16a34a' : '#374151', color: '#fff', border: `1px solid ${godMode ? '#4ade80' : '#555'}`, padding: '4px 12px', borderRadius: 4, cursor: 'pointer' }}
+                >
+                  God Mode {godMode ? 'ON' : 'OFF'}
                 </button>
                 <button onClick={load} style={{ background: '#333', color: '#fff', border: '1px solid #555', padding: '4px 12px', borderRadius: 4, cursor: 'pointer' }}>
                   Refresh

@@ -20,6 +20,11 @@ const SLOT_COUNT = 40
 export class Inventory {
   private slots: (InventorySlot | null)[] = new Array(SLOT_COUNT).fill(null)
   private knownRecipes: Set<number> = new Set()
+  private _godMode = false
+
+  /** Admin god mode: removeItem never depletes, addItem never fails. */
+  setGodMode(on: boolean) { this._godMode = on }
+  isGodMode() { return this._godMode }
 
   /**
    * Add an item to the first available slot, or stack onto an existing slot
@@ -27,20 +32,25 @@ export class Inventory {
    * Returns true if the item was accepted, false if inventory is full.
    */
   addItem(slot: InventorySlot): boolean {
-    // Try to stack
-    for (let i = 0; i < SLOT_COUNT; i++) {
+    // Try to stack onto existing matching slot
+    for (let i = 0; i < this.slots.length; i++) {
       const s = this.slots[i]
       if (s && s.itemId === slot.itemId && s.materialId === slot.materialId && Math.abs(s.quality - slot.quality) < 0.01) {
         s.quantity += slot.quantity
         return true
       }
     }
-    // Find empty slot
-    for (let i = 0; i < SLOT_COUNT; i++) {
+    // Find empty slot within current size
+    for (let i = 0; i < this.slots.length; i++) {
       if (!this.slots[i]) {
         this.slots[i] = { ...slot }
         return true
       }
+    }
+    // God mode: expand slots beyond the normal 40-slot limit
+    if (this._godMode) {
+      this.slots.push({ ...slot })
+      return true
     }
     return false
   }
@@ -52,6 +62,7 @@ export class Inventory {
   removeItem(slotIndex: number, quantity: number): boolean {
     const s = this.slots[slotIndex]
     if (!s || s.quantity < quantity) return false
+    if (this._godMode) return true   // god mode: items never actually consumed
     s.quantity -= quantity
     if (s.quantity <= 0) this.slots[slotIndex] = null
     return true
@@ -75,16 +86,18 @@ export class Inventory {
       if (!slot || slot.quantity < input.quantity) return false
     }
 
-    // Consume inputs
-    for (const input of recipe.inputs) {
-      let remaining = input.quantity
-      for (let i = 0; i < SLOT_COUNT && remaining > 0; i++) {
-        const s = this.slots[i]
-        if (s && s.materialId === input.materialId) {
-          const take = Math.min(s.quantity, remaining)
-          s.quantity -= take
-          remaining  -= take
-          if (s.quantity <= 0) this.slots[i] = null
+    // Consume inputs (skipped in god mode — materials never depleted)
+    if (!this._godMode) {
+      for (const input of recipe.inputs) {
+        let remaining = input.quantity
+        for (let i = 0; i < this.slots.length && remaining > 0; i++) {
+          const s = this.slots[i]
+          if (s && s.materialId === input.materialId) {
+            const take = Math.min(s.quantity, remaining)
+            s.quantity -= take
+            remaining  -= take
+            if (s.quantity <= 0) this.slots[i] = null
+          }
         }
       }
     }
@@ -108,7 +121,7 @@ export class Inventory {
 
   /** Returns slot index of first slot containing materialId, or -1. */
   findItem(materialId: number): number {
-    for (let i = 0; i < SLOT_COUNT; i++) {
+    for (let i = 0; i < this.slots.length; i++) {
       if (this.slots[i]?.materialId === materialId) return i
     }
     return -1
@@ -116,7 +129,7 @@ export class Inventory {
 
   /** Returns true if any slot contains an item with the given itemId. */
   hasItemById(itemId: number): boolean {
-    for (let i = 0; i < SLOT_COUNT; i++) {
+    for (let i = 0; i < this.slots.length; i++) {
       if (this.slots[i]?.itemId === itemId) return true
     }
     return false
@@ -129,7 +142,7 @@ export class Inventory {
   /** Returns all non-null slots with their indices */
   listItems(): Array<{ index: number; slot: InventorySlot }> {
     const result: Array<{ index: number; slot: InventorySlot }> = []
-    for (let i = 0; i < SLOT_COUNT; i++) {
+    for (let i = 0; i < this.slots.length; i++) {
       const s = this.slots[i]
       if (s) result.push({ index: i, slot: s })
     }

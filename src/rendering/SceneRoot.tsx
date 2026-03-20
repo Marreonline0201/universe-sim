@@ -801,7 +801,7 @@ function HumanoidFigure({
 function PlayerMesh({ entityId }: { entityId: number }) {
   const rootRef  = useRef<THREE.Group>(null)
   const walkTime = useRef(0)
-  const lastPos  = useRef({ x: 0, z: 0 })
+  const lastPos  = useRef({ x: 0, y: 0, z: 0 })
   // Refs for animated limb groups
   const lLegRef  = useRef<THREE.Group>(null)
   const rLegRef  = useRef<THREE.Group>(null)
@@ -815,11 +815,12 @@ function PlayerMesh({ entityId }: { entityId: number }) {
     const py = Position.y[entityId]
     const pz = Position.z[entityId]
 
-    // Detect movement speed
+    // Detect movement speed using full 3D displacement (sphere walking moves all 3 axes)
     const dx = px - lastPos.current.x
+    const dy = py - lastPos.current.y
     const dz = pz - lastPos.current.z
-    const speed = Math.sqrt(dx * dx + dz * dz) / delta
-    lastPos.current = { x: px, z: pz }
+    const speed = Math.sqrt(dx * dx + dy * dy + dz * dz) / delta
+    lastPos.current = { x: px, y: py, z: pz }
 
     // Advance walk cycle only when moving
     const isMoving = speed > 0.3
@@ -845,6 +846,11 @@ function PlayerMesh({ entityId }: { entityId: number }) {
 
   return (
     <group ref={rootRef}>
+      {/* Offset entire humanoid down so feet sit at ground level.
+          Rapier capsule center is 0.9m above ground (halfHeight 0.6 + radius 0.3).
+          Foot bottom is at y=-0.57 in this group, so to land feet at -0.9 (ground):
+          offset = -0.9 - (-0.57) = -0.33m. */}
+      <group position={[0, -0.33, 0]}>
       {/* Static body parts */}
       {/* Torso */}
       <mesh position={[0, 0.55, 0]} castShadow>
@@ -925,6 +931,7 @@ function PlayerMesh({ entityId }: { entityId: number }) {
           <meshStandardMaterial color="#2a2010" />
         </mesh>
       </group>
+      </group>{/* end offset group */}
     </group>
   )
 }
@@ -1293,7 +1300,7 @@ function nodeRand(id: number, offset: number): number {
   return (h >>> 0) / 0xffffffff
 }
 
-function TreeMesh({ id, groundY }: { id: number; groundY: number }) {
+function TreeMesh({ id }: { id: number }) {
   const scale    = 0.8 + nodeRand(id, 0) * 0.7
   const trunkH   = 3.5 * scale
   const trunkBot = 0.28 * scale
@@ -1304,7 +1311,7 @@ function TreeMesh({ id, groundY }: { id: number; groundY: number }) {
   const leafG3   = '#3a8a2a'
 
   return (
-    <group position={[0, groundY, 0]}>
+    <group>
       {/* Trunk */}
       <mesh position={[lean * trunkH * 0.5, trunkH * 0.5, 0]} castShadow rotation={[0, 0, lean]}>
         <cylinderGeometry args={[trunkTop, trunkBot, trunkH, 7]} />
@@ -1329,12 +1336,12 @@ function TreeMesh({ id, groundY }: { id: number; groundY: number }) {
   )
 }
 
-function BarkMesh({ id, groundY }: { id: number; groundY: number }) {
+function BarkMesh({ id }: { id: number }) {
   const scale = 0.7 + nodeRand(id, 6) * 0.5
   const rot   = nodeRand(id, 7) * Math.PI
   const tilt  = (nodeRand(id, 8) - 0.5) * 0.3
   return (
-    <group position={[0, groundY + 0.06 * scale, 0]} rotation={[tilt, rot, 0]} scale={[scale, scale, scale]}>
+    <group position={[0, 0.06 * scale, 0]} rotation={[tilt, rot, 0]} scale={[scale, scale, scale]}>
       {/* Main bark plank */}
       <mesh castShadow>
         <boxGeometry args={[0.8, 0.12, 0.35]} />
@@ -1349,12 +1356,12 @@ function BarkMesh({ id, groundY }: { id: number; groundY: number }) {
   )
 }
 
-function RockMesh({ id, color, groundY }: { id: number; color: string; groundY: number }) {
+function RockMesh({ id, color }: { id: number; color: string }) {
   const scale = 0.5 + nodeRand(id, 3) * 0.6
   const rot   = nodeRand(id, 4) * Math.PI * 2
   const tilt  = (nodeRand(id, 5) - 0.5) * 0.4
   return (
-    <group position={[0, groundY + 0.3 * scale, 0]} rotation={[tilt, rot, 0]} scale={[scale, scale * 0.7, scale]}>
+    <group position={[0, 0.3 * scale, 0]} rotation={[tilt, rot, 0]} scale={[scale, scale * 0.7, scale]}>
       <mesh castShadow>
         <dodecahedronGeometry args={[0.55, 0]} />
         <meshStandardMaterial color={color} roughness={0.95} metalness={0.05} />
@@ -1386,10 +1393,10 @@ function ResourceNodes() {
             position={[node.x, nodeY, node.z]}
           >
             {node.type === 'wood'
-              ? <TreeMesh id={node.id} groundY={nodeY} />
+              ? <TreeMesh id={node.id} />
               : node.type === 'bark'
-                ? <BarkMesh id={node.id} groundY={nodeY} />
-                : <RockMesh id={node.id} color={node.color} groundY={nodeY} />
+                ? <BarkMesh id={node.id} />
+                : <RockMesh id={node.id} color={node.color} />
             }
           </group>
         )

@@ -5,7 +5,8 @@
 import { useEffect, useState } from 'react'
 import type { BootstrapStatus } from '../hooks/useBootstrapStatus'
 
-// Cosmic epochs with approximate start times (in years since Big Bang)
+// Cosmic epochs with real start times (years since Big Bang).
+// Earth formed 4.5 Gyr ago; universe is 13.8 Gyr old → Earth = 9.3 Gyr after Big Bang.
 const EPOCHS = [
   { name: 'Quantum Singularity',  startYear: 0,        color: '#ffffff' },
   { name: 'Quark-Gluon Plasma',   startYear: 0.00001,  color: '#ff6b35' },
@@ -16,16 +17,15 @@ const EPOCHS = [
   { name: 'First Stars Ignite',   startYear: 200_000_000, color: '#4fc3f7' },
   { name: 'Galaxy Formation',     startYear: 1_000_000_000, color: '#7e57c2' },
   { name: 'Stellar Nurseries',    startYear: 3_000_000_000, color: '#ef5350' },
-  { name: 'Solar System Forms',   startYear: 5_000_000_000, color: '#ff8f00' },
-  { name: 'Earth Accretion',      startYear: 5_500_000_000, color: '#5d4037' },
-  { name: 'Hadean Eon',           startYear: 6_000_000_000, color: '#b71c1c' },
-  { name: 'Archean Oceans',       startYear: 7_000_000_000, color: '#0d47a1' },
-  { name: 'Primordial Life Stirs', startYear: 8_500_000_000, color: '#1b5e20' },
-  { name: 'World Ready',          startYear: 9_000_000_000, color: '#00e676' },
+  { name: 'Milky Way Matures',    startYear: 6_000_000_000, color: '#ab47bc' },
+  { name: 'Solar System Forms',   startYear: 9_100_000_000, color: '#ff8f00' },
+  { name: 'Earth Accretion',      startYear: 9_200_000_000, color: '#5d4037' },
+  { name: 'Hadean Eon',           startYear: 9_250_000_000, color: '#b71c1c' },
+  { name: 'World Ready',          startYear: 9_280_000_000, color: '#00e676' },
 ]
 
 const SECS_PER_YEAR = 31_557_600 // Julian year
-const BOOTSTRAP_TARGET_YEARS = 9e9
+const BOOTSTRAP_TARGET_YEARS = 9.3e9
 
 function getEpoch(simTimeSec: number) {
   const years = simTimeSec / SECS_PER_YEAR
@@ -46,32 +46,36 @@ function formatSimTime(simTimeSec: number): string {
   return `${(years / 1_000_000_000).toFixed(3)} billion years`
 }
 
-function formatEta(elapsedSec: number, progress: number): string {
-  if (progress <= 0 || elapsedSec <= 0) return '...'
-  const totalEstSec = elapsedSec / progress
-  const remainingSec = totalEstSec - elapsedSec
-  if (remainingSec <= 0) return 'almost done'
-  if (remainingSec < 60) return `${Math.ceil(remainingSec)}s`
-  if (remainingSec < 3600) return `${Math.ceil(remainingSec / 60)}m`
-  return `${(remainingSec / 3600).toFixed(1)}h`
-}
+
+// Cinematic duration for the local animation (seconds of wall-clock time)
+const ANIM_DURATION_SEC = 8
 
 interface Props {
   status: BootstrapStatus
 }
 
 export function WorldBootstrapScreen({ status }: Props) {
-  const { progress, simTime, elapsedSec } = status
-  const epoch = getEpoch(simTime)
+  const { progress } = status
   const [tick, setTick] = useState(0)
 
-  // Drive star twinkle animation
+  // Local animation timer — runs independently at fixed cinematic speed (8 seconds).
+  // The server bootstrap completes almost instantly; this gives a smooth visual.
+  const [animYears, setAnimYears] = useState(0)
   useEffect(() => {
-    const id = setInterval(() => setTick(t => t + 1), 80)
+    const startMs = performance.now()
+    const id = setInterval(() => {
+      const elapsed = (performance.now() - startMs) / 1000
+      const fraction = Math.min(elapsed / ANIM_DURATION_SEC, 1)
+      setAnimYears(fraction * BOOTSTRAP_TARGET_YEARS)
+      setTick(t => t + 1)
+    }, 80)
     return () => clearInterval(id)
   }, [])
 
-  const pct = Math.min(100, progress * 100)
+  const animTimeSec = animYears * SECS_PER_YEAR
+  const epoch = getEpoch(animTimeSec)
+  // Progress bar uses server progress (accurate) but falls back to local animation fraction
+  const pct = Math.min(100, Math.max(progress * 100, (animYears / BOOTSTRAP_TARGET_YEARS) * 100))
 
   return (
     <div style={{
@@ -117,7 +121,7 @@ export function WorldBootstrapScreen({ status }: Props) {
 
         {/* Sim time */}
         <div style={{ fontSize: 14, opacity: 0.7, marginBottom: 32 }}>
-          {formatSimTime(simTime)} elapsed
+          {formatSimTime(animTimeSec)} elapsed
         </div>
 
         {/* Progress bar */}
@@ -139,8 +143,7 @@ export function WorldBootstrapScreen({ status }: Props) {
           display: 'flex', justifyContent: 'space-between',
           fontSize: 11, opacity: 0.5, marginBottom: 40,
         }}>
-          <span>{pct.toFixed(2)}% complete</span>
-          <span>ETA: {formatEta(elapsedSec, progress)}</span>
+          <span>{pct.toFixed(1)}% complete</span>
         </div>
 
         {/* Epoch timeline mini-map */}
@@ -242,11 +245,10 @@ function getEpochIcon(name: string): string {
   if (name.includes('Stars Ignite'))  return '⭐'
   if (name.includes('Galaxy'))        return '🌀'
   if (name.includes('Nurseries'))     return '🔴'
-  if (name.includes('Solar'))         return '☀'
+  if (name.includes('Milky Way'))     return '🌌'
+  if (name.includes('Solar'))         return '☀️'
   if (name.includes('Accretion'))     return '🪨'
   if (name.includes('Hadean'))        return '🌋'
-  if (name.includes('Archean'))       return '🌊'
-  if (name.includes('Primordial'))    return '🦠'
   if (name.includes('Ready'))         return '🌍'
   return '🌌'
 }

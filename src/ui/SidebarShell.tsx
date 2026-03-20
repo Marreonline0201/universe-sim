@@ -112,9 +112,8 @@ export function SidebarShell() {
               right: 48,
               width: PANEL_WIDTH,
               height: '100vh',
-              background: 'rgba(10,10,20,0.95)',
-              borderLeft: '1px solid rgba(255,255,255,0.1)',
-              backdropFilter: 'blur(12px)',
+              background: 'rgba(14,14,14,0.97)',
+              borderLeft: '1px solid #2a2a2a',
               zIndex: 200,
               overflowY: 'auto',
               display: 'flex',
@@ -127,19 +126,23 @@ export function SidebarShell() {
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
-              padding: '16px 20px 12px',
-              borderBottom: '1px solid rgba(255,255,255,0.07)',
+              padding: '14px 20px 12px',
+              borderBottom: '1px solid #2a2a2a',
+              borderLeft: '3px solid #cd4420',
               flexShrink: 0,
             }}>
-              <span style={{ color: '#fff', fontFamily: 'monospace', fontSize: 14, letterSpacing: 2, fontWeight: 700 }}>
+              <span style={{ color: '#fff', fontFamily: 'monospace', fontSize: 13, letterSpacing: 2, fontWeight: 700 }}>
                 {ICONS.find(i => i.id === activePanel)?.label.toUpperCase()}
               </span>
               <button
                 onClick={closePanel}
                 style={{
-                  background: 'none', border: 'none', color: '#888',
-                  cursor: 'pointer', fontSize: 18, lineHeight: 1, padding: 4,
+                  background: 'none', border: 'none', color: '#555',
+                  cursor: 'pointer', fontSize: 16, lineHeight: 1, padding: 4,
+                  transition: 'color 0.15s',
                 }}
+                onMouseEnter={e => (e.currentTarget.style.color = '#ccc')}
+                onMouseLeave={e => (e.currentTarget.style.color = '#555')}
                 aria-label="Close panel"
               >
                 ✕
@@ -160,9 +163,8 @@ export function SidebarShell() {
         right: 0,
         width: 48,
         height: '100vh',
-        background: 'rgba(15,15,25,0.95)',
-        borderLeft: '1px solid rgba(255,255,255,0.15)',
-        backdropFilter: 'blur(8px)',
+        background: 'rgba(12,12,12,0.97)',
+        borderLeft: '1px solid #2a2a2a',
         zIndex: 201,
         display: 'flex',
         flexDirection: 'column',
@@ -181,19 +183,19 @@ export function SidebarShell() {
               aria-label={icon.label}
               aria-pressed={active}
               style={{
-                width: 38,
-                height: 38,
-                background: active ? 'rgba(52,152,219,0.35)' : 'rgba(255,255,255,0.08)',
-                border: active ? '1px solid rgba(52,152,219,0.8)' : '1px solid rgba(255,255,255,0.18)',
-                borderRadius: 8,
+                width: 36,
+                height: 36,
+                background: active ? 'rgba(205,68,32,0.25)' : 'rgba(255,255,255,0.04)',
+                border: active ? '1px solid #cd4420' : '1px solid rgba(255,255,255,0.1)',
+                borderRadius: 3,
                 cursor: 'pointer',
-                fontSize: 20,
+                fontSize: 18,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 transition: 'all 0.15s',
                 flexShrink: 0,
-                boxShadow: active ? '0 0 8px rgba(52,152,219,0.4)' : 'none',
+                boxShadow: active ? '0 0 6px rgba(205,68,32,0.4)' : 'none',
               }}
             >
               {icon.glyph}

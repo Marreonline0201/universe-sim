@@ -4,7 +4,9 @@
  */
 import { usePlayerStore } from './playerStore'
 import { useGameStore } from './gameStore'
-import { inventory, techTree, evolutionTree } from '../game/GameSingletons'
+import { inventory, techTree, evolutionTree, journal } from '../game/GameSingletons'
+
+const GOD_MODE_KEY = 'universe_god_mode'
 
 async function authHeaders(getToken: () => Promise<string | null>) {
   const token = await getToken()
@@ -37,20 +39,34 @@ export async function loadSave(getToken: () => Promise<string | null>) {
     inventory.loadSlots(data.inventory)
   }
 
-  // Tech tree researched nodes
+  // Tech tree: researched nodes + in-progress research
   if (Array.isArray(data.techTree) && data.techTree.length > 0) {
     techTree.loadResearched(data.techTree)
   }
+  if (Array.isArray(data.techTreeInProgress) && data.techTreeInProgress.length > 0) {
+    techTree.loadInProgress(data.techTreeInProgress)
+  }
 
-  // Evolution tree unlocked nodes
+  // Evolution tree: unlocked nodes + sync points to class instance
   if (Array.isArray(data.evolutionTree) && data.evolutionTree.length > 0) {
     evolutionTree.loadUnlocked(data.evolutionTree)
   }
+  // Sync EP to the EvolutionTree class (separate from playerStore)
+  evolutionTree.addPoints(data.evolutionPoints ?? 0)
 
   // Known crafting recipes
   if (Array.isArray(data.knownRecipes) && data.knownRecipes.length > 0) {
     inventory.loadKnownRecipes(data.knownRecipes)
   }
+
+  // Discovery journal — full entry objects
+  if (Array.isArray(data.journalEntries) && data.journalEntries.length > 0) {
+    journal.loadEntries(data.journalEntries)
+  }
+
+  // God mode — stored in localStorage (admin pref, not game state)
+  const savedGodMode = localStorage.getItem(GOD_MODE_KEY) === 'true'
+  if (savedGodMode) inventory.setGodMode(true)
 
   return true
 }
@@ -74,8 +90,15 @@ export async function saveGame(getToken: () => Promise<string | null>, username:
       simSeconds: gs.simSeconds,
       inventory: inventory.listItems(),
       techTree: techTree.getResearchedIds(),
+      techTreeInProgress: techTree.getInProgressData(),
       evolutionTree: evolutionTree.getUnlockedIds(),
       knownRecipes: inventory.getKnownRecipes(),
+      journalEntries: journal.getAll(),
     }),
   })
+}
+
+/** Persist god mode to localStorage. Call when toggling in AdminPanel. */
+export function saveGodMode(on: boolean) {
+  localStorage.setItem(GOD_MODE_KEY, String(on))
 }

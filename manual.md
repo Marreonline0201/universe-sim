@@ -1,6 +1,6 @@
 # Universe Simulation — Player's Manual
 
-_Last updated: 2026-03-19_
+_Last updated: 2026-03-20_
 
 ---
 
@@ -1430,3 +1430,209 @@ Technical notes:
 - popAttack() uses consumed-flag pattern like popInteract() — fires once per click, not every frame.
 - Hand mesh slot is re-read inside useFrame every frame to avoid stale-closure bugs.
 - Left-click harvest is blocked when UI panels are open (inputBlocked guard).
+
+---
+
+### Session: Simulation Grid Phase 1 — 2026-03-20
+
+**What happened in this session:**
+The game received its first real chemistry and fire simulation. This is a major milestone: for the first time, fire in the game is not a visual effect pretending to be fire — it is a real chemical reaction happening inside a grid of cells, following the actual laws of thermodynamics. When you stand near fire, the temperature around you genuinely rises because heat is spreading cell-by-cell through the air, not because a number was set to a higher value in code.
+
+10 distinct pieces of the system were built and all pass automated tests.
+
+---
+
+#### What Was Built — In Plain Language
+
+**1. A Table of Materials and Their Heat Properties**
+
+A lookup table was created that stores the real physical properties of 11 different materials: air, stone, flint, wood, bark, fiber, clay, coal, iron, and copper.
+
+For each material, the table records:
+- How well it conducts heat (thermal conductivity — like how quickly a metal spoon gets hot vs. a wooden spoon)
+- How much heat it can store (specific heat capacity — why water takes a long time to heat up compared to metal)
+- How dense it is (density)
+- At what temperature it catches fire (ignition temperature)
+- How much energy it releases when it burns (combustion energy)
+
+Before this, the game was treating all materials as if they were water — using water's heat properties for everything. Now each material behaves according to its own real physics.
+
+**2. A Grid That Covers the World Around the Player**
+
+A 3D grid was set up that exists in the space around the player when they spawn. Think of this grid like invisible graph paper laid over the world — the cells are cubes roughly 0.5 metres on each side.
+
+Each cell in the grid tracks:
+- What material is in it (air, stone, wood, etc.)
+- Its current temperature
+- How much oxygen is present (stored as a physical quantity using the real ideal gas law — the same formula taught in high school chemistry)
+
+**3. Real Combustion Math**
+
+The math that decides whether something catches fire and how fast it burns was implemented using a formula called the Arrhenius equation — named after the Swedish chemist who derived it in 1889. This formula is used in real chemical engineering to predict how fast a reaction happens based on temperature.
+
+In plain terms: the hotter something gets, the faster it burns. Below the ignition temperature, nothing happens. Above it, the reaction accelerates rapidly. This is exactly how real fire works, and now the game uses the same math.
+
+**4. A Background Worker That Runs the Chemistry**
+
+A separate background process (called a "worker") was given the job of running combustion calculations 10 times per second. Think of this like a dedicated calculator that runs behind the scenes, constantly asking: "Is anything in this grid on fire? Is anything about to catch fire? How has the heat spread since last tick?"
+
+When fire burns, it consumes oxygen from nearby cells. When fuel (wood, bark, etc.) is completely burned up, the cell turns to ash (air). This worker handles all of that automatically.
+
+**5. The Link Between the Game World and the Chemistry Grid**
+
+A new component called LocalSimManager was built to bridge the gap between what the player does in the world and what the chemistry grid is doing. When the player spawns, it looks at the surrounding terrain and fills the grid correctly — stone cells underground, air cells above ground, each with appropriate temperatures and oxygen levels.
+
+It also provides the specific actions the player can take:
+- Place wood (put a combustible material into a grid cell)
+- Ignite (deposit a burst of heat energy into a cell to start a fire)
+- Read the temperature at any position in the world
+- Get a list of all the currently hot cells (used for rendering fire)
+
+**6. Starting a Fire — How It Works**
+
+The fire-starting interaction was wired together end-to-end:
+1. The player gathers wood from a tree (presses F near a tree node)
+2. The player gathers flint from a flint deposit (presses F near flint)
+3. The player opens inventory (I key), clicks flint, clicks Equip
+4. The player walks near a wood/bark resource node in the world
+5. The player left-clicks (attack action)
+6. The game detects: "Player has flint equipped, and there is wood nearby" — and places a wood cell in the grid and ignites it
+7. The message "Fire started!" appears on screen
+8. The combustion worker begins calculating the fire, temperature rises, oxygen is consumed
+
+**7. A Temperature Display in the HUD**
+
+The small information panel at the top of the screen (called the HUD — Heads-Up Display) now shows the ambient temperature near the player. The number is color-coded:
+- Blue text: below 0°C (freezing)
+- Green text: 0–30°C (comfortable)
+- Orange text: 30–50°C (hot)
+- Red text: 50°C+ (dangerous)
+
+When you are near a fire, this number rises visibly as the heat spreads to your location.
+
+**8. A Fire Renderer — Visible Fire in the World**
+
+A new visual component was built that reads the chemistry grid 10 times per second and draws visible fire effects for any cell that is above 200°C. Each burning cell produces:
+- An orange or yellow glowing sphere (the size scales with temperature)
+- A point light source that lights up nearby terrain and objects
+
+This means fire actually illuminates the world around it the way real fire does.
+
+---
+
+#### What Players Can Now Do (End-to-End)
+
+This is a complete, working chain of gameplay:
+
+1. Walk near a tree and press F — wood goes into your inventory
+2. Walk near a flint deposit and press F — flint goes into your inventory
+3. Press I to open inventory, click flint, click Equip — flint is now in your hand
+4. Walk near a wood or bark resource node in the world
+5. Left-click — the message "Fire started!" appears
+6. Step back and watch — glowing fire appears in the world
+7. Step toward the fire — the temperature reading in the HUD rises from 15°C toward 100°C or more
+8. Step away — temperature slowly returns to ambient (15°C)
+
+This is the first real chemistry-driven gameplay in the game. The fire is not scripted — it is the result of actual thermodynamics calculations running in real time.
+
+---
+
+#### Test Results
+
+18 automated tests were written and all 18 pass:
+- 4 tests for the material properties table
+- 8 tests for the grid coordinate math
+- 6 tests for the combustion equations
+
+TypeScript type checking also passes with zero errors.
+
+---
+
+#### Status Summary
+
+| Component | Status |
+|-----------|--------|
+| Material properties table (11 materials) | Done |
+| 3D simulation grid with O2 and temperature tracking | Done |
+| Arrhenius combustion math | Done |
+| Per-material heat properties (was hardcoded to water before) | Done |
+| Chemistry worker (combustion per tick, ignite, burnout) | Done |
+| LocalSimManager (world-to-grid bridge) | Done |
+| Fire-start interaction (flint + wood = fire) | Done |
+| Ambient temperature tracking in playerStore | Done |
+| Temperature display in HUD with color coding | Done |
+| Fire renderer (glowing spheres + point lights) | Done |
+| 18 unit tests passing | Done |
+| TypeScript: zero errors | Done |
+
+---
+
+## Session: 2026-03-20
+
+### What we did today
+
+We ran a big research and testing session to understand exactly where the game stands right now. Here is what happened, broken into three parts:
+
+**Part 1 — We studied how the game world is built on the server**
+
+The "server" is the computer in the cloud (hosted on a service called Railway) that runs the game world even when no one is playing. Here is what we found out about it:
+
+- When the server starts up, it builds the entire world in about 0.3 real-world seconds. That is very fast.
+- After that, the world runs at an incredible speed — about 317,000 simulated years pass for every single real second.
+- The world has 50 computer-controlled characters (called NPCs) who move around and try to survive on their own.
+- The server sends updates to all players 10 times per second (called a "10Hz tick" — think of it like the server taking 10 snapshots of the world per second and sending them out).
+
+**Part 2 — We studied how the game looks and draws itself on your screen**
+
+The "client" is the code that runs in your browser and draws everything you see. Here is what we found:
+
+- The planet is a sphere made from a cube shape, stretched round. It is 2,000 meters in radius and drawn with 160 segments (think of segments like the number of triangles used to make the round shape — more segments = smoother ball).
+- Colors on the planet's surface come from "biome vertex colors" — basically, each tiny triangle on the planet is painted the color of its biome (desert, forest, ocean, etc.).
+- Extra surface detail (like rocky bumps or grass texture) is added using a "shader" — a small program that runs on your graphics card to make things look more detailed without slowing the game down.
+
+**Part 3 — We counted up all the content in the game world**
+
+Think of this like taking inventory of everything that exists in the game:
+
+- 40+ different materials (things like wood, stone, iron, water, etc.)
+- 30+ types of buildings you can construct
+- 150 nodes on the tech tree (the tech tree is like a map of all the knowledge and skills you can unlock — each "node" is one thing you can learn or discover)
+- 50+ evolution nodes (these are special upgrades that change how your character or civilization develops over long stretches of time)
+
+**Part 4 — We sent a testing agent to check the live website**
+
+We launched a special "playtester" agent — think of it like a robot that visits the game's live website and reports back on what works and what is broken. The live website is at:
+
+https://universe-sim-beryl.vercel.app
+
+The agent visited the site and played through it to find any problems.
+
+---
+
+### Current state of the app
+
+| Thing | Detail |
+|---|---|
+| Where to play | https://universe-sim-beryl.vercel.app |
+| Where the server runs | Railway (a cloud hosting service) |
+| How fast the server updates | 10 times per second |
+| How fast simulated time passes | 317,000 simulated years per real second |
+| How fast the world is built at startup | About 0.3 real seconds |
+| Planet size | 2,000 meter radius |
+| Planet shape detail | 160 segments (very smooth) |
+| Computer-controlled characters | 50 NPCs with survival behavior |
+| Tech tree size | 150 nodes |
+| Evolution options | 50+ nodes |
+| Building types | 30+ |
+| Materials | 40+ |
+
+---
+
+### What comes next
+
+- Review the playtester's findings to understand what is working well and what is broken or missing.
+- Fix the problems the playtester found, starting with the most important ones first.
+
+---
+
+**What comes next:** The fire simulation is the foundation for all chemistry. The next logical step is spreading fire (fire that propagates to adjacent cells), cooking (food placed near fire changes properties), and eventually more complex chemistry like smelting. The grid is also the future home of weather simulation, poison gases, and atmospheric modeling.

@@ -21,11 +21,63 @@ import {
 
 // ── Materials ─────────────────────────────────────────────────────────────────
 
-function makeTerrainMaterial(): THREE.MeshLambertMaterial {
-  return new THREE.MeshLambertMaterial({
+// GLSL injected into MeshStandardMaterial to add sub-polygon procedural surface detail.
+// Uses smooth value noise at multiple frequencies (2m → 0.1m scale) to break up the
+// flat interpolated-vertex-color look without needing any texture asset files.
+const DETAIL_NOISE_GLSL = /* glsl */`
+float _hash(vec3 p) {
+  p = fract(p * vec3(0.1031, 0.1030, 0.0973));
+  p += dot(p, p.yxz + 19.19);
+  return fract((p.x + p.y) * p.z);
+}
+float _sn(vec3 p) {
+  vec3 i = floor(p); vec3 f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(
+    mix(mix(_hash(i), _hash(i+vec3(1,0,0)), f.x), mix(_hash(i+vec3(0,1,0)), _hash(i+vec3(1,1,0)), f.x), f.y),
+    mix(mix(_hash(i+vec3(0,0,1)), _hash(i+vec3(1,0,1)), f.x), mix(_hash(i+vec3(0,1,1)), _hash(i+vec3(1,1,1)), f.x), f.y),
+    f.z);
+}
+float _detail(vec3 p) {
+  return _sn(p * 0.40) * 0.48
+       + _sn(p * 1.20) * 0.28
+       + _sn(p * 3.60) * 0.14
+       + _sn(p * 9.00) * 0.10;
+}
+`
+
+function makeTerrainMaterial(): THREE.MeshStandardMaterial {
+  const mat = new THREE.MeshStandardMaterial({
     vertexColors: true,
     side: THREE.FrontSide,
+    roughness: 0.88,
+    metalness: 0.0,
   })
+
+  mat.onBeforeCompile = (shader) => {
+    // Inject world-position varying into vertex shader.
+    // Use #include <project_vertex> as the injection point — always present in
+    // MeshStandardMaterial regardless of env/transmission feature flags.
+    shader.vertexShader = 'varying vec3 vTerrainWorldPos;\n' + shader.vertexShader
+    shader.vertexShader = shader.vertexShader.replace(
+      '#include <project_vertex>',
+      `#include <project_vertex>
+      vTerrainWorldPos = (modelMatrix * vec4(transformed, 1.0)).xyz;`
+    )
+
+    // Inject detail noise into fragment shader color step
+    shader.fragmentShader = 'varying vec3 vTerrainWorldPos;\n' + DETAIL_NOISE_GLSL + shader.fragmentShader
+    shader.fragmentShader = shader.fragmentShader.replace(
+      '#include <color_fragment>',
+      `#include <color_fragment>
+      // Sub-polygon detail: multi-frequency noise in world space (units = meters)
+      float _d = _detail(vTerrainWorldPos);
+      // Map [0,1] → [-0.22, +0.22] variation, preserves base biome color
+      diffuseColor.rgb *= 0.78 + _d * 0.44;`
+    )
+  }
+
+  return mat
 }
 
 function makeOceanMaterial(): THREE.MeshPhongMaterial {
@@ -54,7 +106,7 @@ function makeAtmosphereMaterial(): THREE.MeshBasicMaterial {
 
 export function PlanetTerrain() {
   // Generate geometry once — no reactive dependencies
-  const terrainGeo = useMemo(() => generatePlanetGeometry(80), [])
+  const terrainGeo = useMemo(() => generatePlanetGeometry(160), [])
   const oceanGeo   = useMemo(() => generateOceanGeometry(48), [])
   const atmosphereGeo = useMemo(() => new THREE.SphereGeometry(PLANET_RADIUS * 1.035, 32, 32), [])
 

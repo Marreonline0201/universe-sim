@@ -29,12 +29,11 @@ function Toast({ notif }: { notif: Notification }) {
         alignItems: 'flex-start',
         gap: 8,
         padding: '10px 14px',
-        background: 'rgba(10,10,20,0.92)',
-        border: `1px solid ${color}55`,
+        background: 'rgba(14,14,14,0.95)',
+        border: `1px solid #2a2a2a`,
         borderLeft: `3px solid ${color}`,
-        borderRadius: 6,
-        backdropFilter: 'blur(8px)',
-        animation: 'slideInLeft 0.2s ease-out',
+        borderRadius: 2,
+        animation: 'slideInRight 0.2s ease-out',
         cursor: 'pointer',
         maxWidth: 320,
       }}
@@ -56,20 +55,21 @@ export function NotificationSystem() {
   return (
     <>
       <style>{`
-        @keyframes slideInLeft {
-          from { opacity: 0; transform: translateX(-20px); }
+        @keyframes slideInRight {
+          from { opacity: 0; transform: translateX(20px); }
           to   { opacity: 1; transform: translateX(0); }
         }
       `}</style>
       <div style={{
         position: 'fixed',
         bottom: 24,
-        left: 16,
+        right: 64,   // clear the 48px icon strip
         display: 'flex',
         flexDirection: 'column-reverse',
         gap: 6,
         zIndex: 300,
         pointerEvents: 'auto',
+        alignItems: 'flex-end',
       }}>
         {notifications.map(n => <Toast key={n.id} notif={n} />)}
       </div>

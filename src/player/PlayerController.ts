@@ -40,8 +40,8 @@ const JUMP_IMPULSE = 7.0    // m/s radially outward
 const MOUSE_SENS   = 0.002
 const GRAVITY      = 9.81   // m/s² toward center (Newton)
 const SWIM_SPEED   = 3.5    // m/s horizontal in water
-const BUOYANCY     = 6.0    // net upward accel in water = BUOYANCY - GRAVITY
-const WATER_DRAG   = 4.0    // velocity damping in water (per second)
+const BUOYANCY     = 14.0   // net upward accel in water = BUOYANCY - GRAVITY (must be > 9.81 to float)
+const WATER_DRAG   = 6.0    // velocity damping in water (per second)
 const OCEAN_RADIUS = PLANET_RADIUS + SEA_LEVEL
 
 const THIRD_PERSON_DIST_DEFAULT = 8
@@ -223,10 +223,12 @@ export class PlayerController {
       north.y * cosY + east.y * sinY,
       north.z * cosY + east.z * sinY,
     )
+    // right = fwd × up (right-handed, matches camera screen-right direction)
+    // camera screen-right = -(up × fwd) = fwd × up = north*sinY - east*cosY
     right.set(
-      east.x * cosY - north.x * sinY,
-      east.y * cosY - north.y * sinY,
-      east.z * cosY - north.z * sinY,
+      north.x * sinY - east.x * cosY,
+      north.y * sinY - east.y * cosY,
+      north.z * sinY - east.z * cosY,
     )
 
     const distFromCenter = Math.sqrt(px * px + py * py + pz * pz)
@@ -416,6 +418,11 @@ export class PlayerController {
           ey - lookDir.y * d + up.y * d * 0.35,
           ez - lookDir.z * d + up.z * d * 0.35,
         )
+        // Prevent camera from going underground — clamp to surface + 2m
+        const camLen = this._camPos.length()
+        if (camLen < PLANET_RADIUS + 2) {
+          this._camPos.normalize().multiplyScalar(PLANET_RADIUS + 2)
+        }
         camera.position.copy(this._camPos)
         camera.lookAt(ex + up.x * 0.9, ey + up.y * 0.9, ez + up.z * 0.9)
         break

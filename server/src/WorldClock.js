@@ -9,11 +9,12 @@
 const TICK_MS = 100 // 10 Hz
 
 // ── Bootstrap constants ────────────────────────────────────────────────────────
-// Target: solar system forming (~9 billion years into universe history)
-const BOOTSTRAP_TARGET_YEARS = 9e9
-const BOOTSTRAP_TARGET_SECS  = BOOTSTRAP_TARGET_YEARS * 31_557_600  // ~2.84e17 s
-const BOOTSTRAP_TIMESCALE    = 1e14   // at 10Hz ticks: reaches target in ~47 min
-const NORMAL_TIMESCALE       = 1_000_000  // 1 real second = 1M sim-seconds (normal play)
+// Target: Earth fully formed (~9.3 billion years into universe history)
+// Universe = 13.8 Gyr old; Earth formed 4.5 Gyr ago → 13.8 - 4.5 = 9.3 Gyr after Big Bang
+const BOOTSTRAP_TARGET_YEARS = 9.3e9
+const BOOTSTRAP_TARGET_SECS  = BOOTSTRAP_TARGET_YEARS * 31_557_600  // ~2.935e17 s
+const BOOTSTRAP_TIMESCALE    = 1e18   // at 10Hz ticks: reaches target in ~0.3 sec (instant)
+const NORMAL_TIMESCALE       = 1e13  // 1 real sec = 317k sim-years → Gyr display ticks every ~3 sec
 
 // Real cosmological epoch thresholds (in sim-seconds → years)
 function epochFromSeconds(secs) {
@@ -56,7 +57,7 @@ export class WorldClock {
     this.bootstrapPhase    = true
     this.bootstrapProgress = Math.min(this.simTimeSec / BOOTSTRAP_TARGET_SECS, 0.999)
     this.timeScale         = BOOTSTRAP_TIMESCALE
-    console.log(`[WorldClock] Bootstrap mode — timeScale=1e14, target=${(BOOTSTRAP_TARGET_YEARS/1e9).toFixed(1)}B years (~47 min)`)
+    console.log(`[WorldClock] Bootstrap mode — timeScale=1e18, target=${(BOOTSTRAP_TARGET_YEARS/1e9).toFixed(1)}B years (~instant)`)
   }
 
   /** Register a callback to run when bootstrap completes. */

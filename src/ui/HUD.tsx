@@ -5,60 +5,131 @@ import { useMultiplayerStore } from '../store/multiplayerStore'
 import { SidebarShell } from './SidebarShell'
 import { NotificationSystem } from './NotificationSystem'
 
-// ── Sub-components ────────────────────────────────────────────────────────────
+const RUST_ORANGE = '#cd4420'
 
-interface VitalBarProps {
-  value: number   // 0-1
+// ── Rust-style vital bar (icon + horizontal fill) ─────────────────────────────
+
+interface RustVitalBarProps {
+  value: number     // 0–1
   color: string
+  icon: string
   label: string
-  warning?: boolean
 }
 
-function VitalBar({ value, color, label, warning }: VitalBarProps) {
-  const clampedValue = Math.max(0, Math.min(1, value))
-  const barColor = warning && clampedValue < 0.25 ? '#e74c3c' : color
+function RustVitalBar({ value, color, icon, label }: RustVitalBarProps) {
+  const clamped = Math.max(0, Math.min(1, value))
+  const isLow   = clamped < 0.25
+  const barColor = isLow ? '#e74c3c' : color
 
   return (
-    <div style={{ marginBottom: 5 }}>
-      <div style={{
-        display: 'flex', justifyContent: 'space-between',
-        fontSize: 9, color: '#aaa', marginBottom: 2, fontFamily: 'monospace',
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
+      {/* Icon */}
+      <span style={{
+        fontSize: 13,
+        width: 16,
+        textAlign: 'center',
+        opacity: isLow ? 1 : 0.75,
+        filter: isLow ? 'drop-shadow(0 0 4px #e74c3c)' : 'none',
+        flexShrink: 0,
       }}>
-        <span>{label}</span>
-        <span>{Math.round(clampedValue * 100)}%</span>
-      </div>
+        {icon}
+      </span>
+      {/* Bar track */}
       <div style={{
-        width: 120, height: 5,
-        background: 'rgba(255,255,255,0.1)',
-        borderRadius: 3,
+        flex: 1,
+        height: 4,
+        background: 'rgba(255,255,255,0.12)',
+        borderRadius: 2,
         overflow: 'hidden',
       }}>
         <div style={{
-          width: `${clampedValue * 100}%`,
+          width: `${clamped * 100}%`,
           height: '100%',
           background: barColor,
-          borderRadius: 3,
+          borderRadius: 2,
           transition: 'width 0.3s ease, background 0.3s',
         }} />
       </div>
+      {/* Numeric value */}
+      <span style={{
+        fontSize: 9,
+        color: isLow ? '#e74c3c' : '#888',
+        fontFamily: 'monospace',
+        width: 26,
+        textAlign: 'right',
+        flexShrink: 0,
+      }}>
+        {Math.round(clamped * 100)}
+      </span>
     </div>
   )
 }
 
-interface GoalBadgeProps { goal: string }
-function GoalBadge({ goal }: GoalBadgeProps) {
+// ── Hotbar slot ────────────────────────────────────────────────────────────────
+
+interface HotbarSlotProps {
+  index: number
+  active?: boolean
+}
+
+function HotbarSlot({ index, active }: HotbarSlotProps) {
   return (
     <div style={{
-      marginTop: 8,
-      padding: '2px 8px',
-      background: 'rgba(52,152,219,0.2)',
-      border: '1px solid rgba(52,152,219,0.5)',
-      borderRadius: 10,
-      fontSize: 10,
-      color: '#3498db',
-      fontFamily: 'monospace',
+      width: 52,
+      height: 52,
+      background: active ? 'rgba(205,68,32,0.18)' : 'rgba(0,0,0,0.6)',
+      border: active ? `1px solid ${RUST_ORANGE}` : '1px solid rgba(255,255,255,0.15)',
+      borderRadius: 3,
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'flex-end',
+      paddingBottom: 3,
+      boxShadow: active ? `0 0 6px rgba(205,68,32,0.5)` : 'none',
+      position: 'relative',
     }}>
-      GOAL: {goal.replace(/_/g, ' ').toUpperCase()}
+      <span style={{
+        fontSize: 9,
+        color: active ? RUST_ORANGE : 'rgba(255,255,255,0.3)',
+        fontFamily: 'monospace',
+        fontWeight: active ? 700 : 400,
+      }}>
+        {index + 1}
+      </span>
+    </div>
+  )
+}
+
+// ── Crosshair ─────────────────────────────────────────────────────────────────
+
+function Crosshair() {
+  const size = 20
+  const gap  = 5
+  const thickness = 1.5
+  const color = 'rgba(255,255,255,0.85)'
+
+  return (
+    <div style={{
+      position: 'absolute',
+      top: '50%',
+      left: '50%',
+      transform: 'translate(-50%, -50%)',
+      width: size * 2 + gap * 2,
+      height: size * 2 + gap * 2,
+      pointerEvents: 'none',
+    }}>
+      <svg width={size * 2 + gap * 2} height={size * 2 + gap * 2}>
+        {/* Left */}
+        <rect x={0} y={(size + gap) - thickness / 2} width={size} height={thickness} fill={color} />
+        {/* Right */}
+        <rect x={size + gap * 2} y={(size + gap) - thickness / 2} width={size} height={thickness} fill={color} />
+        {/* Top */}
+        <rect x={(size + gap) - thickness / 2} y={0} width={thickness} height={size} fill={color} />
+        {/* Bottom */}
+        <rect x={(size + gap) - thickness / 2} y={size + gap * 2} width={thickness} height={size} fill={color} />
+        {/* Center dot */}
+        <circle cx={size + gap} cy={size + gap} r={1.5} fill={color} />
+      </svg>
     </div>
   )
 }
@@ -67,10 +138,9 @@ function GoalBadge({ goal }: GoalBadgeProps) {
 
 export function HUD() {
   const { paused, simTime, epoch } = useGameStore()
-  const { health, hunger, thirst, energy, fatigue, ambientTemp, evolutionPoints, currentGoal } = usePlayerStore()
+  const { health, hunger, thirst, energy, fatigue, ambientTemp, evolutionPoints } = usePlayerStore()
   const { connectionStatus, remotePlayers } = useMultiplayerStore()
 
-  // Color-coded temperature display
   const tempColor = ambientTemp < 0 ? '#88bbff' : ambientTemp < 30 ? '#88ff88' : ambientTemp < 50 ? '#ffaa44' : '#ff4444'
 
   return (
@@ -83,88 +153,119 @@ export function HUD() {
         color: '#fff',
         zIndex: 100,
       }}>
-        {/* ── Top-left: vitals ── */}
+
+        {/* ── Crosshair ── */}
+        <Crosshair />
+
+        {/* ── Top-center: epoch + simTime strip ── */}
         <div style={{
           position: 'absolute',
-          top: 16,
-          left: 16,
-          pointerEvents: 'auto',
-          background: 'rgba(0,0,0,0.65)',
-          border: '1px solid rgba(255,255,255,0.08)',
-          borderRadius: 8,
-          padding: '10px 14px',
-          backdropFilter: 'blur(6px)',
-          minWidth: 150,
+          top: 14,
+          left: '50%',
+          transform: 'translateX(-50%)',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          gap: 2,
+          pointerEvents: 'none',
         }}>
-          <div style={{ fontSize: 10, color: '#555', marginBottom: 6, letterSpacing: 1 }}>VITALS</div>
-          <VitalBar value={health}      color="#e74c3c" label="HEALTH"  warning />
-          <VitalBar value={1 - hunger}  color="#f39c12" label="SATIETY" warning />
-          <VitalBar value={1 - thirst}  color="#3498db" label="HYDRATION" warning />
-          <VitalBar value={energy}      color="#2ecc71" label="ENERGY"  warning />
-          <VitalBar value={1 - fatigue} color="#9b59b6" label="STAMINA" warning />
-
-          <div style={{ marginTop: 8, fontSize: 11, color: tempColor, fontFamily: 'monospace' }}>
-            {ambientTemp.toFixed(0)}\u00B0C
-          </div>
-
           <div style={{
-            marginTop: 10,
-            borderTop: '1px solid rgba(255,255,255,0.07)',
-            paddingTop: 6,
-            fontSize: 11,
-            color: '#f1c40f',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 5,
+            fontSize: 9,
+            color: RUST_ORANGE,
+            letterSpacing: 3,
+            textTransform: 'uppercase',
+            fontWeight: 700,
           }}>
-            <span style={{ opacity: 0.6, fontSize: 9 }}>EP</span>
-            <span style={{ fontWeight: 'bold' }}>{evolutionPoints.toLocaleString()}</span>
+            {epoch.replace(/_/g, ' ')}
           </div>
-
-          <GoalBadge goal={currentGoal} />
-        </div>
-
-        {/* ── Top-right: clock + epoch ── */}
-        <div style={{
-          position: 'absolute',
-          top: 16,
-          right: 64, // offset for icon strip (48px) + gap
-          textAlign: 'right',
-          pointerEvents: 'auto',
-          background: 'rgba(0,0,0,0.65)',
-          border: '1px solid rgba(255,255,255,0.08)',
-          borderRadius: 8,
-          padding: '10px 14px',
-          backdropFilter: 'blur(6px)',
-        }}>
-          <div style={{ fontSize: 10, color: '#888', letterSpacing: 2, marginBottom: 2 }}>
-            {epoch.toUpperCase().replace(/_/g, ' ')}
-          </div>
-          <div style={{ fontSize: 20, fontWeight: 'bold', letterSpacing: 1 }}>{simTime}</div>
-          {/* Connection status */}
-          <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 5, justifyContent: 'flex-end' }}>
-            <div style={{
-              width: 7, height: 7, borderRadius: '50%',
-              background: connectionStatus === 'connected' ? '#2ecc71' : connectionStatus === 'connecting' ? '#f1c40f' : '#e74c3c',
-            }} />
-            <span style={{ fontSize: 9, color: '#888', letterSpacing: 1 }}>
-              {connectionStatus === 'connected'
-                ? `ONLINE · ${remotePlayers.size} player${remotePlayers.size !== 1 ? 's' : ''}`
-                : connectionStatus === 'connecting' ? 'CONNECTING...' : 'OFFLINE'}
-            </span>
+          <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', letterSpacing: 1 }}>
+            {simTime}
           </div>
           {paused && (
             <div style={{
-              marginTop: 4,
-              fontSize: 11,
+              fontSize: 10,
               color: '#e74c3c',
-              fontWeight: 'bold',
-              letterSpacing: 2,
+              fontWeight: 700,
+              letterSpacing: 3,
             }}>
               PAUSED
             </div>
           )}
         </div>
+
+        {/* ── Top-right: connection + EP ── */}
+        <div style={{
+          position: 'absolute',
+          top: 14,
+          right: 64,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'flex-end',
+          gap: 4,
+          pointerEvents: 'none',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+            <div style={{
+              width: 6, height: 6, borderRadius: '50%',
+              background: connectionStatus === 'connected' ? '#2ecc71'
+                        : connectionStatus === 'connecting' ? '#f1c40f'
+                        : '#e74c3c',
+            }} />
+            <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.35)', letterSpacing: 1 }}>
+              {connectionStatus === 'connected'
+                ? `${remotePlayers.size}P`
+                : connectionStatus === 'connecting' ? '...' : 'OFF'}
+            </span>
+          </div>
+          <div style={{ fontSize: 9, color: 'rgba(241,196,15,0.7)', letterSpacing: 1 }}>
+            EP {evolutionPoints.toLocaleString()}
+          </div>
+        </div>
+
+        {/* ── Bottom-left: vitals ── */}
+        <div style={{
+          position: 'absolute',
+          bottom: 80,
+          left: 20,
+          width: 160,
+          background: 'rgba(0,0,0,0.55)',
+          border: '1px solid rgba(255,255,255,0.06)',
+          borderRadius: 2,
+          padding: '10px 12px 8px',
+          pointerEvents: 'none',
+        }}>
+          <RustVitalBar value={health}      color="#c0392b" icon="♥" label="Health"   />
+          <RustVitalBar value={1 - hunger}  color="#e67e22" icon="◆" label="Food"     />
+          <RustVitalBar value={1 - thirst}  color="#2980b9" icon="~" label="Water"    />
+          <RustVitalBar value={energy}      color="#27ae60" icon="⚡" label="Energy"  />
+          <RustVitalBar value={1 - fatigue} color="#8e44ad" icon="●" label="Stamina"  />
+          <div style={{
+            marginTop: 6,
+            paddingTop: 5,
+            borderTop: '1px solid rgba(255,255,255,0.06)',
+            fontSize: 9,
+            color: tempColor,
+            letterSpacing: 1,
+          }}>
+            {ambientTemp.toFixed(0)}°C
+          </div>
+        </div>
+
+        {/* ── Bottom-center: hotbar ── */}
+        <div style={{
+          position: 'absolute',
+          bottom: 20,
+          left: '50%',
+          transform: 'translateX(-50%)',
+          display: 'flex',
+          gap: 4,
+          pointerEvents: 'auto',
+        }}>
+          {[0, 1, 2, 3, 4, 5].map(i => (
+            <HotbarSlot key={i} index={i} active={i === 0} />
+          ))}
+        </div>
+
       </div>
 
       {/* ── Sidebar panels + icon strip ── */}

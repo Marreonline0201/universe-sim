@@ -55,7 +55,7 @@ export const useGameStore = create<GameState>((set) => ({
   paused: false,
   togglePause: () => set((s) => ({ paused: !s.paused })),
 
-  timeScale: 1_000_000,
+  timeScale: 1e13,
   setTimeScale: (ts) => set({ timeScale: ts }),
 
   epoch: 'planck',
@@ -114,7 +114,7 @@ function formatSimTime(secs: number): string {
   if (years < 1000)       return `${years.toFixed(1)} yr`
   if (years < 1e6)        return `${(years / 1000).toFixed(2)} kyr`
   if (years < 1e9)        return `${(years / 1e6).toFixed(2)} Myr`
-  return `${(years / 1e9).toFixed(2)} Gyr`
+  return `${(years / 1e9).toFixed(3)} Gyr`
 }
 
 /**

@@ -178,12 +178,12 @@ export function biomeColor(dir: THREE.Vector3, height: number): THREE.Color {
 // The 6 cube face local axes: [faceNormal, rightAxis, upAxis]
 // face normal + right * s + up * t gives cube-face points in range [-2, 2]
 const CUBE_FACES: Array<[THREE.Vector3, THREE.Vector3, THREE.Vector3]> = [
-  [new THREE.Vector3( 1,  0,  0), new THREE.Vector3( 0,  0, -1), new THREE.Vector3( 0,  1,  0)],
-  [new THREE.Vector3(-1,  0,  0), new THREE.Vector3( 0,  0,  1), new THREE.Vector3( 0,  1,  0)],
+  [new THREE.Vector3( 1,  0,  0), new THREE.Vector3( 0,  0,  1), new THREE.Vector3( 0,  1,  0)],
+  [new THREE.Vector3(-1,  0,  0), new THREE.Vector3( 0,  0, -1), new THREE.Vector3( 0,  1,  0)],
   [new THREE.Vector3( 0,  1,  0), new THREE.Vector3( 1,  0,  0), new THREE.Vector3( 0,  0,  1)],
   [new THREE.Vector3( 0, -1,  0), new THREE.Vector3( 1,  0,  0), new THREE.Vector3( 0,  0, -1)],
-  [new THREE.Vector3( 0,  0,  1), new THREE.Vector3( 1,  0,  0), new THREE.Vector3( 0,  1,  0)],
-  [new THREE.Vector3( 0,  0, -1), new THREE.Vector3(-1,  0,  0), new THREE.Vector3( 0,  1,  0)],
+  [new THREE.Vector3( 0,  0,  1), new THREE.Vector3(-1,  0,  0), new THREE.Vector3( 0,  1,  0)],
+  [new THREE.Vector3( 0,  0, -1), new THREE.Vector3( 1,  0,  0), new THREE.Vector3( 0,  1,  0)],
 ]
 
 /**

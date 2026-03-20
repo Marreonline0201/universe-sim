@@ -3,6 +3,7 @@ import { useAuth } from '@clerk/react'
 import { useGameStore } from '../store/gameStore'
 import { inventory } from '../game/GameSingletons'
 import { MAT } from '../player/Inventory'
+import { saveGodMode } from '../store/saveStore'
 
 interface PlayerRow {
   user_id: string
@@ -39,7 +40,7 @@ export function AdminPanel() {
   const [open, setOpen] = useState(false)
   const [players, setPlayers] = useState<PlayerRow[]>([])
   const [loading, setLoading] = useState(false)
-  const [godMode, setGodMode] = useState(false)
+  const [godMode, setGodMode] = useState(() => inventory.isGodMode())
   const { setSpectateTarget, spectateTarget } = useGameStore()
 
   const DEV_BYPASS = import.meta.env.DEV && import.meta.env.VITE_DEV_BYPASS_AUTH === 'true'
@@ -97,6 +98,7 @@ export function AdminPanel() {
                     const next = !godMode
                     setGodMode(next)
                     inventory.setGodMode(next)
+                    saveGodMode(next)
                   }}
                   style={{ background: godMode ? '#16a34a' : '#374151', color: '#fff', border: `1px solid ${godMode ? '#4ade80' : '#555'}`, padding: '4px 12px', borderRadius: 4, cursor: 'pointer' }}
                 >

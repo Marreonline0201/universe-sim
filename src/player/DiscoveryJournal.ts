@@ -46,6 +46,11 @@ export class DiscoveryJournal {
     this.newQueue = []
   }
 
+  /** Restore full discovery objects from persisted data. */
+  loadEntries(entries: Discovery[]): void {
+    this.discoveries = new Map(entries.map(d => [String(d.id), d]))
+  }
+
   get count(): number {
     return this.discoveries.size
   }

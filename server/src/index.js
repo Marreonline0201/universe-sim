@@ -10,6 +10,7 @@ import { NpcManager } from './NpcManager.js'
 import { BroadcastScheduler } from './BroadcastScheduler.js'
 import { loadSettings, saveSettings, migrateSchema } from './WorldSettingsSync.js'
 import { BOOTSTRAP_TARGET_SECS, NORMAL_TIMESCALE } from './WorldClock.js'
+import { SlackAgent } from './SlackAgent.js'
 
 const PORT = parseInt(process.env.PORT ?? '8080', 10)
 const PERSIST_INTERVAL_MS = 30_000 // save simTime to DB every 30 s
@@ -20,6 +21,7 @@ const clock    = new WorldClock()
 const players  = new PlayerRegistry()
 const npcs     = new NpcManager()
 const scheduler = new BroadcastScheduler(clock, players, npcs)
+const slack    = new SlackAgent(clock, players, npcs)
 
 async function main() {
   // Ensure DB has sim_time column
@@ -50,6 +52,7 @@ async function main() {
         .then(() => console.log('[server] Bootstrap state saved to DB'))
         .catch(() => {})
     }
+    slack.notifyBootstrapComplete().catch(() => {})
   })
 
   // Tick NPCs every 100 ms (same rate as clock)
@@ -57,6 +60,7 @@ async function main() {
 
   clock.start()
   scheduler.start()
+  await slack.start()
 
   // Persist simTime periodically
   if (process.env.DATABASE_URL) {
@@ -107,9 +111,12 @@ async function main() {
     ws.on('close', () => {
       const userId = ws._userId
       if (userId) {
+        const p = players.get(userId)
+        const username = p?.username ?? userId
         players.remove(userId)
         broadcast({ type: 'PLAYER_LEFT', userId }, ws)
         console.log(`[server] Player left: ${userId} (${players.count} online)`)
+        slack.notifyPlayerLeft(username).catch(() => {})
       }
     })
 
@@ -128,6 +135,7 @@ function handleMessage(ws, msg) {
       ws._userId = userId
       players.add(userId, username, ws)
       console.log(`[server] Player joined: ${username} (${players.count} online)`)
+      slack.notifyPlayerJoined(username).catch(() => {})
 
       // Send current world state immediately
       ws.send(JSON.stringify({

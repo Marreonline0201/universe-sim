@@ -20,18 +20,22 @@ export default async function handler(_req: Request) {
       discoveries    TEXT DEFAULT '[]',
       current_goal   TEXT DEFAULT 'survive',
       sim_seconds    REAL DEFAULT 0,
-      inventory      TEXT DEFAULT '[]',
-      tech_tree      TEXT DEFAULT '[]',
-      evolution_tree TEXT DEFAULT '[]',
-      known_recipes  TEXT DEFAULT '[]',
-      updated_at     TIMESTAMPTZ DEFAULT NOW()
+      inventory              TEXT DEFAULT '[]',
+      tech_tree              TEXT DEFAULT '[]',
+      tech_tree_in_progress  TEXT DEFAULT '[]',
+      evolution_tree         TEXT DEFAULT '[]',
+      known_recipes          TEXT DEFAULT '[]',
+      journal_entries        TEXT DEFAULT '[]',
+      updated_at             TIMESTAMPTZ DEFAULT NOW()
     )
   `
   // Add new columns to existing tables that predate this schema version
-  await sql`ALTER TABLE player_saves ADD COLUMN IF NOT EXISTS inventory      TEXT DEFAULT '[]'`
-  await sql`ALTER TABLE player_saves ADD COLUMN IF NOT EXISTS tech_tree      TEXT DEFAULT '[]'`
-  await sql`ALTER TABLE player_saves ADD COLUMN IF NOT EXISTS evolution_tree TEXT DEFAULT '[]'`
-  await sql`ALTER TABLE player_saves ADD COLUMN IF NOT EXISTS known_recipes  TEXT DEFAULT '[]'`
+  await sql`ALTER TABLE player_saves ADD COLUMN IF NOT EXISTS inventory              TEXT DEFAULT '[]'`
+  await sql`ALTER TABLE player_saves ADD COLUMN IF NOT EXISTS tech_tree              TEXT DEFAULT '[]'`
+  await sql`ALTER TABLE player_saves ADD COLUMN IF NOT EXISTS evolution_tree         TEXT DEFAULT '[]'`
+  await sql`ALTER TABLE player_saves ADD COLUMN IF NOT EXISTS known_recipes          TEXT DEFAULT '[]'`
+  await sql`ALTER TABLE player_saves ADD COLUMN IF NOT EXISTS tech_tree_in_progress  TEXT DEFAULT '[]'`
+  await sql`ALTER TABLE player_saves ADD COLUMN IF NOT EXISTS journal_entries        TEXT DEFAULT '[]'`
 
   return Response.json({ ok: true })
 }

@@ -112,6 +112,22 @@ export class TechTree {
     for (const id of ids) this.inProgress.delete(id)
   }
 
+  /** Serialize all in-progress research for persistence. */
+  getInProgressData(): Array<{ nodeId: string; startTime: number; endTime: number }> {
+    return Array.from(this.inProgress.entries()).map(([nodeId, { startTime, endTime }]) => ({
+      nodeId, startTime, endTime,
+    }))
+  }
+
+  /** Restore in-progress research from persisted data. */
+  loadInProgress(data: Array<{ nodeId: string; startTime: number; endTime: number }>): void {
+    this.inProgress = new Map(
+      data
+        .filter(d => !this.researched.has(d.nodeId))  // skip already-researched nodes
+        .map(({ nodeId, startTime, endTime }) => [nodeId, { startTime, endTime }])
+    )
+  }
+
   getInProgress(): Array<TechNode & { progress: number }> {
     return []  // populated by caller with getProgress()
   }

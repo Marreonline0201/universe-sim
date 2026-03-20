@@ -67,6 +67,15 @@ export class EvolutionTree {
     return EVOLUTION_NODES.filter(n => this.unlocked.has(n.id))
   }
 
+  getUnlockedIds(): string[] {
+    return Array.from(this.unlocked)
+  }
+
+  /** Restore unlocked nodes from a saved list of IDs. */
+  loadUnlocked(ids: string[]): void {
+    this.unlocked = new Set(ids)
+  }
+
   /**
    * Compute the cumulative genome modifications from all unlocked nodes.
    * Returns an array of bit modifications to apply.

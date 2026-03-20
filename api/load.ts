@@ -32,5 +32,9 @@ export default async function handler(req: any, res: any) {
     discoveries: JSON.parse(row.discoveries ?? '[]'),
     currentGoal: row.current_goal,
     simSeconds: row.sim_seconds,
+    inventory: JSON.parse(row.inventory ?? '[]'),
+    techTree: JSON.parse(row.tech_tree ?? '[]'),
+    evolutionTree: JSON.parse(row.evolution_tree ?? '[]'),
+    knownRecipes: JSON.parse(row.known_recipes ?? '[]'),
   })
 }

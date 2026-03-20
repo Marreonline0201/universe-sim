@@ -101,6 +101,17 @@ export class TechTree {
     return TECH_NODES.filter(n => this.researched.has(n.id))
   }
 
+  getResearchedIds(): string[] {
+    return Array.from(this.researched)
+  }
+
+  /** Restore researched nodes from a saved list of IDs. */
+  loadResearched(ids: string[]): void {
+    this.researched = new Set(ids)
+    // Remove any in-progress nodes that are now already researched
+    for (const id of ids) this.inProgress.delete(id)
+  }
+
   getInProgress(): Array<TechNode & { progress: number }> {
     return []  // populated by caller with getProgress()
   }

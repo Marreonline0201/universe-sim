@@ -115,6 +115,20 @@ export class Inventory {
     this.knownRecipes.add(recipeId)
   }
 
+  /** Restore inventory from a serialized slot list (e.g. from DB). Clears current slots first. */
+  loadSlots(items: Array<{ index: number; slot: InventorySlot }>): void {
+    const needed = items.reduce((max, { index }) => Math.max(max, index + 1), SLOT_COUNT)
+    this.slots = new Array(Math.max(needed, SLOT_COUNT)).fill(null)
+    for (const { index, slot } of items) {
+      this.slots[index] = { ...slot }
+    }
+  }
+
+  /** Restore known recipes from a serialized list. */
+  loadKnownRecipes(ids: number[]): void {
+    this.knownRecipes = new Set(ids)
+  }
+
   getSlot(i: number): InventorySlot | null {
     return this.slots[i] ?? null
   }

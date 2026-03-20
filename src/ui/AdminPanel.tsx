@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '@clerk/react'
 import { useGameStore } from '../store/gameStore'
+import { inventory } from '../game/GameSingletons'
+import { MAT } from '../player/Inventory'
 
 interface PlayerRow {
   user_id: string
@@ -39,7 +41,8 @@ export function AdminPanel() {
   const [loading, setLoading] = useState(false)
   const { setSpectateTarget, spectateTarget } = useGameStore()
 
-  const isAdmin = userId === import.meta.env.VITE_ADMIN_USER_ID
+  const DEV_BYPASS = import.meta.env.DEV && import.meta.env.VITE_DEV_BYPASS_AUTH === 'true'
+  const isAdmin = DEV_BYPASS || userId === import.meta.env.VITE_ADMIN_USER_ID
   if (!isAdmin) return null
 
   async function load() {
@@ -78,6 +81,16 @@ export function AdminPanel() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
               <h2 style={{ margin: 0, fontSize: 20 }}>Admin Panel — Universe Sim</h2>
               <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  onClick={() => {
+                    Object.values(MAT).forEach(matId => {
+                      inventory.addItem({ itemId: 0, materialId: matId, quantity: 99, quality: 1.0 })
+                    })
+                  }}
+                  style={{ background: '#7c3aed', color: '#fff', border: '1px solid #9f67ff', padding: '4px 12px', borderRadius: 4, cursor: 'pointer' }}
+                >
+                  Give All Materials
+                </button>
                 <button onClick={load} style={{ background: '#333', color: '#fff', border: '1px solid #555', padding: '4px 12px', borderRadius: 4, cursor: 'pointer' }}>
                   Refresh
                 </button>

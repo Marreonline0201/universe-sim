@@ -20,6 +20,7 @@ export interface SimulationConfig {
 export class SimulationEngine {
   readonly grid: Grid3D
   readonly clock: SimClock
+  gridOrigin: { x: number; y: number; z: number } = { x: 0, y: 0, z: 0 }
   private workers: Map<string, Worker> = new Map()
   private initialized = false
 
@@ -76,6 +77,11 @@ export class SimulationEngine {
     for (const [, w] of this.workers) {
       w.postMessage({ type: 'tick', dtSim: dtPhysics, dtWall })
     }
+  }
+
+  /** Send a message directly to the chemistry worker. */
+  sendToChem(msg: Record<string, unknown>): void {
+    this.workers.get('chem')?.postMessage(msg)
   }
 
   dispose(): void {

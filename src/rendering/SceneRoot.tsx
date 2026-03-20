@@ -18,6 +18,7 @@ import { MetabolismSystem, setMetabolismDt } from '../ecs/systems/MetabolismSyst
 import { inventory, buildingSystem } from '../game/GameSingletons'
 import { MAT, ITEM } from '../player/Inventory'
 import { BUILDING_TYPES } from '../civilization/BuildingSystem'
+import { getItemStats, canHarvest } from '../player/EquipSystem'
 import { PlanetTerrain } from './PlanetTerrain'
 import { surfaceRadiusAt, terrainHeightAt, getSpawnPosition, PLANET_RADIUS } from '../world/SpherePlanet'
 
@@ -472,6 +473,41 @@ function GameLoop({ controllerRef, entityId }: GameLoopProps) {
       }
     } else {
       if (gs.gatherPrompt !== null) gs.setGatherPrompt(null)
+    }
+
+    // ── Tool use: left click harvests with equipped item ─────────────────
+    if (controllerRef.current?.popAttack()) {
+      const equippedSlot = usePlayerStore.getState().equippedSlot
+      const equippedItem = equippedSlot !== null ? inventory.getSlot(equippedSlot) : null
+      const itemId       = equippedItem?.itemId ?? 0
+      const stats        = getItemStats(itemId)
+
+      const px = Position.x[entityId]
+      const py = Position.y[entityId]
+      const pz = Position.z[entityId]
+
+      let nearest: (typeof RESOURCE_NODES)[0] | null = null
+      let nearestDist = Infinity
+
+      for (const node of RESOURCE_NODES) {
+        if (gatheredNodeIds.has(node.id)) continue
+        const dx = node.x - px
+        const dy = terrainYAt(node.x, node.z) - py   // ResourceNode has no y field — compute from terrain
+        const dz = node.z - pz
+        const dist = Math.sqrt(dx * dx + dy * dy + dz * dz)
+        if (dist < stats.range && dist < nearestDist && canHarvest(itemId, node.type)) {
+          nearest = node
+          nearestDist = dist
+        }
+      }
+
+      if (nearest) {
+        const qty     = Math.floor(Math.random() * 3) + 1
+        const quality = 0.7 + Math.random() * 0.3
+        inventory.addItem({ itemId: 0, materialId: nearest.matId, quantity: qty, quality })
+        gatheredNodeIds.add(nearest.id)
+        NODE_RESPAWN_AT.set(nearest.id, Date.now() + NODE_RESPAWN_DELAY)
+      }
     }
   })
 

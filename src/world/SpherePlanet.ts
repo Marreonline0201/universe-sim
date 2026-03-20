@@ -300,8 +300,30 @@ export function surfaceRadiusAt(px: number, py: number, pz: number): number {
  * The player spawns at the north pole of the sphere, standing on the terrain.
  */
 export function getSpawnPosition(): [number, number, number] {
-  const spawnDir = new THREE.Vector3(0, 1, 0)
-  const h = terrainHeightAt(spawnDir)
-  const r = PLANET_RADIUS + Math.max(h, SEA_LEVEL) + 1.0  // 1.0 = player capsule offset
+  // Scan candidate directions to find land (terrain height >= 5m above sea level).
+  // North pole is the first candidate; if it's ocean we try nearby directions.
+  const candidates: [number, number, number][] = [
+    [0, 1, 0],
+    [0.1, 0.99, 0],
+    [-0.1, 0.99, 0],
+    [0, 0.99, 0.1],
+    [0, 0.99, -0.1],
+    [0.2, 0.98, 0],
+    [0, 0.98, 0.2],
+    [-0.2, 0.98, 0],
+    [0, 0.98, -0.2],
+    [0.15, 0.985, 0.15],
+  ]
+  const v = new THREE.Vector3()
+  for (const [cx, cy, cz] of candidates) {
+    v.set(cx, cy, cz).normalize()
+    const h = terrainHeightAt(v)
+    if (h >= 5) {
+      const r = PLANET_RADIUS + h + 1.0
+      return [v.x * r, v.y * r, v.z * r]
+    }
+  }
+  // Fallback: use north pole at sea level
+  const r = PLANET_RADIUS + SEA_LEVEL + 1.0
   return [0, r, 0]
 }

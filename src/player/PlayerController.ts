@@ -11,6 +11,7 @@
 import * as THREE from 'three'
 import { world, Position, Velocity, Rotation } from '../ecs/world'
 import { useGameStore } from '../store/gameStore'
+import { PLANET_RADIUS, SEA_LEVEL, surfaceRadiusAt } from '../world/SpherePlanet'
 
 export type CameraMode = 'first_person' | 'third_person' | 'orbit'
 
@@ -29,12 +30,16 @@ export interface InputState {
   scrollDelta: number
 }
 
-const WALK_SPEED   = 6.0
-const SPRINT_MULT  = 2.4
-const CROUCH_MULT  = 0.4
-const JUMP_IMPULSE = 7.0   // m/s radially outward
-const MOUSE_SENS   = 0.002
-const GRAVITY      = 9.81  // m/s² toward center
+const WALK_SPEED    = 6.0
+const SPRINT_MULT   = 2.4
+const CROUCH_MULT   = 0.4
+const JUMP_IMPULSE  = 7.0    // m/s radially outward
+const MOUSE_SENS    = 0.002
+const GRAVITY       = 9.81   // m/s² toward center
+const SWIM_SPEED    = 3.5    // m/s horizontal in water
+const BUOYANCY      = 6.0    // upward acceleration in water (m/s²), net upward = BUOYANCY - GRAVITY
+const WATER_DRAG    = 4.0    // velocity damping coefficient in water (per second)
+const OCEAN_RADIUS  = PLANET_RADIUS + SEA_LEVEL  // 2000 m from center
 
 const THIRD_PERSON_DIST_DEFAULT = 8
 const THIRD_PERSON_DIST_MIN     = 2
@@ -62,6 +67,8 @@ export class PlayerController {
   private readonly _right   = new THREE.Vector3()
   private readonly _lookDir = new THREE.Vector3()
   private readonly _camPos  = new THREE.Vector3()
+  private readonly _rotMat  = new THREE.Matrix4()
+  private readonly _rotQuat = new THREE.Quaternion()
 
   private boundKeyDown: (e: KeyboardEvent) => void
   private boundKeyUp:   (e: KeyboardEvent) => void
@@ -183,9 +190,13 @@ export class PlayerController {
       east.z * cosY - north.z * sinY,
     )
 
-    let speed = WALK_SPEED
-    if (inp.sprint) speed *= SPRINT_MULT
-    if (inp.crouch) speed *= CROUCH_MULT
+    const px = Position.x[id], py = Position.y[id], pz = Position.z[id]
+    const distFromCenter = Math.sqrt(px * px + py * py + pz * pz)
+    const inWater = distFromCenter < OCEAN_RADIUS + 0.5  // player center below ocean surface
+
+    let speed = inWater ? SWIM_SPEED : WALK_SPEED
+    if (!inWater && inp.sprint) speed *= SPRINT_MULT
+    if (!inWater && inp.crouch) speed *= CROUCH_MULT
 
     // Desired lateral move in world space (tangent plane only)
     // fwd points in the direction the player faces (+lookDir), so W adds fwd.
@@ -203,16 +214,30 @@ export class PlayerController {
     const vx = Velocity.x[id], vy = Velocity.y[id], vz = Velocity.z[id]
     const vRadial = vx * up.x + vy * up.y + vz * up.z
 
-    // Apply gravity to radial component
-    let newRadial = vRadial - GRAVITY * dt
+    let newRadial: number
+    if (inWater) {
+      // Buoyancy: net upward = BUOYANCY - GRAVITY (positive = floats up)
+      // Space bar: swim upward; ctrl: swim downward
+      newRadial = vRadial + (BUOYANCY - GRAVITY) * dt
+      if (inp.jump)   newRadial += BUOYANCY * dt  // swim up
+      if (inp.crouch) newRadial -= BUOYANCY * dt  // dive down
+      // Water drag on radial velocity
+      newRadial *= Math.max(0, 1 - WATER_DRAG * dt)
+      // Drag on tangential velocity too
+      const dragFactor = Math.max(0, 1 - WATER_DRAG * dt)
+      mx *= dragFactor; my *= dragFactor; mz *= dragFactor
+    } else {
+      // Land: normal gravity
+      newRadial = vRadial - GRAVITY * dt
 
-    // Jump: impulse radially outward
-    if (inp.jump && this.onGround) {
-      newRadial = JUMP_IMPULSE
-      this.onGround = false
+      // Jump: impulse radially outward
+      if (inp.jump && this.onGround) {
+        newRadial = JUMP_IMPULSE
+        this.onGround = false
+      }
     }
 
-    // New velocity = tangential (WASD) + radial (gravity/jump)
+    // New velocity = tangential (WASD) + radial (gravity/buoyancy/jump)
     Velocity.x[id] = mx + up.x * newRadial
     Velocity.y[id] = my + up.y * newRadial
     Velocity.z[id] = mz + up.z * newRadial
@@ -239,14 +264,21 @@ export class PlayerController {
       this.thirdPersonDist  = Math.max(THIRD_PERSON_DIST_MIN, Math.min(THIRD_PERSON_DIST_MAX, this.thirdPersonDist))
     }
 
-    // Entity rotation quaternion to face movement direction
-    // +π offset: mesh default facing is -Z, but yaw=0 means +Z forward on sphere
+    // Entity rotation quaternion: align local Y to surface normal, face movement direction.
+    // Build rotation matrix from basis (right=col0, up=col1, -fwd=col2) so the mesh
+    // stays perpendicular to the sphere surface regardless of latitude.
     if (moveLen > 0) {
-      const rotYaw = this.yaw + Math.PI
-      Rotation.x[id] = 0
-      Rotation.y[id] = Math.sin(rotYaw / 2)
-      Rotation.z[id] = 0
-      Rotation.w[id] = Math.cos(rotYaw / 2)
+      this._rotMat.set(
+        right.x, up.x, -fwd.x, 0,
+        right.y, up.y, -fwd.y, 0,
+        right.z, up.z, -fwd.z, 0,
+        0,       0,    0,      1,
+      )
+      this._rotQuat.setFromRotationMatrix(this._rotMat)
+      Rotation.x[id] = this._rotQuat.x
+      Rotation.y[id] = this._rotQuat.y
+      Rotation.z[id] = this._rotQuat.z
+      Rotation.w[id] = this._rotQuat.w
     }
   }
 

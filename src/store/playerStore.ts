@@ -13,7 +13,9 @@ interface PlayerState {
   health: number
   energy: number
   fatigue: number
+  ambientTemp: number
   updateVitals: (v: Partial<Pick<PlayerState, 'hunger' | 'thirst' | 'health' | 'energy' | 'fatigue'>>) => void
+  setAmbientTemp: (t: number) => void
 
   // Discoveries made
   discoveries: string[]
@@ -50,6 +52,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   health: 1,
   energy: 1,
   fatigue: 0,
+  ambientTemp: 15,
   updateVitals: (v) => set((s) => ({
     hunger: v.hunger  !== undefined ? Math.max(0, Math.min(1, v.hunger))  : s.hunger,
     thirst: v.thirst  !== undefined ? Math.max(0, Math.min(1, v.thirst))  : s.thirst,
@@ -57,6 +60,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     energy: v.energy  !== undefined ? Math.max(0, Math.min(1, v.energy))  : s.energy,
     fatigue: v.fatigue !== undefined ? Math.max(0, Math.min(1, v.fatigue)) : s.fatigue,
   })),
+  setAmbientTemp: (t) => set({ ambientTemp: t }),
 
   discoveries: [],
   addDiscovery: (id) => set((s) => {

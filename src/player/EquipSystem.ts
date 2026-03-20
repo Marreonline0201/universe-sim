@@ -16,7 +16,7 @@ const HAND: ItemStats = {
   name:         'Hand',
   damage:       1,
   harvestPower: 1,
-  harvestTypes: ['wood', 'fiber', 'bark', 'leaf'],
+  harvestTypes: ['wood', 'fiber', 'bark'],
   range:        2.0,
 }
 
@@ -33,7 +33,7 @@ const STATS: Partial<Record<number, ItemStats>> = {
     name:         'Knife',
     damage:       8,
     harvestPower: 2,
-    harvestTypes: ['fiber', 'bark', 'leaf'],
+    harvestTypes: ['fiber', 'bark'],
     range:        1.5,
   },
   [ITEM.SPEAR]: {

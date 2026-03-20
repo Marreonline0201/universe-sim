@@ -89,7 +89,12 @@ export class WorldSocket {
 
     switch (msg.type) {
       case 'WORLD_SNAPSHOT': {
-        mp.setRemotePlayers((msg.players as RemotePlayer[]) ?? [])
+        // Filter out own player — the server echoes our own entry back.
+        // Clerk returns null in DEV_BYPASS mode so we compare against this.userId
+        // (the actual ID sent to the server, e.g. 'dev-local').
+        const allPlayers = (msg.players as RemotePlayer[]) ?? []
+        const remotePlayers = allPlayers.filter(p => p.userId !== this.userId)
+        mp.setRemotePlayers(remotePlayers)
         mp.setRemoteNpcs((msg.npcs as RemoteNpc[]) ?? [])
         mp.setServerWorld(
           msg.simTime as number,

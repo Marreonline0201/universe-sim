@@ -39,9 +39,20 @@ class RapierWorldManager {
     const posAttr  = geo.getAttribute('position')
     const idxAttr  = geo.getIndex()!
     const vertices = new Float32Array(posAttr.array)
-    const indices  = idxAttr.array instanceof Uint32Array
+    const rawIdx   = idxAttr.array instanceof Uint32Array
       ? idxAttr.array
       : new Uint32Array(idxAttr.array)
+
+    // generatePlanetGeometry winds triangles so face normals point INWARD.
+    // Rapier's one-sided trimesh only collides on the front face (normal side).
+    // A player outside the sphere is on the BACK face and falls through.
+    // Fix: flip each triangle's winding (swap vertices 1 & 2) so normals point outward.
+    const indices = new Uint32Array(rawIdx.length)
+    for (let i = 0; i < rawIdx.length; i += 3) {
+      indices[i]     = rawIdx[i]
+      indices[i + 1] = rawIdx[i + 2]  // swap b ↔ c
+      indices[i + 2] = rawIdx[i + 1]
+    }
 
     const planetBody = this._world.createRigidBody(RAPIER.RigidBodyDesc.fixed())
     this._world.createCollider(

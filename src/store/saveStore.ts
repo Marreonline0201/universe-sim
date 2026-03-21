@@ -35,7 +35,7 @@ export async function loadSave(getToken: () => Promise<string | null>) {
   gs.setSimSeconds(data.simSeconds)
 
   // Position (was saved but never restored — fixed)
-  ps.setPosition(data.x ?? 0, data.y ?? 0.9, data.z ?? 0)
+  ps.setPosition(data.x ?? 0, data.y ?? 0, data.z ?? 0)
 
   // Inventory items
   if (Array.isArray(data.inventory) && data.inventory.length > 0) {

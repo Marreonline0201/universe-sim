@@ -13,18 +13,28 @@ import React, { useCallback } from 'react'
 import { useSettlementStore } from '../store/settlementStore'
 import { useMultiplayerStore } from '../store/multiplayerStore'
 
-// Material display names for the trade UI (subset of MAT IDs used in NPC recipes)
+// Material display names for the trade UI — keyed by client MAT enum values
+// (MAT.STONE=1, MAT.FLINT=2, MAT.WOOD=3, MAT.BARK=4, MAT.FIBER=21, etc.)
 const MAT_NAMES: Record<number, string> = {
-  1:  'Wood',
-  2:  'Stone',
-  3:  'Ore',
-  4:  'Fiber',
-  21: 'Plank',
-  22: 'Stone Tool',
+  1:  'Stone',
+  2:  'Flint',
+  3:  'Wood',
+  4:  'Bark',
+  5:  'Leaf',
+  6:  'Bone',
+  7:  'Hide',
+  8:  'Clay',
+  10: 'Charcoal',
+  11: 'Copper Ore',
+  14: 'Iron Ore',
+  15: 'Iron',
+  17: 'Coal',
+  21: 'Fiber',
+  22: 'Cloth',
   23: 'Rope',
-  24: 'Shelter Part',
-  25: 'Crude Metal',
-  26: 'Frame',
+  24: 'Leather',
+  25: 'Copper',
+  26: 'Silver',
 }
 
 function matName(id: number | string): string {

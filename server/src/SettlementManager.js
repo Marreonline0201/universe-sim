@@ -26,15 +26,18 @@ export const TERRITORY_RADIUS = 150   // metres — NPCs wander within this
 const CRAFT_INTERVAL_S  = 30          // real seconds between NPC craft ticks
 const LEVEL_THRESHOLDS  = [0, 500, 2000, 8000, 25000, 80000, 250000, 800000, 2500000, 8000000]
 
-// Simple NPC recipe table — uses same MAT IDs as the client
+// NPC recipe table — uses the SAME MAT IDs as the client Inventory.ts MAT enum:
+//   STONE=1  FLINT=2   WOOD=3    BARK=4    LEAF=5    BONE=6   HIDE=7
+//   CLAY=8   FIBER=21  CLOTH=22  ROPE=23   LEATHER=24 COPPER=25 COAL=17
+//   COPPER_ORE=11  IRON_ORE=14  IRON=15
 // Format: { inputs: {matId: qty}, outputs: {matId: qty}, rpGain: number }
 const NPC_RECIPES = [
-  { inputs: { 1: 3 },     outputs: { 21: 1 },   rpGain: 10  },  // wood × 3 → plank × 1
-  { inputs: { 2: 5 },     outputs: { 22: 1 },   rpGain: 15  },  // stone × 5 → stone_tool × 1
-  { inputs: { 1: 2, 4: 1 }, outputs: { 23: 1 }, rpGain: 20  },  // wood × 2 + fiber × 1 → rope × 1
-  { inputs: { 2: 3, 1: 2 }, outputs: { 24: 1 }, rpGain: 25  },  // stone × 3 + wood × 2 → shelter_part
-  { inputs: { 3: 4 },     outputs: { 25: 1 },   rpGain: 30  },  // ore × 4 → crude_metal
-  { inputs: { 21: 2, 23: 1 }, outputs: { 26: 1 }, rpGain: 40 }, // plank × 2 + rope × 1 → frame
+  { inputs: { 3: 3 },           outputs: { 4: 2 },    rpGain: 10  },  // wood × 3 → bark × 2
+  { inputs: { 1: 5 },           outputs: { 2: 1 },    rpGain: 15  },  // stone × 5 → flint × 1
+  { inputs: { 21: 2, 3: 1 },    outputs: { 23: 1 },   rpGain: 20  },  // fiber × 2 + wood → rope × 1
+  { inputs: { 7: 2 },           outputs: { 24: 1 },   rpGain: 20  },  // hide × 2 → leather × 1
+  { inputs: { 11: 3, 17: 2 },   outputs: { 25: 1 },   rpGain: 30  },  // copper_ore × 3 + coal × 2 → copper × 1
+  { inputs: { 14: 3, 17: 2 },   outputs: { 15: 1 },   rpGain: 40  },  // iron_ore × 3 + coal × 2 → iron × 1
 ]
 
 // Initial settlements: 5 distinct positions around the sphere surface (flat coords)
@@ -238,9 +241,9 @@ export class SettlementManager {
 
     if (surplusMats.length === 0) return null
 
-    // Offer: settlement gives up to 3 of its surplus mat, wants wood (matId=1) or stone (matId=2)
+    // Offer: settlement gives up to 3 of its surplus mat, wants wood (matId=3) or stone (matId=1)
     const offerMat = surplusMats[Math.floor(Math.random() * surplusMats.length)]
-    const wantMatId = (s.resourceInv[1] ?? 0) < (s.resourceInv[2] ?? 0) ? 1 : 2
+    const wantMatId = (s.resourceInv[3] ?? 0) < (s.resourceInv[1] ?? 0) ? 3 : 1
     const wantQty = Math.max(2, Math.floor(offerMat.qty * 0.5))
 
     return {
@@ -263,7 +266,7 @@ export class SettlementManager {
         name: def.name,
         x: def.x, y: def.y, z: def.z,
         civLevel: 0,
-        resourceInv: { 1: 20, 2: 15, 4: 10 },  // start with wood, stone, fiber
+        resourceInv: { 3: 20, 1: 15, 21: 10 },  // wood(3), stone(1), fiber(21)
         npcCount: 10 + Math.floor(Math.random() * 15),
         researchPts: 0,
       }
@@ -277,7 +280,7 @@ export class SettlementManager {
     for (let i = 0; i < INITIAL_SETTLEMENTS.length; i++) {
       const def = INITIAL_SETTLEMENTS[i]
       const npcCount = 10 + Math.floor(Math.random() * 15)
-      const resourceInv = JSON.stringify({ 1: 20, 2: 15, 4: 10 })
+      const resourceInv = JSON.stringify({ 3: 20, 1: 15, 21: 10 })
       const rows = await db`
         INSERT INTO npc_settlements (name, center_x, center_y, center_z, civ_level, resource_inv, npc_count, research_pts)
         VALUES (${def.name}, ${def.x}, ${def.y}, ${def.z}, 0, ${resourceInv}, ${npcCount}, 0)
@@ -286,7 +289,7 @@ export class SettlementManager {
       const id = rows[0].id
       this._settlements.set(id, {
         id, name: def.name, x: def.x, y: def.y, z: def.z,
-        civLevel: 0, resourceInv: { 1: 20, 2: 15, 4: 10 },
+        civLevel: 0, resourceInv: { 3: 20, 1: 15, 21: 10 },
         npcCount, researchPts: 0,
       })
     }

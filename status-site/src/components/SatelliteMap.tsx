@@ -135,7 +135,7 @@ export function SatelliteMap({ players, npcs, onPlayerClick }: Props) {
     const H = canvas.height
     const CX = W / 2
     const CY = H / 2
-    const SCALE = (W / 2) / WORLD_RADIUS
+    const SCALE = Math.min(W / 2, H / 2) / WORLD_RADIUS
 
     function worldToCanvas(wx: number, wz: number): [number, number] {
       return [CX + wx * SCALE, CY + wz * SCALE]

@@ -5,6 +5,8 @@
 import { useMultiplayerStore } from '../store/multiplayerStore'
 import { useGameStore } from '../store/gameStore'
 import { useSettlementStore } from '../store/settlementStore'
+import { useUiStore } from '../store/uiStore'
+import { inventory } from '../game/GameSingletons'
 import type { LocalSimManager } from '../engine/LocalSimManager'
 
 // Module-level reference to the active LocalSimManager.
@@ -201,11 +203,52 @@ export class WorldSocket {
       case 'TRADE_RESULT': {
         // Server confirms trade outcome — clear the pending offer regardless
         useSettlementStore.getState().setPendingOffer(null)
+        if (msg.result === 'ok') {
+          // Deduct what the player gave
+          const gives = (msg.playerGives as Record<string, number>) ?? {}
+          for (const [matIdStr, qty] of Object.entries(gives)) {
+            const matId = parseInt(matIdStr)
+            let remaining = qty
+            for (let i = 0; i < inventory.slotCount && remaining > 0; i++) {
+              const slot = inventory.getSlot(i)
+              if (slot && slot.itemId === 0 && slot.materialId === matId) {
+                const take = Math.min(slot.quantity, remaining)
+                inventory.removeItem(i, take)
+                remaining -= take
+              }
+            }
+          }
+          // Add what the player received
+          const receives = (msg.playerReceives as Record<string, number>) ?? {}
+          for (const [matIdStr, qty] of Object.entries(receives)) {
+            inventory.addItem({ itemId: 0, materialId: parseInt(matIdStr), quantity: qty, quality: 0.8 })
+          }
+          useUiStore.getState().addNotification('Trade complete!', 'info')
+        } else if (msg.result) {
+          useUiStore.getState().addNotification(`Trade failed: ${msg.result}`, 'warning')
+        }
         break
       }
 
       case 'GATES_CLOSED': {
         useSettlementStore.getState().setGatesClosed(msg.settlementId as number)
+        break
+      }
+
+      // ── M7: Iron Age discovery ──────────────────────────────────────────────
+
+      case 'SETTLEMENT_UNLOCKED_IRON': {
+        // A settlement reached civLevel 2 — iron smelting knowledge spreads world-wide.
+        // Show a prominent discovery notification to all connected players.
+        // The actual recipe unlock happens when the player smelts iron in
+        // tickBlastFurnaceSmelting (calls inv.discoverRecipe 68/69/70).
+        const name = msg.settlementName as string
+        useUiStore.getState().addNotification(
+          `Iron Age dawns! ${name} has mastered iron smelting. Build a Blast Furnace (8x Stone + 4x Iron Ore + 2x Clay) to smelt.`,
+          'discovery'
+        )
+        // Pre-discover blast furnace recipe so it appears in CraftingPanel
+        inventory.discoverRecipe(67)
         break
       }
 

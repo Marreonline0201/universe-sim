@@ -132,6 +132,17 @@ export class PlayerController {
     return false
   }
 
+  private _digConsumed = false
+  /** Consume the dig key (G). Returns true once per press. */
+  popDig(): boolean {
+    if (this.keys.has('KeyG') && !this._digConsumed) {
+      this._digConsumed = true
+      return true
+    }
+    if (!this.keys.has('KeyG')) this._digConsumed = false
+    return false
+  }
+
   requestPointerLock(): void { document.body.requestPointerLock() }
 
   dispose(): void {

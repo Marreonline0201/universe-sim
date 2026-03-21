@@ -114,9 +114,28 @@ function generateResourceNodes(): ResourceNode[] {
 
 // Module-level constants so they survive across renders
 const RESOURCE_NODES: ResourceNode[] = generateResourceNodes()
+
+// Pre-compute surface-normal quaternions for each node once.
+// Rotates local Y (tree up) → outward surface normal at that point on the sphere.
+const _worldUp = new THREE.Vector3(0, 1, 0)
+const RESOURCE_NODE_QUATS: THREE.Quaternion[] = RESOURCE_NODES.map(n =>
+  new THREE.Quaternion().setFromUnitVectors(
+    _worldUp,
+    new THREE.Vector3(n.x, n.y, n.z).normalize(),
+  )
+)
+
 const gatheredNodeIds = new Set<number>()
 const NODE_RESPAWN_AT = new Map<number, number>()
 const NODE_RESPAWN_DELAY = 60_000
+
+// ── Dig holes ─────────────────────────────────────────────────────────────────
+// Each dug patch is a position on the sphere surface (already snapped to ground).
+// We render them as dark concave discs so the player can see where they dug.
+interface DigHole { x: number; y: number; z: number; r: number }
+const DIG_HOLES: DigHole[] = []
+const MAX_DIG_HOLES = 64
+const DIG_RADIUS = 1.4   // visual patch radius in metres
 
 // Shared mutable position for building ghost — BuildingGhost writes, GameLoop reads
 let ghostBuildPos: [number, number, number] = [0, 0, 0]
@@ -229,7 +248,7 @@ export function SceneRoot() {
           borderRadius: 10,
         }}>
           <div style={{ fontSize: 22, fontWeight: 700, marginBottom: 6 }}>CLICK TO PLAY</div>
-          <div style={{ fontSize: 11, color: '#aaa' }}>WASD — Move &nbsp;·&nbsp; Mouse — Look &nbsp;·&nbsp; Space — Jump &nbsp;·&nbsp; F — Interact</div>
+          <div style={{ fontSize: 11, color: '#aaa' }}>WASD — Move &nbsp;·&nbsp; Mouse — Look &nbsp;·&nbsp; Space — Jump &nbsp;·&nbsp; F — Interact &nbsp;·&nbsp; G — Dig</div>
           <div style={{ fontSize: 11, color: '#aaa', marginTop: 4 }}>ESC — Settings &nbsp;·&nbsp; I — Inventory &nbsp;·&nbsp; C — Craft &nbsp;·&nbsp; B — Build &nbsp;·&nbsp; T/E/J/Tab/M — More</div>
         </div>
       </div>
@@ -314,6 +333,7 @@ export function SceneRoot() {
       <Stars radius={10000} depth={200} count={6000} factor={5} />
       <Suspense fallback={null}>
         <PlanetTerrain />
+        <DigHolesRenderer />
         <ResourceNodes />
         <PlacedBuildingsRenderer />
         <CreatureRenderer />
@@ -572,6 +592,25 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
         gatheredNodeIds.add(nearest.id)
         NODE_RESPAWN_AT.set(nearest.id, Date.now() + NODE_RESPAWN_DELAY)
       }
+    }
+
+    // ── Dig (G key): loosen the ground and add materials ──────────────────────
+    if (!gs.inputBlocked && controllerRef.current?.popDig()) {
+      // Snap dig position to sphere surface below player
+      const sr = surfaceRadiusAt(px, py, pz)
+      const len = Math.sqrt(px * px + py * py + pz * pz)
+      const ux = px / len, uy = py / len, uz = pz / len
+      const gx = ux * sr, gy = uy * sr, gz = uz * sr
+      // Record hole (cap array to avoid unbounded growth)
+      if (DIG_HOLES.length >= MAX_DIG_HOLES) DIG_HOLES.shift()
+      DIG_HOLES.push({ x: gx, y: gy, z: gz, r: DIG_RADIUS })
+      // Award materials from digging
+      const digMats = [MAT.STONE, MAT.CLAY, MAT.SAND]
+      const mat = digMats[Math.floor(Math.random() * digMats.length)]
+      const qty = Math.floor(Math.random() * 3) + 1
+      inventory.addItem({ itemId: 0, materialId: mat, quantity: qty, quality: 0.7 })
+      const addNotification = useUiStore.getState().addNotification
+      addNotification(`Dug up ${qty}× ${mat === MAT.STONE ? 'Stone' : mat === MAT.CLAY ? 'Clay' : 'Sand'}`, 'info')
     }
   })
 
@@ -981,14 +1020,51 @@ function AnimatedNpcMesh({ npc, skinColor, shirtColor, pantsColor }: {
     const root = groupRef.current
     if (!root) return
 
-    // Snap Y to terrain (server sends y=0.9 flat; client knows terrain)
-    root.position.set(npc.x, terrainYAt(npc.x, npc.z) + 0.9, npc.z)
+    // Snap to terrain surface using sphere-aware surfaceRadiusAt.
+    // Server sends npc.x/y/z; if these are 3D sphere coords use them directly,
+    // otherwise reconstruct a valid surface point via the radius function.
+    const sr = surfaceRadiusAt(npc.x, npc.y, npc.z)
+    const len = Math.sqrt(npc.x * npc.x + npc.y * npc.y + npc.z * npc.z)
+    const nx = len > 1 ? npc.x / len : 0
+    const ny = len > 1 ? npc.y / len : 1
+    const nz = len > 1 ? npc.z / len : 0
+    const wx = nx * (sr + 0.9)
+    const wy = ny * (sr + 0.9)
+    const wz = nz * (sr + 0.9)
+    root.position.set(wx, wy, wz)
 
-    // Detect lateral speed for walk cycle
+    // Orient upright on sphere surface
+    const up2 = new THREE.Vector3(nx, ny, nz)
+    const north2 = new THREE.Vector3(0, 0, 1)
+    north2.addScaledVector(up2, -north2.dot(up2))
+    if (north2.lengthSq() < 0.001) north2.set(1, 0, 0)
+    north2.normalize()
+    const east2 = new THREE.Vector3().crossVectors(up2, north2).normalize()
+
+    // Detect movement for walk cycle
     const dx = npc.x - prevXZ.current.x
     const dz = npc.z - prevXZ.current.z
     const speed = Math.sqrt(dx * dx + dz * dz) / Math.max(delta, 0.001)
     prevXZ.current = { x: npc.x, z: npc.z }
+
+    // Build facing direction from movement or keep last yaw
+    let fwdX = -north2.x, fwdY = -north2.y, fwdZ = -north2.z
+    if (speed > 0.5 && (Math.abs(dx) + Math.abs(dz)) > 0) {
+      const flatFwd = new THREE.Vector3(dx, 0, dz).normalize()
+      fwdX = flatFwd.x; fwdY = 0; fwdZ = flatFwd.z
+    }
+    const fwd2 = new THREE.Vector3(fwdX, fwdY, fwdZ)
+    fwd2.addScaledVector(up2, -fwd2.dot(up2))
+    if (fwd2.lengthSq() > 0.001) {
+      fwd2.normalize()
+      const mat = new THREE.Matrix4().set(
+        east2.x, up2.x, -fwd2.x, 0,
+        east2.y, up2.y, -fwd2.y, 0,
+        east2.z, up2.z, -fwd2.z, 0,
+        0,       0,     0,       1,
+      )
+      root.quaternion.setFromRotationMatrix(mat)
+    }
 
     const moving = speed > 0.3 && npc.state !== 'eat' && npc.state !== 'rest'
     if (moving) walkRef.current += delta * Math.min(speed, 8) * 1.8
@@ -998,11 +1074,6 @@ function AnimatedNpcMesh({ npc, skinColor, shirtColor, pantsColor }: {
     if (rLegRef.current) rLegRef.current.rotation.x = -swing
     if (lArmRef.current) lArmRef.current.rotation.x = -swing * 0.55
     if (rArmRef.current) rArmRef.current.rotation.x =  swing * 0.55
-
-    // Face direction of travel
-    if (speed > 0.5 && (Math.abs(dx) + Math.abs(dz)) > 0) {
-      root.rotation.y = Math.atan2(dx, dz)
-    }
   })
 
   // Indicator dot above head shows state
@@ -1013,7 +1084,7 @@ function AnimatedNpcMesh({ npc, skinColor, shirtColor, pantsColor }: {
     npc.state === 'gather'    ? '#44dd88' : null
 
   return (
-    <group ref={groupRef} position={[npc.x, terrainYAt(npc.x, npc.z) + 0.9, npc.z]}>
+    <group ref={groupRef}>
       {dotColor && (
         <mesh position={[0, 1.55, 0]}>
           <sphereGeometry args={[0.12, 6, 6]} />
@@ -1146,9 +1217,9 @@ function buildLocalNpcs(): LocalNpcState[] {
   })()
   const spawnPos = new THREE.Vector3(sx, sy, sz)
   for (let i = 0; i < LOCAL_NPC_COUNT; i++) {
-    // Scatter NPCs within ~30m tangent-plane offset of spawn
+    // Scatter NPCs within ~60m tangent-plane offset of spawn (spread out enough to see)
     const angle = (i / LOCAL_NPC_COUNT) * Math.PI * 2
-    const dist  = 5 + (i % 4) * 8
+    const dist  = 8 + (i % 4) * 14
     const up = spawnPos.clone().normalize()
     const north = new THREE.Vector3(0, 0, 1)
     north.addScaledVector(up, -north.dot(up)).normalize()
@@ -1245,8 +1316,16 @@ function LocalNpcMesh({ npc }: { npc: LocalNpcState }) {
     if (rArmRef.current) rArmRef.current.rotation.x =  swing * 0.55
   })
 
+  // Indicator dot: yellow = wandering, blue = resting
+  const dotColor = npc.wandering ? '#ffdd44' : '#4488ff'
+
   return (
     <group ref={groupRef}>
+      {/* State indicator dot above head */}
+      <mesh position={[0, 1.55, 0]}>
+        <sphereGeometry args={[0.10, 6, 6]} />
+        <meshStandardMaterial color={dotColor} emissive={dotColor} emissiveIntensity={0.8} />
+      </mesh>
       {/* Torso */}
       <mesh position={[0, 0.55, 0]} castShadow>
         <boxGeometry args={[0.44, 0.58, 0.22]} />
@@ -1262,17 +1341,39 @@ function LocalNpcMesh({ npc }: { npc: LocalNpcState }) {
         <boxGeometry args={[0.34, 0.34, 0.32]} />
         <meshStandardMaterial color={skin} />
       </mesh>
-      {/* Left arm */}
-      <group ref={lArmRef} position={[-0.31, 0.55, 0]}>
+      {/* Eyes */}
+      <mesh position={[0.09, 1.03, -0.17]}>
+        <boxGeometry args={[0.07, 0.05, 0.04]} />
+        <meshStandardMaterial color="#1a1a1a" />
+      </mesh>
+      <mesh position={[-0.09, 1.03, -0.17]}>
+        <boxGeometry args={[0.07, 0.05, 0.04]} />
+        <meshStandardMaterial color="#1a1a1a" />
+      </mesh>
+      {/* Neck */}
+      <mesh position={[0, 0.86, 0]}>
+        <boxGeometry args={[0.14, 0.12, 0.14]} />
+        <meshStandardMaterial color={skin} />
+      </mesh>
+      {/* Left arm (upper sleeve + forearm skin) */}
+      <group ref={lArmRef} position={[-0.30, 0.75, 0]}>
         <mesh position={[0, -0.18, 0]} castShadow>
-          <boxGeometry args={[0.15, 0.36, 0.15]} />
+          <boxGeometry args={[0.14, 0.36, 0.14]} />
+          <meshStandardMaterial color={shirt} />
+        </mesh>
+        <mesh position={[0, -0.44, 0]}>
+          <boxGeometry args={[0.12, 0.30, 0.12]} />
           <meshStandardMaterial color={skin} />
         </mesh>
       </group>
       {/* Right arm */}
-      <group ref={rArmRef} position={[0.31, 0.55, 0]}>
+      <group ref={rArmRef} position={[0.30, 0.75, 0]}>
         <mesh position={[0, -0.18, 0]} castShadow>
-          <boxGeometry args={[0.15, 0.36, 0.15]} />
+          <boxGeometry args={[0.14, 0.36, 0.14]} />
+          <meshStandardMaterial color={shirt} />
+        </mesh>
+        <mesh position={[0, -0.44, 0]}>
+          <boxGeometry args={[0.12, 0.30, 0.12]} />
           <meshStandardMaterial color={skin} />
         </mesh>
       </group>
@@ -1284,7 +1385,11 @@ function LocalNpcMesh({ npc }: { npc: LocalNpcState }) {
         </mesh>
         <mesh position={[0, -0.44, 0]}>
           <boxGeometry args={[0.14, 0.32, 0.14]} />
-          <meshStandardMaterial color={skin} />
+          <meshStandardMaterial color="#4a3a2a" />
+        </mesh>
+        <mesh position={[0, -0.62, -0.04]}>
+          <boxGeometry args={[0.14, 0.08, 0.22]} />
+          <meshStandardMaterial color="#2a2010" />
         </mesh>
       </group>
       {/* Right leg */}
@@ -1295,7 +1400,11 @@ function LocalNpcMesh({ npc }: { npc: LocalNpcState }) {
         </mesh>
         <mesh position={[0, -0.44, 0]}>
           <boxGeometry args={[0.14, 0.32, 0.14]} />
-          <meshStandardMaterial color={skin} />
+          <meshStandardMaterial color="#4a3a2a" />
+        </mesh>
+        <mesh position={[0, -0.62, -0.04]}>
+          <boxGeometry args={[0.14, 0.08, 0.22]} />
+          <meshStandardMaterial color="#2a2010" />
         </mesh>
       </group>
     </group>
@@ -1412,6 +1521,7 @@ function ResourceNodes() {
             key={node.id}
             ref={el => { groupRefs.current[i] = el }}
             position={[node.x, node.y, node.z]}
+            quaternion={RESOURCE_NODE_QUATS[i]}
           >
             {node.type === 'wood'
               ? <TreeMesh id={node.id} />
@@ -1424,6 +1534,45 @@ function ResourceNodes() {
       })}
     </>
   )
+}
+
+// ── Dig holes renderer ────────────────────────────────────────────────────────
+// Renders a dark concave disc at each dug position so the player can see
+// where they have excavated. The disc sits flush on the sphere surface,
+// oriented perpendicular to the surface normal at that point.
+
+const _digDiscGeo = new THREE.CircleGeometry(1, 12)  // r=1, scaled per hole
+const _digDiscMat = new THREE.MeshStandardMaterial({
+  color: '#1a1208', roughness: 1, metalness: 0,
+  polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
+})
+
+function DigHolesRenderer() {
+  const groupRef = useRef<THREE.Group>(null)
+
+  useFrame(() => {
+    const g = groupRef.current
+    if (!g) return
+    // Keep child count in sync with DIG_HOLES
+    while (g.children.length < DIG_HOLES.length) {
+      const mesh = new THREE.Mesh(_digDiscGeo, _digDiscMat)
+      g.add(mesh)
+    }
+    while (g.children.length > DIG_HOLES.length) {
+      g.remove(g.children[g.children.length - 1])
+    }
+    for (let i = 0; i < DIG_HOLES.length; i++) {
+      const h = DIG_HOLES[i]
+      const mesh = g.children[i] as THREE.Mesh
+      mesh.position.set(h.x, h.y, h.z)
+      mesh.scale.setScalar(h.r)
+      // Orient disc to face surface normal (disc normal = surface normal)
+      const up = new THREE.Vector3(h.x, h.y, h.z).normalize()
+      mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), up)
+    }
+  })
+
+  return <group ref={groupRef} />
 }
 
 // ── Scene geometry ────────────────────────────────────────────────────────────

@@ -296,35 +296,57 @@ export function surfaceRadiusAt(px: number, py: number, pz: number): number {
 }
 
 /**
- * Returns the spawn position on the planet surface, pointing "up" (0,1,0) direction.
- * The player spawns at the north pole of the sphere, standing on the terrain.
+ * Returns the spawn position on the planet surface.
+ *
+ * Prefers non-polar, non-tundra land so the player spawns in a temperate or
+ * tropical biome rather than an all-snow polar cap.  biomeColor() assigns snow
+ * when |dir.y| > 0.82 and tundra when |dir.y| > 0.70, so we cap at 0.65.
+ *
+ * Two-pass scan:
+ *   Pass 1 — find land (h ≥ 10) with |dir.y| < 0.65  (temperate / tropical)
+ *   Pass 2 — find any land if pass 1 produced nothing  (polar fallback)
  */
 export function getSpawnPosition(): [number, number, number] {
-  // Scan the sphere in a grid of latitude/longitude steps to find land.
-  // Uses a deterministic spiral so results are stable across reloads.
   const v = new THREE.Vector3()
   let bestH = -Infinity
   let bestDir: [number, number, number] = [0, 1, 0]
 
-  const LAT_STEPS = 18   // every 10° latitude
-  const LON_STEPS = 36   // every 10° longitude
+  const LAT_STEPS = 36   // every 5° latitude — finer grid for better land search
+  const LON_STEPS = 72   // every 5° longitude
 
+  // Pass 1: temperate / tropical zone only (|v.y| ≤ 0.65)
+  outer1:
   for (let la = 0; la <= LAT_STEPS; la++) {
-    const lat = (la / LAT_STEPS) * Math.PI  // 0 = north pole, π = south pole
-    const sinLat = Math.sin(lat)
-    const cosLat = Math.cos(lat)
+    const lat     = (la / LAT_STEPS) * Math.PI
+    const sinLat  = Math.sin(lat)
+    const cosLat  = Math.cos(lat)
+    if (Math.abs(cosLat) > 0.65) continue   // skip polar latitudes in pass 1
     for (let lo = 0; lo < LON_STEPS; lo++) {
       const lon = (lo / LON_STEPS) * Math.PI * 2
       v.set(sinLat * Math.cos(lon), cosLat, sinLat * Math.sin(lon)).normalize()
       const h = terrainHeightAt(v)
-      if (h > bestH) {
-        bestH = h
-        bestDir = [v.x, v.y, v.z]
-        // Early exit: first spot with solid land (>10m above sea) wins
-        if (h >= 10) break
+      if (h > bestH) { bestH = h; bestDir = [v.x, v.y, v.z] }
+      if (h >= 10) break outer1
+    }
+  }
+
+  // Pass 2: any land (full sphere scan), only if pass 1 found nothing usable
+  if (bestH < 10) {
+    bestH  = -Infinity
+    bestDir = [0, 1, 0]
+    outer2:
+    for (let la = 0; la <= LAT_STEPS; la++) {
+      const lat    = (la / LAT_STEPS) * Math.PI
+      const sinLat = Math.sin(lat)
+      const cosLat = Math.cos(lat)
+      for (let lo = 0; lo < LON_STEPS; lo++) {
+        const lon = (lo / LON_STEPS) * Math.PI * 2
+        v.set(sinLat * Math.cos(lon), cosLat, sinLat * Math.sin(lon)).normalize()
+        const h = terrainHeightAt(v)
+        if (h > bestH) { bestH = h; bestDir = [v.x, v.y, v.z] }
+        if (h >= 10) break outer2
       }
     }
-    if (bestH >= 10) break
   }
 
   const [bx, by, bz] = bestDir

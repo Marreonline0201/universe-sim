@@ -28,6 +28,7 @@ import {
   tickWoundSystem,
   tickSleepSystem,
   tickFurnaceSmelting,
+  tickBuildingPhysics,
   tryEatFood,
   tryApplyHerb,
   tryStartSleep,
@@ -916,6 +917,9 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
       })),
       px, py, pz
     )
+
+    // ── P2-5: Building physics — fire damage to combustible structures ────────
+    tickBuildingPhysics(dt, buildingSystem, simManagerRef.current)
 
     // ── Tool use: left click harvests with equipped item ─────────────────
     const ps2 = usePlayerStore.getState()

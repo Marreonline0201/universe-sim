@@ -3,12 +3,15 @@
 // Slice 5: Wound infection + herb treatment
 // Slice 6: Sleep / stamina restoration (bedroll + shelter)
 // Slice 7: Furnace smelting (copper ore + charcoal → copper metal)
+// P2-5:   Building physics — wood structures burn at >300C adjacent fire cells
 //
 // All logic here is called from SceneRoot's GameLoop useFrame.
 
 import { MAT, ITEM } from '../player/Inventory'
 import type { Inventory } from '../player/Inventory'
 import type { LocalSimManager } from '../engine/LocalSimManager'
+import type { BuildingSystem } from '../civilization/BuildingSystem'
+import { BUILDING_TYPES } from '../civilization/BuildingSystem'
 import { usePlayerStore } from '../store/playerStore'
 import { useUiStore } from '../store/uiStore'
 
@@ -361,5 +364,92 @@ export function tickFurnaceSmelting(
       'discovery'
     )
     usePlayerStore.getState().addDiscovery('smelting')
+  }
+}
+
+// ── P2-5: Building Physics — Fire Damage ──────────────────────────────────────
+//
+// Scientific basis: Wood ignites at ~300°C (autoignition temperature in air
+// is 250–300°C for dried timber, per fire science literature). We use 300°C
+// as the threshold. Buildings constructed primarily from organic materials
+// (wood, fiber, bark, hide) are combustible. Stone/clay structures are not.
+//
+// Damage model: 2 HP/s for each hot cell (>300°C) within 4m of the building.
+// A building at full health (100 HP) will burn down in 50 real seconds under
+// a single fire cell — fast enough to feel dangerous, slow enough to fight.
+//
+// Called from GameLoop useFrame every frame. Rate-limited to 10Hz via internal
+// timer to reduce computation (checking hot cells every 100ms is sufficient).
+
+const FIRE_DAMAGE_TEMP_C  = 300   // °C — wood autoignition threshold
+const FIRE_DAMAGE_RATE    = 2.0   // HP/s per adjacent fire cell
+const FIRE_CHECK_RADIUS   = 4.0   // metres — fire cell must be this close to damage building
+
+// Set of building type IDs that are combustible (contain organic materials)
+const COMBUSTIBLE_TYPE_IDS = new Set<string>([
+  'lean_to', 'pit_house', 'longhouse',
+  // Any type whose materialsRequired include wood, fiber, bark, or hide
+  // Pre-computed at startup for performance (no per-frame iteration over BUILDING_TYPES)
+])
+
+// Build combustibility set from BUILDING_TYPES materials at module load time
+const COMBUSTIBLE_MATERIAL_IDS = new Set([MAT.WOOD, MAT.FIBER, MAT.BARK, MAT.HIDE])
+for (const bt of BUILDING_TYPES) {
+  if (bt.materialsRequired.some(r => COMBUSTIBLE_MATERIAL_IDS.has(r.materialId))) {
+    COMBUSTIBLE_TYPE_IDS.add(bt.id)
+  }
+}
+
+let _fireCheckAccum = 0  // accumulator for 10Hz rate limiting
+
+export function tickBuildingPhysics(
+  dt: number,
+  buildingSystem: BuildingSystem,
+  simMgr: LocalSimManager | null,
+): void {
+  if (!simMgr) return
+
+  _fireCheckAccum += dt
+  if (_fireCheckAccum < 0.1) return  // only check 10x per second
+  _fireCheckAccum = 0
+
+  const hotCells = simMgr.getHotCells(FIRE_DAMAGE_TEMP_C)
+  if (hotCells.length === 0) return
+
+  const buildings = buildingSystem.getAllBuildings()
+  const burnedIds: number[] = []
+
+  for (const b of buildings) {
+    if (!COMBUSTIBLE_TYPE_IDS.has(b.typeId)) continue
+
+    // Count how many hot cells are within FIRE_CHECK_RADIUS of this building
+    let hotCellsNearby = 0
+    for (const cell of hotCells) {
+      const dx = cell.wx - b.position[0]
+      const dy = cell.wy - b.position[1]
+      const dz = cell.wz - b.position[2]
+      if (dx * dx + dy * dy + dz * dz <= FIRE_CHECK_RADIUS * FIRE_CHECK_RADIUS) {
+        hotCellsNearby++
+      }
+    }
+
+    if (hotCellsNearby > 0) {
+      // Apply fire damage — multiply by 0.1 because we're calling at 10Hz not 1Hz
+      const damage = FIRE_DAMAGE_RATE * hotCellsNearby * 0.1
+      buildingSystem.damage(b.id, damage)
+
+      // Check if building is still alive after damage
+      const remaining = buildingSystem.getAllBuildings().find(x => x.id === b.id)
+      if (!remaining) {
+        burnedIds.push(b.id)
+      }
+    }
+  }
+
+  if (burnedIds.length > 0) {
+    useUiStore.getState().addNotification(
+      `A structure burned down! Build with stone or clay for fire resistance.`,
+      'warning'
+    )
   }
 }

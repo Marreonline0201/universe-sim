@@ -1,6 +1,6 @@
 # Universe Simulation — Player's Manual
 
-_Last updated: 2026-03-21_
+_Last updated: 2026-03-21 (M9)_
 
 ---
 
@@ -15,13 +15,14 @@ This manual will walk you through everything you need to know to play Universe S
 1. [Getting Started — What Is This Game?](#1-getting-started--what-is-this-game)
 2. [Controls — Keyboard and Mouse](#2-controls--keyboard-and-mouse)
 3. [Survival Basics — The Vitals Panel](#3-survival-basics--the-vitals-panel)
-4. [Evolution System — Evolution Points](#4-evolution-system--evolution-points)
-5. [Discovery Journal — Unlocking Knowledge](#5-discovery-journal--unlocking-knowledge)
-6. [Crafting and Inventory](#6-crafting-and-inventory)
-7. [Tech Tree — Civilization Advancement](#7-tech-tree--civilization-advancement)
-8. [AI Creatures and NPCs](#8-ai-creatures-and-npcs)
-9. [Time Controls — Speeding Up and Slowing Down](#9-time-controls--speeding-up-and-slowing-down)
-10. [Tips for Beginners](#10-tips-for-beginners)
+4. [Rivers — Freshwater, Clay, and Currents](#4-rivers--freshwater-clay-and-currents)
+5. [Evolution System — Evolution Points](#5-evolution-system--evolution-points)
+6. [Discovery Journal — Unlocking Knowledge](#6-discovery-journal--unlocking-knowledge)
+7. [Crafting and Inventory](#7-crafting-and-inventory)
+8. [Tech Tree — Civilization Advancement](#8-tech-tree--civilization-advancement)
+9. [AI Creatures and NPCs](#9-ai-creatures-and-npcs)
+10. [Time Controls — Speeding Up and Slowing Down](#10-time-controls--speeding-up-and-slowing-down)
+11. [Tips for Beginners](#11-tips-for-beginners)
 
 ---
 
@@ -150,7 +151,45 @@ This means the game plays realistically — a small creature burns energy faster
 
 ---
 
-## 4. Evolution System — Evolution Points
+## 4. Rivers — Freshwater, Clay, and Currents
+
+### What Are Rivers?
+
+Ten rivers flow across the planet, carved into the terrain by erosion. They are not painted onto the surface — they are real valleys, 5 to 15 metres deep, cut into the heightmap by a flow simulation. You will see them as visible channels in the landscape when you look across the terrain from high ground.
+
+The rivers move. The water surface shimmers and changes brightness depending on the angle you look at it — this is a real optical property of water called the Fresnel effect. At a steep angle, water looks transparent. At a shallow angle, it reflects light brightly.
+
+### Why Rivers Matter for Survival
+
+Rivers are one of the most important terrain features for a new player, for three reasons:
+
+**1. Freshwater**
+You can drink directly from any river. Walk up to the water's edge and press F when the droplet icon appears in your HUD. This fills your hydration bar — the blue bar in the Vitals panel. Rivers replace the need to carry water and make long journeys across dry terrain much more survivable.
+
+**2. Clay**
+Clay resource nodes spawn on riverbanks. Clay is needed to build furnaces and kilns, which are required for the copper and iron smelting chains. If you need clay, follow a river.
+
+**3. The Droplet Indicator**
+When you are close enough to a river to drink from it, a small water droplet icon appears in your HUD. This is your signal that you can press F to drink. You do not need to guess whether you are close enough.
+
+### River Currents
+
+Rivers have a current — they push things downstream. If you wade into deep water, the Rapier physics system applies a lateral force to your character in the direction the water is flowing. The faster the river, the stronger the push.
+
+This is not just visual. The current is calculated from the same flow-field simulation that shapes the river channel. A steep mountain river will push you hard. A wide, slow lowland river will barely nudge you.
+
+**Practical tips:**
+- Cross a river at a shallow ford (a wide, flat crossing point) to avoid being swept downstream.
+- If you are pushed off-balance, sprint at an angle to the current rather than fighting it directly.
+- You can use the current to your advantage: if you need to travel downstream quickly, stay in the water and let it carry you.
+
+### Finding Rivers
+
+Rivers are generated from the same seed as the rest of the world, so they are always in the same places in a given world. They tend to originate at high-elevation peaks and flow downhill toward the coast or low basins. Follow the terrain downhill and you will almost always find a river.
+
+---
+
+## 5. Evolution System — Evolution Points
 
 ### What are Evolution Points?
 
@@ -253,7 +292,7 @@ Examples:
 
 ---
 
-## 5. Discovery Journal — Unlocking Knowledge
+## 6. Discovery Journal — Unlocking Knowledge
 
 ### What Is the Discovery Journal?
 
@@ -325,7 +364,7 @@ Some discoveries give you special tools as the player — not just for your crea
 
 ---
 
-## 6. Crafting and Inventory
+## 7. Crafting and Inventory
 
 ### What Is the Inventory?
 
@@ -352,9 +391,13 @@ Materials are the raw building blocks you collect. Here is a list of all materia
 | Wood | Chop from trees |
 | Bark | Strip from trees |
 | Leaf | Gather from plants |
-| Bone | Obtained from dead animals |
-| Hide | Obtained from dead animals |
-| Clay | Dig from river banks and wet ground |
+| Bone | Obtained from dead animals (deer, boar) |
+| Hide | Obtained from deer — process at a fire to make Leather |
+| Raw Meat | Dropped by all hunted animals — cook over fire before eating |
+| Leather | Process 2 Hide at a fire |
+| Wolf Pelt | Dropped by wolves — used in advanced clothing recipes |
+| Boar Tusk | Dropped by boars — used to craft the Tusk Knife |
+| Clay | Gather from riverbanks (rivers are the primary clay source in M9) |
 | Sand | Gather from beaches and deserts |
 | Charcoal | Burn wood in a fire |
 | Fiber | Gather from plants |
@@ -404,6 +447,10 @@ Recipes are grouped by civilization tier (0 through 9). You can only use recipes
 | Bow | 2 Wood + 3 Fiber + 1 Bone | Tool Use + Ranged Weapons | 30 sec |
 | Arrow x10 | 3 Flint + 2 Wood + 1 Leaf | Ranged Weapons | 15 sec |
 | Clay Pot | 4 Clay | Pottery | 60 sec |
+| Bone Needle | 1 Bone | Tool Use | 5 sec |
+| Leather | 2 Hide (process at fire) | Tool Use | 30 sec |
+| Leather Armor | 5 Leather + 2 Bone Needle | Tool Use | 2 min |
+| Tusk Knife | 1 Boar Tusk + 1 Bone | Tool Use | 15 sec |
 
 ---
 
@@ -511,7 +558,7 @@ Crafting the Simulation Engine is the ultimate achievement of the game.
 
 ---
 
-## 7. Tech Tree — Civilization Advancement
+## 8. Tech Tree — Civilization Advancement
 
 ### What Is the Tech Tree?
 
@@ -678,7 +725,49 @@ At Tier 9, the game reveals its final truth: the universe you have been playing 
 
 ---
 
-## 8. AI Creatures and NPCs
+## 9. AI Creatures and NPCs
+
+### Animals — Deer, Wolves, and Boars
+
+Three species of wild animals now roam the world. They are different from the ten microscopic organisms and from the civilised NPCs in the settlements. These are mid-sized animals with their own survival goals, and they will interact with you whether you want them to or not.
+
+#### Deer
+
+Deer are passive animals that travel in herds. They use the same flocking rules that govern bird flight — each deer tries to stay near its companions, match their speed, and avoid bumping into them. If a player or a wolf comes close, the entire herd bolts.
+
+- Approach cautiously to observe without startling them.
+- If you want to hunt deer, move slowly or use cover to get within range before attacking.
+- Deer drop **raw meat** and **hide** when killed. Hide is processed at a fire to make **leather**, which is required for **Leather Armor**.
+
+#### Wolves
+
+Wolves travel in packs and coordinate their hunts intelligently. One wolf drives prey toward the group, while others circle to cut off escape. They will hunt deer — and they will also attack you if you enter their territory or come within their aggression range.
+
+- Give wolf packs a wide berth unless you are well-equipped.
+- Wolves drop **raw meat** and **wolf pelt** when killed.
+- Fighting a pack alone with stone tools is extremely dangerous. Iron-tier weapons or Leather Armor are strongly recommended.
+
+#### Boars
+
+Boars are solitary or found in small groups. They are more aggressive than deer but less coordinated than wolves. When threatened, a boar will lower its head and charge in a straight line toward you — a fast, hard-to-dodge attack that deals significant damage.
+
+- Do not stand still when a boar charges. Sidestep the charge, then strike while it recovers.
+- Boars drop **raw meat**, **bone**, and **boar tusk** when killed.
+- A **boar tusk** combined with one **bone** crafts a **Tusk Knife** — a fast melee weapon with a bleed effect.
+
+#### Why Rivers Matter for Hunting
+
+Rivers are where clay spawns. They are also natural paths that deer follow when moving between grazing areas. Waiting near a river crossing is an efficient way to find deer to hunt.
+
+#### Hunting Loot Summary
+
+| Animal | Loot Dropped |
+|--------|-------------|
+| Deer | Raw Meat, Hide |
+| Wolf | Raw Meat, Wolf Pelt |
+| Boar | Raw Meat, Bone, Boar Tusk |
+
+---
 
 ### What Are NPCs?
 
@@ -760,7 +849,7 @@ You have several ways to interact with NPCs:
 
 ---
 
-## 9. Time Controls — Speeding Up and Slowing Down
+## 10. Time Controls — Speeding Up and Slowing Down
 
 ### What Are the Time Controls?
 
@@ -813,7 +902,7 @@ A good habit is to pause before making any major decision — using the Gene Edi
 
 ---
 
-## 10. Tips for Beginners
+## 11. Tips for Beginners
 
 These tips will help you get off to a strong start and avoid common mistakes.
 
@@ -884,18 +973,38 @@ When your civilisation reaches Tier 9 and builds the Simulation Engine, the game
 
 ---
 
+**Follow rivers early — they solve three problems at once.**
+Rivers provide freshwater, clay, and a reliable place to find deer. A new player who finds a river in the first few minutes has solved hydration, has access to the clay needed for furnace construction, and has a hunting ground close by. Rivers flow downhill, so moving downhill from your spawn point is almost always the fastest way to find one.
+
+---
+
+**Sidestep boar charges — do not stand and absorb them.**
+A boar charge deals high damage and cannot easily be blocked with Stone Age equipment. The charge travels in a straight line. Step sideways at the last moment, let the boar pass, then attack from behind while it recovers. Trying to out-damage the charge head-on will likely kill you.
+
+---
+
+**Process hide into leather before it becomes urgent.**
+Leather Armor requires five leather and two bone needles. Processing hide requires a fire. Collect hide from deer whenever you hunt them, even if you do not immediately need it. Running the processing step in batches — dropping five hide at a fire and waiting — is more efficient than scrambling for hide after you have already decided you want the armor.
+
+---
+
+**Wolf pelts are currently cosmetic — but worth collecting.**
+Wolf pelts do not have a Tier 0 recipe yet. Keep them in your inventory for when the next crafting tier adds pelt-based items.
+
+---
+
 ## Notes and Warnings
 
 - This game is not a simple game with a fixed ending. It is an open-ended simulation. You can succeed, fail, restart, or explore forever.
 - Civilisations can collapse. Evolution can dead-end. Species can go extinct. This is intentional — the universe does not guarantee success.
 - The game is grounded in real science. The laws of physics, chemistry, and biology are not approximations invented for fun — they are based on real formulas. What you see happening is a genuine emergent result of those rules.
-- The game is still in development (Version 0.1.0, as of March 2026). Some features listed in this manual may still be being built. Check the in-game build milestone screen for what is currently active.
+- The game is still in development (Version 0.1.0, Milestone 9, as of March 2026). Some features listed in this manual may still be being built. Check the in-game build milestone screen for what is currently active.
 
 ---
 
 _End of Manual_
 
-_This manual covers all major systems as designed in the game design document (Version 0.1.0, 2026-03-19). For the latest changes, refer to the in-game Discovery Journal and the official GAME_DESIGN.md document in the docs folder._
+_This manual covers all major systems through Milestone 9 (Version 0.1.0, updated 2026-03-21). For the latest changes, refer to the in-game Discovery Journal, the companion site at https://universe-companion.vercel.app, and the official GAME_DESIGN.md document in the docs folder._
 
 ---
 
@@ -991,6 +1100,121 @@ The physics engine is now the single source of truth for how objects relate to e
 | Confirmed working by playtester agent | Done |
 
 **Next steps:** The physics foundation is solid. The gathering mechanic (letting players pick up materials) and terrain height variation are the most valuable things to build next.
+
+---
+
+### Session: M9 Rivers, Animals, and Performance — 2026-03-21
+
+**What happened in this session:**
+Milestone 9 was a three-track parallel delivery, adding rivers, three animal species, and a set of targeted performance improvements across the game.
+
+---
+
+#### Track 1 — Rivers
+
+**What was built:**
+Ten rivers now flow across the planet. Each river is shaped by a flow-field erosion algorithm in a new file called `RiverSystem.ts`. The algorithm calculates how water would flow downhill from the terrain heightmap, then uses that path to cut a valley 5 to 15 metres deep into the actual geometry of the terrain. These valleys are not painted on or faked — they are real depressions in the 3D mesh.
+
+The water surface is rendered by `RiverRenderer.tsx`. Each river is a ribbon mesh — a strip of triangles that follows the carved channel — with a custom Fresnel water shader. Fresnel is the optical property of water that makes it look transparent when you look straight down into it, and reflective when you look at it from a shallow angle. The shader mimics this correctly.
+
+**What this means for players:**
+
+1. **Freshwater.** Walk to a river, wait for the droplet icon in your HUD, and press F to drink. Your hydration vital refills. This replaces scattered puddles as the primary water source and makes long overland travel much more manageable.
+
+2. **Clay on riverbanks.** Clay resource nodes now spawn deterministically on the banks of every river. Clay is required for furnaces and kilns. If you need clay and you cannot find any, look for a river.
+
+3. **River currents push you.** The Rapier character controller now receives a lateral impulse when you are standing in river water. The stronger the flow, the harder you are pushed. Cross at wide, shallow fords to minimise this effect.
+
+**Technical details for the project owner:**
+- `RiverSystem.ts` — pure erosion math, no side effects, deterministic per seed
+- `RiverRenderer.tsx` — ribbon mesh + Fresnel GLSL shader
+- `RiverHUD` — droplet icon component added to the HUD component tree
+- `fluidWorker.ts` — new Web Worker running the flow-field simulation at 20 Hz on its own thread, does not block rendering
+
+---
+
+#### Track 2 — Animals
+
+**What was built:**
+Three species of wild animals were added: deer, wolves, and boars. Each species has its own behavior logic in `AnimalAISystem.ts` and is rendered by `AnimalRenderer.tsx`.
+
+**Deer** flock together using the separation, cohesion, and alignment rules that model how real birds and fish move as a group. They flee when a player or wolf comes within their detection radius.
+
+**Wolves** hunt in packs. The pack identifies a prey target (a nearby deer, or the player if no deer is available), then one wolf drives the prey toward the group while others take flanking positions. This is a simplified version of the coordinated hunting behavior observed in real wolf packs.
+
+**Boars** are solitary or small-group animals. When threatened, they execute a charge — a burst of speed in a straight line toward the threat target. The charge deals high damage and is difficult to interrupt once started. The correct counter is to sidestep at the last moment.
+
+**Hunting loot:**
+- Deer drop raw_meat and hide. Hide is processed at a fire (2 hide = 1 leather).
+- Wolves drop raw_meat and wolf_pelt.
+- Boars drop raw_meat, bone, and boar_tusk.
+
+**New crafting recipes added:**
+- Bone Needle (1 bone) — required for leather armor
+- Leather (2 hide, process at fire)
+- Leather Armor (5 leather + 2 bone needle) — reduces incoming damage
+- Tusk Knife (1 boar_tusk + 1 bone) — fast melee weapon with bleed effect
+
+**Ecosystem caps:** Each species has a server-enforced maximum population. New animals only spawn if the current count is below the cap, preventing infinite spawning.
+
+**Technical details for the project owner:**
+- `AnimalAISystem.ts` — behavior state machines for all three species, population cap enforcement
+- `AnimalRenderer.tsx` — InstancedMesh per species (one GPU draw call per species regardless of population count), procedural geometry (no external model files), 3-tier LOD (full detail / reduced polygon count / billboard) automatically selected by camera distance
+
+---
+
+#### Track 3 — Performance
+
+Five targeted performance improvements were made:
+
+**1. Worker tick rates standardized.**
+The fluid/chemistry workers now run at 20 Hz. The thermal worker runs at 10 Hz. These rates were chosen to match the rate at which output from those workers is read by the renderer — there is no benefit to running a worker faster than the system consuming its output.
+
+**2. Creature LOD (Level of Detail).**
+All animals now switch between three rendering quality tiers based on how far they are from the camera. Close animals render at full polygon count. Medium-distance animals use a reduced polygon version. Distant animals are drawn as a single flat billboard (a textured card facing the camera). This dramatically reduces GPU load when many animals are visible across the terrain.
+
+**3. WebSocket BATCH_UPDATE.**
+Non-critical world state updates (such as minor NPC position deltas and environment state changes) are now bundled into a single BATCH_UPDATE WebSocket message instead of being sent as individual messages. This reduces the number of individual WebSocket sends per frame, lowering network overhead.
+
+**4. NodeHealthBars pool (32 slots).**
+Health bars above resource nodes (trees, stone deposits, etc.) used to be created when a node was first hit and discarded when the node was destroyed. Under heavy gathering activity, this created frequent garbage collection pauses. The health bar objects are now pre-allocated in a 32-slot pool at scene startup and reused. No new objects are created during gameplay.
+
+**5. Terrain shader warmup via gl.compile().**
+The terrain shader (the GPU program that renders the planet surface) was previously compiled on-demand — the first time the terrain was drawn. This caused a visible stutter on the first frame. The shader is now compiled during scene initialization via gl.compile(), so by the time the first frame is rendered, the GPU program is already loaded. The stutter is eliminated.
+
+---
+
+#### Companion Site
+
+The companion science site is now live at https://universe-companion.vercel.app. The Science panel button (S key) in the sidebar links to it. The site explains the real science behind each mechanic in plain language, in the same spirit as this manual.
+
+---
+
+#### Status Summary
+
+| Item | Status |
+|---|---|
+| RiverSystem.ts — 10 rivers per seed, flow-field erosion, valley carving | Done |
+| RiverRenderer.tsx — ribbon mesh, Fresnel water shader | Done |
+| KCC river current push | Done |
+| Drinkable freshwater (F key near river) | Done |
+| Clay nodes on riverbanks | Done |
+| RiverHUD droplet indicator | Done |
+| AnimalAISystem.ts — deer flocking/flee, wolf pack/hunt, boar charge | Done |
+| AnimalRenderer.tsx — InstancedMesh, procedural geometry, 3-tier LOD | Done |
+| Ecosystem population caps | Done |
+| Hunting loot (raw_meat, hide, bone, wolf_pelt, boar_tusk) | Done |
+| Leather + Leather Armor + Bone Needle + Tusk Knife crafting | Done |
+| Worker tick rates (fluid/chem 20 Hz, thermal 10 Hz) | Done |
+| Creature LOD (3 tiers) | Done |
+| WebSocket BATCH_UPDATE | Done |
+| NodeHealthBars 32-slot pre-allocated pool | Done |
+| Terrain shader warmup (gl.compile) | Done |
+| Companion site live at https://universe-companion.vercel.app | Done |
+
+**Remaining work after M9:**
+- M8 Track 1: Wire rain to fire extinguishing in the chemistry grid (WeatherRenderer exists but does not yet affect fire state)
+- M8 Track 2: Steel age — Fe + C carburization, quenching, steel tools and armor
 
 ---
 

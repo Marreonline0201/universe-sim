@@ -14,7 +14,7 @@ import { RemotePlayersRenderer } from './RemotePlayersRenderer'
 import { useMultiplayerStore } from '../store/multiplayerStore'
 import type { RemoteNpc } from '../store/multiplayerStore'
 import { world, createPlayerEntity, createCreatureEntity, Metabolism, Health, Position, Rotation, Velocity, IsDead, CreatureBody } from '../ecs/world'
-import { removeComponent } from 'bitecs'
+import { removeComponent, removeEntity } from 'bitecs'
 import { PlayerController } from '../player/PlayerController'
 import { MetabolismSystem, setMetabolismDt } from '../ecs/systems/MetabolismSystem'
 import { inventory, buildingSystem, techTree, evolutionTree, journal } from '../game/GameSingletons'
@@ -1118,6 +1118,7 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
           inventory.addItem({ itemId: 0, materialId: MAT.RAW_MEAT, quantity: 1 + Math.floor(CreatureBody.size[nearestCreatureEid] * 2), quality: 0.8 })
           inventory.addItem({ itemId: 0, materialId: MAT.HIDE,     quantity: 1, quality: 0.7 })
           creatureWander.delete(nearestCreatureEid)
+          removeEntity(world, nearestCreatureEid)
           addEvolutionPoints(3)
           useUiStore.getState().addNotification('Creature killed — raw meat + hide collected!', 'discovery')
         } else {

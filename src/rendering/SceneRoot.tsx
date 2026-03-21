@@ -234,12 +234,11 @@ export function SceneRoot() {
       if (savedPs.energy < 1)    Metabolism.energy[eid]        = savedPs.energy
       if (savedPs.fatigue > 0)   Metabolism.fatigue[eid]       = savedPs.fatigue
 
-      // Restore saved position — default store values are (0, 0.9, 0).
-      // Any saved position meaningfully different from the default indicates a real save.
-      const defaultX = 0, defaultY = 0.9, defaultZ = 0
-      const hasSavedPos = Math.abs(savedPs.x - defaultX) > 0.5 ||
-                          Math.abs(savedPs.y - defaultY) > 0.5 ||
-                          Math.abs(savedPs.z - defaultZ) > 0.5
+      // Restore saved position. playerStore initialises to (0, 0, 0) — the planet
+      // centre, an impossible in-game position. Any non-trivial offset means a real save.
+      const hasSavedPos = Math.abs(savedPs.x) > 0.5 ||
+                          Math.abs(savedPs.y) > 0.5 ||
+                          Math.abs(savedPs.z) > 0.5
       if (hasSavedPos) {
         Position.x[eid] = savedPs.x
         Position.y[eid] = savedPs.y

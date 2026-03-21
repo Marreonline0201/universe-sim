@@ -83,8 +83,8 @@ export async function loadSave(getToken: () => Promise<string | null>) {
     Metabolism.energy[entityId]      = data.energy  ?? 1
     Metabolism.fatigue[entityId]     = data.fatigue ?? 0
 
-    const sx = data.x ?? 0, sy = data.y ?? 0.9, sz = data.z ?? 0
-    const hasSavedPos = Math.abs(sx) > 0.5 || Math.abs(sy - 0.9) > 0.5 || Math.abs(sz) > 0.5
+    const sx = data.x ?? 0, sy = data.y ?? 0, sz = data.z ?? 0
+    const hasSavedPos = Math.abs(sx) > 0.5 || Math.abs(sy) > 0.5 || Math.abs(sz) > 0.5
     if (hasSavedPos) {
       Position.x[entityId] = sx
       Position.y[entityId] = sy

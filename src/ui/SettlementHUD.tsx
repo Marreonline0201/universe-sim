@@ -12,6 +12,10 @@
 import React, { useCallback } from 'react'
 import { useSettlementStore } from '../store/settlementStore'
 import { useMultiplayerStore } from '../store/multiplayerStore'
+import { usePlayerStore } from '../store/playerStore'
+import { useOutlawStore } from '../store/outlawStore'
+
+const WANTED_THRESHOLD = 5
 
 // Material display names for the trade UI — keyed by client MAT enum values
 // (MAT.STONE=1, MAT.FLINT=2, MAT.WOOD=3, MAT.BARK=4, MAT.FIBER=21, etc.)
@@ -50,6 +54,8 @@ function matList(mats: Record<string, number>): string {
 export function SettlementHUD() {
   const { pendingOffer, closedGates, nearSettlementId, setPendingOffer } = useSettlementStore()
   const connectionStatus = useMultiplayerStore(s => s.connectionStatus)
+  const murderCount      = usePlayerStore(s => s.murderCount)
+  const activeQuest      = useOutlawStore(s => s.activeQuest)
 
   const socket = _getSocket()
 
@@ -58,8 +64,8 @@ export function SettlementHUD() {
     socket.send({
       type: 'TRADE_ACCEPT',
       settlementId:   pendingOffer.settlementId,
-      playerGives:    pendingOffer.wantMats,    // player gives what settlement wants
-      playerReceives: pendingOffer.offerMats,   // player gets what settlement offers
+      playerGives:    pendingOffer.wantMats,
+      playerReceives: pendingOffer.offerMats,
     })
     setPendingOffer(null)
   }, [pendingOffer, socket, setPendingOffer])
@@ -68,21 +74,88 @@ export function SettlementHUD() {
     setPendingOffer(null)
   }, [setPendingOffer])
 
+  const handleRedemptionRequest = useCallback(() => {
+    if (!nearSettlementId || !socket) return
+    socket.send({ type: 'REDEMPTION_QUEST_REQUEST', settlementId: nearSettlementId })
+  }, [nearSettlementId, socket])
+
+  const handleQuestComplete = useCallback(() => {
+    if (!activeQuest || !socket) return
+    // For escort and settlement_defense: single completion event.
+    // For resource_delivery: also sent as one step here — full delivery.
+    socket.send({
+      type:    'REDEMPTION_QUEST_PROGRESS',
+      questId: activeQuest.questId,
+      amount:  activeQuest.required,  // complete in one step for simplicity
+    })
+  }, [activeQuest, socket])
+
   // Not connected — don't show settlement UI
   if (connectionStatus !== 'connected') return null
 
-  // Gates closed panel
+  // Active redemption quest panel (highest priority — shown over other states)
+  if (activeQuest && nearSettlementId === activeQuest.settlementId) {
+    const questLabels: Record<string, string> = {
+      escort:              'Escort an NPC between two waypoints (120s)',
+      resource_delivery:   'Deliver 10x Iron Ingot or 20x Wood to the stockpile',
+      settlement_defense:  'Kill an attacking predator near the settlement',
+    }
+    const timeLeft = Math.max(0, Math.floor((activeQuest.expiresAt - Date.now()) / 1000))
+    return (
+      <div style={styles.container}>
+        <div style={{ ...styles.panel, borderColor: 'rgba(200, 160, 30, 0.8)', background: 'rgba(20, 15, 5, 0.94)' }}>
+          <div style={{ ...styles.title, color: '#f0c040' }}>REDEMPTION QUEST</div>
+          <div style={styles.subtitle}>{questLabels[activeQuest.questType] ?? activeQuest.questType}</div>
+          <div style={{ ...styles.detail, color: '#aaa' }}>
+            Progress: {activeQuest.progress}/{activeQuest.required}
+            &nbsp;&nbsp;|&nbsp;&nbsp;
+            Expires in: {timeLeft}s
+          </div>
+          <div style={{ ...styles.detail, color: '#c08060' }}>
+            Completing this task reduces your murder count by 1.
+          </div>
+          <div style={styles.btnRow}>
+            <button style={styles.btnAccept} onClick={handleQuestComplete}>
+              COMPLETE TASK
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // Gates closed panel (murder_count >= 3)
   if (nearSettlementId !== null && closedGates.has(nearSettlementId)) {
     return (
       <div style={styles.container}>
         <div style={{ ...styles.panel, borderColor: 'rgba(200, 30, 30, 0.8)', background: 'rgba(40, 5, 5, 0.92)' }}>
           <div style={styles.title} role="alert">GATES CLOSED</div>
-          <div style={styles.subtitle}>
-            This settlement has closed its gates to you.
-          </div>
+          <div style={styles.subtitle}>You are not welcome here.</div>
           <div style={{ ...styles.detail, color: '#c06060' }}>
-            Your threat level is too high. Avoid attacking their members.<br />
-            Threat decays slowly over time.
+            Your threat level is too high. Trade refused.<br />
+            Speak to the settlement leader to seek redemption.
+          </div>
+          {murderCount > 0 && (
+            <div style={styles.btnRow}>
+              <button style={styles.btnDecline} onClick={handleRedemptionRequest}>
+                REQUEST REDEMPTION TASK
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  // Cautious tier (murder_count 1-2) — wary NPCs but still trading
+  if (nearSettlementId !== null && murderCount >= 1 && murderCount <= 2) {
+    return (
+      <div style={styles.container}>
+        <div style={{ ...styles.panel, borderColor: 'rgba(180, 120, 30, 0.7)', background: 'rgba(25, 18, 5, 0.90)' }}>
+          <div style={{ ...styles.title, color: '#d4a030', fontSize: 14 }}>STRANGERS ARE WARY OF YOU</div>
+          <div style={{ ...styles.detail, color: '#a08040', marginBottom: 0 }}>
+            Shop prices are 1.5x normal. Your actions are being watched.<br />
+            Murder count: {murderCount}
           </div>
         </div>
       </div>

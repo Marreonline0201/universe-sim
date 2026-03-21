@@ -11,6 +11,9 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { usePlayerStore } from '../store/playerStore'
 
+// Verify: death does NOT clear murder_count — the Neon DB record persists
+// across death/respawn. This component only reads it to show the reminder.
+
 const CAUSE_LABELS: Record<string, { headline: string; detail: string }> = {
   starvation: {
     headline: 'STARVED TO DEATH',
@@ -35,7 +38,7 @@ interface DeathScreenProps {
 }
 
 export function DeathScreen({ onRespawn }: DeathScreenProps) {
-  const { isDead, deathCause, bedrollPos } = usePlayerStore()
+  const { isDead, deathCause, bedrollPos, murderCount } = usePlayerStore()
 
   // Fade-in animation state
   const [opacity, setOpacity] = useState(0)
@@ -133,6 +136,23 @@ export function DeathScreen({ onRespawn }: DeathScreenProps) {
       >
         {labels.detail}
       </div>
+
+      {/* Criminal record reminder — murder count persists through death (Neon DB) */}
+      {murderCount > 0 && (
+        <div
+          style={{
+            fontSize:      12,
+            color:         `rgba(200, 80, 80, ${opacity})`,
+            letterSpacing: 3,
+            textTransform: 'uppercase',
+            marginBottom:  24,
+            textAlign:     'center',
+            userSelect:    'none',
+          }}
+        >
+          Your crimes are remembered. &nbsp;|&nbsp; Murder count: {murderCount}
+        </div>
+      )}
 
       {/* Respawn info */}
       {btnVisible && (

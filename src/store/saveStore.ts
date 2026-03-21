@@ -68,6 +68,7 @@ export async function loadSave(getToken: () => Promise<string | null>) {
   // Placed buildings
   if (Array.isArray(data.buildings) && data.buildings.length > 0) {
     buildingSystem.loadBuildings(data.buildings)
+    useGameStore.getState().bumpBuildVersion()
   }
 
   // If the ECS entity already exists (engine init beat loadSave), write vitals directly

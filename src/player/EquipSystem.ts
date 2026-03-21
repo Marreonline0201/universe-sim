@@ -94,6 +94,41 @@ const STATS: Partial<Record<number, ItemStats>> = {
     harvestTypes: [],
     range:        1.0,
   },
+
+  // ── M7: Iron Age tools ────────────────────────────────────────────────────
+  //
+  // Damage values:
+  //   Iron Knife:    18  (1.8× copper knife 10)
+  //   Iron Axe:      20  (2.0× stone axe 10, fells trees in 2 hits via harvestPower 5)
+  //   Iron Pickaxe:  22  (only tool that can mine iron_ore — harvestPower 5 + type gate)
+  //
+  // Base quality 0.7 (novice smith). Quality multiplier applied at craft time
+  // in SurvivalSystems.ts tickBlastFurnace based on smithingXp.
+  [ITEM.IRON_KNIFE]: {
+    name:         'Iron Knife',
+    damage:       18,
+    harvestPower: 4,
+    harvestTypes: ['fiber', 'bark', 'hide', 'bone', 'raw_meat', 'leaf', 'wood'],
+    range:        1.8,
+  },
+  [ITEM.IRON_AXE]: {
+    name:         'Iron Axe',
+    damage:       20,
+    harvestPower: 5,
+    harvestTypes: ['wood', 'stone', 'clay', 'fiber', 'bark', 'coal', 'tin_ore',
+                   'copper_ore', 'sulfur', 'gold', 'silver', 'uranium', 'rubber', 'saltpeter'],
+    range:        2.5,
+  },
+  [ITEM.IRON_PICKAXE]: {
+    name:         'Iron Pickaxe',
+    // iron_ore requires harvestPower ≥ 5 AND explicit iron_ore in harvestTypes.
+    // Stone tool / stone axe (harvestPower 2-3) is blocked by SceneRoot gate.
+    damage:       22,
+    harvestPower: 5,
+    harvestTypes: ['stone', 'flint', 'clay', 'coal', 'tin_ore', 'copper_ore',
+                   'iron_ore', 'sulfur', 'gold', 'silver', 'uranium', 'rubber', 'saltpeter'],
+    range:        2.5,
+  },
 }
 
 /** Return stats for the given itemId. Falls back to HAND stats if unknown or 0. */

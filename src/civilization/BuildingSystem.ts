@@ -226,6 +226,18 @@ export const BUILDING_TYPES: BuildingType[] = [
 
   // ── Tier 2: Iron Age ──────────────────────────────────────────────────────
   {
+    // M7: Blast furnace — reaches 1000°C+ via double-chamber charcoal charge.
+    // Real basis: pre-industrial bloomery / blast furnace designs (4th c. BCE).
+    // Fe₂O₃ + 3C → 2Fe + 3CO₂ begins at ~800°C; usable iron at 1000°C+.
+    id: 'blast_furnace', name: 'Blast Furnace', tier: 2,
+    materialsRequired: [
+      { materialId: M.STONE,    quantity: 8  },
+      { materialId: M.CLAY,     quantity: 2  },
+    ],
+    size: [3, 3, 3], provides: ['blast_furnace', 'iron_smelting', 'metal_smelting'],
+    maxOccupants: 1, structuralStrength: 3.5, maintenanceRate: 0.4,
+  },
+  {
     id: 'stone_house', name: 'Stone House', tier: 2,
     materialsRequired: [{ materialId: M.STONE, quantity: 80 }, { materialId: M.WOOD, quantity: 20 }],
     size: [7, 4, 7], provides: ['shelter', 'sleep', 'storage', 'defense'],

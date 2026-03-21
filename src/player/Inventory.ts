@@ -214,7 +214,7 @@ export const MAT = {
   GUNPOWDER: 31, SILICON: 32, CIRCUIT: 33, WIRE: 34,
   PLASTIC: 35, RUBBER: 36, FUEL: 37, LUBRICANT: 38,
   URANIUM: 39, PLUTONIUM: 40, COOKED_MEAT: 41,
-  RAW_MEAT: 42,
+  RAW_MEAT: 42, IRON_INGOT: 43,
 } as const
 
 // ── Item IDs ──────────────────────────────────────────────────────────────────
@@ -234,6 +234,7 @@ export const ITEM = {
   WARP_DRIVE: 43, DYSON_SPHERE: 44, MATRIOSHKA_BRAIN: 45,
   SIMULATION_ENGINE_ITEM: 46,
   BEDROLL: 47, COPPER_KNIFE: 48,
+  IRON_KNIFE: 49, IRON_AXE: 50, IRON_PICKAXE: 51,
 } as const
 
 // ── Crafting Recipes ─────────────────────────────────────────────────────────
@@ -669,5 +670,59 @@ export const CRAFTING_RECIPES: CraftingRecipe[] = [
     inputs: [{ materialId: MAT.COPPER, quantity: 2 }, { materialId: MAT.BONE, quantity: 1 }],
     output: { itemId: ITEM.COPPER_KNIFE, quantity: 1 },
     knowledgeRequired: [],
+  },
+
+  // ── M7: Iron Age ─────────────────────────────────────────────────────────
+  //
+  // Fe₂O₃ + 3C → 2Fe + 3CO₂  (direct reduction at ≥1000°C in blast furnace)
+  // Iron melting point: 1538°C. Blast furnace achieves 1000–1300°C via forced
+  // air draft + high charcoal charge. Iron ingots are wrought iron (not cast).
+  //
+  // Blast Furnace: craftable structure using stone + iron_ore + clay.
+  // The furnace building is placed via BuildPanel; smelting is automatic when
+  // blast_furnace building is adjacent to a ≥1000°C sim grid fire cell.
+  {
+    // id 67 — blast furnace structure recipe (placed, not held)
+    id: 67, name: 'Blast Furnace', tier: 2, time: 600,
+    inputs: [
+      { materialId: MAT.STONE,    quantity: 8 },
+      { materialId: MAT.IRON_ORE, quantity: 4 },
+      { materialId: MAT.CLAY,     quantity: 2 },
+    ],
+    output: { itemId: ITEM.FURNACE, quantity: 1 },
+    knowledgeRequired: ['iron_smelting'],
+  },
+  {
+    // id 68 — iron knife: 2 iron ingots + 1 wood handle
+    // Damage: 18 (1.8× copper knife 10). Durability conceptually 3×.
+    id: 68, name: 'Iron Knife', tier: 2, time: 45,
+    inputs: [
+      { materialId: MAT.IRON_INGOT, quantity: 2 },
+      { materialId: MAT.WOOD,       quantity: 1 },
+    ],
+    output: { itemId: ITEM.IRON_KNIFE, quantity: 1 },
+    knowledgeRequired: ['iron_smelting'],
+  },
+  {
+    // id 69 — iron axe: 3 iron ingots + 2 wood
+    // Trees fall in 2 hits (vs 3 for stone axe). harvestPower 5.
+    id: 69, name: 'Iron Axe', tier: 2, time: 60,
+    inputs: [
+      { materialId: MAT.IRON_INGOT, quantity: 3 },
+      { materialId: MAT.WOOD,       quantity: 2 },
+    ],
+    output: { itemId: ITEM.IRON_AXE, quantity: 1 },
+    knowledgeRequired: ['iron_smelting'],
+  },
+  {
+    // id 70 — iron pickaxe: required to mine iron_ore deposits.
+    // Stone pickaxe (stone tool / axe) cannot penetrate iron ore — too hard.
+    id: 70, name: 'Iron Pickaxe', tier: 2, time: 60,
+    inputs: [
+      { materialId: MAT.IRON_INGOT, quantity: 3 },
+      { materialId: MAT.WOOD,       quantity: 2 },
+    ],
+    output: { itemId: ITEM.IRON_PICKAXE, quantity: 1 },
+    knowledgeRequired: ['iron_smelting'],
   },
 ]

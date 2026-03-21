@@ -26,6 +26,12 @@ export const TERRITORY_RADIUS = 150   // metres — NPCs wander within this
 const CRAFT_INTERVAL_S  = 30          // real seconds between NPC craft ticks
 const LEVEL_THRESHOLDS  = [0, 500, 2000, 8000, 25000, 80000, 250000, 800000, 2500000, 8000000]
 
+// M7: Civ level at which settlements unlock iron research.
+// Level 2 = Iron Age — broadcasts SETTLEMENT_UNLOCKED_IRON to nearby players.
+const IRON_UNLOCK_LEVEL = 2
+// Tracks which settlement IDs have already broadcast the iron discovery (server lifetime only).
+const _ironUnlocked = new Set()
+
 // NPC recipe table — uses the SAME MAT IDs as the client Inventory.ts MAT enum:
 //   STONE=1  FLINT=2   WOOD=3    BARK=4    LEAF=5    BONE=6   HIDE=7
 //   CLAY=8   FIBER=21  CLOTH=22  ROPE=23   LEATHER=24 COPPER=25 COAL=17
@@ -154,7 +160,7 @@ export class SettlementManager {
    * dtRealSec: real elapsed seconds (not sim seconds).
    * Returns array of { settlementId, civLevel } for any settlements that levelled up.
    */
-  tick(dtRealSec, onLevelUp) {
+  tick(dtRealSec, onLevelUp, onIronUnlock) {
     this._craftTimer += dtRealSec
 
     for (const s of this._settlements.values()) {
@@ -169,6 +175,12 @@ export class SettlementManager {
         s.npcCount = Math.min(200, Math.floor(s.npcCount * 1.2))
         console.log(`[SettlementManager] ${s.name} reached civ level ${s.civLevel}`)
         if (onLevelUp) onLevelUp(s.id, s.civLevel, s)
+        // M7: Broadcast iron research discovery when any settlement reaches Iron Age
+        if (s.civLevel >= IRON_UNLOCK_LEVEL && !_ironUnlocked.has(s.id)) {
+          _ironUnlocked.add(s.id)
+          if (onIronUnlock) onIronUnlock(s.id, s.name, s)
+          console.log(`[SettlementManager] ${s.name} unlocked iron research!`)
+        }
         this._persistSettlement(s).catch(() => {})
       }
     }

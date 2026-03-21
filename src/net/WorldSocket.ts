@@ -5,6 +5,8 @@
 import { useMultiplayerStore } from '../store/multiplayerStore'
 import { useGameStore } from '../store/gameStore'
 import { useSettlementStore } from '../store/settlementStore'
+import { useOutlawStore } from '../store/outlawStore'
+import { usePlayerStore } from '../store/playerStore'
 import { useUiStore } from '../store/uiStore'
 import { inventory } from '../game/GameSingletons'
 import type { LocalSimManager } from '../engine/LocalSimManager'
@@ -232,6 +234,144 @@ export class WorldSocket {
 
       case 'GATES_CLOSED': {
         useSettlementStore.getState().setGatesClosed(msg.settlementId as number)
+        break
+      }
+
+      // ── M7 Track 2: PvP Outlaw System ──────────────────────────────────────
+
+      case 'MURDER_COUNT_UPDATE': {
+        // Server confirms killer's new murder count after a kill.
+        const newCount = msg.murderCount as number
+        usePlayerStore.getState().setMurderCount(newCount)
+        // Show tiered NPC reaction message
+        if (newCount === 1) {
+          useUiStore.getState().addNotification(
+            'Murder committed. Strangers are wary of you. Shop prices increased.',
+            'warning'
+          )
+        } else if (newCount === 3) {
+          useUiStore.getState().addNotification(
+            'Settlement gates have closed to you. Trade refused.',
+            'error'
+          )
+        } else if (newCount >= 5) {
+          useUiStore.getState().addNotification(
+            `Wanted! A bounty has been posted on your head. NPC guards attack on sight.`,
+            'error'
+          )
+        } else {
+          useUiStore.getState().addNotification(
+            `Murder count: ${newCount}. Your infamy grows.`,
+            'warning'
+          )
+        }
+        break
+      }
+
+      case 'BOUNTY_POSTED': {
+        // Broadcast to all clients — a player has become wanted.
+        const entry = {
+          playerId:    msg.playerId    as string,
+          username:    msg.username    as string,
+          murderCount: msg.murderCount as number,
+          reward:      msg.reward      as number,
+        }
+        useOutlawStore.getState().upsertWantedPlayer(entry)
+        useOutlawStore.getState().setPendingBountyNotif(entry)
+        // Also update remote player murderCount in multiplayer store so
+        // the skull label is immediately correct for everyone
+        const mp = useMultiplayerStore.getState()
+        const existing = mp.remotePlayers.get(entry.playerId)
+        if (existing) {
+          mp.upsertRemotePlayer({ ...existing, murderCount: entry.murderCount })
+        }
+        useUiStore.getState().addNotification(
+          `WANTED: ${entry.username} — ${entry.murderCount} kills — ${entry.reward} copper bounty`,
+          'error'
+        )
+        break
+      }
+
+      case 'BOUNTY_COLLECTED': {
+        // Server grants bounty reward to this client.
+        const reward     = msg.reward     as number
+        const materialId = msg.materialId as number
+        inventory.addItem({ itemId: 0, materialId, quantity: reward, quality: 0.9 })
+        useUiStore.getState().addNotification(
+          `Bounty collected! +${reward} Copper added to inventory.`,
+          'discovery'
+        )
+        break
+      }
+
+      case 'BOUNTY_COLLECT_BROADCAST': {
+        // All clients learn that someone collected a bounty.
+        const { collectorName, targetName, reward } = msg
+        useUiStore.getState().addNotification(
+          `${collectorName as string} claimed ${reward as number} copper bounty — killed outlaw ${targetName as string}`,
+          'info'
+        )
+        // Remove from wanted list — target died and bounty was claimed
+        useOutlawStore.getState().removeWantedPlayer(msg.targetId as string)
+        break
+      }
+
+      case 'REDEMPTION_QUEST_OFFERED': {
+        useOutlawStore.getState().setActiveQuest({
+          questId:      msg.questId      as string,
+          questType:    msg.questType    as 'escort' | 'resource_delivery' | 'settlement_defense',
+          settlementId: msg.settlementId as number,
+          progress:     0,
+          required:     msg.required     as number,
+          expiresAt:    msg.expiresAt    as number,
+        })
+        const typeLabels: Record<string, string> = {
+          escort:              'Escort an NPC between two points (120s)',
+          resource_delivery:   'Deliver 10x Iron Ingot or 20x Wood to the settlement',
+          settlement_defense:  'Kill an attacking predator near the settlement',
+        }
+        useUiStore.getState().addNotification(
+          `Redemption quest offered: ${typeLabels[msg.questType as string] ?? String(msg.questType)}. Complete it to reduce your criminal record.`,
+          'discovery'
+        )
+        break
+      }
+
+      case 'REDEMPTION_QUEST_DENIED': {
+        useUiStore.getState().addNotification(
+          'The settlement leader has no task for you — your record is clean.',
+          'info'
+        )
+        break
+      }
+
+      case 'REDEMPTION_QUEST_PROGRESS_ACK': {
+        const { questId, progress, required } = msg
+        useOutlawStore.getState().updateQuestProgress(questId as string, progress as number)
+        useUiStore.getState().addNotification(
+          `Quest progress: ${progress as number}/${required as number}`,
+          'info'
+        )
+        break
+      }
+
+      case 'REDEMPTION_QUEST_COMPLETE': {
+        const newCount = msg.newMurderCount as number
+        usePlayerStore.getState().setMurderCount(newCount)
+        useOutlawStore.getState().setActiveQuest(null)
+        useUiStore.getState().addNotification(
+          `Redemption complete! Criminal record reduced to ${newCount} murder${newCount !== 1 ? 's' : ''}.`,
+          'discovery'
+        )
+        break
+      }
+
+      case 'REDEMPTION_QUEST_ERROR': {
+        useUiStore.getState().addNotification(
+          `Quest error: ${msg.reason as string}. The opportunity has passed.`,
+          'warning'
+        )
+        useOutlawStore.getState().setActiveQuest(null)
         break
       }
 

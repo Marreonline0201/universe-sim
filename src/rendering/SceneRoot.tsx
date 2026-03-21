@@ -29,6 +29,7 @@ import {
   tickWoundSystem,
   tickSleepSystem,
   tickFurnaceSmelting,
+  tickBlastFurnaceSmelting,
   tickBuildingPhysics,
   tryEatFood,
   tryApplyHerb,
@@ -228,8 +229,15 @@ let _firstGatherDone = false
 // Resets when the node respawns.
 const NODE_HITS_TAKEN = new Map<number, number>()
 
-function getNodeMaxHits(nodeType: string): number {
-  if (nodeType === 'wood') return 3
+// harvestPower thresholds:
+//   1  = hand (no tool)
+//   2  = stone tool / knife
+//   3  = stone axe / copper knife
+//   4  = iron knife
+//   5  = iron axe / iron pickaxe
+// Iron axe (harvestPower ≥ 5) fells trees in 2 hits instead of 3.
+function getNodeMaxHits(nodeType: string, harvestPower = 1): number {
+  if (nodeType === 'wood') return harvestPower >= 5 ? 2 : 3
   if (nodeType === 'stone' || nodeType === 'flint' || nodeType === 'copper_ore'
     || nodeType === 'iron_ore' || nodeType === 'coal' || nodeType === 'tin_ore'
     || nodeType === 'sulfur' || nodeType === 'gold' || nodeType === 'silver'
@@ -950,16 +958,25 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
     }
 
     if (nearNode && nearDist < 9) { // within 3m
-      // Ores require at minimum a stone tool to mine
+      // Ores require tools to mine. Iron ore specifically requires an iron pickaxe —
+      // it is too hard for stone or copper tools (historical accuracy: iron ore
+      // mining with stone tools is ineffective; iron-tipped picks were required).
       const oreMatIds: number[] = [MAT.COPPER_ORE, MAT.IRON_ORE, MAT.COAL, MAT.TIN_ORE, MAT.SULFUR, MAT.GOLD, MAT.SILVER, MAT.URANIUM]
       const isOre = oreMatIds.includes(nearNode.matId)
-      const hasPickaxe = inventory.hasItemById(ITEM.STONE_TOOL)
-        || inventory.hasItemById(ITEM.AXE)
-      const canGather = !isOre || hasPickaxe
+      const isIronOre = nearNode.matId === MAT.IRON_ORE
+      const hasAnyPickaxe = inventory.hasItemById(ITEM.STONE_TOOL) || inventory.hasItemById(ITEM.AXE)
+      const hasIronPickaxe = inventory.hasItemById(ITEM.IRON_PICKAXE) || inventory.hasItemById(ITEM.IRON_AXE)
+      const canGather = !isOre
+        ? true
+        : isIronOre
+          ? hasIronPickaxe
+          : hasAnyPickaxe || hasIronPickaxe
 
       const label = canGather
         ? `[F] Gather ${nearNode.label}`
-        : `[Need Stone Tool] ${nearNode.label}`
+        : isIronOre
+          ? `[Need Iron Pickaxe] ${nearNode.label}`
+          : `[Need Stone Tool] ${nearNode.label}`
       if (gs.gatherPrompt !== label) gs.setGatherPrompt(label)
 
       if (canGather && !gs.inputBlocked && controllerRef.current?.popInteract()) {
@@ -1011,8 +1028,20 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
     // ── Slice 6: Sleep / stamina restoration ──────────────────────────────────
     tickSleepSystem(dt)
 
-    // ── Slice 7: Furnace smelting ─────────────────────────────────────────────
+    // ── Slice 7: Furnace smelting (copper) ───────────────────────────────────
     tickFurnaceSmelting(
+      inventory,
+      simManagerRef.current,
+      buildingSystem.getAllBuildings().map(b => ({
+        id: b.id,
+        position: b.position,
+        typeId: b.typeId,
+      })),
+      px, py, pz
+    )
+
+    // ── M7: Blast furnace smelting (iron) ────────────────────────────────────
+    tickBlastFurnaceSmelting(
       inventory,
       simManagerRef.current,
       buildingSystem.getAllBuildings().map(b => ({
@@ -1185,8 +1214,9 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
       }
 
       if (nearest) {
-        // Hit-based health system: deplete hits, only gather when max hits reached
-        const maxHits   = getNodeMaxHits(nearest.type)
+        // Hit-based health system: deplete hits, only gather when max hits reached.
+        // Pass harvestPower so iron axe (power 5) fells trees in 2 hits.
+        const maxHits   = getNodeMaxHits(nearest.type, stats.harvestPower)
         const hitsSoFar = (NODE_HITS_TAKEN.get(nearest.id) ?? 0) + 1
         NODE_HITS_TAKEN.set(nearest.id, hitsSoFar)
 

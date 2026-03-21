@@ -409,6 +409,133 @@ export function tickFurnaceSmelting(
   }
 }
 
+// ── M7: Blast Furnace Iron Smelting System ────────────────────────────────────
+//
+// Chemistry: Fe₂O₃ + 3C → 2Fe + 3CO₂
+// Iron reduction requires ≥1000°C (blast furnace achieves this via forced air
+// draft and a large charcoal charge). The blast_furnace building type provides
+// the thermal mass needed; a single-chamber stone furnace cannot reach this threshold.
+//
+// Quality system (tool quality property, 0.0-1.0):
+//   smithingXp < 100  → novice:      quality 0.50–0.70
+//   smithingXp < 300  → experienced: quality 0.80–0.95
+//   smithingXp ≥ 300  → master:      quality 0.95–1.00
+//
+// Quality multiplier is baked into the iron_ingot output slot and consumed
+// when the player subsequently crafts iron tools in CraftingPanel.
+
+const BLAST_TEMP_C          = 1000   // °C — minimum for Fe₂O₃ reduction
+const BLAST_ORE_REQUIRED    = 3      // iron_ore units per smelt run
+const BLAST_CHARCOAL_REQ    = 4      // charcoal units (more than copper — larger fire)
+const BLAST_OUTPUT          = 1      // iron_ingot units produced
+const BLAST_SMITCHING_XP    = 25     // XP gained per successful smelt
+
+// Per-furnace cooldown (prevents multi-trigger per frame)
+const _blastInProgress = new Set<number>()
+
+/** Compute iron ingot quality from smithingXp. */
+function ironQualityFromXp(smithingXp: number): number {
+  if (smithingXp >= 300) {
+    // Master: 0.95 + random fraction of remaining 0.05
+    return 0.95 + Math.random() * 0.05
+  } else if (smithingXp >= 100) {
+    // Experienced: 0.80–0.95
+    return 0.80 + (Math.random() * 0.15)
+  } else {
+    // Novice: 0.50–0.70
+    return 0.50 + (Math.random() * 0.20)
+  }
+}
+
+export function tickBlastFurnaceSmelting(
+  inv: Inventory,
+  simMgr: LocalSimManager | null,
+  buildings: Array<{ id: number; position: [number, number, number]; typeId: string }>,
+  px: number, py: number, pz: number
+): void {
+  if (!simMgr) return
+
+  for (const b of buildings) {
+    if (b.typeId !== 'blast_furnace') continue
+    if (_blastInProgress.has(b.id)) continue
+
+    // Player must be within 6m of blast furnace
+    const dx = px - b.position[0]
+    const dy = py - b.position[1]
+    const dz = pz - b.position[2]
+    if (dx * dx + dy * dy + dz * dz > 36) continue
+
+    // Scan for sim grid cells near the furnace at ≥1000°C
+    const hotCells = simMgr.getHotCells(BLAST_TEMP_C)
+    const furnaceReached = hotCells.some(cell => {
+      const cx = cell.wx - b.position[0]
+      const cy = cell.wy - b.position[1]
+      const cz = cell.wz - b.position[2]
+      return cx * cx + cy * cy + cz * cz < 16  // 4m radius
+    })
+    if (!furnaceReached) continue
+
+    // Check inventory inputs
+    const hasOre      = inv.countMaterial(MAT.IRON_ORE) >= BLAST_ORE_REQUIRED
+    const hasCharcoal = inv.countMaterial(MAT.CHARCOAL)  >= BLAST_CHARCOAL_REQ
+    if (!hasOre || !hasCharcoal) {
+      // Give the player a hint that temperature is sufficient but materials are missing
+      useUiStore.getState().addNotification(
+        'Blast furnace at temperature! Need 3× Iron Ore + 4× Charcoal to smelt.',
+        'info'
+      )
+      _blastInProgress.add(b.id)
+      setTimeout(() => _blastInProgress.delete(b.id), 8000)
+      continue
+    }
+
+    // Consume iron ore
+    let oreRemain = BLAST_ORE_REQUIRED
+    for (let i = 0; i < inv.slotCount && oreRemain > 0; i++) {
+      const s = inv.getSlot(i)
+      if (s && s.itemId === 0 && s.materialId === MAT.IRON_ORE) {
+        const take = Math.min(s.quantity, oreRemain)
+        inv.removeItem(i, take)
+        oreRemain -= take
+      }
+    }
+    // Consume charcoal
+    let charRemain = BLAST_CHARCOAL_REQ
+    for (let i = 0; i < inv.slotCount && charRemain > 0; i++) {
+      const s = inv.getSlot(i)
+      if (s && s.itemId === 0 && s.materialId === MAT.CHARCOAL) {
+        const take = Math.min(s.quantity, charRemain)
+        inv.removeItem(i, take)
+        charRemain -= take
+      }
+    }
+
+    // Compute quality from smithingXp
+    const ps = usePlayerStore.getState()
+    const quality = ironQualityFromXp(ps.smithingXp)
+    const qualityLabel = quality >= 0.95 ? 'master' : quality >= 0.80 ? 'fine' : 'rough'
+
+    // Produce iron ingot
+    inv.addItem({ itemId: 0, materialId: MAT.IRON_INGOT, quantity: BLAST_OUTPUT, quality })
+
+    // Award smithing XP and unlock iron tool recipes
+    ps.addSmithingXp(BLAST_SMITCHING_XP)
+    ps.addDiscovery('iron_smelting')
+    inv.discoverRecipe(68)  // iron knife
+    inv.discoverRecipe(69)  // iron axe
+    inv.discoverRecipe(70)  // iron pickaxe
+
+    // Mark furnace busy (5s cooldown)
+    _blastInProgress.add(b.id)
+    setTimeout(() => _blastInProgress.delete(b.id), 5000)
+
+    useUiStore.getState().addNotification(
+      `Iron smelting complete! Fe₂O₃ + 3C → 2Fe + 3CO₂. Got ${qualityLabel} iron ingot (quality: ${(quality * 100).toFixed(0)}%). Now craft iron tools!`,
+      'discovery'
+    )
+  }
+}
+
 // ── P2-5: Building Physics — Fire Damage ──────────────────────────────────────
 //
 // Scientific basis: Wood ignites at ~300°C (autoignition temperature in air

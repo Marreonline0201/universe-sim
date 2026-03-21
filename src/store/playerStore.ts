@@ -64,6 +64,11 @@ interface PlayerState {
   stopSleep: () => void
   setBedrollPlaced: (v: boolean) => void
 
+  // M7: Smithing XP — used for iron tool quality calculation
+  // 0 = novice (quality 0.5-0.7), 100 = experienced (0.8-0.95), 300+ = master (0.95-1.0)
+  smithingXp: number
+  addSmithingXp: (xp: number) => void
+
   // Death + Respawn system (M5)
   isDead: boolean
   deathCause: 'starvation' | 'infection' | 'combat' | 'drowning' | null
@@ -163,6 +168,10 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   startSleep: () => set({ isSleeping: true, sleepStartTime: Date.now() }),
   stopSleep: () => set({ isSleeping: false, sleepStartTime: null }),
   setBedrollPlaced: (v) => set({ bedrollPlaced: v }),
+
+  // ── M7: Smithing XP ───────────────────────────────────────────────────────
+  smithingXp: 0,
+  addSmithingXp: (xp) => set((s) => ({ smithingXp: s.smithingXp + xp })),
 
   // ── Death + Respawn system (M5) ───────────────────────────────────────────
   isDead: false,

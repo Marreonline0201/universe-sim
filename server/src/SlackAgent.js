@@ -108,6 +108,25 @@ export class SlackAgent {
     )
   }
 
+  async notifyM5Shipped() {
+    await this._post(
+      '*M5 Track 1 SHIPPED: Server-Authoritative Shared World State*\n\n' +
+      'The universe is now one shared world — no more parallel bubbles.\n\n' +
+      '*What was built:*\n' +
+      '• `NODE_DESTROYED` — any player chops a tree or mines ore, server records it in Neon DB and broadcasts to ALL clients instantly\n' +
+      '• `NODE_RESPAWNED` — 60s server timer reappears nodes on all clients; joining players get full depleted snapshot in WORLD_SNAPSHOT\n' +
+      '• `FIRE_STARTED` — flint strike relays ignition world-position to all other clients; remote sim grids call ignite() and heat up\n' +
+      '• Player nameplates — Clerk username rendered above every remote player mesh; skull icon when murderCount > 0\n' +
+      '• Build fixed: stale tsbuildinfo removed from git, .npmrc legacy-peer-deps added, vite-only build\n\n' +
+      'Production: https://universe-sim-beryl.vercel.app | Commit: dc4fcc4\n\n' +
+      '*Pass criteria:*\n' +
+      '1. Player A gathers a tree/ore → Player B sees it disappear immediately\n' +
+      '2. Player A lights a fire → Player B sim grid heats up at that position\n' +
+      '3. New player joining sees already-depleted nodes as absent\n' +
+      '4. After 60s, depleted nodes reappear on all clients simultaneously'
+    )
+  }
+
   // ── Private ───────────────────────────────────────────────────────────────
 
   async _readHistory() {

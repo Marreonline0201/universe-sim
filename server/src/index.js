@@ -75,6 +75,11 @@ async function main() {
   scheduler.start()
   await slack.start()
 
+  // M5 Track 1 deployment notification — fires once on server boot after this deploy
+  if (process.env.M5_NOTIFY_SENT !== 'true') {
+    slack.notifyM5Shipped().catch(() => {})
+  }
+
   // Persist simTime periodically
   if (process.env.DATABASE_URL) {
     setInterval(async () => {

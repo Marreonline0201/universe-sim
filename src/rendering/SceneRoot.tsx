@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { PerspectiveCamera, Stars } from '@react-three/drei'
-import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing'
+
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { RefObject } from 'react'
 import { SimulationEngine } from '../engine/SimulationEngine'
@@ -262,6 +262,9 @@ const RESOURCE_NODE_QUATS: THREE.Quaternion[] = RESOURCE_NODES.map(n =>
 const gatheredNodeIds = new Set<number>()
 const NODE_RESPAWN_AT = new Map<number, number>()
 const NODE_RESPAWN_DELAY = 60_000
+
+// M9 T3: Scratch Vector3 for creature wander terrain projection — reused each frame
+const _creatureDir3 = new THREE.Vector3()
 
 // Auto-open inventory on the player's first-ever gather so the playtester can
 // immediately inspect the item without knowing to press I.
@@ -672,12 +675,8 @@ export function SceneRoot() {
         </>
       )}
       {/* Post-processing — subtle filmic effects, never stylised */}
-      <EffectComposer>
-        {/* Bloom: fire, emissive cells glow. Threshold 0.8 limits to HDR-bright pixels. */}
-        <Bloom luminanceThreshold={0.8} intensity={0.4} luminanceSmoothing={0.025} />
-        {/* Vignette: cinematic edge darkening. offset 0.3 confines it to outer 30%. */}
-        <Vignette offset={0.3} darkness={0.5} eskil={false} />
-      </EffectComposer>
+      {/* EffectComposer (Bloom + Vignette) removed: @react-three/postprocessing 3.0.4
+          crashes with @react-three/fiber 8.18.0 — re-enable after upgrading postprocessing */}
     </Canvas>
     {/* M5: Death screen — shown above everything when player is dead */}
     <DeathScreenWrapper onRespawn={handleRespawn} />
@@ -795,8 +794,9 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
       const len = Math.sqrt(nx*nx + ny*ny + nz*nz)
       if (len > 10) {
         const ndx = nx / len, ndy = ny / len, ndz = nz / len
-        const dir3 = new THREE.Vector3(ndx, ndy, ndz)
-        const h = terrainHeightAt(dir3)
+        // M9 T3: Reuse module-level scratch — no Vector3 allocation per creature per frame
+        _creatureDir3.set(ndx, ndy, ndz)
+        const h = terrainHeightAt(_creatureDir3)
         if (h >= 0) {
           const size = CreatureBody.size[eid] || 0.5
           const r = PLANET_RADIUS + Math.max(0, h) + size * 0.5
@@ -1740,6 +1740,12 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
 
 // ── Building ghost (shown during placement mode) ──────────────────────────────
 
+// Scratch objects for BuildingGhost — allocated once at module scope, never inside useFrame
+const _ghostPlayerPos = new THREE.Vector3()
+const _ghostPlayerUp  = new THREE.Vector3()
+const _ghostDir       = new THREE.Vector3()
+const _ghostYUp       = new THREE.Vector3(0, 1, 0)
+
 function BuildingGhost({ entityId }: { entityId: number }) {
   const { camera } = useThree()
   const placementMode = useGameStore(s => s.placementMode)
@@ -1754,25 +1760,22 @@ function BuildingGhost({ entityId }: { entityId: number }) {
     const px = Position.x[entityId]
     const py = Position.y[entityId]
     const pz = Position.z[entityId]
-    const playerPos = new THREE.Vector3(px, py, pz)
-    const playerUp  = playerPos.clone().normalize()
+    // M9 T3: Use module-level scratch vectors — no per-frame Vector3 allocation
+    _ghostPlayerPos.set(px, py, pz)
+    _ghostPlayerUp.copy(_ghostPlayerPos).normalize()
     fwdVec.current.set(0, 0, -1).applyQuaternion(camera.quaternion)
-    fwdVec.current.addScaledVector(playerUp, -fwdVec.current.dot(playerUp))
+    fwdVec.current.addScaledVector(_ghostPlayerUp, -fwdVec.current.dot(_ghostPlayerUp))
     if (fwdVec.current.lengthSq() < 0.001) fwdVec.current.set(0, 0, -1)
     else fwdVec.current.normalize()
-    const ghostDir = playerPos.clone().addScaledVector(fwdVec.current, 6).normalize()
-    const ghostSR  = surfaceRadiusAt(ghostDir.x * PLANET_RADIUS, ghostDir.y * PLANET_RADIUS, ghostDir.z * PLANET_RADIUS)
-    // Offset along surface normal (outward) by half building height — correct on any part of sphere
+    _ghostDir.copy(_ghostPlayerPos).addScaledVector(fwdVec.current, 6).normalize()
+    const ghostSR = surfaceRadiusAt(_ghostDir.x * PLANET_RADIUS, _ghostDir.y * PLANET_RADIUS, _ghostDir.z * PLANET_RADIUS)
     const halfH = btype.size[1] / 2
-    const gx = ghostDir.x * (ghostSR + halfH)
-    const gy = ghostDir.y * (ghostSR + halfH)
-    const gz = ghostDir.z * (ghostSR + halfH)
+    const gx = _ghostDir.x * (ghostSR + halfH)
+    const gy = _ghostDir.y * (ghostSR + halfH)
+    const gz = _ghostDir.z * (ghostSR + halfH)
     ghostRef.current.position.set(gx, gy, gz)
-    // Align ghost to surface normal (Y-up → outward normal)
-    ghostRef.current.quaternion.setFromUnitVectors(
-      new THREE.Vector3(0, 1, 0),
-      ghostDir,
-    )
+    // Align ghost to surface normal — reuse scratch _ghostYUp
+    ghostRef.current.quaternion.setFromUnitVectors(_ghostYUp, _ghostDir)
   })
 
   if (!placementMode) return null

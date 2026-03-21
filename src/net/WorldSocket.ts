@@ -457,6 +457,20 @@ export class WorldSocket {
         break
       }
 
+      // ── M9 T3: Batch update — server bundles non-critical messages ──────────
+      // Weather updates (8 per transition) and future NPC/animal position updates
+      // arrive as a single BATCH_UPDATE payload to reduce per-message overhead.
+      // Unpack and dispatch each sub-message through the same _dispatch path.
+      case 'BATCH_UPDATE': {
+        const messages = msg.messages as Record<string, unknown>[]
+        if (Array.isArray(messages)) {
+          for (const sub of messages) {
+            this._dispatch(sub)
+          }
+        }
+        break
+      }
+
       default:
         break
     }

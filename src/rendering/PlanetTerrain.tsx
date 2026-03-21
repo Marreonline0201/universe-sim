@@ -10,9 +10,9 @@
 // For LOD, a future implementation would split into 6 face-quads and rebuild
 // only the faces near the player at high resolution, using CDLOD.
 
-import { useMemo, useRef } from 'react'
+import { useMemo, useRef, useEffect } from 'react'
 import * as THREE from 'three'
-import { useFrame } from '@react-three/fiber'
+import { useFrame, useThree } from '@react-three/fiber'
 import {
   generatePlanetGeometry,
   generateOceanGeometry,
@@ -159,6 +159,26 @@ export function PlanetTerrain() {
   const oceanMat      = useMemo(makeOceanMaterial, [])
   const atmosphereMat = useMemo(makeAtmosphereMaterial, [])
   const hazeMat       = useMemo(makeHazeMaterial, [])
+
+  // ── M9 T3: Shader warmup — compile terrain material before first visible frame ──
+  // onBeforeCompile shaders compile on first use, causing a frame hitch of 50-200ms.
+  // Fix: call renderer.compile() on a tiny off-screen scene containing the terrain
+  // material during the mount effect. This happens before the player releases the
+  // pointer lock, so the hitch is invisible.
+  const { gl, scene, camera } = useThree()
+  useEffect(() => {
+    // Build a minimal warmup scene with one mesh using the terrain material
+    const warmupScene = new THREE.Scene()
+    const warmupGeo   = new THREE.SphereGeometry(1, 4, 4)
+    const warmupMesh  = new THREE.Mesh(warmupGeo, terrainMat)
+    warmupScene.add(warmupMesh)
+    // Compile shaders off-screen — no visible render, just GPU program compilation
+    gl.compile(warmupScene, camera)
+    // Dispose the warmup geometry immediately — material is kept (reused by terrain)
+    warmupGeo.dispose()
+    warmupScene.remove(warmupMesh)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Gentle ocean shimmer — oscillate ocean opacity slightly
   const oceanRef = useRef<THREE.Mesh>(null)

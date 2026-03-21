@@ -220,6 +220,9 @@ export const MAT = {
   CAST_IRON_INGOT: 45,   // brittle cast iron (>2.1% C) — cheaper but weaker
   HOT_STEEL_INGOT: 46,   // intermediate: must be quenched within 30s
   SOFT_STEEL: 47,        // hot steel that missed quench window (50% quality penalty)
+  // ── M9: Animal drops ─────────────────────────────────────────────────────
+  WOLF_PELT: 57,         // skinned from killed wolf — crafting: warm clothing
+  BOAR_TUSK: 58,         // dropped by boar on death — crafting: tusk tools
 } as const
 
 // ── Item IDs ──────────────────────────────────────────────────────────────────
@@ -246,6 +249,9 @@ export const ITEM = {
   STEEL_CROSSBOW: 54,    // ranged, ballistic arc, 30m effective range
   CAST_IRON_POT: 55,     // cooking vessel: cooks food 2× faster than campfire
   CAST_IRON_DOOR: 56,    // building component: fire-resistant, high HP
+  // ── M9: Hunting gear ─────────────────────────────────────────────────────
+  BONE_NEEDLE: 57,       // crafting component: bone → bone_needle → leather_armor
+  LEATHER_ARMOR: 58,     // light armor: 10% damage reduction, lighter than steel
 } as const
 
 // ── Crafting Recipes ─────────────────────────────────────────────────────────
@@ -799,5 +805,61 @@ export const CRAFTING_RECIPES: CraftingRecipe[] = [
     ],
     output: { itemId: ITEM.CAST_IRON_DOOR, quantity: 1 },
     knowledgeRequired: ['iron_smelting'],
+  },
+
+  // ── M9: Hunting + Animal Processing ──────────────────────────────────────
+  // New crafting chain: bone → bone_needle → leather_armor (with fiber + leather)
+  // Leather already craftable from HIDE (recipe 52). Now also craftable from
+  // animal-drop leather (MAT.LEATHER — same material ID, just new source).
+  {
+    // id 76 — Bone Needle: crafting component for leather armor
+    id: 76, name: 'Bone Needle', tier: 0, time: 10,
+    inputs: [
+      { materialId: MAT.BONE, quantity: 1 },
+    ],
+    output: { itemId: ITEM.BONE_NEEDLE, quantity: 2 },
+    knowledgeRequired: ['tool_use'],
+  },
+  {
+    // id 77 — Leather Armor: 10% damage reduction, lighter than steel
+    // Requires bone_needle (sewing) + leather (hide processing) + fiber (stitching)
+    id: 77, name: 'Leather Armor', tier: 0, time: 45,
+    inputs: [
+      { materialId: MAT.LEATHER, quantity: 4 },
+      { materialId: MAT.FIBER,   quantity: 3 },
+    ],
+    output: { itemId: ITEM.LEATHER_ARMOR, quantity: 1 },
+    knowledgeRequired: ['tool_use'],
+  },
+  {
+    // id 78 — Cook Raw Meat (via campfire proximity — this is the manual fallback)
+    // Primary path: proximity to active fire auto-cooks via SurvivalSystems.
+    // This manual recipe exists so players can cook without a placed campfire.
+    id: 78, name: 'Cook Raw Meat (manual)', tier: 0, time: 15,
+    inputs: [
+      { materialId: MAT.RAW_MEAT, quantity: 1 },
+    ],
+    output: { itemId: MAT.COOKED_MEAT, quantity: 1, isMaterial: true },
+    knowledgeRequired: ['fire_making'],
+  },
+  {
+    // id 79 — Leather from animal drop (wolf pelt → leather)
+    // Wolf pelts and boar skin can also be processed into leather
+    id: 79, name: 'Tan Wolf Pelt', tier: 0, time: 20,
+    inputs: [
+      { materialId: MAT.WOLF_PELT, quantity: 1 },
+    ],
+    output: { itemId: MAT.LEATHER, quantity: 1, isMaterial: true },
+    knowledgeRequired: ['tool_use'],
+  },
+  {
+    // id 80 — Boar Tusk Knife: alternative low-tier blade, no metal required
+    id: 80, name: 'Tusk Knife', tier: 0, time: 12,
+    inputs: [
+      { materialId: MAT.BOAR_TUSK, quantity: 1 },
+      { materialId: MAT.WOOD,      quantity: 1 },
+    ],
+    output: { itemId: ITEM.KNIFE, quantity: 1 },
+    knowledgeRequired: ['tool_use'],
   },
 ]

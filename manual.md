@@ -711,6 +711,89 @@ When water is passed through an electrolysis unit connected to the reactor, it s
 
 ---
 
+## 12b. Interplanetary Travel, Velar Language, and the Multiverse
+
+### Traveling to Another Planet
+
+Once you have reached the Space Age and launched at least one probe, you can board an **Orbital Capsule** and physically travel to another world.
+
+**How to travel:**
+
+1. Craft an **Orbital Capsule** (Recipe 100 — 5x circuit board + 10x steel ingot, 1200 seconds).
+2. Stand near a **launch_pad** building (the same pad used for rockets).
+3. When the prompt **[F] Board Orbital Capsule** appears, press F.
+4. A 20-second transit cinematic plays — stars stream past, the destination planet grows from a distant point.
+5. You arrive on **Aethon** (the rocky inner planet, 0.7 AU). Its terrain, biome colors, and resources are procedurally generated from its seed — every player sees the same world.
+
+**On Aethon:**
+- Resource nodes are scattered across the surface — iron ore, copper, titanium, frozen water, basalt.
+- Walk near any flat surface and press F to **Return Home** (costs another Orbital Capsule).
+- No settlements exist here yet — Aethon is a frontier world.
+
+**The transit consumes one Orbital Capsule each way.** Bring materials to craft another before you leave, or stock up before departure.
+
+---
+
+### Decoding the Velar Language
+
+After your probe reaches **Velar** (the gas giant at 2.1 AU), the Velar civilization responds with a transmission. The **Velar Response Panel** appears showing five unknown symbols.
+
+**The Velar alphabet** is procedurally generated from the world seed — every universe has a different set of glyphs, but the five underlying concepts are always the same:
+
+| Concept | What it means | Visual hint |
+|---------|--------------|-------------|
+| Life | Genesis, DNA, recursion | Spiral double helix branching outward |
+| Star | Origin, emission | Radiating spokes from a central point |
+| Path | Journey, trajectory | Flowing curve with directional arrow |
+| Here | Location, coordinate | Concentric rings closing inward |
+| Come | Welcome, approach | Open arc reaching outward |
+
+**How to decode:**
+1. The Velar Response Panel shows 5 symbols in unknown order.
+2. Each symbol has a **hint tooltip** — hover over it.
+3. Match each glyph to its concept by clicking the concept label beneath it.
+4. When all 5 are matched correctly, the panel broadcasts **VELAR_DECODED** and the gateway coordinates are revealed on your compass.
+
+Decoding the Velar language unlocks two new recipes:
+- **Recipe 104** — Velar Crystal (3x nuclear fuel + 5x hydrogen + 2x gold)
+- **Recipe 105** — Velar Key (5x circuit board + 3x nuclear fuel + 10x steel ingot + 1x Velar crystal)
+
+---
+
+### The Velar Gateway
+
+After decoding the Velar signal, a glowing teal **portal ring** (6 metres tall) appears in the world at the coordinates revealed by the decoder. Navigate to it on your compass.
+
+**How to activate the gateway:**
+1. Craft a **Velar Key** (Recipe 105 — see above).
+2. Stand inside the portal ring. When the prompt **[F] Activate Velar Gateway** appears, press F.
+3. The key is consumed. The inner energy disc activates, particles accelerate.
+4. A new universe (the **Velar World**) is spawned in the multiverse registry.
+5. All players online see the notification: *MULTIVERSE UNLOCKED*.
+
+The Velar World is a separate game instance with its own world seed. It is visible on the **Universe Map** at the companion site.
+
+---
+
+### The Universe Map (Companion Site)
+
+Navigate to the companion site (`universe-companion.vercel.app`) and click **UNIVERSE MAP** in the header.
+
+The Universe Map shows every known universe as a node in an SVG starfield:
+- **Home Universe** (rust orange) — the genesis world where everything begins.
+- **Velar World** (teal) — spawned when a player activates the gateway; connected to home by a dashed teal line.
+- Each universe card shows its civilization level, discovery count, active players, and founding date.
+- The map polls the Neon DB every 30 seconds — new universes appear automatically.
+
+---
+
+| M14/M15 Item | ID | Recipe | Purpose |
+|---|---|---|---|
+| Velar Crystal | MAT 69 | Recipe 104 (3x nuclear_fuel + 5x hydrogen + 2x gold) | Gateway component |
+| Velar Key | ITEM 67 | Recipe 105 (5x circuit_board + 3x nuclear_fuel + 10x steel_ingot + 1x velar_crystal) | Activates the Velar Gateway |
+
+---
+
 ## 13. Evolution System — Evolution Points
 
 ### What are Evolution Points?
@@ -3039,6 +3122,11 @@ This table shows the complete milestone history of the game in one place. Each m
 | M5: Shared World | Node depletion sync, fire sync, nameplates, death+loot drop+respawn, bedroll, criminal record | Done |
 | M6: NPC Civilization | 5 named settlements, NPC memory in DB, territory + patrol, trade system, gate closure, settlement HUD | Done |
 | M7: Iron Age + Outlaw | Iron ore, blast furnace, real iron chemistry, iron tools, PvP kill detection, murder tiers, bounties, redemption quests | Done |
-| M8: Weather + Steel + Science | Weather renderer done, fire extinguishing in progress, steel age and companion site planned | In Progress |
+| M8: Weather + Steel + Science | Weather system, steel age, science companion site | Done |
+| M9–M10: Rivers + Animals + Sailing | Rivers with clay, deer/wolf/boar ecosystem, ocean sailing, seasonal cycle, advanced trade | Done |
+| M11–M12: Guns + Castles + Space | Gunpowder/muskets, castle walls, telescope/astronomy, rockets/radio, electric lights, Velar signal | Done |
+| M13: First Contact + Nuclear | Velar Morse decoder, 3-planet solar system, orbital probes, nuclear reactor, electrolysis | Done |
+| M14: Interplanetary Transit + Velar Language | Physical travel to Aethon, 20s transit cinematic, Velar 5-glyph alphabet decode puzzle, Velar Gateway portal, universe registry in Neon DB | Done |
+| M15: Multiverse Map | Universe Map on companion site — SVG starfield showing all registered universes with tech level and discovery stats | Done |
 
-The game is a functioning multiplayer survival game with real physics, real chemistry, a persistent criminal justice system, NPC civilizations with memory, and a photorealistic world. The core loop — gather, craft, survive, trade, advance — works end-to-end at every material tier from stone through copper to iron.
+The game is a functioning multiplayer survival simulation spanning from stone-age survival to interplanetary travel and first contact with an alien civilization. Players can now decode an alien language, activate an inter-universal portal, and view the growing multiverse on the companion science site. The core loop — gather, craft, survive, trade, advance, explore — works end-to-end at every scale from stone tools to orbital capsules.

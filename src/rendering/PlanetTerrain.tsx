@@ -17,6 +17,7 @@ import {
   generatePlanetGeometry,
   generateOceanGeometry,
   PLANET_RADIUS,
+  SEA_LEVEL,
 } from '../world/SpherePlanet'
 
 // ── Materials ─────────────────────────────────────────────────────────────────
@@ -54,7 +55,16 @@ function makeTerrainMaterial(): THREE.MeshStandardMaterial {
     metalness: 0.0,
   })
 
+  // SEA_LEVEL is the terrain height (metres above planet centre) at which water sits.
+  // The sphere surface radius at sea level = PLANET_RADIUS + SEA_LEVEL.
+  // We compute vertex elevation as: length(vTerrainWorldPos) - (PLANET_RADIUS + SEA_LEVEL).
+  // Negative = underwater, 0–20 = coastal wet zone, >20 = dry land.
+  const seaRadius = PLANET_RADIUS + (SEA_LEVEL ?? 0)
+
   mat.onBeforeCompile = (shader) => {
+    // Pass sea-level radius as a uniform so the GLSL can compute elevation
+    shader.uniforms.uSeaRadius = { value: seaRadius }
+
     // Inject world-position varying into vertex shader.
     // Use #include <project_vertex> as the injection point — always present in
     // MeshStandardMaterial regardless of env/transmission feature flags.
@@ -65,15 +75,36 @@ function makeTerrainMaterial(): THREE.MeshStandardMaterial {
       vTerrainWorldPos = (modelMatrix * vec4(transformed, 1.0)).xyz;`
     )
 
-    // Inject detail noise into fragment shader color step
-    shader.fragmentShader = 'varying vec3 vTerrainWorldPos;\n' + DETAIL_NOISE_GLSL + shader.fragmentShader
+    // Inject detail noise + wet-edge darkening into fragment shader color step
+    shader.fragmentShader = 'varying vec3 vTerrainWorldPos;\nuniform float uSeaRadius;\n' + DETAIL_NOISE_GLSL + shader.fragmentShader
     shader.fragmentShader = shader.fragmentShader.replace(
       '#include <color_fragment>',
       `#include <color_fragment>
       // Sub-polygon detail: multi-frequency noise in world space (units = meters)
       float _d = _detail(vTerrainWorldPos);
       // Map [0,1] → [-0.22, +0.22] variation, preserves base biome color
-      diffuseColor.rgb *= 0.78 + _d * 0.44;`
+      diffuseColor.rgb *= 0.78 + _d * 0.44;
+
+      // ── Wet edge darkening ──────────────────────────────────────────────────
+      // Elevation above sea level in metres. Negative = submerged, 0–20 = coastal.
+      float _elev = length(vTerrainWorldPos) - uSeaRadius;
+      // Smooth ramp: 1.0 at sea level, 0.0 at 20m above
+      float _wetFactor = clamp(1.0 - _elev / 20.0, 0.0, 1.0);
+      // Darken albedo by up to 0.15 (wet sand/rock absorbs more light)
+      diffuseColor.rgb *= 1.0 - _wetFactor * 0.15;`
+    )
+
+    // ── Wet edge roughness ────────────────────────────────────────────────────
+    // Increase roughness near water (wet surfaces scatter light more diffusely).
+    // Inject after <roughnessmap_fragment> which sets roughnessFactor.
+    shader.fragmentShader = shader.fragmentShader.replace(
+      '#include <roughnessmap_fragment>',
+      `#include <roughnessmap_fragment>
+      {
+        float _elev2 = length(vTerrainWorldPos) - uSeaRadius;
+        float _wetR  = clamp(1.0 - _elev2 / 20.0, 0.0, 1.0);
+        roughnessFactor = clamp(roughnessFactor + _wetR * 0.20, 0.0, 1.0);
+      }`
     )
   }
 

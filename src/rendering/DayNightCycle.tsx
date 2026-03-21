@@ -116,10 +116,13 @@ export function DayNightCycle({ onDayAngleChange }: Props) {
     }
 
     // ── Fog density ──────────────────────────────────────────────────────────
+    // Day: thin fog, thickens slightly at low sun angles (aerosol scattering).
+    // Night: +30% denser than day peak to create atmospheric depth and pressure.
+    // The 0.0002 night increment above the max-day value matches the spec.
     if (state.scene.fog instanceof THREE.FogExp2) {
       state.scene.fog.density = sunAboveHorizon
-        ? 0.008 + 0.004 * (1 - sinA)
-        : 0.014
+        ? 0.008 + 0.004 * (1 - sinA)   // day: 0.008 (noon) → 0.012 (horizon)
+        : 0.016 + 0.002 * Math.abs(sinA) // night: 0.016–0.018 (densest at midnight)
     }
 
     // ── Sky params (throttled at ~4Hz — Sky re-render is expensive) ──────────

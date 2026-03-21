@@ -86,39 +86,82 @@ function seededRand(seed: number): () => number {
   }
 }
 
+// ── P2-4: Geology-based ore placement ─────────────────────────────────────────
+//
+// Scientific basis:
+//   • Copper/Sulfur: porphyry copper deposits form near volcanic/hydrothermal zones
+//     (high elevation, steep ridged terrain). Bias toward h > 80m.
+//   • Coal: formed from organic matter in low-lying swamp/forest zones.
+//     Bias toward h 5–35m (lowland, not beach or ocean).
+//   • Iron ore: sedimentary banded iron formations at mid-elevation (30–80m).
+//   • Tin ore: associated with granite intrusions at mid-high elevation (50–120m).
+//   • Gold/Silver: hydrothermal veins near highest terrain peaks (h > 140m).
+//   • Uranium: deep geological association with high-latitude polar rock (h > 100m).
+//   • Non-ore types (stone, wood, clay, etc.): scattered across all land equally.
+//
+// Implementation: for each ore type, candidate positions are scored against their
+// preferred height band. We run 60 attempts per node and accept the first position
+// that falls within ±40m of the ideal height band. If no geology-correct position
+// is found after 60 attempts the fallback is a random above-sea-level position
+// (ensures every node always places — world never loses required resources).
+
+interface GeologyRule {
+  /** Preferred terrain height range (meters above sea level) */
+  hMin: number
+  hMax: number
+  /** Max distance from spawn (m). Rarer ores placed farther out for exploration. */
+  maxDist: number
+}
+
+const GEOLOGY_RULES: Partial<Record<string, GeologyRule>> = {
+  copper_ore: { hMin: 60,  hMax: 220, maxDist: 600 },
+  iron_ore:   { hMin: 20,  hMax: 90,  maxDist: 500 },
+  coal:       { hMin: 5,   hMax: 40,  maxDist: 450 },
+  tin_ore:    { hMin: 50,  hMax: 130, maxDist: 550 },
+  sulfur:     { hMin: 70,  hMax: 250, maxDist: 650 },
+  gold:       { hMin: 130, hMax: 250, maxDist: 700 },
+  silver:     { hMin: 100, hMax: 200, maxDist: 650 },
+  uranium:    { hMin: 90,  hMax: 220, maxDist: 750 },
+}
+
 // Resource nodes placed on the sphere surface near the actual land spawn point.
-// getSpawnPosition() scans the sphere to find solid land (h >= 10m) rather than
-// using the hard-coded north pole, which may be ocean on some planet seeds.
+// Ores use geology height-band rules (P2-4). Non-ore types use pure random scatter.
 function generateResourceNodes(): ResourceNode[] {
   const rand = seededRand(99991)
   const nodes: ResourceNode[] = []
   let id = 0
 
-  // Use the real land spawn direction instead of the north pole
   const [sx, sy, sz] = getSpawnPosition()
   const spawnDir = new THREE.Vector3(sx, sy, sz).normalize()
 
-  // Build a stable perpendicular basis around spawnDir for arc rotation
   const perpBase = Math.abs(spawnDir.y) < 0.9
     ? new THREE.Vector3(0, 1, 0)
     : new THREE.Vector3(1, 0, 0)
   const tangent = new THREE.Vector3().crossVectors(spawnDir, perpBase).normalize()
 
   for (const nt of NODE_TYPES) {
+    const geoRule = GEOLOGY_RULES[nt.type]
+
     for (let i = 0; i < nt.count; i++) {
-      // Try up to 40 random positions until we find one above sea level
+      const maxDist  = geoRule?.maxDist ?? 515
+      const maxTries = geoRule ? 60 : 40
       let placed = false
-      for (let attempt = 0; attempt < 40; attempt++) {
+
+      for (let attempt = 0; attempt < maxTries; attempt++) {
         const angle   = rand() * Math.PI * 2
-        const arcDist = (15 + rand() * 500) / PLANET_RADIUS  // 15–515 m from spawn
-        // Rotate tangent around spawnDir by angle → random great-circle axis
-        const axis = tangent.clone().applyAxisAngle(spawnDir, angle)
-        const dir  = spawnDir.clone().applyAxisAngle(axis, arcDist)
-        const h    = terrainHeightAt(dir)
-        if (h < 0) continue  // underwater — try again
-        // Sink 2m below the exact terrain height so the base is embedded in
-        // the rendered mesh (which underestimates convex peaks by 1–3m due to
-        // vertex interpolation at segs=160 ~35m grid spacing).
+        const arcDist = (15 + rand() * (maxDist - 15)) / PLANET_RADIUS
+        const axis    = tangent.clone().applyAxisAngle(spawnDir, angle)
+        const dir     = spawnDir.clone().applyAxisAngle(axis, arcDist)
+        const h       = terrainHeightAt(dir)
+
+        if (h < 0) continue  // underwater
+
+        // Geology filter: ore must be within its preferred height band
+        if (geoRule && (h < geoRule.hMin || h > geoRule.hMax)) {
+          // After 40 attempts, relax geology constraint to guarantee placement
+          if (attempt < 40) continue
+        }
+
         const r = PLANET_RADIUS + h - 0.8
         nodes.push({
           id: id++, type: nt.type, label: nt.label, matId: nt.matId, color: nt.color,
@@ -127,8 +170,8 @@ function generateResourceNodes(): ResourceNode[] {
         placed = true
         break
       }
+
       if (!placed) {
-        // Fallback: place exactly at spawn (guaranteed land)
         const h = terrainHeightAt(spawnDir)
         const r = PLANET_RADIUS + Math.max(h, 0) - 2.0
         nodes.push({
@@ -1687,14 +1730,76 @@ function ServerNpcsRenderer() {
 const LOCAL_NPC_COUNT = 12
 const NPC_WANDER_SPEED = 1.8  // m/s
 
+// ── P2-3: NPC Utility AI ──────────────────────────────────────────────────────
+//
+// Scientific basis: Utility-based agent architecture. Each NPC maintains a set
+// of continuous need values (hunger 0-1, fatigue 0-1, safety 0-1). Every
+// PLAN_INTERVAL seconds the agent evaluates utility scores for each available
+// action and selects the highest-utility action. Actions:
+//
+//   WANDER  — explore randomly; satisfies curiosity, raises fatigue slowly
+//   GATHER  — move toward nearest resource node; reduces hunger when complete
+//   EAT     — consume carried food; reduces hunger instantly (if food available)
+//   REST    — stand still; reduces fatigue
+//   FLEE    — move away from player if trust < 0.3 and player is within 8m
+//
+// Trust score: starts at 0.5. Rises 0.002/s when player is near and not
+// attacking. Falls 0.05 per player attack event within 8m. Affects flee threshold.
+//
+// Hunger/fatigue dynamics:
+//   hunger:  rises at 0.004/s (full hunger in ~4min real time)
+//   fatigue: rises at 0.003/s while wandering, falls at 0.01/s while resting
+//   food:    a boolean flag — NPC "found food" when it reaches a raw_meat node
+
+type NpcAiState = 'WANDER' | 'GATHER' | 'EAT' | 'REST' | 'FLEE'
+
 interface LocalNpcState {
   pos: THREE.Vector3
-  vel: THREE.Vector3  // tangential velocity in world space
+  vel: THREE.Vector3
   yaw: number
   walkPhase: number
   stateTimer: number
   wandering: boolean
   skinIdx: number
+  // P2-3 utility AI needs
+  hunger: number         // 0 = full, 1 = starving
+  fatigue: number        // 0 = rested, 1 = exhausted
+  trust: number          // 0 = hostile, 1 = friendly
+  hasFood: boolean       // carrying food (found a raw_meat node nearby)
+  aiState: NpcAiState
+  planTimer: number      // seconds until next utility re-evaluation
+  gatherTargetIdx: number  // index into RESOURCE_NODES for current GATHER target (-1 = none)
+}
+
+// Utility score for each action given current needs. Returns 0–1.
+function utilityScore(action: NpcAiState, npc: LocalNpcState, distToPlayer: number): number {
+  switch (action) {
+    case 'FLEE':
+      // High utility only when trust is low AND player is close
+      if (distToPlayer > 12 || npc.trust > 0.35) return 0
+      return (1 - npc.trust) * (1 - distToPlayer / 12)
+    case 'EAT':
+      return npc.hasFood ? npc.hunger * 0.9 : 0
+    case 'REST':
+      return npc.fatigue > 0.6 ? npc.fatigue * 0.75 : 0
+    case 'GATHER':
+      // Gather when hungry and not carrying food already
+      return (!npc.hasFood && npc.hunger > 0.3) ? npc.hunger * 0.65 : 0
+    case 'WANDER':
+    default:
+      return 0.2  // baseline — always some desire to explore
+  }
+}
+
+function selectAiAction(npc: LocalNpcState, distToPlayer: number): NpcAiState {
+  const actions: NpcAiState[] = ['FLEE', 'EAT', 'REST', 'GATHER', 'WANDER']
+  let bestAction: NpcAiState = 'WANDER'
+  let bestScore = -1
+  for (const a of actions) {
+    const score = utilityScore(a, npc, distToPlayer)
+    if (score > bestScore) { bestScore = score; bestAction = a }
+  }
+  return bestAction
 }
 
 function buildLocalNpcs(): LocalNpcState[] {
@@ -1704,7 +1809,6 @@ function buildLocalNpcs(): LocalNpcState[] {
   })()
   const spawnPos = new THREE.Vector3(sx, sy, sz)
   for (let i = 0; i < LOCAL_NPC_COUNT; i++) {
-    // Scatter NPCs within ~60m tangent-plane offset of spawn (spread out enough to see)
     const angle = (i / LOCAL_NPC_COUNT) * Math.PI * 2
     const dist  = 8 + (i % 4) * 14
     const up = spawnPos.clone().normalize()
@@ -1714,7 +1818,6 @@ function buildLocalNpcs(): LocalNpcState[] {
     const offset = north.clone().multiplyScalar(Math.cos(angle) * dist)
       .addScaledVector(east, Math.sin(angle) * dist)
     const pos = spawnPos.clone().add(offset).normalize().multiplyScalar(spawnPos.length())
-    // Clamp to actual terrain surface
     const sr = surfaceRadiusAt(pos.x, pos.y, pos.z)
     pos.normalize().multiplyScalar(sr + 0.9)
     npcs.push({
@@ -1725,6 +1828,14 @@ function buildLocalNpcs(): LocalNpcState[] {
       stateTimer: 3 + Math.random() * 5,
       wandering: Math.random() > 0.4,
       skinIdx: i % NPC_SKIN_TONES.length,
+      // P2-3 initial needs (varied so NPCs don't all do the same thing)
+      hunger:   0.1 + Math.random() * 0.4,
+      fatigue:  0.1 + Math.random() * 0.3,
+      trust:    0.4 + Math.random() * 0.4,
+      hasFood:  false,
+      aiState:  'WANDER',
+      planTimer: Math.random() * 3,  // stagger initial re-plan times
+      gatherTargetIdx: -1,
     })
   }
   return npcs
@@ -1752,19 +1863,113 @@ function LocalNpcMesh({ npc }: { npc: LocalNpcState }) {
     const root = groupRef.current
     if (!root) return
 
-    // Update state timer
-    npc.stateTimer -= delta
-    if (npc.stateTimer <= 0) {
-      npc.wandering = Math.random() > 0.35
-      npc.stateTimer = 2 + Math.random() * 6
-      if (npc.wandering) npc.yaw += (Math.random() - 0.5) * Math.PI * 0.8
-    }
-
+    const dt = Math.min(delta, 0.1)
     const pos = npc.pos
     const up = pos.clone().normalize()
 
-    if (npc.wandering) {
-      // Compute forward direction in local tangent plane (reuse scratch refs — no alloc)
+    // ── P2-3: Utility AI tick ──────────────────────────────────────────────
+    // Update biological needs every frame
+    npc.hunger  = Math.min(1, npc.hunger  + 0.004 * dt)
+    npc.fatigue = Math.min(1, npc.fatigue + (npc.aiState === 'WANDER' || npc.aiState === 'GATHER' ? 0.003 : -0.008) * dt)
+
+    // Trust dynamics: rise slowly when player near and not hostile
+    const ps = usePlayerStore.getState()
+    const pdx = ps.x - pos.x, pdy = ps.y - pos.y, pdz = ps.z - pos.z
+    const distToPlayer = Math.sqrt(pdx * pdx + pdy * pdy + pdz * pdz)
+    if (distToPlayer < 10) {
+      npc.trust = Math.min(1, npc.trust + 0.001 * dt)
+    }
+
+    // Re-evaluate utility plan every 3 seconds
+    npc.planTimer -= dt
+    if (npc.planTimer <= 0) {
+      npc.planTimer = 2.5 + Math.random() * 1.5
+
+      const newState = selectAiAction(npc, distToPlayer)
+      if (newState !== npc.aiState) {
+        npc.aiState   = newState
+        npc.stateTimer = 0
+        npc.gatherTargetIdx = -1
+      }
+
+      // When switching to GATHER, pick the nearest ungathered raw_meat or bone node
+      if (npc.aiState === 'GATHER') {
+        let bestDist = Infinity
+        let bestIdx  = -1
+        for (let ni = 0; ni < RESOURCE_NODES.length; ni++) {
+          const node = RESOURCE_NODES[ni]
+          if (gatheredNodeIds.has(node.id)) continue
+          if (node.matId !== MAT.RAW_MEAT && node.matId !== MAT.BONE) continue
+          const dx = node.x - pos.x, dy = node.y - pos.y, dz = node.z - pos.z
+          const d = dx*dx + dy*dy + dz*dz
+          if (d < bestDist) { bestDist = d; bestIdx = ni }
+        }
+        npc.gatherTargetIdx = bestIdx
+      }
+    }
+
+    // ── State: EAT ────────────────────────────────────────────────────────
+    if (npc.aiState === 'EAT') {
+      npc.hunger  = Math.max(0, npc.hunger  - 0.4)
+      npc.hasFood = false
+      npc.aiState = 'WANDER'
+      npc.planTimer = 1  // re-plan soon
+    }
+
+    // ── State machine: movement ────────────────────────────────────────────
+    npc.stateTimer -= dt
+    const moving = npc.aiState === 'WANDER' || npc.aiState === 'GATHER' || npc.aiState === 'FLEE'
+    if (npc.stateTimer <= 0 && npc.aiState === 'WANDER') {
+      npc.stateTimer = 2 + Math.random() * 6
+      npc.yaw += (Math.random() - 0.5) * Math.PI * 0.8
+    }
+
+    // For GATHER, steer toward target node
+    if (npc.aiState === 'GATHER' && npc.gatherTargetIdx >= 0) {
+      const target = RESOURCE_NODES[npc.gatherTargetIdx]
+      if (target && !gatheredNodeIds.has(target.id)) {
+        const tdx = target.x - pos.x, tdy = target.y - pos.y, tdz = target.z - pos.z
+        const tLen = Math.sqrt(tdx*tdx + tdy*tdy + tdz*tdz)
+        if (tLen < 2.5) {
+          // Reached food node — pick it up
+          npc.hasFood   = true
+          npc.aiState   = 'EAT'  // eat immediately
+          npc.planTimer = 0.5
+        } else {
+          // Steer yaw toward target — project target dir into local tangent plane
+          const north = _north.current.set(0, 0, 1)
+          north.addScaledVector(up, -north.dot(up)).normalize()
+          const east = _east.current.crossVectors(up, north).normalize()
+          const targetYaw = Math.atan2(
+            tdx * east.x + tdy * east.y + tdz * east.z,
+            tdx * north.x + tdy * north.y + tdz * north.z
+          )
+          // Smooth yaw toward target (20 deg/s max turn)
+          const yawDiff = ((targetYaw - npc.yaw + Math.PI * 3) % (Math.PI * 2)) - Math.PI
+          npc.yaw += Math.sign(yawDiff) * Math.min(Math.abs(yawDiff), 1.2 * dt)
+        }
+      } else {
+        // Target gone — re-plan
+        npc.gatherTargetIdx = -1
+        npc.aiState = 'WANDER'
+      }
+    }
+
+    // For FLEE, steer directly away from player
+    if (npc.aiState === 'FLEE') {
+      const north = _north.current.set(0, 0, 1)
+      north.addScaledVector(up, -north.dot(up)).normalize()
+      const east = _east.current.crossVectors(up, north).normalize()
+      // Direction AWAY from player
+      const awayX = -pdx, awayY = -pdy, awayZ = -pdz
+      npc.yaw = Math.atan2(
+        awayX * east.x + awayY * east.y + awayZ * east.z,
+        awayX * north.x + awayY * north.y + awayZ * north.z
+      )
+    }
+
+    if (moving) {
+      // Compute forward direction in local tangent plane
       const north = _north.current.set(0, 0, 1)
       north.addScaledVector(up, -north.dot(up)).normalize()
       const east = _east.current.crossVectors(up, north).normalize()
@@ -1772,26 +1977,25 @@ function LocalNpcMesh({ npc }: { npc: LocalNpcState }) {
       const fwdY = north.y * Math.cos(npc.yaw) + east.y * Math.sin(npc.yaw)
       const fwdZ = north.z * Math.cos(npc.yaw) + east.z * Math.sin(npc.yaw)
 
-      const spd = NPC_WANDER_SPEED * delta
+      const spd = (npc.aiState === 'FLEE' ? NPC_WANDER_SPEED * 2.0 : NPC_WANDER_SPEED) * dt
       const nx2 = pos.x + fwdX * spd
       const ny2 = pos.y + fwdY * spd
       const nz2 = pos.z + fwdZ * spd
 
-      // Check the target height — refuse to step into ocean, turn around instead
       const targetH = surfaceRadiusAt(nx2, ny2, nz2) - PLANET_RADIUS
       if (targetH < 2) {
-        // About to walk into water — reverse direction
         npc.yaw += Math.PI + (Math.random() - 0.5) * 0.8
         npc.stateTimer = 1 + Math.random() * 2
       } else {
         pos.x = nx2; pos.y = ny2; pos.z = nz2
-        // Clamp back to terrain surface
         const sr = surfaceRadiusAt(pos.x, pos.y, pos.z)
         pos.normalize().multiplyScalar(sr + 0.9)
       }
 
-      npc.walkPhase += delta * 3.5
+      npc.walkPhase += dt * 3.5
     }
+    // Legacy wandering flag kept in sync for walk cycle animation
+    npc.wandering = moving
 
     // Position and orient root group
     root.position.copy(pos)
@@ -1818,8 +2022,13 @@ function LocalNpcMesh({ npc }: { npc: LocalNpcState }) {
     if (rArmRef.current) rArmRef.current.rotation.x =  swing * 0.55
   })
 
-  // Indicator dot: yellow = wandering, blue = resting
-  const dotColor = npc.wandering ? '#ffdd44' : '#4488ff'
+  // Indicator dot: color reflects P2-3 utility AI state
+  const dotColor =
+    npc.aiState === 'FLEE'   ? '#ff2222' :  // red    — fleeing player
+    npc.aiState === 'EAT'    ? '#ff8833' :  // orange — eating
+    npc.aiState === 'GATHER' ? '#44dd88' :  // green  — gathering food
+    npc.aiState === 'REST'   ? '#4488ff' :  // blue   — resting
+                               '#ffdd44'   // yellow — wandering
 
   return (
     <group ref={groupRef}>

@@ -1,6 +1,6 @@
 # Universe Simulation — Player's Manual
 
-_Last updated: 2026-03-21 (M10)_
+_Last updated: 2026-03-21 (M12)_
 
 ---
 
@@ -19,13 +19,17 @@ This manual will walk you through everything you need to know to play Universe S
 5. [Seasons — The Living Year](#5-seasons--the-living-year)
 6. [Sailing and Fishing](#6-sailing-and-fishing)
 7. [Trade and Economy](#7-trade-and-economy)
-8. [Evolution System — Evolution Points](#8-evolution-system--evolution-points)
-9. [Discovery Journal — Unlocking Knowledge](#9-discovery-journal--unlocking-knowledge)
-10. [Crafting and Inventory](#10-crafting-and-inventory)
-11. [Tech Tree — Civilization Advancement](#11-tech-tree--civilization-advancement)
-12. [AI Creatures and NPCs](#12-ai-creatures-and-npcs)
-13. [Time Controls — Speeding Up and Slowing Down](#13-time-controls--speeding-up-and-slowing-down)
-14. [Tips for Beginners](#14-tips-for-beginners)
+8. [Gunpowder, Firearms, and Castles](#8-gunpowder-firearms-and-castles)
+9. [Astronomy and the Night Sky](#9-astronomy-and-the-night-sky)
+10. [Diplomacy — Mayors, Envoys, and War](#10-diplomacy--mayors-envoys-and-war)
+11. [The Space Age — Rockets and Radio](#11-the-space-age--rockets-and-radio)
+12. [Evolution System — Evolution Points](#12-evolution-system--evolution-points)
+13. [Discovery Journal — Unlocking Knowledge](#13-discovery-journal--unlocking-knowledge)
+14. [Crafting and Inventory](#14-crafting-and-inventory)
+15. [Tech Tree — Civilization Advancement](#15-tech-tree--civilization-advancement)
+16. [AI Creatures and NPCs](#16-ai-creatures-and-npcs)
+17. [Time Controls — Speeding Up and Slowing Down](#17-time-controls--speeding-up-and-slowing-down)
+18. [Tips for Beginners](#18-tips-for-beginners)
 
 ---
 
@@ -362,7 +366,235 @@ You will see caravan groups moving between settlements on the map and in the wor
 
 ---
 
-## 8. Evolution System — Evolution Points
+## 8. Gunpowder, Firearms, and Castles
+
+### What Is Gunpowder?
+
+Gunpowder is a chemical explosive made from three ingredients: saltpeter, carbon (charcoal), and sulfur. In this game, it is not simply a recipe that appears in your crafting menu. The game runs the real Arrhenius combustion reaction between all three materials — the same physical law that governs wood fire. The three reagents must all be present in the same chemistry grid cell and reach the correct threshold temperature before the reaction ignites. Getting this wrong just leaves inert powder. Getting it right produces a controlled explosion.
+
+This is the same science that produced the first firearms in human history around the thirteenth century.
+
+### Finding the Ingredients
+
+**Saltpeter (KNO3)**
+
+Saltpeter is potassium nitrate. In nature, it forms where nitrogen compounds from animal waste and decomposing organic matter concentrate in the soil. In this game, saltpeter deposits form procedurally:
+- Near animal waste deposits — look around areas where deer, boars, and wolves regularly gather
+- On cave floors — nitrogen seeping down from the surface above concentrates underground
+
+You cannot craft saltpeter. You must find it where it naturally occurs.
+
+**Sulfur**
+
+Sulfur appears in volcanic terrain zones — the same areas where lava flows or fumaroles are present on the surface. It has a distinctive yellow color and a sharp smell (though you will need to use the visual cues in-game).
+
+**Carbon (Charcoal)**
+
+You already know this one. Burn wood in a fire to produce charcoal. You have been doing this since the earliest days of the game.
+
+### Crafting Gunpowder
+
+Once you have all three, combine them at the correct temperature in your crafting station:
+
+**Gunpowder (Rocket Fuel):** 1 Saltpeter + 1 Carbon + 1 Sulfur (Recipe 88)
+
+The recipe requires heat — the reaction must reach threshold. This means you need an active fire or furnace nearby when you craft it. Cold mixing produces nothing.
+
+### The Musket
+
+The musket is the first weapon in the game that uses chemical propulsion. It fires a single ball projectile using a controlled gunpowder deflagration (a fast burn, not a detonation). It is the most powerful ranged weapon available in the game at this stage.
+
+**Craft a Musket:** 1 Iron Barrel + 1 Powder Charge (Recipe 89)
+
+The iron barrel is a sub-component: smelt and shape 3 iron ingots into the barrel blank. The powder charge is a single-use loadable round: 1 gunpowder + 1 lead ball.
+
+**Practical tips:**
+- The musket is a single-shot weapon. After firing, you must reload before shooting again. The reload takes several seconds — make your shot count.
+- Gunpowder is wet-sensitive. Carrying a loaded musket into rain or storm weather may misfire. Keep your powder dry.
+- The musket has much longer range than a bow but a slower rate of fire. Use it for opening a fight, then switch to melee.
+
+### Castle Structures
+
+As your civilization advances through civLevel 4 and 5, you unlock fortification construction. Castles and city walls let you create defensible positions and protect settlements from siege.
+
+**Three building blocks are available:**
+
+**Wall Segment**
+A thick stone wall one block wide and two blocks tall. Segments connect automatically when placed end-to-end to form a continuous curtain wall. Multiple segments can be stacked to build taller walls.
+
+**Tower**
+A larger corner or inline tower block. Towers rise higher than standard wall segments, giving a height advantage for archers (or muskets, once unlocked). They can be placed at wall corners or as standalone structures.
+
+**Gate (Gatehouse)**
+The gatehouse block functions as a doorway in your wall line. As a player, you can open and close your own gates freely. Other players cannot open your gate unless you grant them permission or they destroy it.
+
+**Siege Mechanics**
+Walls and gates have structural health points. Attackers can batter them down with enough sustained damage. A well-defended gate can hold against a few attackers, but a coordinated siege group with heavy weapons will eventually break through. This makes castle construction a meaningful military investment rather than an impassable barrier.
+
+**Unlock requirements:**
+- City walls for NPC settlements: civLevel 4
+- Player-constructed castle blocks: civLevel 5
+
+---
+
+## 9. Astronomy and the Night Sky
+
+### What Can You See at Night?
+
+After Milestone 11, the night sky in Universe Simulation displays real star constellations. The positions of the stars are taken from real International Astronomical Union data — not invented patterns. If you recognize Orion, the Southern Cross, or Ursa Major from your own sky, you will recognize them here.
+
+### The Telescope
+
+To take full advantage of the night sky, craft a telescope.
+
+**Craft a Telescope:** 4 Iron Ingot + 2 Glass Ingot (Recipe 91)
+
+**Glass Ingot:** You cannot buy glass ingots — you must make them. Place sand in a kiln and fire it with heat. The sand melts and becomes glass.
+
+**Glass Ingot recipe:** 2 Sand + heat in a kiln (Recipe 90)
+
+While holding the telescope at night, a HUD overlay appears showing:
+- Constellation labels over the bright star groups visible in your current direction
+- The current moon phase (New Moon, Crescent, Half, Gibbous, Full, and the waning sequence)
+- The time until the next solar or lunar eclipse
+
+### Moon Phases
+
+The moon's phase follows a real cycle tied to the world clock. One lunar cycle takes a fixed number of in-game days. The moon is visible at night as a lit disc in the sky. As the cycle progresses, the lit portion changes:
+
+| Phase | Appearance | Real Equivalent |
+|---|---|---|
+| New Moon | Not visible (moon is in the day sky) | No moon visible at night |
+| Waxing Crescent | Thin sliver on the right | Young moon, early night |
+| First Quarter | Half lit on the right | Moon rises at noon |
+| Waxing Gibbous | More than half lit on the right | Moon up most of the night |
+| Full Moon | Fully lit disc | Rises at sunset, sets at dawn |
+| Waning Gibbous | More than half lit on the left | Moon rises after sunset |
+| Last Quarter | Half lit on the left | Moon rises at midnight |
+| Waning Crescent | Thin sliver on the left | Moon visible near dawn |
+
+**Why does this matter?**
+
+Full moon nights are brighter — you can see further without a torch. New moon nights are very dark — predators have an easier time approaching unseen. Plan your outdoor activities accordingly.
+
+### Eclipses
+
+The astronomy HUD shows the time until the next eclipse. Eclipses are rare events — they depend on the alignment of the sun, the moon, and the planet. When a solar eclipse occurs, the day goes briefly dark even at noon. When a lunar eclipse occurs, the full moon turns a dark red color.
+
+Eclipses have no direct gameplay effect, but they are notable events that experienced players may want to witness.
+
+---
+
+## 10. Diplomacy — Mayors, Envoys, and War
+
+### What Is Diplomacy?
+
+Once settlements have been established long enough and their NPC populations have developed strong community relationships, a political layer emerges. Settlements appoint mayors, send envoys to one another, and can formally declare war or peace. These decisions affect your life as a player.
+
+### Mayor NPCs
+
+Each settlement promotes one of its NPCs to the position of mayor. The mayor is always the NPC who has accumulated the highest trust rating with the settlement's community — they have proven themselves reliable, cooperative, and respected.
+
+You can identify the mayor by a distinctive marker above their head in the settlement. When you interact with the mayor, you have access to special dialogue options not available with other NPCs. The mayor speaks on behalf of the entire settlement.
+
+**What the mayor can do:**
+- Accept formal alliance or trade agreement proposals from you
+- Declare war or peace on behalf of the settlement
+- Grant you access to restricted areas (such as the inner courtyard of a castle)
+- Assign you diplomatic missions (escort an envoy, deliver a message, broker a deal)
+
+### Diplomatic Envoys
+
+When two settlements decide to open formal relations, a named envoy NPC is dispatched from one settlement to the other. This envoy is a visible character who walks the terrain between settlements — you will see them on the path or on the map.
+
+The journey takes real in-game time. The envoy's arrival triggers a diplomatic event at the destination settlement (a greeting ceremony, a formal audience with the mayor, or an exchange of goods).
+
+**Interacting with an envoy in transit:**
+- You can speak with an envoy while they are traveling.
+- You can escort an envoy to earn trust with the destination settlement.
+- You can attack an envoy — but this counts as an act of aggression against the envoy's home settlement and damages your diplomatic standing significantly.
+
+### War and Peace Declarations
+
+Settlements can enter three diplomatic states with one another: neutral, allied, or at war.
+
+**Why this matters for you:**
+
+Your criminal alignment is now tied to the diplomatic map. If Settlement A and Settlement B are at war:
+- Attacking a soldier of Settlement B while allied with Settlement A is not a crime from Settlement A's perspective — it may even earn trust.
+- Attacking a soldier of Settlement A while allied with Settlement B has the opposite effect.
+- Attacking an envoy or a mayor from either side during any diplomatic state is always treated as a serious crime.
+
+**Practical tips:**
+- Check the current diplomatic state before attacking any NPC who is traveling. An NPC who looks like a civilian may be a diplomatic envoy.
+- Alliance with a powerful settlement can open gates to their allies and close them to their enemies.
+- Starting a war has consequences that outlast the fight. NPCs remember which side you supported.
+
+---
+
+## 11. The Space Age — Rockets and Radio
+
+### What Is the Space Age?
+
+Milestone 12 brings the civilization to the technological level of the late twentieth century. Settlements with a high enough civilization level (civLevel 6) gain access to rocketry, electronics, aerospace engineering, and nuclear physics. The world's night sky is now dotted with electric lights from advanced settlements, and the first rocket can be launched.
+
+### The civLevel 6 Gate
+
+When a settlement crosses the civLevel 6 threshold, a CIVILIZATION_L6 announcement broadcasts to all players. Four new branches of the tech tree unlock:
+
+- **Electronics** — transistors, integrated circuits, computers
+- **Rocketry** — propulsion, guidance systems, launch infrastructure
+- **Aerospace** — aerodynamics at orbital velocities, spacecraft design
+- **Nuclear Physics** — fission reactions, reactor design, fuel rods
+
+This is the most significant single advancement in the game since the Iron Age.
+
+### Building and Launching a Rocket
+
+The rocket is the most complex construction project in the game at this stage. You will need:
+- Rocket Fuel (MAT 65): the propellant — a refined gunpowder blend processed to the correct energy density
+- Circuit Board (MAT 66): the guidance and ignition electronics
+- Substantial quantities of iron and steel for the rocket body and launch structure
+
+Once constructed at a launch pad, the rocket begins a countdown sequence:
+
+1. **T-10 to T-1** — the countdown timer runs. You will hear a countdown and see the exhaust begin to build at the base.
+2. **Ignition** — the rocket fuel ignites in the chemistry grid. The exhaust cone VFX activates: white-hot inner core, orange glow middle layer, soot outer dispersal.
+3. **Ascent** — the rocket accelerates upward. The screen shakes for all nearby players. A ROCKET_LAUNCHED event broadcasts to all players on the server.
+4. **Liftoff** — the rocket leaves the terrain. A scorch disc remains burned into the ground at the launch pad.
+
+**After the launch, 30 seconds later**, the Velar Signal panel appears. This is a faint incoming transmission — a Morse-blink sequence from an unknown source. It is a teaser for what comes in the next milestone. You cannot respond to it yet, but you can observe it.
+
+### Radio Towers
+
+Radio towers let you broadcast a signal that all other players on the server can hear. This is the first long-range communication system in the game.
+
+**To use a radio tower:**
+1. Construct a radio tower at your base (requires circuit boards and iron).
+2. Equip a radio transmitter item.
+3. Activate the tower with the use key.
+
+When activated, a PLAYER_RADIO_BROADCAST message is sent to all connected players. Electromagnetic pulse rings appear rising from the tower — teal-colored expanding rings using an additive visual blend that makes them glow against the night sky.
+
+Radio is primarily a social and coordination tool. Use it to signal your position, warn other players of threats, or coordinate a joint project.
+
+### Electric Lights
+
+Settlements at civLevel 6 illuminate themselves at night. Forty warm tungsten-style electric lights activate over the settlement buildings at sunset and extinguish at sunrise. The light has a 2700K warm-white color tone (the same warm orange-white as an old-style incandescent bulb) and a gentle flicker.
+
+From a distance, a civLevel 6 settlement is immediately recognizable at night by its glow. This is also a useful navigation landmark — if you are lost in the dark, look for the light.
+
+### New Materials (M12)
+
+| Material | ID | How to Get | Use |
+|---|---|---|---|
+| Rocket Fuel | MAT 65 | Refine gunpowder blend to propellant grade | Rocket launch propellant |
+| Circuit Board | MAT 66 | Fabricate from silicon + copper + glass | Electronics; rocket guidance; radio |
+| Nuclear Fuel | MAT 67 | Process uranium ore in a refinery | Future: nuclear reactor (not yet operational) |
+
+---
+
+## 12. Evolution System — Evolution Points
 
 ### What are Evolution Points?
 
@@ -465,7 +697,7 @@ Examples:
 
 ---
 
-## 9. Discovery Journal — Unlocking Knowledge
+## 13. Discovery Journal — Unlocking Knowledge
 
 ### What Is the Discovery Journal?
 
@@ -537,7 +769,7 @@ Some discoveries give you special tools as the player — not just for your crea
 
 ---
 
-## 10. Crafting and Inventory
+## 14. Crafting and Inventory
 
 ### What Is the Inventory?
 
@@ -604,6 +836,11 @@ Materials are the raw building blocks you collect. Here is a list of all materia
 | Fish | Catch with a Fishing Rod at rivers or the coast (M10) |
 | Salt | Buy at Saltmere or evaporate seawater; used in Smoked Fish recipe (M10) |
 | Grain | Buy at Ridgepost; a food item for settlements and players (M10) |
+| Saltpeter (KNO3) | Forms naturally in nitrogen-rich soil near animal waste and on cave floors (M11) |
+| Rocket Fuel | Refine gunpowder blend (Saltpeter + Carbon + Sulfur) to propellant grade (M11/M12) |
+| Glass Ingot | Smelt Sand in a kiln with heat (M11) |
+| Circuit Board | Fabricate from Silicon + Copper + Glass Ingot (M12) |
+| Nuclear Fuel | Process Uranium Ore in a refinery — future nuclear reactor use (M12) |
 
 ### Crafting Recipes by Tier
 
@@ -677,6 +914,14 @@ Recipes are grouped by civilization tier (0 through 9). You can only use recipes
 | Item | Materials Needed | Knowledge Required | Time |
 |------|-----------------|-------------------|------|
 | Printing Press | 20 Iron + 15 Wood + 5 Copper | Mechanics + Writing + Optics | 1 hour |
+| Glass Ingot | 2 Sand + heat in kiln | Glassblowing | 2 min |
+| Telescope | 4 Iron Ingot + 2 Glass Ingot | Optics + Astronomy | 15 min |
+| Gunpowder | 1 Saltpeter + 1 Charcoal + 1 Sulfur (at heat) | Chemistry + Alchemy | 2 min |
+| Musket | 1 Iron Barrel + 1 Powder Charge | Gunpowder + Weapon Smithing | 20 min |
+| Castle Wall Segment | 10 Stone + 2 Iron | Engineering + Architecture | 5 min |
+| Castle Tower | 20 Stone + 5 Iron + 5 Wood | Engineering + Architecture | 10 min |
+| Castle Gate | 15 Stone + 8 Iron + 6 Wood | Engineering + Architecture | 12 min |
+| Artillery Shell | 2 Iron + 1 Gunpowder | Gunpowder + Weapon Smithing | 5 min |
 
 ---
 
@@ -703,6 +948,8 @@ Recipes are grouped by civilization tier (0 through 9). You can only use recipes
 | Airplane | 200 Steel + 60 Rubber + 30 Fuel | Aerodynamics + Internal Combustion + Engineering | 12 hours |
 | Radio | 8 Copper + 4 Glass + 2 Rubber | Electromagnetism + Communication + Electronics | 1 hour |
 | Nuclear Reactor | 500 Steel + 50 Uranium + 100 Copper | Nuclear Physics + Engineering + Materials Science | 10 days |
+| Circuit Board | Silicon + Copper + Glass Ingot | Electronics + Semiconductor Physics | 30 min |
+| Radio Tower | 30 Steel + 20 Circuit Board + 10 Copper | Electronics + Communication | 2 hours |
 
 ---
 
@@ -712,7 +959,7 @@ Recipes are grouped by civilization tier (0 through 9). You can only use recipes
 |------|-----------------|-------------------|------|
 | Computer | 30 Silicon + 20 Copper + 10 Plastic | Electronics + Semiconductor Physics + Logic | 1 day |
 | Satellite | 300 Steel + 100 Silicon + 200 Fuel | Aerospace + Electronics + Orbital Mechanics | 30 days |
-| Rocket | 800 Steel + 500 Fuel + 200 Silicon | Aerospace + Orbital Mechanics + Propulsion | 90 days |
+| Rocket | 800 Steel + 500 Rocket Fuel + 200 Circuit Board | Aerospace + Orbital Mechanics + Propulsion + Rocketry | 90 days |
 
 ---
 
@@ -741,7 +988,7 @@ Crafting the Simulation Engine is the ultimate achievement of the game.
 
 ---
 
-## 11. Tech Tree — Civilization Advancement
+## 15. Tech Tree — Civilization Advancement
 
 ### What Is the Tech Tree?
 
@@ -825,11 +1072,12 @@ Key technologies:
 - Wind Power — windmills grind grain and pump water.
 - Water Power — waterwheels convert flowing water into mechanical energy.
 - Printing Press — mass-produce text. Knowledge spreads rapidly.
-- Telescope — see distant objects. Revolutionises astronomy.
+- Telescope — see distant objects. Unlocks real constellation astronomy and moon phase tracking (M11).
 - Magnetic Compass — reliable navigation using Earth's magnetic field.
-- Gunpowder — explosive compound unlocking cannons and muskets.
+- Gunpowder — the KNO3 + C + S Arrhenius reaction. Unlocks musket, artillery shell, and castle fortifications (M11).
 - Mechanical Clock — precise timekeeping.
 - Algebra — symbolic mathematics, the foundation of modern science.
+- Castle Engineering — multi-block fortification construction: walls, towers, gates, and siege mechanics (M11).
 
 ---
 
@@ -859,7 +1107,10 @@ Key technologies:
 - Nuclear Fission — split atoms to release enormous energy. Enables nuclear power and nuclear weapons.
 - Molecular Genetics — the structure of DNA. Enables genetic engineering.
 - Transistor — a solid-state switch that enables computers and electronics.
-- Rocketry — reach orbital velocity. First satellites, then the Moon.
+- Rocketry — reach orbital velocity. First satellites, then the Moon. Unlocks rocket construction and launch sequence (M12).
+- Aerospace Engineering — high-speed aerodynamics, orbital mechanics, spacecraft structural design (M12).
+- Electronics — circuit boards, radio towers, and electric settlement lighting (M12).
+- Nuclear Physics — nuclear fuel processing; nuclear reactor construction (M12, reactor operation planned for future milestone).
 - Advanced Materials Science — design materials at the atomic level.
 
 ---
@@ -908,7 +1159,7 @@ At Tier 9, the game reveals its final truth: the universe you have been playing 
 
 ---
 
-## 12. AI Creatures and NPCs
+## 16. AI Creatures and NPCs
 
 ### Animals — Deer, Wolves, and Boars
 
@@ -1032,7 +1283,7 @@ You have several ways to interact with NPCs:
 
 ---
 
-## 13. Time Controls — Speeding Up and Slowing Down
+## 17. Time Controls — Speeding Up and Slowing Down
 
 ### What Are the Time Controls?
 
@@ -1085,7 +1336,7 @@ A good habit is to pause before making any major decision — using the Gene Edi
 
 ---
 
-## 14. Tips for Beginners
+## 18. Tips for Beginners
 
 These tips will help you get off to a strong start and avoid common mistakes.
 
@@ -1201,18 +1452,68 @@ Wolf pelts do not have a Tier 0 recipe yet. Keep them in your inventory for when
 
 ---
 
+**Saltpeter does not exist everywhere — map where you find it.**
+Saltpeter only forms in specific locations: near areas where animals regularly rest and deposit waste, and on cave floors. It does not spawn on open terrain. If you find a good saltpeter deposit, remember where it is. You will need a steady supply once you enter the gunpowder era.
+
+---
+
+**Craft the glass ingots before you need the telescope.**
+The telescope requires glass ingots, which must be smelted in a kiln from sand. Sand is common, but the kiln step takes time. If you wait until you need the telescope to start making glass, you will delay your astronomy unlock. Smelt glass ingots as part of your regular resource processing whenever you have sand available.
+
+---
+
+**Do not fire a musket into the wind without cover.**
+The musket is slow to reload. If you open a fight at range and miss, your opponent can close the distance before you reload. Use terrain cover and pick shots carefully. The musket is most effective as a first strike, not as a rapid-fire weapon.
+
+---
+
+**Build your castle walls before you need them.**
+Castle construction takes significant time and materials. Do not wait until an enemy is at your settlement to start building walls. Start fortifying as soon as you reach civLevel 5. Even a simple curtain wall with a single gatehouse dramatically increases the effort required to breach your base.
+
+---
+
+**Use the moon phase to plan dangerous outings.**
+A full moon significantly brightens the night. This is the safest time to travel after dark — you can see predators at a greater distance. New moon nights are very dark and dangerous. Check the moon phase in your astronomy HUD before planning a night expedition.
+
+---
+
+**Escort diplomatic envoys for trust bonuses.**
+When an envoy NPC leaves a settlement heading for another, walking alongside them and ensuring they arrive safely earns substantial trust with the destination settlement. This is one of the fastest legal ways to build goodwill with a settlement you have never traded with before.
+
+---
+
+**Check which side of the war you are on before attacking.**
+Once diplomacy is active, NPC soldiers belong to factional states. Killing an NPC from a settlement that is at war with your allied settlement may be completely legal — or even rewarded. Killing an ally's soldier by mistake will cost you trust just as badly as attacking a peaceful settlement.
+
+---
+
+**The rocket launch is visible to all players — use it deliberately.**
+The ROCKET_LAUNCHED event sends a notification to every connected player on the server. This is your civilization's most significant announcement. Time your launch for when other players are online if you want to share the moment. The screen shake and exhaust VFX are visible from a distance in the world.
+
+---
+
+**Electric lights at night mean a civLevel 6 settlement is nearby.**
+The warm glow of a fully electrified settlement is visible across the map at night. If you are lost and need to reach a trading post or shelter, look for the light. It is a reliable navigation landmark that requires no map or compass.
+
+---
+
+**Save nuclear fuel — the reactor is coming.**
+Nuclear Fuel (MAT 67) has a recipe and an ID, but the nuclear reactor building is not yet operational in this milestone. Collect and store nuclear fuel whenever you refine it. When the reactor system ships in a future update, you will be glad to have stockpiled it.
+
+---
+
 ## Notes and Warnings
 
 - This game is not a simple game with a fixed ending. It is an open-ended simulation. You can succeed, fail, restart, or explore forever.
 - Civilisations can collapse. Evolution can dead-end. Species can go extinct. This is intentional — the universe does not guarantee success.
 - The game is grounded in real science. The laws of physics, chemistry, and biology are not approximations invented for fun — they are based on real formulas. What you see happening is a genuine emergent result of those rules.
-- The game is still in development (Version 0.1.0, Milestone 10, as of March 2026). Some features listed in this manual may still be being built. Check the in-game build milestone screen for what is currently active.
+- The game is still in development (Version 0.1.0, Milestone 12, as of March 2026). Some features listed in this manual may still be being built. Check the in-game build milestone screen for what is currently active. Nuclear reactor operation (MAT 67), artillery shell delivery via cannon (ITEM 65), and Level 7 content (Velar Signal) are planned for future milestones.
 
 ---
 
 _End of Manual_
 
-_This manual covers all major systems through Milestone 10 (Version 0.1.0, updated 2026-03-21). For the latest changes, refer to the in-game Discovery Journal, the companion site at https://universe-companion.vercel.app, and the official GAME_DESIGN.md document in the docs folder._
+_This manual covers all major systems through Milestone 12 (Version 0.1.0, updated 2026-03-21). For the latest changes, refer to the in-game Discovery Journal, the companion site at https://universe-companion.vercel.app, and the official GAME_DESIGN.md document in the docs folder._
 
 ---
 

@@ -220,17 +220,13 @@ export class LocalSimManager {
     this.engine.sendToChem({ type: 'ignite', gx: gc.gx, gy: gc.gy, gz: gc.gz, energyJ })
   }
 
-  /** Cool all cells within worldRadius metres of a world position to ≤ targetTempC.
-   *  Used by rain/storm weather to suppress fires near the player. */
-  suppressFire(wx: number, wy: number, wz: number, worldRadius: number, targetTempC = 20): void {
+  /** M8: Suppress fire within worldRadius metres — sends a cool message to the chem worker.
+   *  Rain and storm weather call this to extinguish unprotected campfires. */
+  suppressFire(wx: number, wy: number, wz: number, worldRadius = 15): void {
     const gc = worldToGrid(wx, wy, wz, this.engine.gridOrigin, CELL_SIZE)
+    if (!isInBounds(gc.gx, gc.gy, gc.gz, { sizeX: this.sizeX, sizeY: this.sizeY, sizeZ: this.sizeZ })) return
     const radiusCells = Math.ceil(worldRadius / CELL_SIZE)
-    this.engine.sendToChem({
-      type: 'cool',
-      cgx: gc.gx, cgy: gc.gy, cgz: gc.gz,
-      radiusCells,
-      targetTempC,
-    })
+    this.engine.sendToChem({ type: 'cool', cgx: gc.gx, cgy: gc.gy, cgz: gc.gz, radiusCells, targetTempC: 20 })
   }
 
   /**

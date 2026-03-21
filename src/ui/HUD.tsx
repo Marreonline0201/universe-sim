@@ -209,6 +209,104 @@ function HotbarSlot({ index, active, tick }: HotbarSlotProps) {
   )
 }
 
+// ── M8: Weather HUD widget ────────────────────────────────────────────────────
+
+const WEATHER_ICONS: Record<WeatherState, string> = {
+  CLEAR:  'sun',
+  CLOUDY: 'cloud',
+  RAIN:   'rain',
+  STORM:  'storm',
+}
+
+// ASCII-art style SVG icons — photorealistic enough for a monospace sci-fi HUD
+function WeatherIcon({ state }: { state: WeatherState }) {
+  const size = 18
+  switch (state) {
+    case 'CLEAR':
+      return (
+        <svg width={size} height={size} viewBox="0 0 18 18" style={{ display: 'block' }}>
+          <circle cx="9" cy="9" r="4" fill="#f1c40f" />
+          {[0,45,90,135,180,225,270,315].map((deg, i) => {
+            const r = Math.PI * deg / 180
+            const x1 = 9 + Math.cos(r) * 5.5, y1 = 9 + Math.sin(r) * 5.5
+            const x2 = 9 + Math.cos(r) * 7.5, y2 = 9 + Math.sin(r) * 7.5
+            return <line key={i} x1={x1} y1={y1} x2={x2} y2={y2} stroke="#f1c40f" strokeWidth="1.5" strokeLinecap="round" />
+          })}
+        </svg>
+      )
+    case 'CLOUDY':
+      return (
+        <svg width={size} height={size} viewBox="0 0 18 18" style={{ display: 'block' }}>
+          <ellipse cx="9" cy="10" rx="6" ry="4" fill="#aabbcc" />
+          <ellipse cx="7" cy="9" rx="3.5" ry="3" fill="#ccdde8" />
+          <ellipse cx="12" cy="9" rx="3" ry="2.5" fill="#ccdde8" />
+        </svg>
+      )
+    case 'RAIN':
+      return (
+        <svg width={size} height={size} viewBox="0 0 18 18" style={{ display: 'block' }}>
+          <ellipse cx="9" cy="7" rx="5.5" ry="3.5" fill="#8899aa" />
+          {[4,8,12].map((x, i) => (
+            <line key={i} x1={x} y1="11" x2={x - 1} y2="16" stroke="#6699cc" strokeWidth="1.5" strokeLinecap="round" />
+          ))}
+        </svg>
+      )
+    case 'STORM':
+      return (
+        <svg width={size} height={size} viewBox="0 0 18 18" style={{ display: 'block' }}>
+          <ellipse cx="9" cy="6" rx="6" ry="4" fill="#445566" />
+          <polyline points="10,10 7,14 10,13 7,18" fill="none" stroke="#f1c40f" strokeWidth="1.8" strokeLinejoin="round" />
+        </svg>
+      )
+  }
+}
+
+interface WeatherWidgetProps {
+  state: WeatherState
+  tempC: number
+}
+
+function WeatherWidget({ state, tempC }: WeatherWidgetProps) {
+  const stormColor = state === 'STORM' ? '#e74c3c' : state === 'RAIN' ? '#6699cc' : state === 'CLOUDY' ? '#aabbcc' : '#f1c40f'
+
+  return (
+    <div style={{
+      display: 'flex',
+      alignItems: 'center',
+      gap: 5,
+      background: 'rgba(0,0,0,0.4)',
+      border: `1px solid ${stormColor}44`,
+      borderRadius: 3,
+      padding: '3px 7px 3px 5px',
+      marginTop: 2,
+    }}>
+      <WeatherIcon state={state} />
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+        <span style={{
+          fontSize: 8,
+          color: stormColor,
+          fontFamily: 'monospace',
+          letterSpacing: 1,
+          fontWeight: 700,
+          textTransform: 'uppercase',
+          lineHeight: 1.3,
+        }}>
+          {state}
+        </span>
+        <span style={{
+          fontSize: 8,
+          color: tempC < 0 ? '#88bbff' : tempC > 35 ? '#ff7744' : '#88ccaa',
+          fontFamily: 'monospace',
+          letterSpacing: 0.5,
+          lineHeight: 1.3,
+        }}>
+          {tempC > 0 ? '+' : ''}{tempC.toFixed(0)}°C
+        </span>
+      </div>
+    </div>
+  )
+}
+
 // ── Crosshair ─────────────────────────────────────────────────────────────────
 
 function Crosshair() {

@@ -50,6 +50,7 @@ import {
 import { DeathScreen as DeathScreenImport } from '../ui/DeathScreen'
 import { SettlementRenderer } from './SettlementRenderer'
 import { SettlementHUD } from '../ui/SettlementHUD'
+import { RiverHUD } from '../ui/RiverHUD'
 import { useSettlementStore } from '../store/settlementStore'
 import { useOutlawStore } from '../store/outlawStore'
 import { PlanetTerrain } from './PlanetTerrain'
@@ -62,8 +63,27 @@ import { getWorldSocket } from '../net/useWorldSocket'
 import { setSimManagerForSocket } from '../net/WorldSocket'
 import { WeatherRenderer } from './WeatherRenderer'
 import { useWeatherStore } from '../store/weatherStore'
+import { RiverRenderer } from './RiverRenderer'
+import { useRiverStore } from '../store/riverStore'
+import { queryNearestRiver, getRiverClayPositions } from '../world/RiverSystem'
+import { registerRiverCarveDepth } from '../world/SpherePlanet'
+import { getRiverCarveDepth } from '../world/RiverSystem'
 
 import { getSectorIdForPosition } from '../world/WeatherSectors'
+import { AnimalRenderer } from './AnimalRenderer'
+import {
+  spawnInitialAnimals,
+  tickAnimalAI,
+  attackNearestAnimal,
+  pendingLoot,
+  tickEcosystemBalance,
+} from '../ecs/systems/AnimalAISystem'
+
+// M9: Register river valley carving with the terrain height function.
+// Must happen before any geometry is generated (before generatePlanetGeometry is called).
+// registerRiverCarveDepth wires getRiverCarveDepth into terrainHeightAt so the
+// terrain mesh has carved valleys wherever rivers flow.
+registerRiverCarveDepth(getRiverCarveDepth)
 
 // ── Resource node definitions ─────────────────────────────────────────────────
 
@@ -210,6 +230,24 @@ function generateResourceNodes(): ResourceNode[] {
 
 // Module-level constants so they survive across renders
 const RESOURCE_NODES: ResourceNode[] = generateResourceNodes()
+
+// M9: Add additional clay deposits along river banks.
+// River clay is geologically accurate: alluvial deposits form where rivers slow
+// and drop sediment load (lower half of river, t > 0.3).
+;(function addRiverClayNodes() {
+  const clayPositions = getRiverClayPositions()
+  let id = RESOURCE_NODES.length
+  for (const [cx, cy, cz] of clayPositions) {
+    RESOURCE_NODES.push({
+      id: id++,
+      type: 'clay',
+      label: 'River Clay',
+      matId: MAT.CLAY,
+      color: '#CC7744',
+      x: cx, y: cy, z: cz,
+    })
+  }
+})()
 
 // Pre-compute surface-normal quaternions for each node once.
 // Rotates local Y (tree up) → outward surface normal at that point on the sphere.
@@ -490,6 +528,9 @@ export function SceneRoot() {
       // Spawn initial creatures — world feels alive before any player action
       spawnInitialCreatures(spawnX, spawnY, spawnZ)
 
+      // M9: Spawn initial animal population (deer, wolves, boars)
+      spawnInitialAnimals(spawnX, spawnY, spawnZ)
+
       // Create keyboard/mouse controller for the player
       controllerRef.current = new PlayerController(eid)
 
@@ -617,6 +658,10 @@ export function SceneRoot() {
         <SettlementRenderer />
         {/* M8: Weather particle system — follows player position */}
         <WeatherRendererWrapper />
+        {/* M9: River ribbon meshes — generated from flow-field paths */}
+        <RiverRenderer />
+        {/* M9: Animal renderer — instanced deer/wolf/boar meshes */}
+        <AnimalRenderer />
       </Suspense>
       {entityId !== null && (
         <>
@@ -638,6 +683,8 @@ export function SceneRoot() {
     <DeathScreenWrapper onRespawn={handleRespawn} />
     {/* M6: Settlement HUD — trade offers and gates-closed banner */}
     <SettlementHUD />
+    {/* M9: River HUD — fresh water indicator */}
+    <RiverHUD />
     </>
   )
 }
@@ -705,6 +752,7 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
   const evoUnlockedRef          = useRef(-1)  // -1 forces apply on first frame
   const fwdVec                  = useRef(new THREE.Vector3())
   const settlementCheckTimerRef = useRef(0)   // M6: seconds since last proximity check
+  const ecosystemTimerRef       = useRef(0)   // M9: seconds since last ecosystem respawn check
 
   useFrame((_, delta) => {
     // Cap dt to avoid spiral-of-death on slow frames
@@ -778,6 +826,39 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
           }
         }
       }
+    }
+
+    // 2c. M9 Animal AI tick — deer/wolf/boar behavior state machines
+    {
+      const ps9 = usePlayerStore.getState()
+      tickAnimalAI({
+        dt,
+        playerX: _playerPx, playerY: _playerPy, playerZ: _playerPz,
+        playerMurderCount: ps9.murderCount,
+        playerCrouching: !!(controllerRef.current as any)?.keys?.has?.('ControlLeft'),
+        onPlayerDamaged: (dmg) => {
+          Health.current[entityId] = Math.max(0, Health.current[entityId] - dmg)
+          inflictWound(dmg / 100)
+          markCombatDamage()
+        },
+        onAnimalKilled: () => { /* handled via return value of attackNearestAnimal */ },
+      })
+      // Drain pending loot from wolf kills (wolf-on-deer kills drop loot here)
+      while (pendingLoot.length > 0) {
+        const drop = pendingLoot.shift()!
+        inventory.addItem({ itemId: 0, materialId: drop.materialId, quantity: drop.quantity, quality: 0.8 })
+      }
+    }
+
+    // 2d. M9 Ecosystem balance — respawn animals every 30s if below 50% cap
+    ecosystemTimerRef.current += dt
+    if (ecosystemTimerRef.current >= 30) {
+      ecosystemTimerRef.current = 0
+      tickEcosystemBalance(
+        Position.x[entityId],
+        Position.y[entityId],
+        Position.z[entityId],
+      )
     }
 
     // 3. Metabolism (hunger, thirst, fatigue, health regen)
@@ -1179,6 +1260,24 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
         }
       }
 
+      // ── M9: Check if player hit a deer/wolf/boar ─────────────────────────────
+      if (!hitCreature) {
+        const animalHit = attackNearestAnimal(px, py, pz, stats.damage, stats.range)
+        if (animalHit) {
+          hitCreature = true
+          const { killed, loot } = animalHit
+          const speciesName = killed.species.charAt(0).toUpperCase() + killed.species.slice(1)
+          for (const drop of loot) {
+            inventory.addItem({ itemId: 0, materialId: drop.materialId, quantity: drop.quantity, quality: 0.8 })
+          }
+          addEvolutionPoints(3)
+          const lootSummary = loot.map(l => `${l.quantity}x ${l.label}`).join(', ')
+          useUiStore.getState().addNotification(
+            `${speciesName} killed — ${lootSummary} collected!`, 'discovery'
+          )
+        }
+      }
+
       // ── M7 T2: Check if player hit a remote player (PvP) ─────────────────────
       // Scan all remote players within weapon range. The first hit remote player
       // takes damage tracked client-side. When their health reaches 0 we notify
@@ -1502,6 +1601,102 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
           Health.current[entityId] = Math.max(0, Health.current[entityId] - coldDps * dt)
           markCombatDamage()  // mark so death attributes to environmental cause (combat)
         }
+      }
+    }
+
+    // ── M9: River system — current force, fresh water drinking, proximity HUD ──
+    {
+      const RIVER_NEAR_DIST    = 20   // metres — show HUD indicator
+      const RIVER_IN_DIST      = 6    // metres — player is IN the river channel
+      const RIVER_DRINK_RATE   = 0.04 // thirst restored per second while in river
+      const WIND_CHILL_VALLEY_FACTOR = 0.7  // 30% wind-chill reduction in deep valley
+
+      const rStore = useRiverStore.getState()
+      const nearResult = queryNearestRiver(px, py, pz, RIVER_NEAR_DIST)
+
+      if (nearResult) {
+        // Update nearRiver flag
+        if (!rStore.nearRiver) rStore.setNearRiver(true)
+
+        const inRiver = nearResult.dist < RIVER_IN_DIST
+        if (inRiver !== rStore.inRiver) rStore.setInRiver(inRiver)
+
+        if (inRiver) {
+          // Apply river current: push player in flow direction scaled by river speed
+          // Force is applied to Velocity ECS component; KCC picks it up next frame.
+          // Scale: 1 m/s current = 0.4 m/s lateral push (not overwhelming)
+          const pushScale = nearResult.speed * 0.4
+          const cvx = nearResult.flowDirX * pushScale
+          const cvy = nearResult.flowDirY * pushScale
+          const cvz = nearResult.flowDirZ * pushScale
+          rStore.setRiverCurrent(cvx, cvy, cvz)
+
+          // Apply current to player velocity in ECS (additive to KCC input)
+          Velocity.x[entityId] = (Velocity.x[entityId] || 0) + cvx * dt
+          Velocity.y[entityId] = (Velocity.y[entityId] || 0) + cvy * dt
+          Velocity.z[entityId] = (Velocity.z[entityId] || 0) + cvz * dt
+
+          // Also nudge Rapier KCC body directly for immediate physics response
+          const kccBody = rapierWorld.getPlayer()?.body
+          if (kccBody) {
+            const t3 = kccBody.translation()
+            kccBody.setNextKinematicTranslation({
+              x: t3.x + cvx * dt,
+              y: t3.y + cvy * dt,
+              z: t3.z + cvz * dt,
+            })
+          }
+
+          // Drinkable fresh water: E key or automatic slow restoration when in river
+          // Auto-restore thirst slowly when standing in river (player is drinking)
+          const psRiver = usePlayerStore.getState()
+          if (psRiver.thirst > 0.02) {
+            const newThirst = Math.max(0, psRiver.thirst - RIVER_DRINK_RATE * dt)
+            psRiver.updateVitals({ thirst: newThirst })
+            // Sync to ECS
+            Metabolism.thirst[entityId] = newThirst
+          }
+
+          // Valley wind-chill reduction (deep valleys shelter from wind)
+          // Reduce hypothermia damage rate by 30% when in river valley
+          // This is handled by modulating ambientTemp toward a less-extreme value
+          if (nearResult.t > 0.3) {  // lower valleys only (not at source)
+            const psW = usePlayerStore.getState()
+            const currentTemp = psW.ambientTemp
+            if (currentTemp < 5) {
+              // Warm slightly — valley shelters from wind chill
+              const warmedTemp = currentTemp + (5 - currentTemp) * WIND_CHILL_VALLEY_FACTOR * dt * 0.5
+              psW.setAmbientTemp(warmedTemp)
+            }
+          }
+        } else {
+          // Near river but not in it — clear current
+          rStore.clearRiverCurrent()
+        }
+
+        // Show drink prompt when thirsty and near river
+        if (!gs.inputBlocked && usePlayerStore.getState().thirst > 0.1) {
+          const drinkLabel = inRiver
+            ? '[E] Drink from river — restoring thirst'
+            : `River nearby (${nearResult.dist.toFixed(0)}m) — approach to drink`
+          if (gs.gatherPrompt === null) gs.setGatherPrompt(drinkLabel)
+        }
+
+        // E key: explicit drink action when near river
+        if (!gs.inputBlocked && inRiver && controllerRef.current?.popEat?.()) {
+          const psDrink = usePlayerStore.getState()
+          if (psDrink.thirst > 0.01) {
+            const instant = Math.min(psDrink.thirst, 0.25)
+            psDrink.updateVitals({ thirst: Math.max(0, psDrink.thirst - instant) })
+            Metabolism.thirst[entityId] = Math.max(0, psDrink.thirst - instant)
+            useUiStore.getState().addNotification('Drank from river — thirst reduced!', 'info')
+          }
+        }
+      } else {
+        // No river nearby
+        if (rStore.nearRiver)   rStore.setNearRiver(false)
+        if (rStore.inRiver)     rStore.setInRiver(false)
+        rStore.clearRiverCurrent()
       }
     }
 
@@ -2795,70 +2990,91 @@ function RockMesh({ id, color }: { id: number; color: string }) {
 }
 
 // ── Node health bar renderer ──────────────────────────────────────────────────
-// Renders a 3D health bar above each node that has taken damage but not been
-// gathered yet. Bar width scales from full (0 hits) to zero (maxHits).
-// Uses instanced meshes — no per-node React re-renders.
+// M9 T3: Zero-allocation pool. Old code created new Geometry/Material/Mesh
+// every frame per damaged node — a GC bomb at 60fps. New approach: preallocate
+// _MAX_HP_BARS track+fill mesh pairs. Each frame costs 0 heap allocations.
+const _MAX_HP_BARS = 32
+const _hpTrackGeo = new THREE.PlaneGeometry(1.2, 0.18)
+const _hpTrackMat = new THREE.MeshBasicMaterial({ color: '#222222', depthTest: false })
+const _hpFillGeo = new THREE.PlaneGeometry(1.1, 0.14)
+const _hpFillMats = Array.from({ length: _MAX_HP_BARS }, () =>
+  new THREE.MeshBasicMaterial({ color: '#00ff00', depthTest: false }),
+)
+const _hpBarPos = new THREE.Vector3()
+const _hpCamDir = new THREE.Vector3()
+const _hpZAxis = new THREE.Vector3(0, 0, 1)
+const _hpBillQ = new THREE.Quaternion()
 function NodeHealthBars() {
-  const trackRef = useRef<THREE.Group>(null)
+  const groupRef = useRef<THREE.Group>(null)
+
+  const { trackMeshes, fillMeshes } = useMemo(() => {
+    const tracks: THREE.Mesh[] = []
+    const fills: THREE.Mesh[] = []
+    for (let i = 0; i < _MAX_HP_BARS; i++) {
+      const t = new THREE.Mesh(_hpTrackGeo, _hpTrackMat)
+      t.renderOrder = 999
+      t.visible = false
+      tracks.push(t)
+      const f = new THREE.Mesh(_hpFillGeo, _hpFillMats[i])
+      f.renderOrder = 1000
+      f.visible = false
+      fills.push(f)
+    }
+    return { trackMeshes: tracks, fillMeshes: fills }
+  }, [])
+
+  useEffect(() => {
+    const g = groupRef.current
+    if (!g) return
+    for (let i = 0; i < _MAX_HP_BARS; i++) {
+      g.add(trackMeshes[i])
+      g.add(fillMeshes[i])
+    }
+    return () => {
+      _hpFillMats.forEach((m) => m.dispose())
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useFrame(({ camera }) => {
-    const g = trackRef.current
-    if (!g) return
-
-    // Remove existing children and re-add only for damaged nodes
-    while (g.children.length) g.remove(g.children[0])
-
+    let slot = 0
     for (const [nodeId, hitsTaken] of NODE_HITS_TAKEN) {
+      if (slot >= _MAX_HP_BARS) break
       if (gatheredNodeIds.has(nodeId)) continue
-      const node = RESOURCE_NODES.find(n => n.id === nodeId)
+      const node = RESOURCE_NODES.find((n) => n.id === nodeId)
       if (!node) continue
       const maxHits = getNodeMaxHits(node.type)
-      const pct = 1 - hitsTaken / maxHits  // 1 = full, 0 = gone
+      const pct = 1 - hitsTaken / maxHits
 
-      // Position bar 3m above the node's surface position along the surface normal
-      const surfNorm = new THREE.Vector3(node.x, node.y, node.z).normalize()
-      const barPos = new THREE.Vector3(
-        node.x + surfNorm.x * 4.5,
-        node.y + surfNorm.y * 4.5,
-        node.z + surfNorm.z * 4.5,
+      const nLen = Math.sqrt(node.x * node.x + node.y * node.y + node.z * node.z) || 1
+      _hpBarPos.set(
+        node.x + (node.x / nLen) * 4.5,
+        node.y + (node.y / nLen) * 4.5,
+        node.z + (node.z / nLen) * 4.5,
       )
+      _hpCamDir.subVectors(camera.position, _hpBarPos).normalize()
+      _hpBillQ.setFromUnitVectors(_hpZAxis, _hpCamDir)
 
-      // Background track (dark)
-      const trackGeo = new THREE.PlaneGeometry(1.2, 0.18)
-      const trackMat = new THREE.MeshBasicMaterial({ color: '#222222', depthTest: false })
-      const trackMesh = new THREE.Mesh(trackGeo, trackMat)
-      trackMesh.position.copy(barPos)
-      trackMesh.renderOrder = 999
+      const track = trackMeshes[slot]
+      track.position.copy(_hpBarPos)
+      track.quaternion.copy(_hpBillQ)
+      track.visible = true
 
-      // Fill bar (green→red)
-      const fillW  = 1.1 * pct
-      const fillGeo = new THREE.PlaneGeometry(fillW, 0.14)
-      const hue     = Math.round(pct * 120)  // 120=green, 60=yellow, 0=red
-      const fillMat = new THREE.MeshBasicMaterial({
-        color: new THREE.Color(`hsl(${hue}, 80%, 50%)`),
-        depthTest: false,
-      })
-      const fillMesh = new THREE.Mesh(fillGeo, fillMat)
-      // Offset fill to left-align: start at left edge of track
-      fillMesh.position.set(
-        barPos.x - (1.1 - fillW) * 0.5,
-        barPos.y,
-        barPos.z,
-      )
-      fillMesh.renderOrder = 1000
-
-      // Billboard both to face camera
-      const camDir = camera.position.clone().sub(barPos).normalize()
-      const billQ  = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), camDir)
-      trackMesh.quaternion.copy(billQ)
-      fillMesh.quaternion.copy(billQ)
-
-      g.add(trackMesh)
-      g.add(fillMesh)
+      const fill = fillMeshes[slot]
+      fill.scale.x = Math.max(0.001, pct)
+      fill.position.set(_hpBarPos.x - 1.1 * (1 - pct) * 0.5, _hpBarPos.y, _hpBarPos.z)
+      fill.quaternion.copy(_hpBillQ)
+      fill.visible = true
+      _hpFillMats[slot].color.setHSL((pct * 120) / 360, 0.8, 0.5)
+      slot++
+    }
+    for (let i = slot; i < _MAX_HP_BARS; i++) {
+      trackMeshes[i].visible = false
+      fillMeshes[i].visible = false
     }
   })
 
-  return <group ref={trackRef} />
+  return <group ref={groupRef} />
 }
 
 function ResourceNodes() {

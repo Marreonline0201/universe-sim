@@ -14,6 +14,13 @@
 //   Scale by (PLANET_RADIUS + terrainHeight). Done.
 
 import * as THREE from 'three'
+// M9: River valley carving — imported lazily to avoid circular dependency.
+// RiverSystem imports terrainHeightAt indirectly via its own _terrainH copy,
+// so there is no circular import here.
+let _getRiverCarveDepth: ((dx: number, dy: number, dz: number) => number) | null = null
+export function registerRiverCarveDepth(fn: (dx: number, dy: number, dz: number) => number): void {
+  _getRiverCarveDepth = fn
+}
 
 // Planet radius in meters. 4000m gives a horizon at ~120m eye height —
 // obviously a sphere but big enough for a meaningful open world (~200 km²).
@@ -129,7 +136,13 @@ export function terrainHeightAt(dir: THREE.Vector3): number {
   // Combine: mountains only appear on land, not under ocean
   const land = Math.max(continentH, -180)
   const hasMountains = continentH > 0 ? 1 : 0
-  const h = land + mountains * hasMountains + detailH
+  let h = land + mountains * hasMountains + detailH
+
+  // M9: River valley carving — depress terrain along river corridors
+  if (_getRiverCarveDepth) {
+    const carve = _getRiverCarveDepth(dir.x, dir.y, dir.z)
+    if (carve > 0) h -= carve
+  }
 
   return Math.max(-180, Math.min(250, h))
 }

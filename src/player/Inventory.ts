@@ -10,21 +10,18 @@ export interface CraftingRecipe {
   name: string
   tier: number  // civilization tier required (0-9)
   inputs: Array<{ materialId: number; quantity: number }>
-  output: { itemId: number; quantity: number }
+  output: { itemId: number; quantity: number; isMaterial?: boolean }
   knowledgeRequired: string[]  // discovery IDs player must have
   time: number  // seconds to craft
 }
 
 const SLOT_COUNT = 40
 
-/**
- * Recipe output IDs that represent processed materials (not equipped items).
- * These are stored as raw-material slots (itemId: 0) so subsequent recipes can consume them.
- * Values: MAT.CHARCOAL=10, MAT.BRONZE=13, MAT.IRON=15, MAT.STEEL=16, MAT.GLASS=18,
- *         MAT.BRICK=19, MAT.CLOTH=22, MAT.ROPE=23, MAT.LEATHER=24, MAT.COPPER=25,
- *         MAT.CHARCOAL_POWDER=30, MAT.GUNPOWDER=31, MAT.SILICON=32, MAT.CIRCUIT=33,
- *         MAT.WIRE=34, MAT.PLASTIC=35, MAT.FUEL=37, MAT.PLUTONIUM=40, MAT.COOKED_MEAT=41
- */
+// MATERIAL_OUTPUT_IDS was the old discriminator — replaced by recipe.output.isMaterial flag.
+// MAT and ITEM IDs share the same numeric space (both 1-46), so set-based lookup caused
+// items whose IDs collided with material IDs to be stored as raw materials. The explicit
+// isMaterial flag on each recipe output is the correct fix.
+// Kept here only for reference; no longer consulted by craft().
 const MATERIAL_OUTPUT_IDS = new Set([10, 13, 15, 16, 18, 19, 22, 23, 24, 25, 30, 31, 32, 33, 34, 35, 37, 40, 41])
 
 export class Inventory {
@@ -114,11 +111,11 @@ export class Inventory {
     }
 
     // Add output.
-    // Recipe outputs that are processed materials (rope, bronze, etc.) use MAT.* as itemId —
+    // Recipes that produce raw materials set isMaterial: true on their output —
     // store them as raw-material slots (itemId: 0) so subsequent recipes can consume them.
     // All other outputs are manufactured items — store with materialId: 0 to avoid
     // being mistakenly found by material searches.
-    const isMaterialOutput = MATERIAL_OUTPUT_IDS.has(recipe.output.itemId)
+    const isMaterialOutput = recipe.output.isMaterial === true
     return this.addItem({
       itemId:     isMaterialOutput ? 0 : recipe.output.itemId,
       materialId: isMaterialOutput ? recipe.output.itemId : 0,
@@ -269,7 +266,7 @@ export const CRAFTING_RECIPES: CraftingRecipe[] = [
   {
     id: 5, name: 'Rope', tier: 0, time: 15,
     inputs: [{ materialId: MAT.FIBER, quantity: 5 }],
-    output: { itemId: MAT.ROPE, quantity: 1 },
+    output: { itemId: MAT.ROPE, quantity: 1, isMaterial: true },
     knowledgeRequired: [],
   },
   {
@@ -313,13 +310,13 @@ export const CRAFTING_RECIPES: CraftingRecipe[] = [
   {
     id: 12, name: 'Brick', tier: 1, time: 120,
     inputs: [{ materialId: MAT.CLAY, quantity: 8 }, { materialId: MAT.SAND, quantity: 2 }],
-    output: { itemId: MAT.BRICK, quantity: 4 },
+    output: { itemId: MAT.BRICK, quantity: 4, isMaterial: true },
     knowledgeRequired: ['pottery'],
   },
   {
     id: 13, name: 'Bronze', tier: 1, time: 180,
     inputs: [{ materialId: MAT.COPPER_ORE, quantity: 3 }, { materialId: MAT.TIN_ORE, quantity: 1 }, { materialId: MAT.CHARCOAL, quantity: 2 }],
-    output: { itemId: MAT.BRONZE, quantity: 1 },
+    output: { itemId: MAT.BRONZE, quantity: 1, isMaterial: true },
     knowledgeRequired: ['metallurgy', 'smelting'],
   },
   {
@@ -389,7 +386,7 @@ export const CRAFTING_RECIPES: CraftingRecipe[] = [
   {
     id: 24, name: 'Glass', tier: 3, time: 120,
     inputs: [{ materialId: MAT.SAND, quantity: 10 }, { materialId: MAT.CHARCOAL, quantity: 3 }],
-    output: { itemId: MAT.GLASS, quantity: 1 },
+    output: { itemId: MAT.GLASS, quantity: 1, isMaterial: true },
     knowledgeRequired: ['glassblowing'],
   },
   {
@@ -453,7 +450,7 @@ export const CRAFTING_RECIPES: CraftingRecipe[] = [
   {
     id: 34, name: 'Gunpowder', tier: 5, time: 120,
     inputs: [{ materialId: MAT.SULFUR, quantity: 1 }, { materialId: MAT.SALTPETER, quantity: 2 }, { materialId: MAT.CHARCOAL_POWDER, quantity: 1 }],
-    output: { itemId: MAT.GUNPOWDER, quantity: 1 },
+    output: { itemId: MAT.GUNPOWDER, quantity: 1, isMaterial: true },
     knowledgeRequired: ['chemistry', 'alchemy'],
   },
 
@@ -499,7 +496,7 @@ export const CRAFTING_RECIPES: CraftingRecipe[] = [
   {
     id: 41, name: 'Circuit Board', tier: 7, time: 3600,
     inputs: [{ materialId: MAT.SILICON, quantity: 5 }, { materialId: MAT.COPPER, quantity: 8 }, { materialId: MAT.PLASTIC, quantity: 3 }],
-    output: { itemId: MAT.CIRCUIT, quantity: 1 },
+    output: { itemId: MAT.CIRCUIT, quantity: 1, isMaterial: true },
     knowledgeRequired: ['electronics', 'semiconductor_physics'],
   },
   {
@@ -567,43 +564,43 @@ export const CRAFTING_RECIPES: CraftingRecipe[] = [
   {
     id: 51, name: 'Charcoal', tier: 0, time: 30,
     inputs: [{ materialId: MAT.WOOD, quantity: 3 }],
-    output: { itemId: MAT.CHARCOAL, quantity: 1 },
+    output: { itemId: MAT.CHARCOAL, quantity: 1, isMaterial: true },
     knowledgeRequired: ['fire_making'],
   },
   {
     id: 52, name: 'Leather', tier: 0, time: 20,
     inputs: [{ materialId: MAT.HIDE, quantity: 2 }],
-    output: { itemId: MAT.LEATHER, quantity: 1 },
+    output: { itemId: MAT.LEATHER, quantity: 1, isMaterial: true },
     knowledgeRequired: ['tool_use'],
   },
   {
     id: 53, name: 'Cloth', tier: 0, time: 25,
     inputs: [{ materialId: MAT.FIBER, quantity: 5 }],
-    output: { itemId: MAT.CLOTH, quantity: 1 },
+    output: { itemId: MAT.CLOTH, quantity: 1, isMaterial: true },
     knowledgeRequired: [],
   },
   {
     id: 54, name: 'Smelt Copper', tier: 1, time: 120,
     inputs: [{ materialId: MAT.COPPER_ORE, quantity: 3 }, { materialId: MAT.CHARCOAL, quantity: 2 }],
-    output: { itemId: MAT.COPPER, quantity: 1 },
+    output: { itemId: MAT.COPPER, quantity: 1, isMaterial: true },
     knowledgeRequired: ['metallurgy', 'smelting'],
   },
   {
     id: 55, name: 'Smelt Iron', tier: 2, time: 180,
     inputs: [{ materialId: MAT.IRON_ORE, quantity: 4 }, { materialId: MAT.CHARCOAL, quantity: 3 }],
-    output: { itemId: MAT.IRON, quantity: 1 },
+    output: { itemId: MAT.IRON, quantity: 1, isMaterial: true },
     knowledgeRequired: ['iron_smelting'],
   },
   {
     id: 56, name: 'Smelt Steel', tier: 3, time: 240,
     inputs: [{ materialId: MAT.IRON, quantity: 4 }, { materialId: MAT.COAL, quantity: 2 }],
-    output: { itemId: MAT.STEEL, quantity: 1 },
+    output: { itemId: MAT.STEEL, quantity: 1, isMaterial: true },
     knowledgeRequired: ['steel_making'],
   },
   {
     id: 57, name: 'Copper Wire', tier: 5, time: 60,
     inputs: [{ materialId: MAT.COPPER, quantity: 2 }],
-    output: { itemId: MAT.WIRE, quantity: 3 },
+    output: { itemId: MAT.WIRE, quantity: 3, isMaterial: true },
     knowledgeRequired: ['electromagnetism'],
   },
 
@@ -611,37 +608,37 @@ export const CRAFTING_RECIPES: CraftingRecipe[] = [
   {
     id: 58, name: 'Charcoal Powder', tier: 5, time: 15,
     inputs: [{ materialId: MAT.CHARCOAL, quantity: 2 }],
-    output: { itemId: MAT.CHARCOAL_POWDER, quantity: 1 },
+    output: { itemId: MAT.CHARCOAL_POWDER, quantity: 1, isMaterial: true },
     knowledgeRequired: ['chemistry'],
   },
   {
     id: 59, name: 'Silicon', tier: 6, time: 300,
     inputs: [{ materialId: MAT.SAND, quantity: 8 }, { materialId: MAT.CHARCOAL, quantity: 3 }],
-    output: { itemId: MAT.SILICON, quantity: 1 },
+    output: { itemId: MAT.SILICON, quantity: 1, isMaterial: true },
     knowledgeRequired: ['semiconductor_physics', 'chemistry'],
   },
   {
     id: 60, name: 'Fuel', tier: 5, time: 180,
     inputs: [{ materialId: MAT.COAL, quantity: 3 }],
-    output: { itemId: MAT.FUEL, quantity: 1 },
+    output: { itemId: MAT.FUEL, quantity: 1, isMaterial: true },
     knowledgeRequired: ['thermodynamics', 'chemistry'],
   },
   {
     id: 61, name: 'Plastic', tier: 6, time: 240,
     inputs: [{ materialId: MAT.FUEL, quantity: 2 }, { materialId: MAT.SILICON, quantity: 1 }],
-    output: { itemId: MAT.PLASTIC, quantity: 2 },
+    output: { itemId: MAT.PLASTIC, quantity: 2, isMaterial: true },
     knowledgeRequired: ['chemistry', 'materials_science'],
   },
   {
     id: 62, name: 'Plutonium', tier: 7, time: 86400,
     inputs: [{ materialId: MAT.URANIUM, quantity: 5 }],
-    output: { itemId: MAT.PLUTONIUM, quantity: 1 },
+    output: { itemId: MAT.PLUTONIUM, quantity: 1, isMaterial: true },
     knowledgeRequired: ['nuclear_physics', 'nuclear_engineering'],
   },
   {
     id: 63, name: 'Cooked Meat', tier: 0, time: 30,
     inputs: [{ materialId: MAT.BONE, quantity: 2 }, { materialId: MAT.WOOD, quantity: 1 }],
-    output: { itemId: MAT.COOKED_MEAT, quantity: 2 },
+    output: { itemId: MAT.COOKED_MEAT, quantity: 2, isMaterial: true },
     knowledgeRequired: ['fire_making'],
   },
 ]

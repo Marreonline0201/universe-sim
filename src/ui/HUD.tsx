@@ -138,7 +138,7 @@ function Crosshair() {
 
 export function HUD() {
   const { paused, simTime, epoch } = useGameStore()
-  const { health, hunger, thirst, energy, fatigue, ambientTemp, evolutionPoints } = usePlayerStore()
+  const { health, hunger, thirst, energy, fatigue, ambientTemp, evolutionPoints, equippedSlot } = usePlayerStore()
   const { connectionStatus, remotePlayers } = useMultiplayerStore()
 
   const tempColor = ambientTemp < 0 ? '#88bbff' : ambientTemp < 30 ? '#88ff88' : ambientTemp < 50 ? '#ffaa44' : '#ff4444'
@@ -262,7 +262,7 @@ export function HUD() {
           pointerEvents: 'auto',
         }}>
           {[0, 1, 2, 3, 4, 5].map(i => (
-            <HotbarSlot key={i} index={i} active={i === 0} />
+            <HotbarSlot key={i} index={i} active={equippedSlot === i} />
           ))}
         </div>
 

@@ -13,7 +13,7 @@
 import * as THREE from 'three'
 import { world, Position, Velocity, Rotation } from '../ecs/world'
 import { useGameStore } from '../store/gameStore'
-import { PLANET_RADIUS, SEA_LEVEL } from '../world/SpherePlanet'
+import { PLANET_RADIUS, SEA_LEVEL, surfaceRadiusAt } from '../world/SpherePlanet'
 import { rapierWorld } from '../physics/RapierWorld'
 
 export type CameraMode = 'first_person' | 'third_person' | 'orbit'
@@ -111,13 +111,14 @@ export class PlayerController {
     this.input.scrollDelta = 0
   }
 
-  /** Returns true on the frame the player presses F (consumed once). */
+  /** Returns true on the frame the player presses F or E (consumed once). */
   popInteract(): boolean {
-    if (this.keys.has('KeyF') && !this._interactConsumed) {
+    const held = this.keys.has('KeyF') || this.keys.has('KeyE')
+    if (held && !this._interactConsumed) {
       this._interactConsumed = true
       return true
     }
-    if (!this.keys.has('KeyF')) this._interactConsumed = false
+    if (!held) this._interactConsumed = false
     return false
   }
 
@@ -429,10 +430,12 @@ export class PlayerController {
           ey - lookDir.y * d + up.y * d * 0.35,
           ez - lookDir.z * d + up.z * d * 0.35,
         )
-        // Prevent camera from going underground — clamp to surface + 2m
+        // Prevent camera from going underground — clamp to actual terrain surface + 1.5m
+        const cx = this._camPos.x, cy = this._camPos.y, cz = this._camPos.z
+        const terrainR = surfaceRadiusAt(cx, cy, cz)
         const camLen = this._camPos.length()
-        if (camLen < PLANET_RADIUS + 2) {
-          this._camPos.normalize().multiplyScalar(PLANET_RADIUS + 2)
+        if (camLen < terrainR + 1.5) {
+          this._camPos.normalize().multiplyScalar(terrainR + 1.5)
         }
         camera.position.copy(this._camPos)
         camera.lookAt(ex + up.x * 0.9, ey + up.y * 0.9, ez + up.z * 0.9)

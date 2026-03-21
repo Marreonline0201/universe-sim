@@ -110,6 +110,8 @@ export function InventoryPanel() {
     if (!slot) return
     const qty = Math.min(dropQty, slot.quantity)
     inventory.dropItem(selected, qty)  // always removes, even in god mode
+    // If we just emptied the equipped slot, unequip it
+    if (selected === equippedSlot && qty >= slot.quantity) unequipAction()
     setSelected(null)
     setDropQty(1)
     forceRefresh(r => r + 1)

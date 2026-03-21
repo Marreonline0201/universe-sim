@@ -29,13 +29,13 @@ export const MetabolismSystem = defineSystem((w) => {
     const dtEnergy = (rate * _dt) / BIOLOGY.ATP_energy
     Metabolism.energy[eid] = Math.max(0, Metabolism.energy[eid] - dtEnergy * 0.001)
 
-    // Hunger: complete starvation in ~20 minutes real time at 1× speed
-    // 1 / (0.00083 * 60) = ~20.1 minutes
-    Metabolism.hunger[eid] = Math.min(1, Metabolism.hunger[eid] + _dt * 0.00083)
+    // Hunger: complete starvation in ~45 minutes real time at 1× speed
+    // 1 / (0.00037 * 60) = ~45 minutes
+    Metabolism.hunger[eid] = Math.min(1, Metabolism.hunger[eid] + _dt * 0.00037)
 
-    // Thirst: dehydration in ~12 minutes real time at 1× speed
-    // 1 / (0.00139 * 60) = ~12.0 minutes
-    Metabolism.thirst[eid] = Math.min(1, Metabolism.thirst[eid] + _dt * 0.00139)
+    // Thirst: dehydration in ~30 minutes real time at 1× speed
+    // 1 / (0.00056 * 60) = ~29.8 minutes
+    Metabolism.thirst[eid] = Math.min(1, Metabolism.thirst[eid] + _dt * 0.00056)
 
     // Fatigue: max tiredness in ~27.8 hours without rest
     Metabolism.fatigue[eid] = Math.min(1, Metabolism.fatigue[eid] + _dt * 0.00001)

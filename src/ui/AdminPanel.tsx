@@ -45,7 +45,6 @@ export function AdminPanel() {
 
   const DEV_BYPASS = import.meta.env.DEV && import.meta.env.VITE_DEV_BYPASS_AUTH === 'true'
   const isAdmin = DEV_BYPASS || userId === import.meta.env.VITE_ADMIN_USER_ID
-  if (!isAdmin) return null
 
   async function load() {
     setLoading(true)
@@ -56,7 +55,9 @@ export function AdminPanel() {
     setLoading(false)
   }
 
-  useEffect(() => { if (open) load() }, [open])
+  useEffect(() => { if (isAdmin && open) load() }, [isAdmin, open])
+
+  if (!isAdmin) return null
 
   return (
     <>

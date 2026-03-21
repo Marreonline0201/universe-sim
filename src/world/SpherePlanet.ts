@@ -282,16 +282,20 @@ export function generateOceanGeometry(segs: number = 48): THREE.BufferGeometry {
 
 // ── Utility: surface position ─────────────────────────────────────────────────
 
+// Reusable direction vector for surfaceRadiusAt — avoids per-call allocation
+const _srDir = new THREE.Vector3()
+
 /**
  * Given a world-space player position, return the radius of the terrain surface
  * directly below (i.e., in the same radial direction). This is used for ground
  * detection: if dist(playerPos, origin) < surfaceRadiusAt(playerPos), player is underground.
+ * NOTE: not re-entrant — do not call from within terrainHeightAt or biomeColor.
  */
 export function surfaceRadiusAt(px: number, py: number, pz: number): number {
   const len = Math.sqrt(px * px + py * py + pz * pz)
   if (len < 1) return PLANET_RADIUS
-  const dir = new THREE.Vector3(px / len, py / len, pz / len)
-  const h = terrainHeightAt(dir)
+  _srDir.set(px / len, py / len, pz / len)
+  const h = terrainHeightAt(_srDir)
   return PLANET_RADIUS + Math.max(h, SEA_LEVEL)  // can't go below sea level from above
 }
 

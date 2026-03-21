@@ -1,6 +1,7 @@
 # Memory Index
 
 ## Project
+- [project_m13.md](project_m13.md) — M13 Velar Contact DONE — First Contact decoder/cinematic, orbital mechanics (Aethon/Velar/Sulfis), nuclear physics/meltdown; next IDs: MAT 69, ITEM 67, Recipe 104
 - [project_m11.md](project_m11.md) — M11 Civilization Age DONE — gunpowder/musket, castle walls, mayor/diplomacy, night sky/telescope; next IDs: MAT 65, ITEM 65, recipe 93
 - [project_m10.md](project_m10.md) — M10 Tracks A/B/C DONE — Seasonal Cycle, Ocean Sailing, NPC Trade Economy; next IDs: MAT 63, ITEM 63, recipe 88
 - [project_m9t3_perf.md](project_m9t3_perf.md) — M9 Track 3: Performance Optimization DONE — worker throttling, LOD creatures, zero-alloc HP bars, WS batching, shader warmup

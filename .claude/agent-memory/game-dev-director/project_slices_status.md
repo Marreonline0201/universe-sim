@@ -5,12 +5,10 @@ type: project
 ---
 
 Slices 1-7 and all P2 tasks are COMPLETE as of 2026-03-21.
-M5 Track 2 (Death + Bedroll Respawn System) is COMPLETE as of 2026-03-21.
-M5 Track 3 (Photorealism Pass) is COMPLETE as of 2026-03-21.
-M10 (all 3 tracks) is COMPLETE as of 2026-03-21.
+M5-M13 all DONE as of 2026-03-21.
 
-Latest production deployment: dpl_8eF4FvUXHeDLXAAdxspGerqMxEpt — READY at universe-sim-beryl.vercel.app
-Latest commit: fdaafe9 "M10: Seasonal Cycle, Ocean Sailing, and Advanced NPC Trade Economy"
+Latest production deployment: dpl_GQCvBKkqMoY7GvsiB5AFUUTajoRS — READY at universe-sim-beryl.vercel.app
+Latest commit: f5652f5 "Add M13: Velar Contact — First Contact, Orbital Mechanics, Nuclear Physics"
 
 Slice status:
 - Slice 1: Gather -> inventory (PASS)
@@ -44,8 +42,13 @@ M9 Track 3 — Performance Optimization: DONE (see project_m9t3_perf.md)
 M10 Track A — Seasonal Cycle: DONE (commit fdaafe9, see project_m10.md)
 M10 Track B — Ocean Sailing and Navigation: DONE (commit fdaafe9, see project_m10.md)
 M10 Track C — Advanced NPC Trade Economy: DONE (commit fdaafe9, see project_m10.md)
+M11 — Civilization Age: DONE (see project_m11.md)
+M12 — Space Age / Rocketry / Radio / Velar Signal: DONE (commit 90a5ca4)
+M13 Track A — Velar Signal Decoding / First Contact: DONE (commit f5652f5, see project_m13.md)
+M13 Track B — Orbital Mechanics: DONE (commit f5652f5, see project_m13.md)
+M13 Track C — Nuclear Physics / Meltdown: DONE (commit f5652f5, see project_m13.md)
 
-Next IDs: MAT 63, ITEM 63, recipe 88.
+Next IDs: MAT 69, ITEM 67, Recipe 104.
 
 Known edge case (low priority): On fresh load where bedrollPlaced was already true from a prior session,
 setPlacedBedrollAnchor() is not called from loadSave(), so the 3D bedroll mesh won't render until

@@ -208,8 +208,7 @@ export function CraftingPanel() {
 
           <div style={{ fontSize: 11, color: '#ccc', marginTop: 4 }}>Requires:</div>
           {selectedRecipe.inputs.map((inp, i) => {
-            const idx = inventory.findItem(inp.materialId)
-            const have = idx !== -1 ? (inventory.getSlot(idx)?.quantity ?? 0) : 0
+            const have = inventory.countMaterial(inp.materialId)
             const ok = have >= inp.quantity
             return (
               <div key={i} style={{ fontSize: 11, color: ok ? '#2ecc71' : '#e74c3c' }}>
@@ -221,7 +220,9 @@ export function CraftingPanel() {
 
           <div style={{ fontSize: 11, color: '#ccc', marginTop: 4 }}>Produces:</div>
           <div style={{ fontSize: 11, color: '#f1c40f' }}>
-            {selectedRecipe.output.quantity}× {ITEM_NAMES[selectedRecipe.output.itemId] ?? MAT_NAMES[selectedRecipe.output.itemId] ?? `id:${selectedRecipe.output.itemId}`}
+            {selectedRecipe.output.quantity}× {selectedRecipe.output.isMaterial
+              ? (MAT_NAMES[selectedRecipe.output.itemId] ?? `mat:${selectedRecipe.output.itemId}`)
+              : (ITEM_NAMES[selectedRecipe.output.itemId] ?? `item:${selectedRecipe.output.itemId}`)}
           </div>
 
           <button

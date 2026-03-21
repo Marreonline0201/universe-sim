@@ -201,7 +201,6 @@ export function SidebarShell() {
         >
           ?
         </button>
-      )}
 
     </>
   )

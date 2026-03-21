@@ -5,6 +5,7 @@ import { useClerk, useAuth } from '@clerk/react'
 import { useGameStore } from '../../store/gameStore'
 import { usePlayerStore } from '../../store/playerStore'
 import { useUiStore } from '../../store/uiStore'
+import { Health, Metabolism } from '../../ecs/world'
 
 const TIME_SCALES = [0.1, 0.5, 1, 10, 100, 1000, 10000, 100000, 1000000, 1e8, 1e9, 1e10, 1e12]
 const LABELS      = ['0.1×', '0.5×', '1×', '10×', '100×', '1k×', '10k×', '100k×', '1M×', '100M×', '1B×', '10B×', '1T×']
@@ -164,7 +165,19 @@ export function SettingsPanel() {
               <input
                 type="range" min={0} max={1} step={0.01}
                 value={value}
-                onChange={e => updateVitals({ [key]: parseFloat(e.target.value) })}
+                onChange={e => {
+                  const v = parseFloat(e.target.value)
+                  updateVitals({ [key]: v })
+                  // Also write directly to ECS so the GameLoop doesn't overwrite on next frame
+                  const eid = usePlayerStore.getState().entityId
+                  if (eid !== null) {
+                    if (key === 'health') Health.current[eid] = v * (Health.max[eid] || 100)
+                    else if (key === 'hunger')  Metabolism.hunger[eid]  = v
+                    else if (key === 'thirst')  Metabolism.thirst[eid]  = v
+                    else if (key === 'energy')  Metabolism.energy[eid]  = v
+                    else if (key === 'fatigue') Metabolism.fatigue[eid] = v
+                  }
+                }}
                 style={{ flex: 1, accentColor: color }}
               />
               <span style={{ fontSize: 10, color, width: 32, textAlign: 'right' }}>{(value * 100).toFixed(0)}%</span>

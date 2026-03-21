@@ -209,6 +209,8 @@ export function SceneRoot() {
 
     engine.init().then(async () => {
       engine.start()
+      // Sync the initial timeScale from the store (the useEffect only fires on changes)
+      engine.clock.setTimeScale(useGameStore.getState().timeScale)
 
       // Spawn player at a land position on the sphere surface
       const [spawnX, spawnY, spawnZ] = getSpawnPosition()

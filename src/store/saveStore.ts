@@ -84,6 +84,11 @@ export async function loadSave(getToken: () => Promise<string | null>) {
     ps.setMurderCount(data.murderCount)
   }
 
+  // M7: Smithing XP
+  if (data.smithingXp && data.smithingXp > 0) {
+    ps.addSmithingXp(data.smithingXp)
+  }
+
   // If the ECS entity already exists (engine init beat loadSave), write vitals and
   // position directly so they aren't overwritten by the GameLoop on the next frame.
   const entityId = usePlayerStore.getState().entityId
@@ -145,6 +150,7 @@ export async function saveGame(getToken: () => Promise<string | null>, username:
       bedrollY: ps.bedrollPos?.y ?? null,
       bedrollZ: ps.bedrollPos?.z ?? null,
       murderCount: ps.murderCount,
+      smithingXp:  ps.smithingXp,
     }),
   })
 }

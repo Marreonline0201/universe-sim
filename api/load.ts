@@ -43,5 +43,6 @@ export default async function handler(req: any, res: any) {
     bedrollY: row.bedroll_y ?? null,
     bedrollZ: row.bedroll_z ?? null,
     murderCount: row.murder_count ?? 0,
+    smithingXp:  row.smithing_xp  ?? 0,
   })
 }

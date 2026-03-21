@@ -1,9 +1,27 @@
-import React from 'react'
+import React, { useState, useEffect } from 'react'
 import { useGameStore } from '../store/gameStore'
 import { usePlayerStore } from '../store/playerStore'
 import { useMultiplayerStore } from '../store/multiplayerStore'
 import { SidebarShell } from './SidebarShell'
 import { NotificationSystem } from './NotificationSystem'
+import { inventory } from '../game/GameSingletons'
+import { MAT, ITEM } from '../player/Inventory'
+import { cookingProgress } from '../game/SurvivalSystems'
+
+// Reverse lookup maps for hotbar display names (abbreviated to fit 52px slot)
+const MAT_SHORT: Record<number, string> = Object.fromEntries(
+  Object.entries(MAT).map(([k, v]) => [v, k.replace(/_/g, ' ').split(' ').map(w => w[0].toUpperCase() + w.slice(1).toLowerCase()).join(' ')])
+)
+const ITEM_SHORT: Record<number, string> = Object.fromEntries(
+  Object.entries(ITEM).map(([k, v]) => [v, k.replace(/_/g, ' ').split(' ').map(w => w[0].toUpperCase() + w.slice(1).toLowerCase()).join(' ')])
+)
+
+// Abbreviate long names to fit the 52px slot without overflow
+function abbreviate(name: string): string {
+  const words = name.split(' ')
+  if (words.length === 1) return name.slice(0, 7)
+  return words.map(w => w.slice(0, 4)).join(' ').slice(0, 10)
+}
 
 const RUST_ORANGE = '#cd4420'
 
@@ -65,37 +83,120 @@ function RustVitalBar({ value, color, icon, label }: RustVitalBarProps) {
   )
 }
 
-// ── Hotbar slot ────────────────────────────────────────────────────────────────
+// ── Hotbar slot ─────────────────────────────────────────────────────────────────
+// Live-wired to inventory. Reads slot data every 200ms so newly gathered items
+// appear immediately. Click to equip/unequip.
 
 interface HotbarSlotProps {
   index: number
   active?: boolean
+  tick: number  // external counter to trigger re-read without per-slot state
 }
 
-function HotbarSlot({ index, active }: HotbarSlotProps) {
+function HotbarSlot({ index, active, tick }: HotbarSlotProps) {
+  const equipAction   = usePlayerStore(s => s.equip)
+  const unequipAction = usePlayerStore(s => s.unequip)
+
+  // Read slot directly from the singleton (tick prop forces re-render when parent polls)
+  const slot = inventory.getSlot(index)
+  const hasItem = slot !== null
+
+  const displayName = hasItem
+    ? (slot.itemId === 0
+        ? abbreviate(MAT_SHORT[slot.materialId] ?? `mat${slot.materialId}`)
+        : abbreviate(ITEM_SHORT[slot.itemId] ?? `item${slot.itemId}`))
+    : null
+
+  function handleClick() {
+    if (!hasItem) return
+    if (active) unequipAction()
+    else equipAction(index)
+  }
+
   return (
-    <div style={{
-      width: 52,
-      height: 52,
-      background: active ? 'rgba(205,68,32,0.18)' : 'rgba(0,0,0,0.6)',
-      border: active ? `1px solid ${RUST_ORANGE}` : '1px solid rgba(255,255,255,0.15)',
-      borderRadius: 3,
-      display: 'flex',
-      flexDirection: 'column',
-      alignItems: 'center',
-      justifyContent: 'flex-end',
-      paddingBottom: 3,
-      boxShadow: active ? `0 0 6px rgba(205,68,32,0.5)` : 'none',
-      position: 'relative',
-    }}>
-      <span style={{
-        fontSize: 9,
-        color: active ? RUST_ORANGE : 'rgba(255,255,255,0.3)',
-        fontFamily: 'monospace',
-        fontWeight: active ? 700 : 400,
-      }}>
-        {index + 1}
-      </span>
+    <div
+      onClick={handleClick}
+      title={hasItem ? `${slot.itemId === 0 ? (MAT_SHORT[slot.materialId] ?? slot.materialId) : (ITEM_SHORT[slot.itemId] ?? slot.itemId)} ×${slot.quantity}` : `Slot ${index + 1}`}
+      style={{
+        width: 52,
+        height: 52,
+        background: active
+          ? 'rgba(205,68,32,0.25)'
+          : hasItem
+            ? 'rgba(255,255,255,0.07)'
+            : 'rgba(0,0,0,0.6)',
+        border: active
+          ? `2px solid ${RUST_ORANGE}`
+          : hasItem
+            ? '1px solid rgba(255,255,255,0.25)'
+            : '1px solid rgba(255,255,255,0.10)',
+        borderRadius: 3,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        boxShadow: active ? `0 0 8px rgba(205,68,32,0.6)` : 'none',
+        position: 'relative',
+        cursor: hasItem ? 'pointer' : 'default',
+        transition: 'background 0.1s, border 0.1s',
+        overflow: 'hidden',
+        pointerEvents: 'auto',
+      }}
+    >
+      {/* Item name */}
+      {hasItem && displayName && (
+        <span style={{
+          fontSize: 9,
+          color: active ? RUST_ORANGE : '#ddd',
+          fontFamily: 'monospace',
+          fontWeight: active ? 700 : 400,
+          textAlign: 'center',
+          lineHeight: 1.2,
+          padding: '0 2px',
+          maxWidth: 48,
+          wordBreak: 'break-word',
+        }}>
+          {displayName}
+        </span>
+      )}
+      {/* Quality bar */}
+      {hasItem && (
+        <div style={{
+          position: 'absolute',
+          bottom: 0, left: 0, right: 0,
+          height: 2,
+          background: `hsl(${(slot.quality ?? 0.8) * 120}, 70%, 50%)`,
+          borderRadius: '0 0 3px 3px',
+        }} />
+      )}
+      {/* Quantity badge */}
+      {hasItem && slot.quantity > 1 && (
+        <div style={{
+          position: 'absolute',
+          bottom: 3, right: 3,
+          fontSize: 8,
+          color: '#f1c40f',
+          fontFamily: 'monospace',
+          fontWeight: 700,
+          lineHeight: 1,
+        }}>
+          {slot.quantity > 99 ? '99+' : slot.quantity}
+        </div>
+      )}
+      {/* Slot number — shown only when empty */}
+      {!hasItem && (
+        <span style={{
+          fontSize: 9,
+          color: 'rgba(255,255,255,0.2)',
+          fontFamily: 'monospace',
+          position: 'absolute',
+          bottom: 3,
+          left: '50%',
+          transform: 'translateX(-50%)',
+        }}>
+          {index + 1}
+        </span>
+      )}
     </div>
   )
 }
@@ -138,8 +239,22 @@ function Crosshair() {
 
 export function HUD() {
   const { paused, simTime, epoch } = useGameStore()
-  const { health, hunger, thirst, energy, fatigue, ambientTemp, evolutionPoints, equippedSlot } = usePlayerStore()
+  const { health, hunger, thirst, energy, fatigue, ambientTemp, evolutionPoints, equippedSlot, wounds, isSleeping } = usePlayerStore()
   const { connectionStatus, remotePlayers } = useMultiplayerStore()
+
+  // Polling tick — drives hotbar re-reads every 200ms so gathered items appear immediately
+  const [hotbarTick, setHotbarTick] = useState(0)
+  useEffect(() => {
+    const id = setInterval(() => setHotbarTick(t => t + 1), 200)
+    return () => clearInterval(id)
+  }, [])
+
+  // Wound + cooking poll tick — 500ms is enough for these slower-updating systems
+  const [survivalTick, setSurvivalTick] = useState(0)
+  useEffect(() => {
+    const id = setInterval(() => setSurvivalTick(t => t + 1), 500)
+    return () => clearInterval(id)
+  }, [])
 
   const tempColor = ambientTemp < 0 ? '#88bbff' : ambientTemp < 30 ? '#88ff88' : ambientTemp < 50 ? '#ffaa44' : '#ff4444'
 
@@ -239,6 +354,57 @@ export function HUD() {
           <RustVitalBar value={1 - thirst}  color="#2980b9" icon="~" label="Water"    />
           <RustVitalBar value={energy}      color="#27ae60" icon="⚡" label="Energy"  />
           <RustVitalBar value={1 - fatigue} color="#8e44ad" icon="●" label="Stamina"  />
+
+          {/* Wound indicators (Slice 5) */}
+          {wounds.length > 0 && (
+            <div style={{
+              marginTop: 5,
+              paddingTop: 4,
+              borderTop: '1px solid rgba(231,76,60,0.3)',
+            }}>
+              {wounds.map(w => (
+                <div key={w.id} style={{
+                  display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3,
+                }}>
+                  <span style={{ fontSize: 11, color: '#e74c3c' }}>+</span>
+                  <div style={{ flex: 1, height: 3, background: 'rgba(255,255,255,0.1)', borderRadius: 2, overflow: 'hidden' }}>
+                    <div style={{
+                      width: `${w.bacteriaCount}%`,
+                      height: '100%',
+                      background: w.bacteriaCount > 80 ? '#e74c3c' : w.bacteriaCount > 40 ? '#e67e22' : '#f1c40f',
+                      transition: 'width 0.5s',
+                    }} />
+                  </div>
+                  <span style={{ fontSize: 8, color: '#888', fontFamily: 'monospace', width: 20, textAlign: 'right' }}>
+                    {w.bacteriaCount.toFixed(0)}
+                  </span>
+                </div>
+              ))}
+              <div style={{ fontSize: 8, color: '#e74c3c', letterSpacing: 1, marginTop: 2 }}>
+                WOUND{wounds.length > 1 ? 'S' : ''} [H]=herb
+              </div>
+            </div>
+          )}
+
+          {/* Cooking progress (Slice 4) — show when food is cooking (survivalTick forces re-read) */}
+          {survivalTick >= 0 && cookingProgress.size > 0 && (
+            <div style={{
+              marginTop: 4, fontSize: 8, color: '#f39c12', letterSpacing: 1,
+            }}>
+              COOKING {Math.round(Math.min(...Array.from(cookingProgress.values())) / 8 * 100)}%
+            </div>
+          )}
+
+          {/* Sleep indicator (Slice 6) */}
+          {isSleeping && (
+            <div style={{
+              marginTop: 4, fontSize: 8, color: '#8e44ad', letterSpacing: 1,
+              animation: 'none',
+            }}>
+              SLEEPING... [Z]=wake
+            </div>
+          )}
+
           <div style={{
             marginTop: 6,
             paddingTop: 5,
@@ -262,7 +428,7 @@ export function HUD() {
           pointerEvents: 'auto',
         }}>
           {[0, 1, 2, 3, 4, 5].map(i => (
-            <HotbarSlot key={i} index={i} active={equippedSlot === i} />
+            <HotbarSlot key={i} index={i} active={equippedSlot === i} tick={hotbarTick} />
           ))}
         </div>
 

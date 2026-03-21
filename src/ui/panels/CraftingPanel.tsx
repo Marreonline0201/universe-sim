@@ -120,14 +120,30 @@ export function CraftingPanel() {
     return true
   })
 
-  function handleCraft() {
+  const equipAction = usePlayerStore(s => s.equip)
+
+  function handleCraft(andEquip = false) {
     if (!selectedRecipe) return
     // Sync the panel's tech-tree check with inventory's recipe discovery system.
     // If the panel shows this recipe as craftable, the player has the knowledge — mark it discovered.
     if (hasAllKnowledge(selectedRecipe)) inventory.discoverRecipe(selectedRecipe.id)
+    const prevCount = inventory.slotCount
+    const prevItems = inventory.listItems().map(e => e.index)
     const ok = inventory.craft(selectedRecipe.id, civTier)
     if (ok) {
       addNotification(`Crafted: ${selectedRecipe.name}`, 'info')
+      // If "Craft & Equip" was requested, find the newly added item slot and equip it
+      if (andEquip && !selectedRecipe.output.isMaterial) {
+        // The crafted item lands in the first new or changed slot — find it
+        for (let i = 0; i < inventory.slotCount; i++) {
+          const slot = inventory.getSlot(i)
+          if (slot && slot.itemId === selectedRecipe.output.itemId && !prevItems.includes(i)) {
+            equipAction(i)
+            addNotification(`Equipped: ${selectedRecipe.name}`, 'info')
+            break
+          }
+        }
+      }
       setSelectedRecipe(null)
     } else {
       addNotification('Cannot craft — check materials', 'warning')
@@ -226,7 +242,7 @@ export function CraftingPanel() {
           </div>
 
           <button
-            onClick={handleCraft}
+            onClick={() => handleCraft(false)}
             disabled={!canCraft(selectedRecipe, civTier)}
             style={{
               marginTop: 8,
@@ -243,6 +259,26 @@ export function CraftingPanel() {
           >
             CRAFT
           </button>
+          {/* Craft & Equip — only shown for tool/weapon outputs (non-material) */}
+          {!selectedRecipe.output.isMaterial && (
+            <button
+              onClick={() => handleCraft(true)}
+              disabled={!canCraft(selectedRecipe, civTier)}
+              style={{
+                background: canCraft(selectedRecipe, civTier)
+                  ? 'rgba(52,152,219,0.25)' : 'rgba(255,255,255,0.05)',
+                border: `1px solid ${canCraft(selectedRecipe, civTier) ? '#3498db' : '#444'}`,
+                borderRadius: 4,
+                color: canCraft(selectedRecipe, civTier) ? '#3498db' : '#555',
+                cursor: canCraft(selectedRecipe, civTier) ? 'pointer' : 'not-allowed',
+                padding: '6px 0',
+                fontSize: 11,
+                fontFamily: 'monospace',
+              }}
+            >
+              CRAFT + EQUIP
+            </button>
+          )}
         </div>
       )}
     </div>

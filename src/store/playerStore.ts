@@ -1,5 +1,15 @@
 import { create } from 'zustand'
 
+// ── Wound system (Slice 5) ────────────────────────────────────────────────────
+export interface Wound {
+  id: number
+  /** 0–1: damage severity at time of wounding (affects bacteria seed) */
+  severity: number
+  /** bacterial count (0 = clean, 100 = septic) */
+  bacteriaCount: number
+  createdAt: number  // Date.now() ms
+}
+
 interface PlayerState {
   entityId: number | null
   setEntityId: (id: number) => void
@@ -16,6 +26,13 @@ interface PlayerState {
   ambientTemp: number
   updateVitals: (v: Partial<Pick<PlayerState, 'hunger' | 'thirst' | 'health' | 'energy' | 'fatigue'>>) => void
   setAmbientTemp: (t: number) => void
+
+  // Wound system (Slice 5)
+  wounds: Wound[]
+  addWound: (severity: number) => void
+  tickWounds: (dtSeconds: number) => void
+  treatWound: (id: number, bacteriaReduction: number) => void
+  clearHealedWounds: () => void
 
   // Discoveries made
   discoveries: string[]
@@ -38,6 +55,14 @@ interface PlayerState {
   equippedSlot: number | null
   equip: (slotIndex: number) => void
   unequip: () => void
+
+  // Sleep system (Slice 6)
+  isSleeping: boolean
+  sleepStartTime: number | null
+  bedrollPlaced: boolean
+  startSleep: () => void
+  stopSleep: () => void
+  setBedrollPlaced: (v: boolean) => void
 }
 
 export const usePlayerStore = create<PlayerState>((set, get) => ({
@@ -81,4 +106,49 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   equippedSlot: null,
   equip: (slotIndex) => set({ equippedSlot: slotIndex }),
   unequip: () => set({ equippedSlot: null }),
+
+  // ── Wound system ──────────────────────────────────────────────────────────
+  wounds: [],
+  addWound: (severity) => set((s) => {
+    const wound: Wound = {
+      id: Date.now(),
+      severity: Math.max(0, Math.min(1, severity)),
+      // Seed bacteria proportional to severity: mild wound = low infection risk
+      bacteriaCount: severity * 20 + Math.random() * 10,
+      createdAt: Date.now(),
+    }
+    return { wounds: [...s.wounds, wound] }
+  }),
+  tickWounds: (dtSeconds) => set((s) => {
+    if (s.wounds.length === 0) return s
+    // Logistic bacterial growth: dN/dt = r*N*(1 - N/K)
+    // r = 0.02/s (slow), K = 100 (max). Temperature-dependent (ambient temp
+    // speeds growth above 30°C). Without treatment a wound goes septic in ~2 min.
+    const ambientT = s.ambientTemp
+    const tempFactor = ambientT > 30 ? 1.5 : ambientT < 10 ? 0.5 : 1.0
+    const r = 0.015 * tempFactor
+    const K = 100
+    const updated = s.wounds.map(w => {
+      const N = w.bacteriaCount
+      const dN = r * N * (1 - N / K) * dtSeconds
+      return { ...w, bacteriaCount: Math.max(0, Math.min(K, N + dN)) }
+    })
+    return { wounds: updated }
+  }),
+  treatWound: (id, bacteriaReduction) => set((s) => ({
+    wounds: s.wounds.map(w =>
+      w.id === id ? { ...w, bacteriaCount: Math.max(0, w.bacteriaCount - bacteriaReduction) } : w
+    ),
+  })),
+  clearHealedWounds: () => set((s) => ({
+    wounds: s.wounds.filter(w => w.bacteriaCount > 0.5),
+  })),
+
+  // ── Sleep system ──────────────────────────────────────────────────────────
+  isSleeping: false,
+  sleepStartTime: null,
+  bedrollPlaced: false,
+  startSleep: () => set({ isSleeping: true, sleepStartTime: Date.now() }),
+  stopSleep: () => set({ isSleeping: false, sleepStartTime: null }),
+  setBedrollPlaced: (v) => set({ bedrollPlaced: v }),
 }))

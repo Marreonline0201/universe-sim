@@ -78,6 +78,22 @@ const STATS: Partial<Record<number, ItemStats>> = {
     harvestTypes: [],
     range:        2.5,
   },
+  // ── Slice 7: Copper knife ────────────────────────────────────────────────
+  [ITEM.COPPER_KNIFE]: {
+    name:         'Copper Knife',
+    damage:       10,
+    harvestPower: 3,
+    harvestTypes: ['fiber', 'bark', 'hide', 'bone', 'raw_meat', 'leaf'],
+    range:        1.8,
+  },
+  // ── Bedroll (equippable / placeable) ─────────────────────────────────────
+  [ITEM.BEDROLL]: {
+    name:         'Bedroll',
+    damage:       0,
+    harvestPower: 1,
+    harvestTypes: [],
+    range:        1.0,
+  },
 }
 
 /** Return stats for the given itemId. Falls back to HAND stats if unknown or 0. */
@@ -105,6 +121,7 @@ const FOOD_STATS: Partial<Record<number, FoodStats>> = {
   [MAT.CLAY]:  { hungerRestore: 0.0,  thirstRestore: 0.08 },  // wet clay quenches thirst slightly
   [MAT.LEAF]:  { hungerRestore: 0.08, thirstRestore: 0.06 },  // fresh leaves — mild nutrition + moisture
   [MAT.COOKED_MEAT]: { hungerRestore: 0.40, thirstRestore: 0.05 },  // cooked meat — substantial food
+  [MAT.RAW_MEAT]:    { hungerRestore: 0.15, thirstRestore: 0.02 },  // raw meat — risky, low nutrition
 }
 
 /** Return food stats for a materialId, or null if it is not food. */

@@ -144,6 +144,42 @@ export class PlayerController {
     return false
   }
 
+  // ── Slice 4: Eat (E key) ─────────────────────────────────────────────────
+  private _eatConsumed = false
+  /** Consume the eat key (E). Returns true once per press. */
+  popEat(): boolean {
+    if (this.keys.has('KeyE') && !this._eatConsumed) {
+      this._eatConsumed = true
+      return true
+    }
+    if (!this.keys.has('KeyE')) this._eatConsumed = false
+    return false
+  }
+
+  // ── Slice 5: Herb (H key) ────────────────────────────────────────────────
+  private _herbConsumed = false
+  /** Consume the herb application key (H). Returns true once per press. */
+  popHerb(): boolean {
+    if (this.keys.has('KeyH') && !this._herbConsumed) {
+      this._herbConsumed = true
+      return true
+    }
+    if (!this.keys.has('KeyH')) this._herbConsumed = false
+    return false
+  }
+
+  // ── Slice 6: Sleep (Z key) ───────────────────────────────────────────────
+  private _sleepConsumed = false
+  /** Consume the sleep key (Z). Returns true once per press. */
+  popSleep(): boolean {
+    if (this.keys.has('KeyZ') && !this._sleepConsumed) {
+      this._sleepConsumed = true
+      return true
+    }
+    if (!this.keys.has('KeyZ')) this._sleepConsumed = false
+    return false
+  }
+
   requestPointerLock(): void { document.body.requestPointerLock() }
 
   dispose(): void {

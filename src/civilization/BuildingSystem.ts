@@ -178,6 +178,14 @@ export const BUILDING_TYPES: BuildingType[] = [
     maxOccupants: 2, structuralStrength: 0.5, maintenanceRate: 2,
   },
   {
+    // Slice 7: primitive stone furnace (enclosed stone space) — no iron required.
+    // Real basis: earliest copper smelting furnaces were clay/stone pits ~3500 BCE.
+    id: 'stone_furnace', name: 'Stone Furnace', tier: 0,
+    materialsRequired: [{ materialId: M.STONE, quantity: 20 }, { materialId: M.CLAY, quantity: 10 }],
+    size: [2, 2, 2], provides: ['furnace', 'smelting', 'metal_smelting'],
+    maxOccupants: 1, structuralStrength: 2.0, maintenanceRate: 0.5,
+  },
+  {
     id: 'pit_house', name: 'Pit House', tier: 0,
     materialsRequired: [{ materialId: M.WOOD, quantity: 20 }, { materialId: M.CLAY, quantity: 10 }],
     size: [4, 2, 4], provides: ['shelter', 'sleep', 'storage'],

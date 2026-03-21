@@ -12,7 +12,7 @@ import { CreatureRenderer } from './entities/CreatureRenderer'
 import { RemotePlayersRenderer } from './RemotePlayersRenderer'
 import { useMultiplayerStore } from '../store/multiplayerStore'
 import type { RemoteNpc } from '../store/multiplayerStore'
-import { world, createPlayerEntity, Metabolism, Health, Position, Rotation, IsDead } from '../ecs/world'
+import { world, createPlayerEntity, createCreatureEntity, Metabolism, Health, Position, Rotation, Velocity, IsDead, CreatureBody } from '../ecs/world'
 import { removeComponent } from 'bitecs'
 import { PlayerController } from '../player/PlayerController'
 import { MetabolismSystem, setMetabolismDt } from '../ecs/systems/MetabolismSystem'
@@ -23,11 +23,23 @@ import { TECH_TO_DISCOVERY } from '../civilization/TechDiscoveries'
 import { MAT, ITEM } from '../player/Inventory'
 import { BUILDING_TYPES } from '../civilization/BuildingSystem'
 import { getItemStats, canHarvest } from '../player/EquipSystem'
+import {
+  tickFoodCooking,
+  tickWoundSystem,
+  tickSleepSystem,
+  tickFurnaceSmelting,
+  tryEatFood,
+  tryApplyHerb,
+  tryStartSleep,
+  inflictWound,
+  cookingProgress,
+} from '../game/SurvivalSystems'
 import { PlanetTerrain } from './PlanetTerrain'
 import { surfaceRadiusAt, terrainHeightAt, getSpawnPosition, PLANET_RADIUS, SEA_LEVEL } from '../world/SpherePlanet'
 import { LocalSimManager } from '../engine/LocalSimManager'
 import { FireRenderer } from './FireRenderer'
 import { DayNightCycle } from './DayNightCycle'
+import { SimGridVisualizer } from './SimGridVisualizer'
 
 // ── Resource node definitions ─────────────────────────────────────────────────
 
@@ -63,6 +75,7 @@ const NODE_TYPES = [
   { type: 'uranium',     label: 'Uranium',     matId: MAT.URANIUM,    color: '#44ff44', count: 2  },
   { type: 'rubber',      label: 'Rubber',      matId: MAT.RUBBER,     color: '#2a2a2a', count: 5  },
   { type: 'saltpeter',   label: 'Saltpeter',   matId: MAT.SALTPETER,  color: '#f0f0e0', count: 4  },
+  { type: 'raw_meat',    label: 'Raw Meat',    matId: MAT.RAW_MEAT,   color: '#cc4444', count: 12 },
 ]
 
 function seededRand(seed: number): () => number {
@@ -145,6 +158,31 @@ const gatheredNodeIds = new Set<number>()
 const NODE_RESPAWN_AT = new Map<number, number>()
 const NODE_RESPAWN_DELAY = 60_000
 
+// Auto-open inventory on the player's first-ever gather so the playtester can
+// immediately inspect the item without knowing to press I.
+let _firstGatherDone = false
+
+// ── Node health system ────────────────────────────────────────────────────────
+// Tracks hits-taken per node. When hits reach the node's max, it is gathered.
+// Trees require 3 hits, rocks require 2 hits, other nodes require 1 hit.
+// Resets when the node respawns.
+const NODE_HITS_TAKEN = new Map<number, number>()
+
+function getNodeMaxHits(nodeType: string): number {
+  if (nodeType === 'wood') return 3
+  if (nodeType === 'stone' || nodeType === 'flint' || nodeType === 'copper_ore'
+    || nodeType === 'iron_ore' || nodeType === 'coal' || nodeType === 'tin_ore'
+    || nodeType === 'sulfur' || nodeType === 'gold' || nodeType === 'silver'
+    || nodeType === 'uranium') return 2
+  return 1
+}
+
+// ── Creature wander state ──────────────────────────────────────────────────────
+// Each creature has a wander direction and a timer until it picks a new direction.
+// Stored outside React state (module-level) for zero-allocation per-frame access.
+interface WanderState { vx: number; vy: number; vz: number; timer: number }
+const creatureWander = new Map<number, WanderState>()
+
 // ── Dig holes ─────────────────────────────────────────────────────────────────
 // Each dug patch is a position on the sphere surface (already snapped to ground).
 // We render them as dark concave discs so the player can see where they dug.
@@ -165,6 +203,110 @@ function terrainYAt(px: number, pz: number): number {
   const r = surfaceRadiusAt(px, PLANET_RADIUS, pz)
   const py2 = Math.sqrt(Math.max(0, r * r - px * px - pz * pz))
   return py2
+}
+
+// ── Spawn initial creatures from genome encoder ───────────────────────────────
+// Spawns NUM_CREATURES creatures around the spawn point using varied random genomes.
+// Genome byte 12 (bits 96-103) sets neural complexity level (0-4).
+// Creature sizes range 0.3m (small animals) to 1.2m (large mammals).
+//
+// Scientific basis: Fidelity tier B (Behavioral) — not real abiogenesis, but
+// genomes are real 256-bit encodings per GenomeEncoder spec.
+const NUM_CREATURES = 10
+function spawnInitialCreatures(
+  spawnX: number, spawnY: number, spawnZ: number,
+): number[] {
+  const rand = seededRand(77773)
+  const spawnDir = new THREE.Vector3(spawnX, spawnY, spawnZ).normalize()
+  const perpBase = Math.abs(spawnDir.y) < 0.9
+    ? new THREE.Vector3(0, 1, 0)
+    : new THREE.Vector3(1, 0, 0)
+  const tangent = new THREE.Vector3().crossVectors(spawnDir, perpBase).normalize()
+  const dir     = new THREE.Vector3()
+  const entityIds: number[] = []
+
+  // Predefined creature archetypes: [neuralLevel, sizeClass, mass, size (meters)]
+  const ARCHETYPES: Array<[0|1|2|3|4, number, number, number]> = [
+    [0, 0, 0.01, 0.15],  // microorganism
+    [0, 1, 0.05, 0.20],  // microorganism
+    [1, 4, 0.5,  0.30],  // small invertebrate
+    [1, 5, 1.2,  0.40],  // insect-scale creature
+    [1, 6, 2.5,  0.50],  // small amphibian
+    [2, 8, 5.0,  0.65],  // reptile/bird
+    [2, 9, 8.0,  0.70],  // medium animal
+    [2,10,15.0,  0.85],  // large bird/small mammal
+    [3,12,40.0,  1.10],  // large mammal
+    [2, 8, 6.0,  0.60],  // medium animal (extra)
+  ]
+
+  for (let i = 0; i < NUM_CREATURES; i++) {
+    // Try up to 20 positions to find land
+    let placed = false
+    for (let attempt = 0; attempt < 20; attempt++) {
+      const angle   = rand() * Math.PI * 2
+      const arcDist = (100 + rand() * 500) / PLANET_RADIUS
+      const axis    = tangent.clone().applyAxisAngle(spawnDir, angle)
+      dir.copy(spawnDir).applyAxisAngle(axis, arcDist)
+      const h = terrainHeightAt(dir)
+      if (h < 1) continue  // skip ocean
+
+      const archetype = ARCHETYPES[i % ARCHETYPES.length]
+      const [neuralLevel, , mass, size] = archetype
+
+      // Build a random genome — byte 12 encodes neural complexity level
+      const genome = new Uint8Array(32)
+      for (let b = 0; b < 32; b++) genome[b] = Math.floor(rand() * 256)
+      // Enforce neural level in bits 96-103 (byte 12)
+      genome[12] = neuralLevel <= 0 ? 10
+                 : neuralLevel === 1 ? 40
+                 : neuralLevel === 2 ? 90
+                 : neuralLevel === 3 ? 160
+                 : 220
+
+      const r   = PLANET_RADIUS + h + size * 0.5
+      const cx  = dir.x * r
+      const cy  = dir.y * r
+      const cz  = dir.z * r
+
+      const eid = createCreatureEntity(world, {
+        x: cx, y: cy, z: cz,
+        speciesId: i + 1,
+        genome,
+        neuralLevel,
+        mass,
+        size,
+      })
+      entityIds.push(eid)
+
+      // Initialize wander state — random initial direction in local tangent plane
+      const wanderAngle = rand() * Math.PI * 2
+      const speed = 0.3 + rand() * 0.5  // 0.3–0.8 m/s wander speed
+      creatureWander.set(eid, {
+        vx: Math.cos(wanderAngle) * speed,
+        vy: 0,
+        vz: Math.sin(wanderAngle) * speed,
+        timer: 2 + rand() * 4,  // change direction every 2-6 seconds
+      })
+      placed = true
+      break
+    }
+    if (!placed) {
+      // Fallback: place at spawn
+      const archetype = ARCHETYPES[i % ARCHETYPES.length]
+      const [neuralLevel, , mass, size] = archetype
+      const genome = new Uint8Array(32)
+      genome[12] = 40
+      const h = Math.max(0, terrainHeightAt(spawnDir))
+      const r = PLANET_RADIUS + h + size * 0.5 + i * 2
+      const eid = createCreatureEntity(world, {
+        x: spawnDir.x * r, y: spawnDir.y * r, z: spawnDir.z * r,
+        speciesId: i + 1, genome, neuralLevel, mass, size,
+      })
+      entityIds.push(eid)
+      creatureWander.set(eid, { vx: 0.3, vy: 0, vz: 0.3, timer: 3 })
+    }
+  }
+  return entityIds
 }
 
 export function SceneRoot() {
@@ -249,6 +391,9 @@ export function SceneRoot() {
 
       setEntityId(eid)
 
+      // Spawn initial creatures — world feels alive before any player action
+      spawnInitialCreatures(spawnX, spawnY, spawnZ)
+
       // Create keyboard/mouse controller for the player
       controllerRef.current = new PlayerController(eid)
 
@@ -297,7 +442,8 @@ export function SceneRoot() {
         }}>
           <div style={{ fontSize: 22, fontWeight: 700, marginBottom: 6 }}>CLICK TO PLAY</div>
           <div style={{ fontSize: 11, color: '#aaa' }}>WASD — Move &nbsp;·&nbsp; Mouse — Look &nbsp;·&nbsp; Space — Jump &nbsp;·&nbsp; F — Interact &nbsp;·&nbsp; G — Dig</div>
-          <div style={{ fontSize: 11, color: '#aaa', marginTop: 4 }}>ESC — Settings &nbsp;·&nbsp; I — Inventory &nbsp;·&nbsp; C — Craft &nbsp;·&nbsp; B — Build &nbsp;·&nbsp; T/E/J/Tab/M — More</div>
+          <div style={{ fontSize: 11, color: '#aaa', marginTop: 4 }}>E — Eat food &nbsp;·&nbsp; H — Herb / treat wound &nbsp;·&nbsp; Z — Sleep &nbsp;·&nbsp; Q — Attack</div>
+          <div style={{ fontSize: 11, color: '#aaa', marginTop: 4 }}>ESC — Settings &nbsp;·&nbsp; I — Inventory &nbsp;·&nbsp; C — Craft &nbsp;·&nbsp; B — Build &nbsp;·&nbsp; T/J/Tab/M — More</div>
         </div>
       </div>
     )}
@@ -369,12 +515,14 @@ export function SceneRoot() {
         <PlanetTerrain />
         <DigHolesRenderer />
         <ResourceNodes />
+        <NodeHealthBars />
         <PlacedBuildingsRenderer />
         <CreatureRenderer />
         <RemotePlayersRenderer />
         <ServerNpcsRenderer />
         <LocalNpcsRenderer />
         <FireRenderer simManager={simManager} />
+        <SimGridVisualizer simManager={simManager} />
       </Suspense>
       {entityId !== null && (
         <>
@@ -439,6 +587,8 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
   const placementMode       = useGameStore(s => s.placementMode)
   const setPlacementMode    = useGameStore(s => s.setPlacementMode)
   const bumpBuildVersion    = useGameStore(s => s.bumpBuildVersion)
+  // Survival system refs
+  const _sleepKeyRef        = useRef(false)
   const epAccumRef          = useRef(0)
   const tierRef             = useRef(0)
   const evoUnlockedRef      = useRef(-1)  // -1 forces apply on first frame
@@ -460,6 +610,62 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
 
     // 2. Step Rapier physics world (commits kinematic body positions)
     rapierWorld.step(dt)
+
+    // 2b. Creature wander AI — simple surface-hugging movement for all non-player creatures
+    // Also: creature bite damage (Slice 5 damage source)
+    const _playerPx = Position.x[entityId]
+    const _playerPy = Position.y[entityId]
+    const _playerPz = Position.z[entityId]
+    for (const [eid, ws] of creatureWander) {
+      ws.timer -= dt
+      if (ws.timer <= 0) {
+        // Pick a new random tangent-plane direction
+        const angle = Math.random() * Math.PI * 2
+        const speed = 0.3 + Math.random() * 0.5
+        ws.vx = Math.cos(angle) * speed
+        ws.vz = Math.sin(angle) * speed
+        ws.timer = 2 + Math.random() * 4
+      }
+      // Move creature along surface: advance position, then re-project onto sphere
+      const cx = Position.x[eid], cy = Position.y[eid], cz = Position.z[eid]
+      let nx = cx + ws.vx * dt
+      let ny = cy
+      let nz = cz + ws.vz * dt
+      // Re-project onto planet surface (keep at correct radius above terrain)
+      const len = Math.sqrt(nx*nx + ny*ny + nz*nz)
+      if (len > 10) {
+        const ndx = nx / len, ndy = ny / len, ndz = nz / len
+        const dir3 = new THREE.Vector3(ndx, ndy, ndz)
+        const h = terrainHeightAt(dir3)
+        if (h >= 0) {
+          const size = CreatureBody.size[eid] || 0.5
+          const r = PLANET_RADIUS + Math.max(0, h) + size * 0.5
+          nx = ndx * r; ny = ndy * r; nz = ndz * r
+        } else {
+          // Hit ocean — reverse direction
+          ws.vx = -ws.vx; ws.vz = -ws.vz
+          nx = cx; ny = cy; nz = cz
+        }
+      }
+      Position.x[eid] = nx; Position.y[eid] = ny; Position.z[eid] = nz
+
+      // Slice 5: Larger creatures (size >= 0.65m) can bite the player
+      const cSize = CreatureBody.size[eid] || 0.3
+      if (cSize >= 0.65) {
+        const bdx = _playerPx - nx
+        const bdy = _playerPy - ny
+        const bdz = _playerPz - nz
+        const bDist2 = bdx * bdx + bdy * bdy + bdz * bdz
+        if (bDist2 < 2.25) {  // 1.5m radius
+          // 5% chance per second to bite → probability per frame = 0.05 * dt
+          if (Math.random() < 0.05 * dt) {
+            const severity = 0.2 + Math.random() * 0.4  // mild to moderate bite
+            Health.current[entityId] = Math.max(0, Health.current[entityId] - severity * 10)
+            inflictWound(severity)
+          }
+        }
+      }
+    }
 
     // 3. Metabolism (hunger, thirst, fatigue, health regen)
     setMetabolismDt(dt)
@@ -534,6 +740,7 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
         if (at !== undefined && now >= at) {
           gatheredNodeIds.delete(id)
           NODE_RESPAWN_AT.delete(id)
+          NODE_HITS_TAKEN.delete(id)  // reset hit state on respawn
         }
       }
     }
@@ -635,7 +842,12 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
           inventory.discoverRecipe(1)
         }
         const addNotification = useUiStore.getState().addNotification
-        addNotification(`Gathered ${qty > 1 ? qty + '× ' : ''}${nearNode.label}`, 'info')
+        addNotification(`Gathered ${qty > 1 ? qty + '× ' : ''}${nearNode.label} — press [I] to inspect`, 'info')
+        // Auto-open inventory on first gather so the player immediately sees their items
+        if (!_firstGatherDone) {
+          _firstGatherDone = true
+          useUiStore.getState().openPanel('inventory')
+        }
         // Award EP for discovery gathers (ores)
         if (isOre) {
           addEvolutionPoints(2)
@@ -652,11 +864,54 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
       usePlayerStore.getState().setAmbientTemp(tempC)
     }
 
+    // ── Slice 4: Food cooking thermodynamics ──────────────────────────────────
+    tickFoodCooking(dt, inventory, simManagerRef.current, px, py, pz)
+
+    // ── Slice 5: Wound + infection system ─────────────────────────────────────
+    tickWoundSystem(dt)
+
+    // ── Slice 6: Sleep / stamina restoration ──────────────────────────────────
+    tickSleepSystem(dt)
+
+    // ── Slice 7: Furnace smelting ─────────────────────────────────────────────
+    tickFurnaceSmelting(
+      inventory,
+      simManagerRef.current,
+      buildingSystem.getAllBuildings().map(b => ({
+        id: b.id,
+        position: b.position,
+        typeId: b.typeId,
+      })),
+      px, py, pz
+    )
+
     // ── Tool use: left click harvests with equipped item ─────────────────
     const ps2 = usePlayerStore.getState()
     const equippedSlot2 = ps2.equippedSlot ?? null
     const equippedItem2 = equippedSlot2 !== null ? inventory.getSlot(equippedSlot2) : null
     const hasFlint = equippedItem2?.materialId === MAT.FLINT
+
+    // ── Fire prompt: show when flint equipped + can start fire ───────────
+    if (hasFlint && !gs.inputBlocked) {
+      let nearestBurnable: ResourceNode | null = null
+      let nearestBurnDist = 3.0
+      for (const node of RESOURCE_NODES) {
+        if (gatheredNodeIds.has(node.id)) continue
+        if (node.matId !== MAT.WOOD && node.matId !== MAT.BARK && node.matId !== MAT.FIBER) continue
+        const dx = px - node.x, dy = py - node.y, dz = pz - node.z
+        const dist = Math.sqrt(dx * dx + dy * dy + dz * dz)
+        if (dist < nearestBurnDist) { nearestBurnDist = dist; nearestBurnable = node }
+      }
+      const hasInventoryWood   = inventory.countMaterial(MAT.WOOD) >= 1
+      const hasInventoryTinder = inventory.countMaterial(MAT.FIBER) >= 1 || inventory.countMaterial(MAT.BARK) >= 1
+      if (nearestBurnable) {
+        const fireLabel = `[Left-click] Strike flint — ignite ${nearestBurnable.label}`
+        if (gs.gatherPrompt !== fireLabel) gs.setGatherPrompt(fireLabel)
+      } else if (hasInventoryWood && hasInventoryTinder) {
+        const fireLabel = '[Left-click] Strike flint — place campfire from inventory'
+        if (gs.gatherPrompt !== fireLabel) gs.setGatherPrompt(fireLabel)
+      }
+    }
 
     // ── Fire-starting: equipped flint + left-click near wood/bark/fiber ───
     if (hasFlint && !gs.inputBlocked && controllerRef.current?.popAttack() && simManagerRef.current) {
@@ -670,10 +925,31 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
         if (dist < nearestFireDist) { nearestFireDist = dist; nearestFireNode = node }
       }
       if (nearestFireNode) {
+        // Path A: Strike flint near an in-world wood/bark/fiber node
         simManagerRef.current.placeWood(nearestFireNode.x, nearestFireNode.y, nearestFireNode.z, nearestFireNode.matId)
         simManagerRef.current.ignite(nearestFireNode.x, nearestFireNode.y, nearestFireNode.z)
-        gs.setGatherPrompt('Fire started!')
-        setTimeout(() => useGameStore.getState().setGatherPrompt(null), 2000)
+        gs.setGatherPrompt(null)
+        useUiStore.getState().addNotification('Fire started! Temperature rising...', 'info')
+      } else {
+        // Path B: Player has wood + tinder in inventory — consume them, ignite at player feet
+        const hasWood   = inventory.countMaterial(MAT.WOOD) >= 1
+        const hasTinder = inventory.countMaterial(MAT.FIBER) >= 1 || inventory.countMaterial(MAT.BARK) >= 1
+        if (hasWood && hasTinder && simManagerRef.current) {
+          // Consume materials
+          const woodIdx   = inventory.findItem(MAT.WOOD)
+          const tinderIdx = inventory.findItem(MAT.FIBER) >= 0
+            ? inventory.findItem(MAT.FIBER)
+            : inventory.findItem(MAT.BARK)
+          if (woodIdx >= 0) inventory.removeItem(woodIdx, 1)
+          if (tinderIdx >= 0) inventory.removeItem(tinderIdx, 1)
+          // Place wood in sim grid at player's feet and ignite
+          simManagerRef.current.placeWood(px, py - 1, pz)
+          simManagerRef.current.ignite(px, py - 1, pz)
+          gs.setGatherPrompt(null)
+          useUiStore.getState().addNotification('Fire started from inventory! Temperature rising...', 'info')
+        } else if (!hasWood || !hasTinder) {
+          useUiStore.getState().addNotification('Need wood + tinder (fiber/bark) in inventory to start fire', 'warning')
+        }
       }
     } else if (!gs.inputBlocked && controllerRef.current?.popAttack()) {
       const equippedItem = equippedItem2
@@ -696,13 +972,104 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
       }
 
       if (nearest) {
-        const qty     = Math.floor(Math.random() * 3) + 1
-        const quality = 0.7 + Math.random() * 0.3
-        inventory.addItem({ itemId: 0, materialId: nearest.matId, quantity: qty, quality })
-        gatheredNodeIds.add(nearest.id)
-        NODE_RESPAWN_AT.set(nearest.id, Date.now() + NODE_RESPAWN_DELAY)
-        useUiStore.getState().addNotification(`Harvested ${qty > 1 ? qty + '× ' : ''}${nearest.label}`, 'info')
+        // Hit-based health system: deplete hits, only gather when max hits reached
+        const maxHits   = getNodeMaxHits(nearest.type)
+        const hitsSoFar = (NODE_HITS_TAKEN.get(nearest.id) ?? 0) + 1
+        NODE_HITS_TAKEN.set(nearest.id, hitsSoFar)
+
+        if (hitsSoFar >= maxHits) {
+          // Node felled/gathered — yield materials and remove from world
+          NODE_HITS_TAKEN.delete(nearest.id)
+          const qty     = nearest.type === 'wood' ? 3 : Math.floor(Math.random() * 3) + 1
+          const quality = 0.7 + Math.random() * 0.3
+          inventory.addItem({ itemId: 0, materialId: nearest.matId, quantity: qty, quality })
+          gatheredNodeIds.add(nearest.id)
+          NODE_RESPAWN_AT.set(nearest.id, Date.now() + NODE_RESPAWN_DELAY)
+          const verb = nearest.type === 'wood' ? 'Felled' : 'Harvested'
+          useUiStore.getState().addNotification(`${verb} ${qty}× ${nearest.label}`, 'info')
+        } else {
+          // Not yet felled — show progress
+          const hitsLeft = maxHits - hitsSoFar
+          useUiStore.getState().addNotification(
+            `Hit ${nearest.label} — ${hitsLeft} more hit${hitsLeft > 1 ? 's' : ''} to fell`,
+            'info'
+          )
+        }
       }
+    }
+
+    // ── Eat (E key when cooked food in inventory) ─────────────────────────────
+    // E key is also used for "equip/interact" in some contexts — we check for
+    // cooked meat specifically. PlayerController.popEat() is mapped to the E key.
+    if (!gs.inputBlocked) {
+      const psNow = usePlayerStore.getState()
+      // Show eat prompt when cooked meat is in inventory and hunger > 0
+      if (inventory.countMaterial(MAT.COOKED_MEAT) > 0 && psNow.hunger > 0.05) {
+        const eatLabel = '[E] Eat cooked meat'
+        if (gs.gatherPrompt === null) gs.setGatherPrompt(eatLabel)
+      }
+      // Show herb prompt when player has wounds + leaf
+      if (psNow.wounds.length > 0 && inventory.countMaterial(MAT.LEAF) > 0) {
+        const herbLabel = '[H] Apply herb to wound'
+        if (gs.gatherPrompt === null) gs.setGatherPrompt(herbLabel)
+      }
+      // Show furnace smelting hint (Slice 7)
+      const nearFurnace = buildingSystem.getAllBuildings().find(b => {
+        if (b.typeId !== 'smelting_furnace' && b.typeId !== 'stone_furnace') return false
+        const dx = px - b.position[0], dy = py - b.position[1], dz = pz - b.position[2]
+        return dx * dx + dy * dy + dz * dz < 36
+      })
+      if (nearFurnace && gs.gatherPrompt === null) {
+        const furnaceTemp = simManagerRef.current ? simManagerRef.current.getTemperatureAt(
+          nearFurnace.position[0], nearFurnace.position[1], nearFurnace.position[2]
+        ) : 0
+        const hasOre = inventory.countMaterial(MAT.COPPER_ORE) >= 3
+        const hasChar = inventory.countMaterial(MAT.CHARCOAL) >= 2
+        if (hasOre && hasChar) {
+          const smeltLabel = `[F] Smelt copper — furnace ${furnaceTemp.toFixed(0)}°C / 500°C needed`
+          gs.setGatherPrompt(smeltLabel)
+        } else if (!hasOre) {
+          gs.setGatherPrompt(`Furnace nearby — need 3x Copper Ore + 2x Charcoal to smelt`)
+        }
+      }
+
+      // Show sleep prompt near shelter
+      const nearShelter = buildingSystem.getAllBuildings().some(b => {
+        const shelterTypes = ['lean_to', 'pit_house', 'mud_brick_house', 'stone_house']
+        if (!shelterTypes.includes(b.typeId)) return false
+        const dx = px - b.position[0], dy = py - b.position[1], dz = pz - b.position[2]
+        return dx * dx + dy * dy + dz * dz < 64
+      })
+      const hasBedroll = inventory.hasItemById(ITEM.BEDROLL)
+      if ((nearShelter || hasBedroll) && !psNow.isSleeping) {
+        const sleepLabel = '[Z] Sleep — restore stamina'
+        if (gs.gatherPrompt === null) gs.setGatherPrompt(sleepLabel)
+      }
+      if (psNow.isSleeping) {
+        gs.setGatherPrompt('[Z] Wake up')
+      }
+    }
+
+    // ── E key: eat cooked food ────────────────────────────────────────────────
+    if (!gs.inputBlocked && controllerRef.current?.popEat?.()) {
+      if (!tryEatFood(inventory)) {
+        // If no food, try herb treatment instead
+        tryApplyHerb(inventory)
+      }
+    }
+
+    // ── H key: apply herb to wound ────────────────────────────────────────────
+    if (!gs.inputBlocked && controllerRef.current?.popHerb?.()) {
+      tryApplyHerb(inventory)
+    }
+
+    // ── Z key: sleep / wake ───────────────────────────────────────────────────
+    if (!gs.inputBlocked && controllerRef.current?.popSleep?.()) {
+      tryStartSleep(
+        inventory,
+        buildingSystem.getAllBuildings().map(b => ({ position: b.position, typeId: b.typeId })),
+        px, py, pz
+      )
     }
 
     // ── Dig (G key): loosen the ground and add materials ──────────────────────
@@ -1589,28 +1956,58 @@ function TreeMesh({ id }: { id: number }) {
   const leafG2   = nodeRand(id, 2) > 0.5 ? '#2a7030' : '#174d17'
   const leafG3   = '#3a8a2a'
 
+  // Per-tree phase offset — ensures trees don't all sway in sync
+  // Scientific basis: turbulent wind spectrum → each tree resonates at slightly
+  // different natural frequency depending on mass, height, stiffness.
+  const phaseOffset = nodeRand(id, 9) * Math.PI * 2
+  const freqMult    = 0.8 + nodeRand(id, 10) * 0.4  // 0.8–1.2× base frequency
+
+  // Wind direction: slow veering over time (2°/10s in real Beaufort-2 conditions)
+  // We bake a stable yaw into each tree so wind appears directional
+  const windYaw = nodeRand(id, 11) * 0.4 - 0.2  // ±0.2 rad individual lean bias
+
+  const crownRef = useRef<THREE.Group>(null)
+
+  useFrame(({ clock }) => {
+    const crown = crownRef.current
+    if (!crown) return
+    const t = clock.elapsedTime
+
+    // Two-frequency sway: primary at 0.5 Hz + harmonic at 1.0 Hz
+    // Amplitude: 0.06 rad ≈ 3.4° — Beaufort scale 2 (light breeze)
+    const sway = Math.sin(t * 0.5 * freqMult * Math.PI * 2 + phaseOffset) * 0.055
+               + Math.sin(t * 1.0 * freqMult * Math.PI * 2 + phaseOffset * 1.3) * 0.02
+
+    // Apply in two axes: primary wind direction + orthogonal gust component
+    crown.rotation.z = sway + windYaw * 0.3
+    crown.rotation.x = sway * 0.35 + Math.sin(t * 0.7 * freqMult + phaseOffset * 0.7) * 0.015
+  })
+
   return (
     <group>
-      {/* Trunk */}
+      {/* Trunk — static, only base of tree */}
       <mesh position={[lean * trunkH * 0.5, trunkH * 0.5, 0]} castShadow rotation={[0, 0, lean]}>
         <cylinderGeometry args={[trunkTop, trunkBot, trunkH, 7]} />
         <meshStandardMaterial color="#5c3a1e" roughness={1} />
       </mesh>
-      {/* Lower foliage layer */}
-      <mesh position={[lean * trunkH, trunkH * 0.62, 0]} castShadow>
-        <coneGeometry args={[2.2 * scale, 2.8 * scale, 7]} />
-        <meshStandardMaterial color={leafG1} roughness={0.9} />
-      </mesh>
-      {/* Mid foliage layer */}
-      <mesh position={[lean * trunkH * 0.9, trunkH * 0.82, 0]} castShadow>
-        <coneGeometry args={[1.6 * scale, 2.2 * scale, 6]} />
-        <meshStandardMaterial color={leafG2} roughness={0.9} />
-      </mesh>
-      {/* Top foliage layer */}
-      <mesh position={[lean * trunkH * 0.8, trunkH * 0.98, 0]} castShadow>
-        <coneGeometry args={[1.0 * scale, 1.6 * scale, 6]} />
-        <meshStandardMaterial color={leafG3} roughness={0.9} />
-      </mesh>
+      {/* Crown group — all foliage layers sway together as a unit */}
+      <group ref={crownRef} position={[lean * trunkH, trunkH * 0.5, 0]}>
+        {/* Lower foliage layer */}
+        <mesh position={[0, trunkH * 0.12, 0]} castShadow>
+          <coneGeometry args={[2.2 * scale, 2.8 * scale, 7]} />
+          <meshStandardMaterial color={leafG1} roughness={0.9} />
+        </mesh>
+        {/* Mid foliage layer */}
+        <mesh position={[0, trunkH * 0.32, 0]} castShadow>
+          <coneGeometry args={[1.6 * scale, 2.2 * scale, 6]} />
+          <meshStandardMaterial color={leafG2} roughness={0.9} />
+        </mesh>
+        {/* Top foliage layer */}
+        <mesh position={[0, trunkH * 0.48, 0]} castShadow>
+          <coneGeometry args={[1.0 * scale, 1.6 * scale, 6]} />
+          <meshStandardMaterial color={leafG3} roughness={0.9} />
+        </mesh>
+      </group>
     </group>
   )
 }
@@ -1647,6 +2044,73 @@ function RockMesh({ id, color }: { id: number; color: string }) {
       </mesh>
     </group>
   )
+}
+
+// ── Node health bar renderer ──────────────────────────────────────────────────
+// Renders a 3D health bar above each node that has taken damage but not been
+// gathered yet. Bar width scales from full (0 hits) to zero (maxHits).
+// Uses instanced meshes — no per-node React re-renders.
+function NodeHealthBars() {
+  const trackRef = useRef<THREE.Group>(null)
+
+  useFrame(({ camera }) => {
+    const g = trackRef.current
+    if (!g) return
+
+    // Remove existing children and re-add only for damaged nodes
+    while (g.children.length) g.remove(g.children[0])
+
+    for (const [nodeId, hitsTaken] of NODE_HITS_TAKEN) {
+      if (gatheredNodeIds.has(nodeId)) continue
+      const node = RESOURCE_NODES.find(n => n.id === nodeId)
+      if (!node) continue
+      const maxHits = getNodeMaxHits(node.type)
+      const pct = 1 - hitsTaken / maxHits  // 1 = full, 0 = gone
+
+      // Position bar 3m above the node's surface position along the surface normal
+      const surfNorm = new THREE.Vector3(node.x, node.y, node.z).normalize()
+      const barPos = new THREE.Vector3(
+        node.x + surfNorm.x * 4.5,
+        node.y + surfNorm.y * 4.5,
+        node.z + surfNorm.z * 4.5,
+      )
+
+      // Background track (dark)
+      const trackGeo = new THREE.PlaneGeometry(1.2, 0.18)
+      const trackMat = new THREE.MeshBasicMaterial({ color: '#222222', depthTest: false })
+      const trackMesh = new THREE.Mesh(trackGeo, trackMat)
+      trackMesh.position.copy(barPos)
+      trackMesh.renderOrder = 999
+
+      // Fill bar (green→red)
+      const fillW  = 1.1 * pct
+      const fillGeo = new THREE.PlaneGeometry(fillW, 0.14)
+      const hue     = Math.round(pct * 120)  // 120=green, 60=yellow, 0=red
+      const fillMat = new THREE.MeshBasicMaterial({
+        color: new THREE.Color(`hsl(${hue}, 80%, 50%)`),
+        depthTest: false,
+      })
+      const fillMesh = new THREE.Mesh(fillGeo, fillMat)
+      // Offset fill to left-align: start at left edge of track
+      fillMesh.position.set(
+        barPos.x - (1.1 - fillW) * 0.5,
+        barPos.y,
+        barPos.z,
+      )
+      fillMesh.renderOrder = 1000
+
+      // Billboard both to face camera
+      const camDir = camera.position.clone().sub(barPos).normalize()
+      const billQ  = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), camDir)
+      trackMesh.quaternion.copy(billQ)
+      fillMesh.quaternion.copy(billQ)
+
+      g.add(trackMesh)
+      g.add(fillMesh)
+    }
+  })
+
+  return <group ref={trackRef} />
 }
 
 function ResourceNodes() {

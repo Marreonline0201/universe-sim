@@ -214,6 +214,7 @@ export const MAT = {
   GUNPOWDER: 31, SILICON: 32, CIRCUIT: 33, WIRE: 34,
   PLASTIC: 35, RUBBER: 36, FUEL: 37, LUBRICANT: 38,
   URANIUM: 39, PLUTONIUM: 40, COOKED_MEAT: 41,
+  RAW_MEAT: 42,
 } as const
 
 // ── Item IDs ──────────────────────────────────────────────────────────────────
@@ -232,6 +233,7 @@ export const ITEM = {
   FUSION_REACTOR: 40, NANOBOT: 41, QUANTUM_COMPUTER: 42,
   WARP_DRIVE: 43, DYSON_SPHERE: 44, MATRIOSHKA_BRAIN: 45,
   SIMULATION_ENGINE_ITEM: 46,
+  BEDROLL: 47, COPPER_KNIFE: 48,
 } as const
 
 // ── Crafting Recipes ─────────────────────────────────────────────────────────
@@ -640,5 +642,30 @@ export const CRAFTING_RECIPES: CraftingRecipe[] = [
     inputs: [{ materialId: MAT.BONE, quantity: 2 }, { materialId: MAT.WOOD, quantity: 1 }],
     output: { itemId: MAT.COOKED_MEAT, quantity: 2, isMaterial: true },
     knowledgeRequired: ['fire_making'],
+  },
+  // ── Slice 4: Cooking via fire thermodynamics ──────────────────────────────
+  // Raw meat gathered from animals/bone nodes. Cooking is driven by the sim
+  // grid temperature system (see FoodCookingSystem). This recipe is a fallback
+  // crafting-panel route; the primary path is proximity-to-fire automatic cooking.
+  {
+    id: 64, name: 'Cook Meat (manual)', tier: 0, time: 20,
+    inputs: [{ materialId: MAT.RAW_MEAT, quantity: 1 }],
+    output: { itemId: MAT.COOKED_MEAT, quantity: 1, isMaterial: true },
+    knowledgeRequired: ['fire_making'],
+  },
+  // ── Slice 6: Bedroll for sleep system ────────────────────────────────────
+  {
+    id: 65, name: 'Bedroll', tier: 0, time: 15,
+    inputs: [{ materialId: MAT.HIDE, quantity: 3 }, { materialId: MAT.FIBER, quantity: 4 }],
+    output: { itemId: ITEM.BEDROLL, quantity: 1 },
+    knowledgeRequired: [],
+  },
+  // ── Slice 7: Copper knife via smelting ───────────────────────────────────
+  // Copper knife: smelted copper + bone handle. Requires copper from furnace smelting.
+  {
+    id: 66, name: 'Copper Knife', tier: 0, time: 30,
+    inputs: [{ materialId: MAT.COPPER, quantity: 2 }, { materialId: MAT.BONE, quantity: 1 }],
+    output: { itemId: ITEM.COPPER_KNIFE, quantity: 1 },
+    knowledgeRequired: [],
   },
 ]

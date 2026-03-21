@@ -1,6 +1,6 @@
 # Universe Simulation — Player's Manual
 
-_Last updated: 2026-03-21 (M9)_
+_Last updated: 2026-03-21 (M10)_
 
 ---
 
@@ -16,13 +16,16 @@ This manual will walk you through everything you need to know to play Universe S
 2. [Controls — Keyboard and Mouse](#2-controls--keyboard-and-mouse)
 3. [Survival Basics — The Vitals Panel](#3-survival-basics--the-vitals-panel)
 4. [Rivers — Freshwater, Clay, and Currents](#4-rivers--freshwater-clay-and-currents)
-5. [Evolution System — Evolution Points](#5-evolution-system--evolution-points)
-6. [Discovery Journal — Unlocking Knowledge](#6-discovery-journal--unlocking-knowledge)
-7. [Crafting and Inventory](#7-crafting-and-inventory)
-8. [Tech Tree — Civilization Advancement](#8-tech-tree--civilization-advancement)
-9. [AI Creatures and NPCs](#9-ai-creatures-and-npcs)
-10. [Time Controls — Speeding Up and Slowing Down](#10-time-controls--speeding-up-and-slowing-down)
-11. [Tips for Beginners](#11-tips-for-beginners)
+5. [Seasons — The Living Year](#5-seasons--the-living-year)
+6. [Sailing and Fishing](#6-sailing-and-fishing)
+7. [Trade and Economy](#7-trade-and-economy)
+8. [Evolution System — Evolution Points](#8-evolution-system--evolution-points)
+9. [Discovery Journal — Unlocking Knowledge](#9-discovery-journal--unlocking-knowledge)
+10. [Crafting and Inventory](#10-crafting-and-inventory)
+11. [Tech Tree — Civilization Advancement](#11-tech-tree--civilization-advancement)
+12. [AI Creatures and NPCs](#12-ai-creatures-and-npcs)
+13. [Time Controls — Speeding Up and Slowing Down](#13-time-controls--speeding-up-and-slowing-down)
+14. [Tips for Beginners](#14-tips-for-beginners)
 
 ---
 
@@ -189,7 +192,177 @@ Rivers are generated from the same seed as the rest of the world, so they are al
 
 ---
 
-## 5. Evolution System — Evolution Points
+## 5. Seasons — The Living Year
+
+### What Are Seasons?
+
+The planet has a year, and that year has four seasons — spring, summer, autumn, and winter. One full year lasts 40 real-time minutes, so each season lasts about 10 minutes. You will live through many seasons during a single play session.
+
+Seasons are not just visual decoration. They change the terrain, they change how hard it is to survive, and they change what resources are most important to find.
+
+### How to Know What Season It Is
+
+Look at the HUD in the top-left corner. The SeasonWidget shows:
+- The current season name (Spring, Summer, Autumn, or Winter)
+- The current day of the year (e.g., "Day 23 of 40")
+
+A notification also appears on screen whenever one season ends and the next begins.
+
+### What Each Season Looks Like
+
+**Spring**
+The terrain gains a soft blossom effect near trees — small particle-like blossoms appear at foliage vertices. The world looks fresh and new. Temperatures are mild.
+
+**Summer**
+The terrain returns to its baseline appearance. Warmest temperatures of the year. Easiest time to survive — food is plentiful, temperatures are safe, and hydration drains at the normal rate.
+
+**Autumn**
+A warm amber tint settles over the terrain. The world looks golden. This is a good time to stockpile food and craft warm clothing because winter is coming.
+
+**Winter**
+A white snow overlay blends over the ground. Temperatures drop. The most dangerous season.
+
+### Winter — The Hard Season
+
+Winter is the most demanding season in the game. Two things change during winter:
+
+**1. Cold temperatures**
+The ambient temperature shown in your HUD drops significantly. If you are not near a fire or in a shelter, your body temperature will fall. Extreme cold damages your health over time. Keep a fire burning.
+
+**2. Higher food drain (+20%)**
+In winter, your hunger empties 20% faster than in other seasons. This reflects the real biology of thermoregulation: keeping your body warm in cold weather burns more calories. You need to eat more often, or carry more food, to survive the same length of time in winter as in summer.
+
+**Practical tips for winter:**
+- Build or find a shelter before winter arrives. Shelters block wind and cold.
+- Keep a fire burning at your base. Standing near fire warms you and slows cold damage.
+- Stockpile food in autumn. You will need roughly 20% more food than usual.
+- Cooked food and smoked fish last longer and restore more hunger than raw food — good winter provisions.
+- If you are caught outdoors in winter without fire, sprint to find shelter rather than fighting the cold slowly.
+
+---
+
+## 6. Sailing and Fishing
+
+### What Is Sailing?
+
+With Milestone 10, you can now build watercraft and travel the rivers and coasts of the planet by water. There are two craftable vessels: a simple raft and a sailing boat.
+
+Both craft are driven by wind. The direction and strength of the wind comes from the same weather system that drives rain and storms — if a storm is active, the wind is strong. On a calm day, progress is slower.
+
+### The Raft
+
+The raft is the simpler of the two vessels. It moves in the direction the wind is blowing and cannot sail against the wind at all. Think of it as a platform that drifts with whatever direction the air is moving.
+
+**Craft a raft:** 8 Wood + 4 Rope + 2 Fiber (Recipe 81)
+
+To use it: place the raft near the water's edge and board it. While aboard, the raft moves in the wind direction. You steer by choosing when to disembark and continuing on foot.
+
+**Best use:** crossing rivers quickly, or traveling downstream along a river when the wind happens to be blowing the same direction.
+
+### The Sailing Boat
+
+The sailing boat is more capable and more complex. It can sail at angles to the wind — a technique called tacking — which means a skilled sailor can reach a destination even if the wind is not blowing directly toward it.
+
+**Craft a sailing boat:** 20 Wood + 8 Rope + 4 Cloth + 2 Iron (Recipe 82)
+
+**How tacking works:**
+Imagine you need to travel north, but the wind is blowing from the north (toward you). You cannot sail directly into the wind — there is a "no-go zone" of roughly 45 degrees on either side of the wind direction where the sail cannot catch air. But you can sail at 50 or 60 degrees to the wind, first toward the northeast, then turn and sail toward the northwest, zigzagging upwind. Each leg of the zigzag is called a "tack." This is how real sailing vessels travel against the wind, and it is how the sailing boat works in this game.
+
+**The no-go zone:** If you point the boat directly into the wind (within 45 degrees), the sail flaps and the boat loses speed. Steer away from the wind slightly to fill the sail again.
+
+**Practical tips:**
+- Watch the wind direction indicator in your HUD. Wind direction changes with weather state.
+- In a storm, winds are strong — sailing is fast but harder to control.
+- Rivers are narrow. Tacking on a river requires short tacks. Coastal sailing gives you more room.
+
+### The Compass
+
+The compass is a craftable navigation tool. While you are holding it, a bearing needle overlay appears in your HUD showing which direction is magnetic north. This helps you navigate across open water without landmarks.
+
+**Craft a compass:** 1 Iron + 1 Copper + 1 Glass (Recipe 83)
+
+### Fishing
+
+Rivers and coastal water are stocked with fish. To catch them, you need a Fishing Rod.
+
+**Craft a fishing rod:** 2 Wood + 3 Fiber + 1 Rope (Recipe 84)
+
+**How to fish:**
+1. Stand near the edge of a river or coastal water (or board a watercraft).
+2. Equip the Fishing Rod from your inventory.
+3. Press the use key (E or F) to cast.
+4. Wait. A bite will happen between 5 and 15 seconds after casting.
+5. When a bite prompt appears on screen, press the use key again quickly to reel in the catch.
+6. If you miss the window, the fish escapes and you can cast again.
+
+**What fish gives you:**
+- Raw fish (MAT 60) — can be eaten immediately for low nutrition, or cooked over fire for full nutrition.
+- **Cooked Fish:** 1 Fish over a fire (Recipe 85). Restores a good amount of hunger.
+- **Smoked Fish:** 1 Fish + 1 Salt (Recipe 87). A preserved food that lasts longer in your inventory without spoiling — useful for long journeys or winter stockpiling.
+
+**Where to fish:**
+Fish are present in all rivers and along the coast. You do not need to find a specific "fishing spot" — any river or coastal tile will work. Fishing from a watercraft works the same way as fishing from shore.
+
+---
+
+## 7. Trade and Economy
+
+### What Is the Trade Economy?
+
+Every NPC settlement in the game now operates a live economy. They buy and sell goods, and their prices change based on supply and demand — exactly like a real market.
+
+If a settlement has a large stockpile of fish (because they produce a lot and nobody has been buying it), the price they offer for fish will be low. If their stockpile is almost empty, they will pay a premium. The same logic applies to what they sell: goods they have plenty of are cheap, goods they are short on are expensive.
+
+Prices range from 0.6x the base price (when oversupplied) up to 2.5x the base price (when scarce).
+
+### Currency — Copper Coins
+
+All trade uses copper coins (MAT 59). You can obtain coins by selling goods to settlements, collecting bounties, or finding them in the world. You spend coins by buying goods from settlements.
+
+You can see your current coin balance in your inventory. Coins stack like any other material.
+
+### The ShopHUD
+
+When you enter a settlement and interact with the merchant NPC, the ShopHUD opens. It has two tabs:
+
+**Buy tab**
+A list of everything the settlement currently sells, with live prices. The price shown reflects the current stockpile level — check back later if a price seems too high, as caravans and other players may have changed the supply.
+
+**Sell tab**
+A list of everything the settlement is currently buying, with live prices. Settlements will not buy unlimited quantities — they have storage limits. If they are already oversupplied, they may stop buying a particular good entirely.
+
+### What Each Settlement Specializes In
+
+Each of the five settlements produces certain goods and imports others. Their specialty goods are always well-stocked and cheap to buy. Imported goods are scarce and expensive.
+
+| Settlement | Specializes In | Usually Imports |
+|---|---|---|
+| Ashford | Wood, Leather | Stone, Grain |
+| Ironhaven | Copper, Iron | Coal, Stone |
+| Saltmere | Fish, Salt | Wood, Grain |
+| Thornwall | Stone, Ore | Leather, Food |
+| Ridgepost | Food, Grain | Salt, Metals |
+
+### NPC Caravans
+
+Every 5 real-time minutes, a caravan departs from one settlement and travels to another, carrying a load of trade goods. When it arrives, it deposits its cargo into the destination's stockpile. This gradually equalizes prices across the world even if players are not trading.
+
+You will see caravan groups moving between settlements on the map and in the world. They follow the same terrain as players. You can trade with a caravan while it is in transit if you intercept its path — though caravan-to-player trading is limited compared to full settlement shops.
+
+**Opportunity:** If you know that Ironhaven is low on wood (high wood price) and Ashford has surplus wood (low wood price), you can buy wood at Ashford and sell it at Ironhaven for a profit — before the next caravan rebalances the market.
+
+### New Trade Materials
+
+| Material | ID | How to Get | Use |
+|---|---|---|---|
+| Copper Coin | MAT 59 | Sell goods to settlements; find in world | Currency for all trade |
+| Fish | MAT 60 | Catch with Fishing Rod | Food; sell to Saltmere |
+| Salt | MAT 61 | Produced at Saltmere; buy or make | Preserve food; sell |
+| Grain | MAT 62 | Produced at Ridgepost; buy | Food; cooking ingredient |
+
+---
+
+## 8. Evolution System — Evolution Points
 
 ### What are Evolution Points?
 
@@ -292,7 +465,7 @@ Examples:
 
 ---
 
-## 6. Discovery Journal — Unlocking Knowledge
+## 9. Discovery Journal — Unlocking Knowledge
 
 ### What Is the Discovery Journal?
 
@@ -364,7 +537,7 @@ Some discoveries give you special tools as the player — not just for your crea
 
 ---
 
-## 7. Crafting and Inventory
+## 10. Crafting and Inventory
 
 ### What Is the Inventory?
 
@@ -427,6 +600,10 @@ Materials are the raw building blocks you collect. Here is a list of all materia
 | Fuel | Refine from organic sources |
 | Uranium | Mine from uranium deposits |
 | Plutonium | Process from Uranium |
+| Copper Coin | Receive from settlements when selling goods; currency for all trade (M10) |
+| Fish | Catch with a Fishing Rod at rivers or the coast (M10) |
+| Salt | Buy at Saltmere or evaporate seawater; used in Smoked Fish recipe (M10) |
+| Grain | Buy at Ridgepost; a food item for settlements and players (M10) |
 
 ### Crafting Recipes by Tier
 
@@ -451,6 +628,10 @@ Recipes are grouped by civilization tier (0 through 9). You can only use recipes
 | Leather | 2 Hide (process at fire) | Tool Use | 30 sec |
 | Leather Armor | 5 Leather + 2 Bone Needle | Tool Use | 2 min |
 | Tusk Knife | 1 Boar Tusk + 1 Bone | Tool Use | 15 sec |
+| Raft | 8 Wood + 4 Rope + 2 Fiber | Rope Making | 3 min |
+| Fishing Rod | 2 Wood + 3 Fiber + 1 Rope | Rope Making | 1 min |
+| Cooked Fish | 1 Fish (cook over fire) | Fire Making | 20 sec |
+| Smoked Fish | 1 Fish + 1 Salt (cure at fire) | Fire Making + Trade | 1 min |
 
 ---
 
@@ -464,6 +645,8 @@ Recipes are grouped by civilization tier (0 through 9). You can only use recipes
 | Bronze Armour | 8 Bronze + 4 Leather | Metallurgy + Armour Smithing | 5 min |
 | Plow | 6 Wood + 2 Bronze + 2 Rope | Agriculture | 3 min |
 | Boat | 20 Wood + 5 Rope + 3 Cloth | Navigation + Carpentry | 10 min |
+| Sailing Boat | 20 Wood + 8 Rope + 4 Cloth + 2 Iron | Navigation + Carpentry | 10 min |
+| Compass | 1 Iron + 1 Copper + 1 Glass | Navigation | 2 min |
 
 ---
 
@@ -558,7 +741,7 @@ Crafting the Simulation Engine is the ultimate achievement of the game.
 
 ---
 
-## 8. Tech Tree — Civilization Advancement
+## 11. Tech Tree — Civilization Advancement
 
 ### What Is the Tech Tree?
 
@@ -725,7 +908,7 @@ At Tier 9, the game reveals its final truth: the universe you have been playing 
 
 ---
 
-## 9. AI Creatures and NPCs
+## 12. AI Creatures and NPCs
 
 ### Animals — Deer, Wolves, and Boars
 
@@ -849,7 +1032,7 @@ You have several ways to interact with NPCs:
 
 ---
 
-## 10. Time Controls — Speeding Up and Slowing Down
+## 13. Time Controls — Speeding Up and Slowing Down
 
 ### What Are the Time Controls?
 
@@ -902,7 +1085,7 @@ A good habit is to pause before making any major decision — using the Gene Edi
 
 ---
 
-## 11. Tips for Beginners
+## 14. Tips for Beginners
 
 These tips will help you get off to a strong start and avoid common mistakes.
 
@@ -978,6 +1161,31 @@ Rivers provide freshwater, clay, and a reliable place to find deer. A new player
 
 ---
 
+**Stockpile food before winter.**
+The SeasonWidget in your HUD shows the current season and day-of-year. Autumn is day 11 to 20 of the 40-day year. When you see "Autumn" in the widget, that is your signal to hunt, fish, and cook more food than you currently need. Winter adds a 20% hunger penalty and you do not want to discover that too late.
+
+---
+
+**Craft a fishing rod early — it is cheap and provides reliable food.**
+A fishing rod costs only 2 Wood, 3 Fiber, and 1 Rope. That is nearly free at the start. Fish at any river for a steady food supply that costs no stamina to gather. Cooked fish restores hunger well. Smoked fish (Fish + Salt) is even better for winter stores.
+
+---
+
+**Check settlement prices before selling in bulk.**
+The five settlements have different specializations. Saltmere pays the best price for fish. Ironhaven pays well for stone and coal. If you carry your goods to the right settlement rather than the nearest one, you will earn significantly more copper coins for the same amount of work.
+
+---
+
+**Sail downwind first, plan for the return trip.**
+A raft moves only in the wind direction. If you sail downriver with a tailwind, check the wind direction before you board — you may have a long walk home if the wind does not turn. The sailing boat can tack back upwind, which makes it far more useful for round trips.
+
+---
+
+**Watch for NPC caravans — they signal price shifts.**
+When a caravan leaves a settlement, it is about to deliver goods to another. That delivery will lower prices at the destination. If you see a caravan heading to Ironhaven, the iron price there will drop when it arrives. Sell your iron before the caravan gets there.
+
+---
+
 **Sidestep boar charges — do not stand and absorb them.**
 A boar charge deals high damage and cannot easily be blocked with Stone Age equipment. The charge travels in a straight line. Step sideways at the last moment, let the boar pass, then attack from behind while it recovers. Trying to out-damage the charge head-on will likely kill you.
 
@@ -998,13 +1206,13 @@ Wolf pelts do not have a Tier 0 recipe yet. Keep them in your inventory for when
 - This game is not a simple game with a fixed ending. It is an open-ended simulation. You can succeed, fail, restart, or explore forever.
 - Civilisations can collapse. Evolution can dead-end. Species can go extinct. This is intentional — the universe does not guarantee success.
 - The game is grounded in real science. The laws of physics, chemistry, and biology are not approximations invented for fun — they are based on real formulas. What you see happening is a genuine emergent result of those rules.
-- The game is still in development (Version 0.1.0, Milestone 9, as of March 2026). Some features listed in this manual may still be being built. Check the in-game build milestone screen for what is currently active.
+- The game is still in development (Version 0.1.0, Milestone 10, as of March 2026). Some features listed in this manual may still be being built. Check the in-game build milestone screen for what is currently active.
 
 ---
 
 _End of Manual_
 
-_This manual covers all major systems through Milestone 9 (Version 0.1.0, updated 2026-03-21). For the latest changes, refer to the in-game Discovery Journal, the companion site at https://universe-companion.vercel.app, and the official GAME_DESIGN.md document in the docs folder._
+_This manual covers all major systems through Milestone 10 (Version 0.1.0, updated 2026-03-21). For the latest changes, refer to the in-game Discovery Journal, the companion site at https://universe-companion.vercel.app, and the official GAME_DESIGN.md document in the docs folder._
 
 ---
 

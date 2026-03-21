@@ -798,6 +798,54 @@ export class WorldSocket {
           'discovery'
         )
         window.dispatchEvent(new CustomEvent('velar-gateway-activated', { detail: { velarSeed } }))
+        // M15: Trigger transit to Velar World — sets transitStore to 'arrived' on Velar
+        // The transit cinematic plays, then DestinationPlanetSelector renders VelarPlanetMesh
+        import('../store/transitStore').then(({ useTransitStore }) => {
+          useTransitStore.getState().beginTransit({
+            fromPlanet:      'Home',
+            toPlanet:        'Velar',
+            destinationSeed: velarSeed as number,
+            padPosition:     [0, 0, 0],
+          })
+        }).catch(() => {})
+        break
+      }
+
+      case 'VELAR_GREETING': {
+        // Server sends this when a player walks within 8m of a Velar NPC.
+        const { npcIndex } = msg
+        window.dispatchEvent(new CustomEvent('velar-greeting', {
+          detail: { npcIndex: typeof npcIndex === 'number' ? npcIndex : 0 }
+        }))
+        break
+      }
+
+      case 'VELAR_TRADE_BROADCAST': {
+        // Another player completed a Velar trade — show notification
+        const { username, tradeId } = msg
+        useUiStore.getState().addNotification(
+          `${username as string} traded with a Velar citizen (${tradeId as string}).`,
+          'info'
+        )
+        break
+      }
+
+      case 'VELAR_KNOWLEDGE_BROADCAST': {
+        // Another player learned Velar fabrication — notify all
+        const { username } = msg
+        useUiStore.getState().addNotification(
+          `${username as string} has learned Velar Fabrication. Recipes 106–110 now visible in their journal.`,
+          'discovery'
+        )
+        break
+      }
+
+      case 'VELAR_PURPOSE_BROADCAST': {
+        const { username } = msg
+        useUiStore.getState().addNotification(
+          `${username as string} spoke with the Velar and learned the purpose of the Lattice.`,
+          'discovery'
+        )
         break
       }
 

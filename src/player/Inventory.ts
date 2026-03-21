@@ -239,6 +239,9 @@ export const MAT = {
   HYDROGEN: 68,          // electrolysis product (H2O → H2 + ½O2). First hydrogen fuel.
   // ── M14: Interstellar Travel ─────────────────────────────────────────────
   VELAR_CRYSTAL: 69,     // exotic crystalline material from Velar probe data — gateway component
+  // ── M15: Velar Civilization ─────────────────────────────────────────────
+  VELAR_ALLOY: 70,       // Velar-transmuted steel — trade item, used in Velar Fabricator
+  QUANTUM_CORE: 71,      // Velar-recrystallized silicon — advanced CPU for Velar tech
 } as const
 
 // ── Item IDs ──────────────────────────────────────────────────────────────────
@@ -285,6 +288,10 @@ export const ITEM = {
   ORBITAL_CAPSULE: 66,   // interplanetary probe vehicle — recipes 100
   // ── M14: Interstellar Travel ─────────────────────────────────────────────
   VELAR_KEY: 67,         // quantum-resonance key — activates the Velar Gateway (recipe 105)
+  // ── M15: Velar Civilization ─────────────────────────────────────────────
+  VELAR_BEACON: 68,      // resonance marker — broadcasts home universe coordinates across Lattice
+  VELAR_FABRICATOR: 69,  // advanced crafting station — unlocks Velar-tier fabrication
+  GRAVITY_LENS: 70,      // Velar-tier tool — reduces resource weight, enables deep-core mining
 } as const
 
 // ── Crafting Recipes ─────────────────────────────────────────────────────────
@@ -1242,5 +1249,68 @@ export const CRAFTING_RECIPES: CraftingRecipe[] = [
     ],
     output: { itemId: ITEM.VELAR_KEY, quantity: 1 },
     knowledgeRequired: ['nuclear_physics', 'velar_decoded'],
+  },
+
+  // ── Tier 5: Velar Civilization (M15) ──────────────────────────────────────
+  // All require 'velar_fabrication' knowledge — unlocked by the Velar Learn interaction.
+
+  {
+    // id 106 — Velar Fabricator: 8x velar_alloy + 4x quantum_core + 6x circuit_board
+    // Advanced crafting station — the gateway to Velar-tier technology.
+    id: 106, name: 'Velar Fabricator', tier: 5, time: 3600,
+    inputs: [
+      { materialId: MAT.VELAR_ALLOY,   quantity: 8 },
+      { materialId: MAT.QUANTUM_CORE,  quantity: 4 },
+      { materialId: MAT.CIRCUIT_BOARD, quantity: 6 },
+    ],
+    output: { itemId: ITEM.VELAR_FABRICATOR, quantity: 1 },
+    knowledgeRequired: ['velar_fabrication'],
+  },
+  {
+    // id 107 — Gravity Lens: 2x quantum_core + 1x velar_crystal + 4x nuclear_fuel
+    // Velar-tier tool — reduces resource weight, enables deep-core mining.
+    id: 107, name: 'Gravity Lens', tier: 5, time: 1800,
+    inputs: [
+      { materialId: MAT.QUANTUM_CORE,  quantity: 2 },
+      { materialId: MAT.VELAR_CRYSTAL, quantity: 1 },
+      { materialId: MAT.NUCLEAR_FUEL,  quantity: 4 },
+    ],
+    output: { itemId: ITEM.GRAVITY_LENS, quantity: 1 },
+    knowledgeRequired: ['velar_fabrication'],
+  },
+  {
+    // id 108 — Quantum Core (via Velar Fabricator): 3x circuit_board + 1x gold + 2x nuclear_fuel
+    // Lets players craft Quantum Cores without trading after Fabricator is built.
+    id: 108, name: 'Quantum Core', tier: 5, time: 600,
+    inputs: [
+      { materialId: MAT.CIRCUIT_BOARD, quantity: 3 },
+      { materialId: MAT.GOLD,          quantity: 1 },
+      { materialId: MAT.NUCLEAR_FUEL,  quantity: 2 },
+    ],
+    output: { itemId: 0, materialId: MAT.QUANTUM_CORE, quantity: 1, isMaterial: true } as any,
+    knowledgeRequired: ['velar_fabrication'],
+  },
+  {
+    // id 109 — Velar Alloy (via Velar Fabricator): 5x steel_ingot + 1x velar_crystal
+    // Lets players produce Velar Alloy without trading once Fabricator is running.
+    id: 109, name: 'Velar Alloy', tier: 5, time: 300,
+    inputs: [
+      { materialId: MAT.STEEL_INGOT,   quantity: 5 },
+      { materialId: MAT.VELAR_CRYSTAL, quantity: 1 },
+    ],
+    output: { itemId: 0, materialId: MAT.VELAR_ALLOY, quantity: 1, isMaterial: true } as any,
+    knowledgeRequired: ['velar_fabrication'],
+  },
+  {
+    // id 110 — Velar Beacon (via Fabricator): 1x velar_crystal + 10x hydrogen + 2x quantum_core
+    // Marks home universe coordinates across the Lattice gateway network.
+    id: 110, name: 'Velar Beacon', tier: 5, time: 900,
+    inputs: [
+      { materialId: MAT.VELAR_CRYSTAL, quantity: 1 },
+      { materialId: MAT.HYDROGEN,      quantity: 10 },
+      { materialId: MAT.QUANTUM_CORE,  quantity: 2 },
+    ],
+    output: { itemId: ITEM.VELAR_BEACON, quantity: 1 },
+    knowledgeRequired: ['velar_fabrication'],
   },
 ]

@@ -924,6 +924,61 @@ function handleMessage(ws, msg) {
       break
     }
 
+    // ── M15 Track B: Velar trade completed ────────────────────────────────────
+
+    case 'VELAR_TRADE_COMPLETED': {
+      const userId = ws._userId
+      if (!userId) return
+      const p = players.get(userId)
+      const username = p?.username ?? userId
+      const { tradeId } = msg
+      if (typeof tradeId !== 'string') return
+
+      console.log(`[server] M15: Velar trade by ${username}: ${tradeId}`)
+      broadcastAll({ type: 'VELAR_TRADE_BROADCAST', userId, username, tradeId, timestamp: Date.now() })
+      slack._post(`*Velar Trade!* ${username} traded with a Velar citizen: ${tradeId}`).catch(() => {})
+      break
+    }
+
+    // ── M15 Track B: Velar knowledge shared ───────────────────────────────────
+
+    case 'VELAR_KNOWLEDGE_SHARED': {
+      const userId = ws._userId
+      if (!userId) return
+      const p = players.get(userId)
+      const username = p?.username ?? userId
+
+      console.log(`[server] M15: Velar fabrication knowledge shared with ${username}`)
+      broadcastAll({
+        type:     'VELAR_KNOWLEDGE_BROADCAST',
+        userId,
+        username,
+        knowledge: 'velar_fabrication',
+        timestamp: Date.now(),
+      })
+      slack._post(`*Knowledge Transfer!* ${username} has learned Velar Fabrication from a Velar citizen. Recipes 106–110 unlocked.`).catch(() => {})
+      break
+    }
+
+    // ── M15 Track B: Velar purpose revealed ───────────────────────────────────
+
+    case 'VELAR_PURPOSE_REVEALED': {
+      const userId = ws._userId
+      if (!userId) return
+      const p = players.get(userId)
+      const username = p?.username ?? userId
+
+      console.log(`[server] M15: Velar purpose revealed to ${username}`)
+      broadcastAll({
+        type:      'VELAR_PURPOSE_BROADCAST',
+        userId,
+        username,
+        timestamp: Date.now(),
+      })
+      slack._post(`*The Velar Speak!* ${username} asked the Velar about their purpose and learned the truth of the Lattice.`).catch(() => {})
+      break
+    }
+
     default:
       break
   }

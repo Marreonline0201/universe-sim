@@ -114,9 +114,11 @@ import { NightSkyRenderer } from './NightSkyRenderer'
 import { TelescopeView } from '../ui/TelescopeView'
 import type { AnomalySignalData } from '../ui/VelarSignalView'
 import { DestinationPlanetMesh } from './DestinationPlanet'
+import { VelarPlanetMesh } from './VelarPlanetTerrain'
 import { TransitOverlay } from '../ui/TransitOverlay'
 import { useTransitStore } from '../store/transitStore'
 import { beginInterplanetaryTransit } from '../game/InterplanetaryTransitSystem'
+import { VelarDiplomacyPanel } from '../ui/VelarDiplomacyPanel'
 
 // M12 Track A: Rocketry
 import { tickRocket, beginLaunch, isLaunching } from '../game/RocketSystem'
@@ -129,7 +131,7 @@ import { ElectricLightPass, registerElectricSettlements } from './ElectricLightP
 // M12 Track C: civLevel 6 gate handled in SettlementManager (server) + WorldSocket
 
 // M13 Track C: Nuclear reactor tick
-import { tickNuclearReactor } from '../game/NuclearReactorSystem'
+import { tickNuclearReactor, activateReactor, deactivateReactor } from '../game/NuclearReactorSystem'
 
 // M14: Interplanetary travel + Velar gateway + Multiverse
 import { VelarGatewayRenderer } from './VelarGatewayRenderer'
@@ -503,6 +505,9 @@ export function SceneRoot() {
   const velarResponseReceived = useVelarStore(s => s.velarResponseReceived)
   // M14: Multiverse sync — subscribes to universes-updated window events
   useUniverseSync()
+  // M15: Velar diplomacy panel (opened when VELAR_GREETING received)
+  const [velarDiplomacyOpen, setVelarDiplomacyOpen] = useState(false)
+  const [velarNpcIndex, setVelarNpcIndex] = useState(0)
 
   // M11: listen for open-telescope event dispatched from GameLoop
   useEffect(() => {
@@ -527,6 +532,17 @@ export function SceneRoot() {
     const handler = () => setVelarRespOpen(true)
     window.addEventListener('velar-response-received', handler)
     return () => window.removeEventListener('velar-response-received', handler)
+  }, [])
+
+  // M15: listen for VELAR_GREETING — open diplomacy panel
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { npcIndex } = (e as CustomEvent).detail ?? {}
+      setVelarNpcIndex(typeof npcIndex === 'number' ? npcIndex : 0)
+      setVelarDiplomacyOpen(true)
+    }
+    window.addEventListener('velar-greeting', handler)
+    return () => window.removeEventListener('velar-greeting', handler)
   }, [])
 
   // M12: sync settlement civLevels to ElectricLightPass when settlement store changes
@@ -759,8 +775,8 @@ export function SceneRoot() {
       {/* M11 Track D: Photorealistic night sky — 2000 stars with stellar color classification */}
       <NightSkyRenderer dayAngle={dayAngle} />
       <Suspense fallback={null}>
-        {/* M14: Show destination planet when player has arrived via transit */}
-        {transitPhase === 'arrived' ? <DestinationPlanetMesh /> : <PlanetTerrain />}
+        {/* M14/M15: Show destination planet when player has arrived via transit */}
+        {transitPhase === 'arrived' ? <DestinationPlanetSelector /> : <PlanetTerrain />}
         <DigHolesRenderer />
         <ResourceNodes />
         <NodeHealthBars />
@@ -831,6 +847,13 @@ export function SceneRoot() {
     )}
     {/* M14 Track A: Interplanetary transit cinematic — 20s star-stream animation */}
     <TransitOverlayWrapper />
+    {/* M15 Track B: Velar diplomacy panel — opened by VELAR_GREETING proximity event */}
+    {velarDiplomacyOpen && (
+      <VelarDiplomacyPanel
+        npcIndex={velarNpcIndex}
+        onClose={() => setVelarDiplomacyOpen(false)}
+      />
+    )}
     {/* M14 Track B: Velar response decode panel — opens after VELAR_RESPONSE received */}
     {velarRespOpen && velarResponseReceived && (
       <VelarResponsePanel
@@ -1160,6 +1183,10 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
               }
             }
             buildingSystem.place(placementMode, ghostBuildPos, 0, useGameStore.getState().simSeconds)
+            // Hook nuclear reactor activation when placed
+            if (placementMode === 'nuclear_reactor_small' || placementMode === 'nuclear_reactor') {
+              activateReactor(ghostBuildPos)
+            }
             bumpBuildVersion()
             setPlacementMode(null)
             gs.setGatherPrompt(null)
@@ -1284,10 +1311,8 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
       const ps_tel = usePlayerStore.getState()
       const telSlot = ps_tel.equippedSlot !== null ? inventory.getSlot(ps_tel.equippedSlot) : null
       const hasTelescope = telSlot?.itemId === ITEM.TELESCOPE
-      if (hasTelescope && !gs.inputBlocked) {
-        if (gs.gatherPrompt !== '[F] Look through telescope') {
-          gs.setGatherPrompt('[F] Look through telescope')
-        }
+      if (hasTelescope && !gs.inputBlocked && gs.gatherPrompt === null) {
+        gs.setGatherPrompt('[F] Look through telescope')
         if (controllerRef.current?.popInteract()) {
           // TelescopeView is controlled by React state in the parent — dispatch a custom event
           window.dispatchEvent(new CustomEvent('open-telescope'))
@@ -3685,6 +3710,13 @@ function TransitOverlayWrapper() {
 function DestinationPlanetMeshWrapper() {
   const phase = useTransitStore(s => s.phase)
   if (phase !== 'arrived') return null
+  return <DestinationPlanetMesh />
+}
+
+// ── M15: Planet selector — Velar World gets crystalline alien renderer ─────────
+function DestinationPlanetSelector() {
+  const toPlanet = useTransitStore(s => s.toPlanet)
+  if (toPlanet === 'Velar') return <VelarPlanetMesh />
   return <DestinationPlanetMesh />
 }
 

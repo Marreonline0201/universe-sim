@@ -15,6 +15,7 @@ import { CharacterPanel } from './panels/CharacterPanel'
 import { MapPanel } from './panels/MapPanel'
 import { SettingsPanel } from './panels/SettingsPanel'
 import { BuildPanel } from './panels/BuildPanel'
+import { SciencePanel } from './panels/SciencePanel'
 
 const PANEL_LABEL: Record<PanelId, string> = {
   inventory: 'INVENTORY',
@@ -26,6 +27,7 @@ const PANEL_LABEL: Record<PanelId, string> = {
   character: 'CHARACTER',
   map:       'MAP',
   settings:  'SETTINGS',
+  science:   'SCIENCE COMPANION',
 }
 
 const PANEL_WIDTH = 480
@@ -40,6 +42,7 @@ const PANEL_COMPONENTS: Record<PanelId, React.ComponentType> = {
   character:  CharacterPanel,
   map:        MapPanel,
   settings:   SettingsPanel,
+  science:    SciencePanel,
 }
 
 export function SidebarShell() {
@@ -76,6 +79,9 @@ export function SidebarShell() {
         case 'j': case 'J':   e.preventDefault(); togglePanel('journal');    break
         case 'Tab':           e.preventDefault(); togglePanel('character');  break
         case 'm': case 'M':   e.preventDefault(); togglePanel('map');        break
+        case '?': case '/':
+          if (!document.pointerLockElement) { e.preventDefault(); togglePanel('science') }
+          break
         case 'Escape':
           e.preventDefault()
           if (placementMode) setPlacementMode(null)
@@ -151,6 +157,51 @@ export function SidebarShell() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Science companion floating button — bottom right, always visible */}
+      <button
+          onClick={() => togglePanel('science')}
+          title="Science Companion (? or /)"
+          style={{
+            position: 'fixed',
+            bottom: 72,
+            right: 16,
+            width: 40,
+            height: 40,
+            borderRadius: '50%',
+            background: activePanel === 'science' ? '#cd4420' : 'rgba(20,20,20,0.92)',
+            border: `1px solid ${activePanel === 'science' ? '#cd4420' : '#333'}`,
+            color: activePanel === 'science' ? '#fff' : '#888',
+            fontSize: 16,
+            fontWeight: 700,
+            fontFamily: 'monospace',
+            cursor: 'pointer',
+            zIndex: 190,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            transition: 'all 0.15s',
+            pointerEvents: 'auto',
+            lineHeight: 1,
+          }}
+          onMouseEnter={e => {
+            if (activePanel !== 'science') {
+              e.currentTarget.style.borderColor = '#cd4420'
+              e.currentTarget.style.color = '#fff'
+              e.currentTarget.style.background = 'rgba(205,68,32,0.18)'
+            }
+          }}
+          onMouseLeave={e => {
+            if (activePanel !== 'science') {
+              e.currentTarget.style.borderColor = '#333'
+              e.currentTarget.style.color = '#888'
+              e.currentTarget.style.background = 'rgba(20,20,20,0.92)'
+            }
+          }}
+        >
+          ?
+        </button>
+      )}
 
     </>
   )

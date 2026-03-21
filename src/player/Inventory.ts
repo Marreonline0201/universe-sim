@@ -215,6 +215,11 @@ export const MAT = {
   PLASTIC: 35, RUBBER: 36, FUEL: 37, LUBRICANT: 38,
   URANIUM: 39, PLUTONIUM: 40, COOKED_MEAT: 41,
   RAW_MEAT: 42, IRON_INGOT: 43,
+  // ── M8: Steel Age ────────────────────────────────────────────────────────
+  STEEL_INGOT: 44,       // quenched, full-quality steel (0.2–2.1% C)
+  CAST_IRON_INGOT: 45,   // brittle cast iron (>2.1% C) — cheaper but weaker
+  HOT_STEEL_INGOT: 46,   // intermediate: must be quenched within 30s
+  SOFT_STEEL: 47,        // hot steel that missed quench window (50% quality penalty)
 } as const
 
 // ── Item IDs ──────────────────────────────────────────────────────────────────
@@ -235,6 +240,12 @@ export const ITEM = {
   SIMULATION_ENGINE_ITEM: 46,
   BEDROLL: 47, COPPER_KNIFE: 48,
   IRON_KNIFE: 49, IRON_AXE: 50, IRON_PICKAXE: 51,
+  // ── M8: Steel Age tools & items ──────────────────────────────────────────
+  STEEL_SWORD_M8: 52,    // 2.5× iron damage, reaches max quality at lower smithingXp
+  STEEL_CHESTPLATE: 53,  // armor: absorbs 40% incoming damage, equippable in armor slot
+  STEEL_CROSSBOW: 54,    // ranged, ballistic arc, 30m effective range
+  CAST_IRON_POT: 55,     // cooking vessel: cooks food 2× faster than campfire
+  CAST_IRON_DOOR: 56,    // building component: fire-resistant, high HP
 } as const
 
 // ── Crafting Recipes ─────────────────────────────────────────────────────────
@@ -723,6 +734,70 @@ export const CRAFTING_RECIPES: CraftingRecipe[] = [
       { materialId: MAT.WOOD,       quantity: 2 },
     ],
     output: { itemId: ITEM.IRON_PICKAXE, quantity: 1 },
+    knowledgeRequired: ['iron_smelting'],
+  },
+
+  // ── M8: Steel Age ─────────────────────────────────────────────────────────
+  //
+  // Real carburization chemistry: Fe + C → Fe-C (steel)
+  // Carbon content by weight determines outcome:
+  //   0.2–2.1% C  → steel (strong, flexible)
+  //   >2.1% C     → cast iron (brittle, cheap)
+  //
+  // Controlled by charcoal:iron_ingot ratio in blast furnace:
+  //   1:4 charcoal:iron_ingot  → steel (0.8% C target)
+  //   1:2 charcoal:iron_ingot  → cast iron (2.4% C target)
+  //
+  // Steel requires quenching (rapid cooling in water) within 30 real seconds
+  // to crystallise the martensitic microstructure. Missed quench = soft_steel
+  // with a 50% quality penalty.
+
+  {
+    // id 71 — Steel Sword: premier melee weapon, 2.5× iron_knife damage
+    id: 71, name: 'Steel Sword', tier: 2, time: 90,
+    inputs: [
+      { materialId: MAT.STEEL_INGOT, quantity: 3 },
+      { materialId: MAT.WOOD,        quantity: 1 },
+    ],
+    output: { itemId: ITEM.STEEL_SWORD_M8, quantity: 1 },
+    knowledgeRequired: ['iron_smelting', 'steel_making'],
+  },
+  {
+    // id 72 — Steel Chestplate: absorbs 40% incoming damage
+    id: 72, name: 'Steel Chestplate', tier: 2, time: 120,
+    inputs: [
+      { materialId: MAT.STEEL_INGOT, quantity: 6 },
+    ],
+    output: { itemId: ITEM.STEEL_CHESTPLATE, quantity: 1 },
+    knowledgeRequired: ['iron_smelting', 'steel_making'],
+  },
+  {
+    // id 73 — Steel Crossbow: ranged, 30m effective range, ballistic arc
+    id: 73, name: 'Steel Crossbow', tier: 2, time: 150,
+    inputs: [
+      { materialId: MAT.STEEL_INGOT, quantity: 4 },
+      { materialId: MAT.WOOD,        quantity: 3 },
+      { materialId: MAT.FIBER,       quantity: 2 },
+    ],
+    output: { itemId: ITEM.STEEL_CROSSBOW, quantity: 1 },
+    knowledgeRequired: ['iron_smelting', 'steel_making'],
+  },
+  {
+    // id 74 — Cast Iron Pot: cooks food 2× faster than campfire
+    id: 74, name: 'Cast Iron Pot', tier: 2, time: 60,
+    inputs: [
+      { materialId: MAT.CAST_IRON_INGOT, quantity: 2 },
+    ],
+    output: { itemId: ITEM.CAST_IRON_POT, quantity: 1 },
+    knowledgeRequired: ['iron_smelting'],
+  },
+  {
+    // id 75 — Cast Iron Door: fire-resistant building component, high HP
+    id: 75, name: 'Cast Iron Door', tier: 2, time: 90,
+    inputs: [
+      { materialId: MAT.CAST_IRON_INGOT, quantity: 4 },
+    ],
+    output: { itemId: ITEM.CAST_IRON_DOOR, quantity: 1 },
     knowledgeRequired: ['iron_smelting'],
   },
 ]

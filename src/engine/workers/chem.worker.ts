@@ -60,6 +60,28 @@ self.onmessage = (e: MessageEvent) => {
     data[b + 3] = density
     return
   }
+
+  if (msg.type === 'cool') {
+    // Rain / water suppression: cool all cells within a radius around a grid point.
+    const { cgx, cgy, cgz, radiusCells, targetTempC } = msg as {
+      cgx: number; cgy: number; cgz: number; radiusCells: number; targetTempC: number
+    }
+    const r2 = radiusCells * radiusCells
+    for (let dz = -radiusCells; dz <= radiusCells; dz++) {
+      for (let dy = -radiusCells; dy <= radiusCells; dy++) {
+        for (let dx = -radiusCells; dx <= radiusCells; dx++) {
+          if (dx*dx + dy*dy + dz*dz > r2) continue
+          const gx = cgx + dx, gy = cgy + dy, gz = cgz + dz
+          if (gx < 0 || gx >= sizeX || gy < 0 || gy >= sizeY || gz < 0 || gz >= sizeZ) continue
+          const b = idx(gx, gy, gz)
+          if (data[b + 1] > targetTempC) {
+            data[b + 1] = targetTempC
+          }
+        }
+      }
+    }
+    return
+  }
 }
 
 function depositIgnitionEnergy(gx: number, gy: number, gz: number, energyJ: number): void {

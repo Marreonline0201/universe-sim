@@ -8,7 +8,9 @@ import { useSettlementStore } from '../store/settlementStore'
 import { useOutlawStore } from '../store/outlawStore'
 import { usePlayerStore } from '../store/playerStore'
 import { useUiStore } from '../store/uiStore'
-import { inventory } from '../game/GameSingletons'
+import { useWeatherStore } from '../store/weatherStore'
+import type { SectorWeather } from '../store/weatherStore'
+import { inventory, techTree } from '../game/GameSingletons'
 import type { LocalSimManager } from '../engine/LocalSimManager'
 
 // Module-level reference to the active LocalSimManager.
@@ -116,6 +118,10 @@ export class WorldSocket {
         // M6: Seed settlement state for newly joining player
         if (Array.isArray(msg.settlements)) {
           useSettlementStore.getState().setSettlements(msg.settlements as any[])
+        }
+        // M8: Seed weather state for newly joining player
+        if (Array.isArray(msg.weather)) {
+          useWeatherStore.getState().setSectors(msg.weather as SectorWeather[])
         }
         // M7: Seed outlaw wanted list from remote players' murder counts.
         // Server threshold is 5; reward formula mirrors OutlawSystem.getBountyReward.
@@ -388,20 +394,66 @@ export class WorldSocket {
         break
       }
 
+      // ── M8: Weather System ──────────────────────────────────────────────────
+
+      case 'WEATHER_UPDATE': {
+        // Server broadcasts a sector weather transition.
+        // Update the store so WeatherRenderer and HUD reflect the new state immediately.
+        useWeatherStore.getState().updateSector({
+          sectorId:    msg.sectorId    as number,
+          state:       msg.state       as SectorWeather['state'],
+          temperature: msg.temperature as number,
+          humidity:    msg.humidity    as number,
+          windDir:     msg.windDir     as number,
+          windSpeed:   msg.windSpeed   as number,
+        })
+        // Notify player only if it's their current sector
+        const ws = useWeatherStore.getState()
+        if (msg.sectorId === ws.playerSectorId) {
+          const label =
+            msg.state === 'STORM'  ? 'A violent storm is upon you!' :
+            msg.state === 'RAIN'   ? 'Rain begins to fall.' :
+            msg.state === 'CLOUDY' ? 'Clouds roll in.' :
+                                     'Skies are clearing.'
+          useUiStore.getState().addNotification(label, 'info')
+        }
+        break
+      }
+
       // ── M7: Iron Age discovery ──────────────────────────────────────────────
 
       case 'SETTLEMENT_UNLOCKED_IRON': {
         // A settlement reached civLevel 2 — iron smelting knowledge spreads world-wide.
-        // Show a prominent discovery notification to all connected players.
-        // The actual recipe unlock happens when the player smelts iron in
-        // tickBlastFurnaceSmelting (calls inv.discoverRecipe 68/69/70).
+        // Mark iron_smelting as researched so the Blast Furnace building appears in
+        // BuildPanel (gated on isTierUnlocked(2) → iron_smelting tech) and iron
+        // crafting recipes appear in CraftingPanel (gated on hasAllKnowledge).
         const name = msg.settlementName as string
         useUiStore.getState().addNotification(
-          `Iron Age dawns! ${name} has mastered iron smelting. Build a Blast Furnace (8x Stone + 4x Iron Ore + 2x Clay) to smelt.`,
+          `Iron Age dawns! ${name} has mastered iron smelting. Open Build panel to place a Blast Furnace (8x Stone + 4x Iron Ore + 2x Clay).`,
           'discovery'
         )
-        // Pre-discover blast furnace recipe so it appears in CraftingPanel
-        inventory.discoverRecipe(67)
+        techTree.markResearched('iron_smelting')
+        break
+      }
+
+      // ── M8: Steel Age discovery ─────────────────────────────────────────────
+
+      case 'SETTLEMENT_UNLOCKED_STEEL': {
+        // A settlement reached civLevel 3 — steel/advanced metallurgy spreads world-wide.
+        // Mark steel_making as researched: unlocks steel sword/chestplate/crossbow recipes
+        // in CraftingPanel (knowledgeRequired: ['iron_smelting', 'steel_making']).
+        const steelName = msg.settlementName as string
+        useUiStore.getState().addNotification(
+          `Steel Age dawns! ${steelName} has mastered carburization (Fe + C → steel). Heat iron ingot + charcoal to 1200°C in blast furnace, then QUENCH in water within 30s!`,
+          'discovery'
+        )
+        techTree.markResearched('steel_making')
+        // Pre-discover steel recipes
+        inventory.discoverRecipe(71)  // steel sword
+        inventory.discoverRecipe(72)  // steel chestplate
+        inventory.discoverRecipe(73)  // steel crossbow
+        inventory.discoverRecipe(74)  // cast iron pot
+        inventory.discoverRecipe(75)  // cast iron door
         break
       }
 

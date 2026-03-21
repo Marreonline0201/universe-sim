@@ -29,8 +29,12 @@ const LEVEL_THRESHOLDS  = [0, 500, 2000, 8000, 25000, 80000, 250000, 800000, 250
 // M7: Civ level at which settlements unlock iron research.
 // Level 2 = Iron Age — broadcasts SETTLEMENT_UNLOCKED_IRON to nearby players.
 const IRON_UNLOCK_LEVEL = 2
-// Tracks which settlement IDs have already broadcast the iron discovery (server lifetime only).
-const _ironUnlocked = new Set()
+// M8: Civ level at which settlements unlock steel/advanced metallurgy.
+// Level 3 = Steel Age — broadcasts SETTLEMENT_UNLOCKED_STEEL to all players.
+const STEEL_UNLOCK_LEVEL = 3
+// Tracks which settlement IDs have already broadcast each discovery (server lifetime only).
+const _ironUnlocked  = new Set()
+const _steelUnlocked = new Set()
 
 // NPC recipe table — uses the SAME MAT IDs as the client Inventory.ts MAT enum:
 //   STONE=1  FLINT=2   WOOD=3    BARK=4    LEAF=5    BONE=6   HIDE=7
@@ -160,7 +164,7 @@ export class SettlementManager {
    * dtRealSec: real elapsed seconds (not sim seconds).
    * Returns array of { settlementId, civLevel } for any settlements that levelled up.
    */
-  tick(dtRealSec, onLevelUp, onIronUnlock) {
+  tick(dtRealSec, onLevelUp, onIronUnlock, onSteelUnlock) {
     this._craftTimer += dtRealSec
 
     for (const s of this._settlements.values()) {
@@ -180,6 +184,12 @@ export class SettlementManager {
           _ironUnlocked.add(s.id)
           if (onIronUnlock) onIronUnlock(s.id, s.name, s)
           console.log(`[SettlementManager] ${s.name} unlocked iron research!`)
+        }
+        // M8: Broadcast steel/advanced metallurgy when settlement reaches level 3
+        if (s.civLevel >= STEEL_UNLOCK_LEVEL && !_steelUnlocked.has(s.id)) {
+          _steelUnlocked.add(s.id)
+          if (onSteelUnlock) onSteelUnlock(s.id, s.name, s)
+          console.log(`[SettlementManager] ${s.name} unlocked steel metallurgy!`)
         }
         this._persistSettlement(s).catch(() => {})
       }

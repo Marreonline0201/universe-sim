@@ -241,6 +241,41 @@ export function CraftingPanel() {
               : (ITEM_NAMES[selectedRecipe.output.itemId] ?? `item:${selectedRecipe.output.itemId}`)}
           </div>
 
+          {/* M8: Steel carburization ratio hint — shown for steel/cast-iron recipes */}
+          {(selectedRecipe.id === 71 || selectedRecipe.id === 72 || selectedRecipe.id === 73) && (
+            <div style={{
+              marginTop: 6,
+              padding: '4px 6px',
+              background: 'rgba(74,158,255,0.08)',
+              border: '1px solid rgba(74,158,255,0.25)',
+              borderRadius: 3,
+              fontSize: 9,
+              color: '#88bbff',
+              lineHeight: 1.5,
+            }}>
+              Blast furnace (1200°C+):<br/>
+              1:4 charcoal = 0.8% C → steel<br/>
+              1:2 charcoal = 2.4% C → cast iron<br/>
+              Quench in water within 30s!
+            </div>
+          )}
+          {(selectedRecipe.id === 74 || selectedRecipe.id === 75) && (
+            <div style={{
+              marginTop: 6,
+              padding: '4px 6px',
+              background: 'rgba(160,100,40,0.12)',
+              border: '1px solid rgba(200,120,40,0.3)',
+              borderRadius: 3,
+              fontSize: 9,
+              color: '#cc8844',
+              lineHeight: 1.5,
+            }}>
+              Uses cast iron (brittle).<br/>
+              Blast furnace at 1200°C,<br/>
+              2 charcoal per iron ingot.
+            </div>
+          )}
+
           <button
             onClick={() => handleCraft(false)}
             disabled={!canCraft(selectedRecipe, civTier)}

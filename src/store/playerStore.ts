@@ -69,6 +69,19 @@ interface PlayerState {
   smithingXp: number
   addSmithingXp: (xp: number) => void
 
+  // M8: Armor slot — chest only for now (Steel Chestplate)
+  // Slot index into inventory.slots, or null if nothing equipped in armor slot.
+  equippedArmorSlot: number | null
+  equipArmor: (slotIndex: number) => void
+  unequipArmor: () => void
+
+  // M8: Quenching countdown — seconds remaining to quench hot_steel_ingot
+  // Set to 30 when a hot_steel_ingot enters inventory. Counts down each real second.
+  // Hits 0 → hot_steel automatically converts to soft_steel in SurvivalSystems.
+  quenchSecondsRemaining: number | null
+  setQuenchTimer: (seconds: number | null) => void
+  tickQuenchTimer: (dtSeconds: number) => void
+
   // Death + Respawn system (M5)
   isDead: boolean
   deathCause: 'starvation' | 'infection' | 'combat' | 'drowning' | null
@@ -172,6 +185,20 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   // ── M7: Smithing XP ───────────────────────────────────────────────────────
   smithingXp: 0,
   addSmithingXp: (xp) => set((s) => ({ smithingXp: s.smithingXp + xp })),
+
+  // ── M8: Armor slot ────────────────────────────────────────────────────────
+  equippedArmorSlot: null,
+  equipArmor:   (slotIndex) => set({ equippedArmorSlot: slotIndex }),
+  unequipArmor: () => set({ equippedArmorSlot: null }),
+
+  // ── M8: Quench countdown ──────────────────────────────────────────────────
+  quenchSecondsRemaining: null,
+  setQuenchTimer: (seconds) => set({ quenchSecondsRemaining: seconds }),
+  tickQuenchTimer: (dtSeconds) => set((s) => {
+    if (s.quenchSecondsRemaining === null) return s
+    const next = s.quenchSecondsRemaining - dtSeconds
+    return { quenchSecondsRemaining: next > 0 ? next : null }
+  }),
 
   // ── Death + Respawn system (M5) ───────────────────────────────────────────
   isDead: false,

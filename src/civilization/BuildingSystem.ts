@@ -159,7 +159,7 @@ export class BuildingSystem {
 
 // ── Material IDs (mirrored from Inventory.ts) ─────────────────────────────────
 const M = {
-  STONE: 1, WOOD: 3, BARK: 4, CLAY: 8, BRONZE: 13, IRON: 15, STEEL: 16,
+  STONE: 1, WOOD: 3, BARK: 4, CLAY: 8, BRONZE: 13, IRON_ORE: 14, IRON: 15, STEEL: 16,
   GLASS: 18, BRICK: 19, MORTAR: 20, ROPE: 23, LEATHER: 24,
   COPPER: 25, SILICON: 32, WIRE: 34, PLASTIC: 35, RUBBER: 36,
 } as const
@@ -232,6 +232,7 @@ export const BUILDING_TYPES: BuildingType[] = [
     id: 'blast_furnace', name: 'Blast Furnace', tier: 2,
     materialsRequired: [
       { materialId: M.STONE,    quantity: 8  },
+      { materialId: M.IRON_ORE, quantity: 4  },
       { materialId: M.CLAY,     quantity: 2  },
     ],
     size: [3, 3, 3], provides: ['blast_furnace', 'iron_smelting', 'metal_smelting'],

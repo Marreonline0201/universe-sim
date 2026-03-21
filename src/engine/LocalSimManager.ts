@@ -220,6 +220,19 @@ export class LocalSimManager {
     this.engine.sendToChem({ type: 'ignite', gx: gc.gx, gy: gc.gy, gz: gc.gz, energyJ })
   }
 
+  /** Cool all cells within worldRadius metres of a world position to ≤ targetTempC.
+   *  Used by rain/storm weather to suppress fires near the player. */
+  suppressFire(wx: number, wy: number, wz: number, worldRadius: number, targetTempC = 20): void {
+    const gc = worldToGrid(wx, wy, wz, this.engine.gridOrigin, CELL_SIZE)
+    const radiusCells = Math.ceil(worldRadius / CELL_SIZE)
+    this.engine.sendToChem({
+      type: 'cool',
+      cgx: gc.gx, cgy: gc.gy, cgz: gc.gz,
+      radiusCells,
+      targetTempC,
+    })
+  }
+
   /**
    * Get temperature (°C) at a world-space position from the simulation grid.
    * Falls back to biomeTemperatureAt() if the position is outside the grid bounds

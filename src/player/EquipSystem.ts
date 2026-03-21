@@ -129,6 +129,48 @@ const STATS: Partial<Record<number, ItemStats>> = {
                    'iron_ore', 'sulfur', 'gold', 'silver', 'uranium', 'rubber', 'saltpeter'],
     range:        2.5,
   },
+
+  // ── M8: Steel Age tools ───────────────────────────────────────────────────
+  //
+  // Steel Sword damage = 45 ≈ 2.5× Iron Knife (18).
+  // Steel Crossbow is ranged — damage handled separately; range 30m for ranged combat.
+  // Steel Chestplate has no offensive stats; armor is tracked via equippedArmorSlot.
+  // Cast Iron Pot / Door are not equippable weapons — zero combat stats.
+  [ITEM.STEEL_SWORD_M8]: {
+    name:         'Steel Sword',
+    damage:       45,
+    harvestPower: 4,
+    harvestTypes: [],
+    range:        2.5,
+  },
+  [ITEM.STEEL_CHESTPLATE]: {
+    name:         'Steel Chestplate',
+    damage:       0,
+    harvestPower: 1,
+    harvestTypes: [],
+    range:        1.0,
+  },
+  [ITEM.STEEL_CROSSBOW]: {
+    name:         'Steel Crossbow',
+    damage:       35,   // per bolt; ballistic arc handled in GameLoop
+    harvestPower: 1,
+    harvestTypes: [],
+    range:        30.0,
+  },
+  [ITEM.CAST_IRON_POT]: {
+    name:         'Cast Iron Pot',
+    damage:       5,    // can be used as a blunt weapon in a pinch
+    harvestPower: 1,
+    harvestTypes: [],
+    range:        1.5,
+  },
+  [ITEM.CAST_IRON_DOOR]: {
+    name:         'Cast Iron Door',
+    damage:       0,
+    harvestPower: 1,
+    harvestTypes: [],
+    range:        1.0,
+  },
 }
 
 /** Return stats for the given itemId. Falls back to HAND stats if unknown or 0. */

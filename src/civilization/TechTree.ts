@@ -75,6 +75,12 @@ export class TechTree {
     return this.researched.has(nodeId)
   }
 
+  /** Immediately mark a node as researched (used for world-event unlocks, e.g. Iron Age spreading). */
+  markResearched(nodeId: string): void {
+    this.researched.add(nodeId)
+    this.inProgress.delete(nodeId)
+  }
+
   isInProgress(nodeId: string): boolean {
     return this.inProgress.has(nodeId)
   }

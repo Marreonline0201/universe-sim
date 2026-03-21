@@ -30,6 +30,7 @@ import {
   tickSleepSystem,
   tickFurnaceSmelting,
   tickBlastFurnaceSmelting,
+  tickQuenching,
   tickBuildingPhysics,
   tryEatFood,
   tryApplyHerb,
@@ -59,6 +60,10 @@ import { DayNightCycle } from './DayNightCycle'
 import { SimGridVisualizer } from './SimGridVisualizer'
 import { getWorldSocket } from '../net/useWorldSocket'
 import { setSimManagerForSocket } from '../net/WorldSocket'
+import { WeatherRenderer } from './WeatherRenderer'
+import { useWeatherStore } from '../store/weatherStore'
+
+import { getSectorIdForPosition } from '../world/WeatherSectors'
 
 // ── Resource node definitions ─────────────────────────────────────────────────
 
@@ -610,6 +615,8 @@ export function SceneRoot() {
         <DeathLootDropsRenderer />
         <BedrollMeshRenderer />
         <SettlementRenderer />
+        {/* M8: Weather particle system — follows player position */}
+        <WeatherRendererWrapper />
       </Suspense>
       {entityId !== null && (
         <>
@@ -1041,6 +1048,9 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
       px, py, pz
     )
 
+    // ── M8: Quench countdown timer ────────────────────────────────────────────
+    usePlayerStore.getState().tickQuenchTimer(dt)
+
     // ── M7: Blast furnace smelting (iron) ────────────────────────────────────
     tickBlastFurnaceSmelting(
       inventory,
@@ -1052,6 +1062,9 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
       })),
       px, py, pz
     )
+
+    // ── M8: Quenching system (hot steel → steel or soft_steel) ───────────────
+    tickQuenching(inventory, simManagerRef.current, px, py, pz)
 
     // ── P2-5: Building physics — fire damage to combustible structures ────────
     tickBuildingPhysics(dt, buildingSystem, simManagerRef.current)
@@ -1448,6 +1461,38 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
             // murder_count 3+ gate closure is handled server-side via GATES_CLOSED message
           }
         }
+      }
+    }
+
+    // ── M8: Weather simulation integration ────────────────────────────────────
+    // Update player's current weather sector and apply emergent weather consequences.
+    {
+      const sectorId = getSectorIdForPosition(px, py, pz)
+      const wStore = useWeatherStore.getState()
+      if (sectorId !== wStore.playerSectorId) {
+        wStore.setPlayerSectorId(sectorId)
+      }
+      const playerWeather = wStore.getPlayerWeather()
+      const wState = playerWeather?.state ?? 'CLEAR'
+      const wTemp  = playerWeather?.temperature ?? 15
+
+      // Rain extinguishes fire: suppress fire cells near player.
+      // RAIN = 50% suppress chance/s, STORM = 100% chance/s.
+      if ((wState === 'RAIN' || wState === 'STORM') && simManagerRef.current) {
+        const rainChance = wState === 'STORM' ? 1.0 : 0.5
+        if (Math.random() < rainChance * dt) {
+          simManagerRef.current.suppressFire(px, py, pz, 15)
+        }
+      }
+
+      // Cold weather increases ambient temperature drain.
+      // Wind-chill drives ambient temp toward weather temp during rain/storm.
+      if (wState === 'STORM' || wState === 'RAIN') {
+        const storedTemp = usePlayerStore.getState().ambientTemp
+        const windChill = Math.max(wTemp - (playerWeather?.windSpeed ?? 0) * 0.5, wTemp - 12)
+        const rate = wState === 'STORM' ? 2.0 : 0.8
+        const newTemp = storedTemp + (windChill - storedTemp) * Math.min(1, rate * dt)
+        usePlayerStore.getState().setAmbientTemp(newTemp)
       }
     }
 
@@ -2881,6 +2926,40 @@ function DigHolesRenderer() {
   })
 
   return <group ref={groupRef} />
+}
+
+// ── M8: Weather renderer wrapper ─────────────────────────────────────────────
+// Reads player position from ECS each frame and passes it to WeatherRenderer
+// so particle systems always follow the camera.
+
+function WeatherRendererWrapper() {
+  const entityId = usePlayerStore(s => s.entityId)
+  const posRef   = useRef({ x: 0, y: 0, z: 0 })
+  const [pos, setPos] = useState({ x: 0, y: 4003, z: 0 })
+
+  useFrame(() => {
+    if (entityId === null) return
+    const nx = Position.x[entityId]
+    const ny = Position.y[entityId]
+    const nz = Position.z[entityId]
+    // Only re-render when position changes appreciably (avoid thrashing React)
+    if (
+      Math.abs(nx - posRef.current.x) > 5 ||
+      Math.abs(ny - posRef.current.y) > 5 ||
+      Math.abs(nz - posRef.current.z) > 5
+    ) {
+      posRef.current = { x: nx, y: ny, z: nz }
+      setPos({ x: nx, y: ny, z: nz })
+    }
+  })
+
+  return (
+    <WeatherRenderer
+      playerX={pos.x}
+      playerY={pos.y}
+      playerZ={pos.z}
+    />
+  )
 }
 
 // ── Scene geometry ────────────────────────────────────────────────────────────

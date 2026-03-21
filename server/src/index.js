@@ -15,6 +15,7 @@ import { NodeStateSync } from './NodeStateSync.js'
 import { NpcMemory } from './NpcMemory.js'
 import { SettlementManager, TERRITORY_RADIUS } from './SettlementManager.js'
 import { OutlawSystem, WANTED_THRESHOLD } from './OutlawSystem.js'
+import { WeatherSystem } from './WeatherSystem.js'
 
 const PORT = parseInt(process.env.PORT ?? '8080', 10)
 const PERSIST_INTERVAL_MS = 30_000 // save simTime to DB every 30 s
@@ -34,6 +35,7 @@ const nodeSync    = new NodeStateSync()
 const npcMemory   = new NpcMemory()
 const settlements = new SettlementManager()
 const outlaw      = new OutlawSystem()
+const weather     = new WeatherSystem()
 
 async function main() {
   // Ensure DB schema is current
@@ -112,11 +114,26 @@ async function main() {
           x: s.x, y: s.y, z: s.z,
         })
         slack._post(`*Iron Age unlocked!* ${settlementName} has discovered iron smelting. The Iron Age begins.`).catch(() => {})
+      },
+      // M8 onSteelUnlock: broadcast steel age discovery when settlement hits civLevel 3
+      (settlementId, settlementName, s) => {
+        broadcastAll({
+          type: 'SETTLEMENT_UNLOCKED_STEEL',
+          settlementId,
+          settlementName,
+          x: s.x, y: s.y, z: s.z,
+        })
+        slack._post(`*Steel Age unlocked!* ${settlementName} has mastered advanced metallurgy and carburization. The Steel Age begins.`).catch(() => {})
       }
     )
     // Outlaw: clean up expired redemption quests every tick
     outlaw.tickCleanup()
   }, 1000)
+
+  // M8: Wire weather system broadcast + Slack callbacks, then start transitions
+  weather.onBroadcast((msg) => broadcastAll(msg))
+  weather.onStorm((text) => slack._post(text).catch(() => {}))
+  weather.start()
 
   clock.start()
   scheduler.start()
@@ -218,6 +235,7 @@ function handleMessage(ws, msg) {
         npcs: npcs.getAll(),
         depletedNodes: nodeSync.getDepletedSnapshot(),
         settlements:   settlements.getSnapshot(),
+        weather:       weather.getSnapshot(),
       }))
 
       // Notify others (use getAll() to get serializable player without ws socket)

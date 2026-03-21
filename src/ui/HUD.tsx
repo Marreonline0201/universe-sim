@@ -2,11 +2,16 @@ import React, { useState, useEffect } from 'react'
 import { useGameStore } from '../store/gameStore'
 import { usePlayerStore } from '../store/playerStore'
 import { useMultiplayerStore } from '../store/multiplayerStore'
+import { useWeatherStore } from '../store/weatherStore'
+import type { WeatherState } from '../store/weatherStore'
 import { SidebarShell } from './SidebarShell'
 import { NotificationSystem } from './NotificationSystem'
 import { inventory } from '../game/GameSingletons'
 import { MAT, ITEM } from '../player/Inventory'
 import { cookingProgress } from '../game/SurvivalSystems'
+
+// ── Armor slot visual constants ────────────────────────────────────────────────
+const STEEL_BLUE = '#4a9eff'
 
 // Reverse lookup maps for hotbar display names (abbreviated to fit 52px slot)
 const MAT_SHORT: Record<number, string> = Object.fromEntries(
@@ -24,6 +29,9 @@ function abbreviate(name: string): string {
 }
 
 const RUST_ORANGE = '#cd4420'
+
+// Science Companion URL — opens the separate deployed science Q&A site
+const COMPANION_URL = 'https://universe-companion.vercel.app'
 
 // ── Rust-style vital bar (icon + horizontal fill) ─────────────────────────────
 
@@ -239,8 +247,12 @@ function Crosshair() {
 
 export function HUD() {
   const { paused, simTime, epoch } = useGameStore()
-  const { health, hunger, thirst, energy, fatigue, ambientTemp, evolutionPoints, equippedSlot, wounds, isSleeping } = usePlayerStore()
+  const { health, hunger, thirst, energy, fatigue, ambientTemp, evolutionPoints, equippedSlot, equippedArmorSlot, equipArmor, unequipArmor, wounds, isSleeping, quenchSecondsRemaining } = usePlayerStore()
   const { connectionStatus, remotePlayers } = useMultiplayerStore()
+  const weatherStore = useWeatherStore()
+  const playerWeather = weatherStore.getPlayerWeather()
+  const weatherState = playerWeather?.state ?? 'CLEAR'
+  const weatherTemp  = playerWeather?.temperature ?? ambientTemp
 
   // Polling tick — drives hotbar re-reads every 200ms so gathered items appear immediately
   const [hotbarTick, setHotbarTick] = useState(0)
@@ -335,6 +347,8 @@ export function HUD() {
           <div style={{ fontSize: 9, color: 'rgba(241,196,15,0.7)', letterSpacing: 1 }}>
             EP {evolutionPoints.toLocaleString()}
           </div>
+          {/* ── M8: Weather widget ── */}
+          <WeatherWidget state={weatherState} tempC={weatherTemp} />
         </div>
 
         {/* ── Bottom-left: vitals ── */}
@@ -405,6 +419,23 @@ export function HUD() {
             </div>
           )}
 
+          {/* M8: Quench countdown — urgent pulsing timer when hot steel is in inventory */}
+          {quenchSecondsRemaining !== null && quenchSecondsRemaining > 0 && (
+            <div style={{
+              marginTop: 4,
+              padding: '3px 5px',
+              background: 'rgba(255, 100, 0, 0.15)',
+              border: '1px solid rgba(255, 100, 0, 0.5)',
+              borderRadius: 2,
+              fontSize: 9,
+              color: quenchSecondsRemaining <= 10 ? '#ff3300' : '#ff7700',
+              letterSpacing: 1,
+              fontWeight: 700,
+            }}>
+              QUENCH: {Math.ceil(quenchSecondsRemaining)}s — run to water!
+            </div>
+          )}
+
           <div style={{
             marginTop: 6,
             paddingTop: 5,
@@ -416,6 +447,79 @@ export function HUD() {
             {ambientTemp.toFixed(0)}°C
           </div>
         </div>
+
+        {/* ── M8: Armor slot (chest) — bottom-left above hotbar ── */}
+        {/* Shows Steel Chestplate when equipped. Click to unequip. */}
+        {(() => {
+          const armorSlot = equippedArmorSlot !== null ? inventory.getSlot(equippedArmorSlot) : null
+          const isPlated  = armorSlot !== null && armorSlot.itemId === ITEM.STEEL_CHESTPLATE
+          return (
+            <div style={{
+              position: 'absolute',
+              bottom: 20,
+              left: 20,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: 2,
+              pointerEvents: 'auto',
+            }}>
+              {/* Chest slot box */}
+              <div
+                onClick={() => {
+                  if (armorSlot) unequipArmor()
+                  else {
+                    // Auto-find a steel chestplate in inventory and equip it
+                    for (let i = 0; i < inventory.slotCount; i++) {
+                      const s = inventory.getSlot(i)
+                      if (s && s.itemId === ITEM.STEEL_CHESTPLATE) {
+                        equipArmor(i)
+                        break
+                      }
+                    }
+                  }
+                }}
+                title={isPlated ? `Steel Chestplate — 40% damage reduction. Click to unequip.` : 'Chest armor slot (click to equip Steel Chestplate)'}
+                style={{
+                  width: 40,
+                  height: 40,
+                  background: isPlated ? `rgba(74,158,255,0.2)` : 'rgba(0,0,0,0.55)',
+                  border: `1px solid ${isPlated ? STEEL_BLUE : 'rgba(255,255,255,0.15)'}`,
+                  borderRadius: 3,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer',
+                  boxShadow: isPlated ? `0 0 8px rgba(74,158,255,0.4)` : 'none',
+                  transition: 'background 0.2s, border 0.2s, box-shadow 0.2s',
+                }}
+              >
+                <span style={{ fontSize: 18, lineHeight: 1 }}>
+                  {isPlated ? 'X' : 'O'}
+                </span>
+                {isPlated && (
+                  <div style={{
+                    position: 'absolute',
+                    bottom: 0, left: 0, right: 0,
+                    height: 2,
+                    background: STEEL_BLUE,
+                    borderRadius: '0 0 3px 3px',
+                  }} />
+                )}
+              </div>
+              {/* Label */}
+              <span style={{
+                fontSize: 7,
+                color: isPlated ? STEEL_BLUE : 'rgba(255,255,255,0.25)',
+                letterSpacing: 1,
+                textTransform: 'uppercase',
+              }}>
+                {isPlated ? '-40%' : 'CHEST'}
+              </span>
+            </div>
+          )
+        })()}
 
         {/* ── Bottom-center: hotbar ── */}
         <div style={{
@@ -431,6 +535,48 @@ export function HUD() {
             <HotbarSlot key={i} index={i} active={equippedSlot === i} tick={hotbarTick} />
           ))}
         </div>
+
+        {/* ── Top-right: Science Companion button ── */}
+        <a
+          href={COMPANION_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          title="Science Companion — ask questions about the real physics, chemistry, and biology behind the world"
+          style={{
+            position: 'absolute',
+            top: 14,
+            right: 16,
+            marginTop: 42,
+            width: 22,
+            height: 22,
+            borderRadius: '50%',
+            background: 'rgba(205,68,32,0.15)',
+            border: '1px solid rgba(205,68,32,0.35)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: 'rgba(205,68,32,0.85)',
+            fontSize: 11,
+            fontWeight: 700,
+            fontFamily: 'monospace',
+            textDecoration: 'none',
+            pointerEvents: 'auto',
+            transition: 'background 0.15s, border-color 0.15s, color 0.15s',
+            cursor: 'pointer',
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = 'rgba(205,68,32,0.3)'
+            e.currentTarget.style.borderColor = 'rgba(205,68,32,0.7)'
+            e.currentTarget.style.color = '#fff'
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = 'rgba(205,68,32,0.15)'
+            e.currentTarget.style.borderColor = 'rgba(205,68,32,0.35)'
+            e.currentTarget.style.color = 'rgba(205,68,32,0.85)'
+          }}
+        >
+          ?
+        </a>
 
       </div>
 

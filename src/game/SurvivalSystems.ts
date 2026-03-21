@@ -409,41 +409,62 @@ export function tickFurnaceSmelting(
   }
 }
 
-// ── M7: Blast Furnace Iron Smelting System ────────────────────────────────────
+// ── M7/M8: Blast Furnace Iron & Steel Smelting System ────────────────────────
 //
-// Chemistry: Fe₂O₃ + 3C → 2Fe + 3CO₂
-// Iron reduction requires ≥1000°C (blast furnace achieves this via forced air
-// draft and a large charcoal charge). The blast_furnace building type provides
-// the thermal mass needed; a single-chamber stone furnace cannot reach this threshold.
+// Iron chemistry:  Fe₂O₃ + 3C → 2Fe + 3CO₂
+// Steel chemistry: Fe + C → Fe-C (carburization)
+//   Carbon content determines grade:
+//     0.2–2.1% C → steel (strong, flexible)
+//     >2.1% C    → cast iron (brittle, cheap)
+//
+// Controlled by charcoal:iron_ingot ratio at ≥1200°C in blast_furnace:
+//   Standard iron smelt: 3× iron_ore + 4× charcoal → iron_ingot   (≥1000°C)
+//   Steel run (ratio 1:4): 1× iron_ingot + 1× charcoal → hot_steel_ingot   (≥1200°C)
+//   Cast iron (ratio 1:2): 1× iron_ingot + 2× charcoal → cast_iron_ingot   (≥1200°C)
+//
+// hot_steel_ingot must be quenched (player near water cell) within 30s
+// or it becomes soft_steel (50% quality penalty). See tickQuenching().
 //
 // Quality system (tool quality property, 0.0-1.0):
 //   smithingXp < 100  → novice:      quality 0.50–0.70
 //   smithingXp < 300  → experienced: quality 0.80–0.95
 //   smithingXp ≥ 300  → master:      quality 0.95–1.00
-//
-// Quality multiplier is baked into the iron_ingot output slot and consumed
-// when the player subsequently crafts iron tools in CraftingPanel.
 
-const BLAST_TEMP_C          = 1000   // °C — minimum for Fe₂O₃ reduction
-const BLAST_ORE_REQUIRED    = 3      // iron_ore units per smelt run
-const BLAST_CHARCOAL_REQ    = 4      // charcoal units (more than copper — larger fire)
-const BLAST_OUTPUT          = 1      // iron_ingot units produced
-const BLAST_SMITCHING_XP    = 25     // XP gained per successful smelt
+const BLAST_TEMP_C          = 1000   // °C — minimum for Fe₂O₃ iron reduction
+const STEEL_TEMP_C          = 1200   // °C — minimum for carburization (steel/cast iron)
+const BLAST_ORE_REQUIRED    = 3      // iron_ore units per iron smelt run
+const BLAST_CHARCOAL_REQ    = 4      // charcoal units for iron smelt
+// Steel run: 1 iron_ingot + 1 charcoal → hot_steel_ingot  (1:4 ratio → 0.8% C = steel)
+const STEEL_INGOT_REQ       = 1
+const STEEL_CHARCOAL_REQ    = 1      // 1:4 effective (1 iron_ingot = ~4 unit-mass)
+// Cast iron run: 1 iron_ingot + 2 charcoal → cast_iron_ingot (1:2 ratio → 2.4% C)
+const CAST_IRON_CHARCOAL_REQ = 2
+const BLAST_SMITCHING_XP    = 25     // XP per iron smelt
+const STEEL_SMITCHING_XP    = 40     // XP per steel/cast-iron smelt (harder process)
+const QUENCH_WINDOW_S       = 30     // seconds player has to quench hot_steel
 
 // Per-furnace cooldown (prevents multi-trigger per frame)
 const _blastInProgress = new Set<number>()
 
-/** Compute iron ingot quality from smithingXp. */
+/** Compute ingot quality from smithingXp. Steel reaches max quality at lower XP threshold. */
 function ironQualityFromXp(smithingXp: number): number {
   if (smithingXp >= 300) {
-    // Master: 0.95 + random fraction of remaining 0.05
     return 0.95 + Math.random() * 0.05
   } else if (smithingXp >= 100) {
-    // Experienced: 0.80–0.95
     return 0.80 + (Math.random() * 0.15)
   } else {
-    // Novice: 0.50–0.70
     return 0.50 + (Math.random() * 0.20)
+  }
+}
+
+/** Steel reaches master quality at 60% of the iron XP threshold (better material). */
+function steelQualityFromXp(smithingXp: number): number {
+  if (smithingXp >= 180) {  // master threshold = 300 * 0.6
+    return 0.95 + Math.random() * 0.05
+  } else if (smithingXp >= 60) {  // experienced = 100 * 0.6
+    return 0.85 + (Math.random() * 0.10)
+  } else {
+    return 0.60 + (Math.random() * 0.20)
   }
 }
 
@@ -465,23 +486,112 @@ export function tickBlastFurnaceSmelting(
     const dz = pz - b.position[2]
     if (dx * dx + dy * dy + dz * dz > 36) continue
 
-    // Scan for sim grid cells near the furnace at ≥1000°C
-    const hotCells = simMgr.getHotCells(BLAST_TEMP_C)
-    const furnaceReached = hotCells.some(cell => {
+    // Get all hot cells once — reused for both iron and steel temperature checks
+    const hotCellsIron  = simMgr.getHotCells(BLAST_TEMP_C)
+    const ironReached   = hotCellsIron.some(cell => {
       const cx = cell.wx - b.position[0]
       const cy = cell.wy - b.position[1]
       const cz = cell.wz - b.position[2]
-      return cx * cx + cy * cy + cz * cz < 16  // 4m radius
+      return cx * cx + cy * cy + cz * cz < 16
     })
-    if (!furnaceReached) continue
+    if (!ironReached) continue
 
-    // Check inventory inputs
+    // Check for steel-grade temperature (1200°C+)
+    const hotCellsSteel = simMgr.getHotCells(STEEL_TEMP_C)
+    const steelTempReached = hotCellsSteel.some(cell => {
+      const cx = cell.wx - b.position[0]
+      const cy = cell.wy - b.position[1]
+      const cz = cell.wz - b.position[2]
+      return cx * cx + cy * cy + cz * cz < 16
+    })
+
+    const ps = usePlayerStore.getState()
+
+    // ── Path A: Steel carburization (1200°C+, iron_ingot + charcoal) ─────────
+    //
+    // Priority: if furnace is at 1200°C and player has iron_ingot, attempt steel first.
+    // Ratio hint shown in notification so player understands the chemistry.
+    if (steelTempReached) {
+      const hasIronIngot  = inv.countMaterial(MAT.IRON_INGOT)  >= STEEL_INGOT_REQ
+      const charcoalCount = inv.countMaterial(MAT.CHARCOAL)
+
+      if (hasIronIngot && charcoalCount >= STEEL_CHARCOAL_REQ) {
+        // Determine output by charcoal:iron ratio
+        // 1 charcoal per iron_ingot → steel (0.8% C, within 0.2–2.1% steel range)
+        // 2 charcoal per iron_ingot → cast iron (2.4% C, above 2.1% cast iron threshold)
+        const isCastIron = charcoalCount >= CAST_IRON_CHARCOAL_REQ
+
+        // Consume iron ingot
+        let ingotRemain = STEEL_INGOT_REQ
+        for (let i = 0; i < inv.slotCount && ingotRemain > 0; i++) {
+          const s = inv.getSlot(i)
+          if (s && s.itemId === 0 && s.materialId === MAT.IRON_INGOT) {
+            const take = Math.min(s.quantity, ingotRemain)
+            inv.removeItem(i, take)
+            ingotRemain -= take
+          }
+        }
+        // Consume charcoal (more for cast iron)
+        const charReqThisRun = isCastIron ? CAST_IRON_CHARCOAL_REQ : STEEL_CHARCOAL_REQ
+        let charRemain = charReqThisRun
+        for (let i = 0; i < inv.slotCount && charRemain > 0; i++) {
+          const s = inv.getSlot(i)
+          if (s && s.itemId === 0 && s.materialId === MAT.CHARCOAL) {
+            const take = Math.min(s.quantity, charRemain)
+            inv.removeItem(i, take)
+            charRemain -= take
+          }
+        }
+
+        const quality = steelQualityFromXp(ps.smithingXp)
+        ps.addSmithingXp(STEEL_SMITCHING_XP)
+        ps.addDiscovery('steel_making')
+        inv.discoverRecipe(71)  // steel sword
+        inv.discoverRecipe(72)  // steel chestplate
+        inv.discoverRecipe(73)  // steel crossbow
+        inv.discoverRecipe(74)  // cast iron pot
+        inv.discoverRecipe(75)  // cast iron door
+
+        if (isCastIron) {
+          // Cast iron — directly produced, no quenching needed (no martensitic phase)
+          inv.addItem({ itemId: 0, materialId: MAT.CAST_IRON_INGOT, quantity: 1, quality: quality * 0.75 })
+          useUiStore.getState().addNotification(
+            'Cast iron produced! Fe + 2C → 2.4% carbon — brittle but cheap. Craft a Cast Iron Pot or Door.',
+            'discovery'
+          )
+        } else {
+          // Steel — produce HOT steel first; player must quench within 30s
+          inv.addItem({ itemId: 0, materialId: MAT.HOT_STEEL_INGOT, quantity: 1, quality })
+          // Start quench countdown
+          ps.setQuenchTimer(QUENCH_WINDOW_S)
+          useUiStore.getState().addNotification(
+            `Hot steel ingot produced! Fe + 0.8% C (carburization). QUENCH in water within ${QUENCH_WINDOW_S}s or lose quality! Run to ocean/river.`,
+            'warning'
+          )
+        }
+
+        _blastInProgress.add(b.id)
+        setTimeout(() => _blastInProgress.delete(b.id), 5000)
+        continue
+      }
+
+      // At 1200°C but missing iron_ingot — give ratio hint
+      if (!hasIronIngot && inv.countMaterial(MAT.IRON_ORE) >= BLAST_ORE_REQUIRED) {
+        useUiStore.getState().addNotification(
+          'Blast furnace at 1200°C — steel temperature! Ratio hint: 1 charcoal:1 iron_ingot = steel (0.8% C) | 2 charcoal:1 iron_ingot = cast iron (2.4% C).',
+          'info'
+        )
+      }
+    }
+
+    // ── Path B: Standard iron reduction (1000°C+, iron_ore + charcoal) ───────
+    //
+    // Only runs if not already handled by steel path above.
     const hasOre      = inv.countMaterial(MAT.IRON_ORE) >= BLAST_ORE_REQUIRED
     const hasCharcoal = inv.countMaterial(MAT.CHARCOAL)  >= BLAST_CHARCOAL_REQ
     if (!hasOre || !hasCharcoal) {
-      // Give the player a hint that temperature is sufficient but materials are missing
       useUiStore.getState().addNotification(
-        'Blast furnace at temperature! Need 3× Iron Ore + 4× Charcoal to smelt.',
+        'Blast furnace at temperature! Need 3× Iron Ore + 4× Charcoal to smelt iron. Or add Iron Ingot for steel (1200°C required).',
         'info'
       )
       _blastInProgress.add(b.id)
@@ -500,40 +610,152 @@ export function tickBlastFurnaceSmelting(
       }
     }
     // Consume charcoal
-    let charRemain = BLAST_CHARCOAL_REQ
-    for (let i = 0; i < inv.slotCount && charRemain > 0; i++) {
+    let charRemain2 = BLAST_CHARCOAL_REQ
+    for (let i = 0; i < inv.slotCount && charRemain2 > 0; i++) {
       const s = inv.getSlot(i)
       if (s && s.itemId === 0 && s.materialId === MAT.CHARCOAL) {
-        const take = Math.min(s.quantity, charRemain)
+        const take = Math.min(s.quantity, charRemain2)
         inv.removeItem(i, take)
-        charRemain -= take
+        charRemain2 -= take
       }
     }
 
-    // Compute quality from smithingXp
-    const ps = usePlayerStore.getState()
     const quality = ironQualityFromXp(ps.smithingXp)
     const qualityLabel = quality >= 0.95 ? 'master' : quality >= 0.80 ? 'fine' : 'rough'
 
-    // Produce iron ingot
-    inv.addItem({ itemId: 0, materialId: MAT.IRON_INGOT, quantity: BLAST_OUTPUT, quality })
+    inv.addItem({ itemId: 0, materialId: MAT.IRON_INGOT, quantity: 1, quality })
 
-    // Award smithing XP and unlock iron tool recipes
     ps.addSmithingXp(BLAST_SMITCHING_XP)
     ps.addDiscovery('iron_smelting')
     inv.discoverRecipe(68)  // iron knife
     inv.discoverRecipe(69)  // iron axe
     inv.discoverRecipe(70)  // iron pickaxe
 
-    // Mark furnace busy (5s cooldown)
     _blastInProgress.add(b.id)
     setTimeout(() => _blastInProgress.delete(b.id), 5000)
 
     useUiStore.getState().addNotification(
-      `Iron smelting complete! Fe₂O₃ + 3C → 2Fe + 3CO₂. Got ${qualityLabel} iron ingot (quality: ${(quality * 100).toFixed(0)}%). Now craft iron tools!`,
+      `Iron smelting complete! Fe₂O₃ + 3C → 2Fe + 3CO₂. Got ${qualityLabel} iron ingot (quality: ${(quality * 100).toFixed(0)}%). Heat to 1200°C with iron_ingot for steel!`,
       'discovery'
     )
   }
+}
+
+// ── M8: Quenching System ──────────────────────────────────────────────────────
+//
+// Real metallurgy: quenching (rapid cooling) locks martensite crystal structure
+// in steel, producing hardness. Without quenching, carbon diffuses back out and
+// the steel remains soft (ferrite-pearlite microstructure, lower hardness).
+//
+// Game mechanic:
+//   - hot_steel_ingot in inventory → player has QUENCH_WINDOW_S seconds
+//   - If player walks within QUENCH_WATER_RADIUS of an ocean/river cell
+//     (sim grid water cells at y ≤ WATER_Y_THRESHOLD), auto-quench triggers
+//   - Quenched: hot_steel_ingot → steel_ingot (full quality preserved)
+//   - Expired:  hot_steel_ingot → soft_steel  (quality * 0.50 penalty)
+
+const QUENCH_WATER_RADIUS   = 3.0   // metres to water cell
+const WATER_Y_THRESHOLD     = 1.5   // sim grid y ≤ this = water cell
+
+/** Returns true if any sim grid cell near (px, pz) is a water cell (ocean/river). */
+function isNearWater(
+  px: number, py: number, pz: number,
+  simMgr: LocalSimManager
+): boolean {
+  // We check cells at sea level (y ≤ WATER_Y_THRESHOLD) within QUENCH_WATER_RADIUS.
+  // getHotCells returns heat sources; for water we read cold/wet cells instead.
+  // Since the sim grid doesn't have an explicit "water type" API, we sample
+  // temperature at y=0 near the player — ocean cells are cold (~15°C) and
+  // at or below sea level. We look for any cell at y≤WATER_Y_THRESHOLD within radius.
+  //
+  // Simpler and more robust: check if the player's Y position is ≤ WATER_Y_THRESHOLD
+  // (they're wading in water), which already gates ocean/river proximity.
+  if (py <= WATER_Y_THRESHOLD) return true
+
+  // Also accept if there's a cold cell (< 20°C) at ground level within radius —
+  // this catches rivers and ponds that are slightly above sea level.
+  try {
+    const nearTemp = simMgr.getTemperatureAt(px, 0, pz)
+    // A cold cell near the player at ground level with player close to y=0 is water
+    if (nearTemp < 25 && py <= WATER_Y_THRESHOLD + QUENCH_WATER_RADIUS) return true
+  } catch { /* sim may not have this cell sampled yet */ }
+
+  return false
+}
+
+export function tickQuenching(
+  inv: Inventory,
+  simMgr: LocalSimManager | null,
+  px: number, py: number, pz: number
+): void {
+  const ps = usePlayerStore.getState()
+
+  // Find hot_steel_ingot in inventory
+  const hotSlotIdx = inv.findItem(MAT.HOT_STEEL_INGOT)
+
+  if (hotSlotIdx < 0) {
+    // No hot steel in inventory — clear any stale timer
+    if (ps.quenchSecondsRemaining !== null) {
+      ps.setQuenchTimer(null)
+    }
+    return
+  }
+
+  const hotSlot = inv.getSlot(hotSlotIdx)
+  if (!hotSlot) return
+
+  // If timer has expired → convert to soft_steel
+  if (ps.quenchSecondsRemaining !== null && ps.quenchSecondsRemaining <= 0) {
+    const softenedQuality = hotSlot.quality * 0.50
+    inv.removeItem(hotSlotIdx, hotSlot.quantity)
+    inv.addItem({ itemId: 0, materialId: MAT.SOFT_STEEL, quantity: hotSlot.quantity, quality: softenedQuality })
+    ps.setQuenchTimer(null)
+    useUiStore.getState().addNotification(
+      'Steel missed quench window — became soft steel (50% quality). Quench next batch in water within 30s!',
+      'warning'
+    )
+    return
+  }
+
+  // Check if player is near water → auto-quench
+  if (simMgr && isNearWater(px, py, pz, simMgr)) {
+    const quality = hotSlot.quality  // preserve full quality
+    inv.removeItem(hotSlotIdx, hotSlot.quantity)
+    inv.addItem({ itemId: 0, materialId: MAT.STEEL_INGOT, quantity: hotSlot.quantity, quality })
+    ps.setQuenchTimer(null)
+    // Award additional smithing XP for successful quench
+    ps.addSmithingXp(15)
+    ps.addDiscovery('steel_making')
+    inv.discoverRecipe(71)
+    inv.discoverRecipe(72)
+    inv.discoverRecipe(73)
+    useUiStore.getState().addNotification(
+      `Steel quenched! Martensitic hardening complete. Quality: ${(quality * 100).toFixed(0)}%. Now craft Steel Sword or Chestplate!`,
+      'discovery'
+    )
+  }
+}
+
+// ── M8: Armor Damage Absorption ──────────────────────────────────────────────
+//
+// Steel Chestplate (ITEM.STEEL_CHESTPLATE = 53): absorbs 40% of all incoming
+// damage when equipped in the armor slot.
+// Call from GameLoop before applying damage to the player.
+// Returns the effective damage after absorption (pass-through if no armor).
+//
+// STEEL_CHESTPLATE itemId = 53 (numeric literal used to avoid circular import
+// since EquipSystem.ts imports from Inventory.ts which imports from this file's
+// scope indirectly — keeping this file's imports minimal).
+
+const STEEL_CHESTPLATE_ITEM_ID    = 53   // ITEM.STEEL_CHESTPLATE
+const STEEL_CHESTPLATE_ABSORPTION = 0.40 // 40% damage reduction
+
+export function applyArmorAbsorptionSync(rawDamage: number, inv: Inventory): number {
+  const ps = usePlayerStore.getState()
+  if (ps.equippedArmorSlot === null) return rawDamage
+  const armorSlot = inv.getSlot(ps.equippedArmorSlot)
+  if (!armorSlot || armorSlot.itemId !== STEEL_CHESTPLATE_ITEM_ID) return rawDamage
+  return rawDamage * (1 - STEEL_CHESTPLATE_ABSORPTION)
 }
 
 // ── P2-5: Building Physics — Fire Damage ──────────────────────────────────────

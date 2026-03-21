@@ -69,7 +69,10 @@ export function SidebarShell() {
         case 'c': case 'C':   e.preventDefault(); togglePanel('crafting');   break
         case 'b': case 'B':   e.preventDefault(); togglePanel('build');      break
         case 't': case 'T':   e.preventDefault(); togglePanel('tech');       break
-        case 'e': case 'E':   e.preventDefault(); togglePanel('evolution');  break
+        case 'e': case 'E':
+          // Don't intercept E while pointer is locked — PlayerController uses it for eat/interact
+          if (!document.pointerLockElement) { e.preventDefault(); togglePanel('evolution') }
+          break
         case 'j': case 'J':   e.preventDefault(); togglePanel('journal');    break
         case 'Tab':           e.preventDefault(); togglePanel('character');  break
         case 'm': case 'M':   e.preventDefault(); togglePanel('map');        break

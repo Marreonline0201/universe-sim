@@ -25,7 +25,7 @@ export const SEA_LEVEL = 0
 // ── Noise functions (3D, no seams) ───────────────────────────────────────────
 
 function hash3(ix: number, iy: number, iz: number): number {
-  let h = ((ix * 1664525 + iy * 22695477 + iz * 6364136223846793005) ^ 0x9e3779b9) >>> 0
+  let h = (Math.imul(ix, 1664525) ^ Math.imul(iy, 22695477) ^ Math.imul(iz, 2891336453) ^ 0x9e3779b9) >>> 0
   h ^= h >>> 16
   h = Math.imul(h, 0x45d9f3b) >>> 0
   h ^= h >>> 16

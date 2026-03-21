@@ -489,18 +489,7 @@ export function SceneRoot() {
         </button>
       </div>
     )}
-    {/* Crosshair */}
-    {pointerLocked && (
-      <div style={{
-        position: 'fixed', top: '50%', left: '50%',
-        transform: 'translate(-50%, -50%)',
-        width: 16, height: 16, zIndex: 50,
-        pointerEvents: 'none',
-      }}>
-        <div style={{ position: 'absolute', top: '50%', left: 0, right: 0, height: 1.5, background: 'rgba(255,255,255,0.8)', transform: 'translateY(-50%)' }} />
-        <div style={{ position: 'absolute', left: '50%', top: 0, bottom: 0, width: 1.5, background: 'rgba(255,255,255,0.8)', transform: 'translateX(-50%)' }} />
-      </div>
-    )}
+    {/* Crosshair rendered by HUD.tsx — removed duplicate here */}
     <Canvas
       gl={{ antialias: true, powerPreference: 'high-performance' }}
       style={{ position: 'fixed', inset: 0 }}

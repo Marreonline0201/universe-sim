@@ -46,6 +46,9 @@ import {
   setPlacedBedrollAnchor,
 } from '../game/DeathSystem'
 import { DeathScreen as DeathScreenImport } from '../ui/DeathScreen'
+import { SettlementRenderer } from './SettlementRenderer'
+import { SettlementHUD } from '../ui/SettlementHUD'
+import { useSettlementStore } from '../store/settlementStore'
 import { PlanetTerrain } from './PlanetTerrain'
 import { surfaceRadiusAt, terrainHeightAt, getSpawnPosition, PLANET_RADIUS, SEA_LEVEL } from '../world/SpherePlanet'
 import { LocalSimManager } from '../engine/LocalSimManager'
@@ -597,6 +600,7 @@ export function SceneRoot() {
         <SimGridVisualizer simManager={simManager} />
         <DeathLootDropsRenderer />
         <BedrollMeshRenderer />
+        <SettlementRenderer />
       </Suspense>
       {entityId !== null && (
         <>
@@ -616,6 +620,8 @@ export function SceneRoot() {
     </Canvas>
     {/* M5: Death screen — shown above everything when player is dead */}
     <DeathScreenWrapper onRespawn={handleRespawn} />
+    {/* M6: Settlement HUD — trade offers and gates-closed banner */}
+    <SettlementHUD />
     </>
   )
 }
@@ -677,11 +683,12 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
   const setPlacementMode    = useGameStore(s => s.setPlacementMode)
   const bumpBuildVersion    = useGameStore(s => s.bumpBuildVersion)
   // Survival system refs
-  const _sleepKeyRef        = useRef(false)
-  const epAccumRef          = useRef(0)
-  const tierRef             = useRef(0)
-  const evoUnlockedRef      = useRef(-1)  // -1 forces apply on first frame
-  const fwdVec              = useRef(new THREE.Vector3())
+  const _sleepKeyRef            = useRef(false)
+  const epAccumRef              = useRef(0)
+  const tierRef                 = useRef(0)
+  const evoUnlockedRef          = useRef(-1)  // -1 forces apply on first frame
+  const fwdVec                  = useRef(new THREE.Vector3())
+  const settlementCheckTimerRef = useRef(0)   // M6: seconds since last proximity check
 
   useFrame((_, delta) => {
     // Cap dt to avoid spiral-of-death on slow frames
@@ -1129,6 +1136,28 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
         }
       }
 
+      // ── M6: Check if player hit a server NPC near a settlement ──────────────
+      if (!hitCreature) {
+        const remoteNpcs = useMultiplayerStore.getState().remoteNpcs
+        for (const npc of remoteNpcs) {
+          const dx = npc.x - px, dy = (npc.y ?? 1) - py, dz = npc.z - pz
+          const dist = Math.sqrt(dx * dx + dy * dy + dz * dz)
+          if (dist < stats.range + 1) {
+            // Hit a server NPC — report to server so it can update NPC memory
+            const nearSettlementId = useSettlementStore.getState().nearSettlementId
+            if (nearSettlementId !== null) {
+              getWorldSocket()?.send({ type: 'NPC_ATTACKED', settlementId: nearSettlementId })
+              useUiStore.getState().addNotification(
+                'You attacked a settlement member! They will remember this.',
+                'warning'
+              )
+            }
+            hitCreature = true  // suppress resource harvest this frame
+            break
+          }
+        }
+      }
+
       // ── Resource node harvesting (only if no creature was hit) ─────────────
       let nearest: (typeof RESOURCE_NODES)[0] | null = null
       let nearestDist = Infinity
@@ -1300,6 +1329,42 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
       inventory.addItem({ itemId: 0, materialId: mat, quantity: qty, quality: 0.7 })
       const addNotification = useUiStore.getState().addNotification
       addNotification(`Dug up ${qty}× ${mat === MAT.STONE ? 'Stone' : mat === MAT.CLAY ? 'Clay' : 'Sand'}`, 'info')
+    }
+
+    // ── M6: Settlement proximity check ────────────────────────────────────────
+    // Every 3 seconds real time, check if the player is within TERRITORY_RADIUS
+    // of any settlement. If yes, send PLAYER_NEAR_SETTLEMENT to the server.
+    // Server replies with TRADE_OFFER or GATES_CLOSED as appropriate.
+    {
+      const SETTLEMENT_PROXIMITY_RADIUS_SQ = 150 * 150
+      const SETTLEMENT_CHECK_INTERVAL = 3  // seconds
+      settlementCheckTimerRef.current += dt
+      if (settlementCheckTimerRef.current >= SETTLEMENT_CHECK_INTERVAL) {
+        settlementCheckTimerRef.current = 0
+        const settlementStore = useSettlementStore.getState()
+        let nearestId: number | null = null
+        let nearestDistSq = Infinity
+        for (const s of settlementStore.settlements.values()) {
+          const dx = px - s.x, dz = pz - s.z
+          const distSq = dx * dx + dz * dz
+          if (distSq < SETTLEMENT_PROXIMITY_RADIUS_SQ && distSq < nearestDistSq) {
+            nearestId   = s.id
+            nearestDistSq = distSq
+          }
+        }
+        const prevNearId = settlementStore.nearSettlementId
+        if (nearestId !== prevNearId) {
+          settlementStore.setNearSettlement(nearestId)
+          if (nearestId === null) {
+            // Left all settlement ranges — clear pending offer
+            settlementStore.setPendingOffer(null)
+          }
+        }
+        if (nearestId !== null) {
+          // Notify server; it will send TRADE_OFFER or GATES_CLOSED if appropriate
+          getWorldSocket()?.send({ type: 'PLAYER_NEAR_SETTLEMENT', settlementId: nearestId })
+        }
+      }
     }
   })
 

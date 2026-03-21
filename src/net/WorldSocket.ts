@@ -4,6 +4,7 @@
 
 import { useMultiplayerStore } from '../store/multiplayerStore'
 import { useGameStore } from '../store/gameStore'
+import { useSettlementStore } from '../store/settlementStore'
 import type { LocalSimManager } from '../engine/LocalSimManager'
 
 // Module-level reference to the active LocalSimManager.
@@ -108,6 +109,10 @@ export class WorldSocket {
         if (Array.isArray(msg.depletedNodes)) {
           mp.setDepletedNodes(msg.depletedNodes as number[])
         }
+        // M6: Seed settlement state for newly joining player
+        if (Array.isArray(msg.settlements)) {
+          useSettlementStore.getState().setSettlements(msg.settlements as any[])
+        }
         mp.setServerWorld(
           msg.simTime as number,
           msg.timeScale as number,
@@ -164,6 +169,46 @@ export class WorldSocket {
         }
         break
       }
+
+      // ── M6: NPC Civilization ─────────────────────────────────────────────────
+
+      case 'SETTLEMENT_UPDATE': {
+        // A settlement changed its civ level or inventory
+        const ss = useSettlementStore.getState()
+        const existing = ss.settlements.get(msg.settlementId as number)
+        if (existing) {
+          ss.upsertSettlement({
+            ...existing,
+            civLevel:    msg.civLevel    as number,
+            resourceInv: (msg.resourceInv as Record<string, number>) ?? existing.resourceInv,
+          })
+        }
+        break
+      }
+
+      case 'TRADE_OFFER': {
+        useSettlementStore.getState().setPendingOffer({
+          settlementId:   msg.settlementId   as number,
+          settlementName: msg.settlementName as string,
+          civLevel:       msg.civLevel       as number,
+          offerMats:      (msg.offerMats     as Record<string, number>) ?? {},
+          wantMats:       (msg.wantMats      as Record<string, number>) ?? {},
+          trustScore:     (msg.trustScore    as number) ?? 0,
+        })
+        break
+      }
+
+      case 'TRADE_RESULT': {
+        // Server confirms trade outcome — clear the pending offer regardless
+        useSettlementStore.getState().setPendingOffer(null)
+        break
+      }
+
+      case 'GATES_CLOSED': {
+        useSettlementStore.getState().setGatesClosed(msg.settlementId as number)
+        break
+      }
+
       default:
         break
     }

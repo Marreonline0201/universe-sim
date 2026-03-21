@@ -12,6 +12,8 @@ import { loadSettings, saveSettings, migrateSchema } from './WorldSettingsSync.j
 import { BOOTSTRAP_TARGET_SECS, NORMAL_TIMESCALE } from './WorldClock.js'
 import { SlackAgent } from './SlackAgent.js'
 import { NodeStateSync } from './NodeStateSync.js'
+import { NpcMemory } from './NpcMemory.js'
+import { SettlementManager, TERRITORY_RADIUS } from './SettlementManager.js'
 
 const PORT = parseInt(process.env.PORT ?? '8080', 10)
 const PERSIST_INTERVAL_MS = 30_000 // save simTime to DB every 30 s
@@ -26,8 +28,10 @@ const clock    = new WorldClock()
 const players  = new PlayerRegistry()
 const npcs     = new NpcManager()
 const scheduler = new BroadcastScheduler(clock, players, npcs)
-const slack    = new SlackAgent(clock, players, npcs)
-const nodeSync = new NodeStateSync()
+const slack       = new SlackAgent(clock, players, npcs)
+const nodeSync    = new NodeStateSync()
+const npcMemory   = new NpcMemory()
+const settlements = new SettlementManager()
 
 async function main() {
   // Ensure DB schema is current
@@ -35,6 +39,10 @@ async function main() {
     await migrateSchema()
     await nodeSync.migrateSchema()
     await nodeSync.load()
+    await npcMemory.migrateSchema()
+    await npcMemory.load()
+    await settlements.migrateSchema()
+    await settlements.load()
     const settings = await loadSettings()
     // Don't restore an admin-set ultra-high timeScale — use normal unless bootstrapping
     clock.setSimTime(settings.simTime)
@@ -70,6 +78,26 @@ async function main() {
   nodeSync.onRespawn = (nodeId, x, y, z, type) => {
     broadcastAll({ type: 'NODE_RESPAWNED', nodeId, x, y, z, nodeType: type })
   }
+
+  // Tick settlements every real second (separate from sim clock — civ sim runs in real time)
+  let _lastSettlementTick = Date.now()
+  setInterval(() => {
+    const now = Date.now()
+    const dtReal = (now - _lastSettlementTick) / 1000
+    _lastSettlementTick = now
+    npcMemory.tick(dtReal)
+    settlements.tick(dtReal, (settlementId, civLevel, s) => {
+      // Broadcast civ level-up to all clients
+      broadcastAll({
+        type: 'SETTLEMENT_UPDATE',
+        settlementId,
+        civLevel,
+        name: s.name,
+        resourceInv: s.resourceInv,
+      })
+      slack._post(`*Settlement update:* ${s.name} reached civilization level ${civLevel}!`).catch(() => {})
+    })
+  }, 1000)
 
   clock.start()
   scheduler.start()
@@ -167,6 +195,7 @@ function handleMessage(ws, msg) {
         players: players.getAll(),
         npcs: npcs.getAll(),
         depletedNodes: nodeSync.getDepletedSnapshot(),
+        settlements:   settlements.getSnapshot(),
       }))
 
       // Notify others (use getAll() to get serializable player without ws socket)
@@ -201,6 +230,83 @@ function handleMessage(ws, msg) {
       const { x, y, z } = msg
       if (typeof x !== 'number' || typeof y !== 'number' || typeof z !== 'number') return
       broadcast({ type: 'FIRE_STARTED', x, y, z }, ws)
+      break
+    }
+
+    case 'PLAYER_NEAR_SETTLEMENT': {
+      // Client reports player is within territory radius of a settlement.
+      // Server checks for a trade offer and gates status, replies to that socket only.
+      const userId = ws._userId
+      if (!userId) return
+      const { settlementId } = msg
+      if (typeof settlementId !== 'number') return
+
+      npcMemory.recordVisit(settlementId, userId)
+
+      const gatesClosed = npcMemory.gatesClosed(settlementId, userId)
+      if (gatesClosed) {
+        ws.send(JSON.stringify({ type: 'GATES_CLOSED', settlementId }))
+        return
+      }
+
+      const offer = settlements.checkTradeOffer(settlementId, userId, npcMemory)
+      if (offer) {
+        ws.send(JSON.stringify({ type: 'TRADE_OFFER', ...offer }))
+      }
+      break
+    }
+
+    case 'TRADE_ACCEPT': {
+      // Client accepts a trade offer.
+      // playerGives: what the player is handing over
+      // playerReceives: what the player expects to get
+      const userId = ws._userId
+      if (!userId) return
+      const { settlementId, playerGives, playerReceives } = msg
+      if (typeof settlementId !== 'number') return
+
+      const result = settlements.executeTrade(
+        settlementId, userId,
+        playerGives ?? {}, playerReceives ?? {},
+        npcMemory,
+        null  // inventory validation done client-side for now
+      )
+
+      ws.send(JSON.stringify({
+        type: 'TRADE_RESULT',
+        settlementId,
+        result,
+        playerGives:    result === 'ok' ? playerGives    : null,
+        playerReceives: result === 'ok' ? playerReceives : null,
+      }))
+
+      if (result === 'ok') {
+        const s = settlements.getSettlement(settlementId)
+        // Broadcast updated settlement inventory to all players
+        broadcastAll({
+          type: 'SETTLEMENT_UPDATE',
+          settlementId,
+          civLevel:    s?.civLevel ?? 0,
+          name:        s?.name ?? '',
+          resourceInv: s?.resourceInv ?? {},
+        })
+      }
+      break
+    }
+
+    case 'NPC_ATTACKED': {
+      // Client reports player attacked an NPC belonging to a settlement.
+      const userId = ws._userId
+      if (!userId) return
+      const { settlementId } = msg
+      if (typeof settlementId !== 'number') return
+
+      const nowClosed = settlements.recordPlayerAttack(settlementId, npcMemory, userId)
+      if (nowClosed) {
+        // Tell this player their gates are now closed
+        ws.send(JSON.stringify({ type: 'GATES_CLOSED', settlementId }))
+        console.log(`[server] Gates closed for player ${userId} at settlement ${settlementId}`)
+      }
       break
     }
 

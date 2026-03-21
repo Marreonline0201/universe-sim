@@ -130,8 +130,10 @@ async function main() {
     outlaw.tickCleanup()
   }, 1000)
 
-  // M8: Wire weather system broadcast + Slack callbacks, then start transitions
-  weather.onBroadcast((msg) => broadcastAll(msg))
+  // M9 T3: Weather updates are batched — 8 sector updates fire simultaneously
+  // per transition tick. Route through enqueueBatch() so they are bundled into
+  // one BATCH_UPDATE wire message instead of 8 individual sends.
+  weather.onBroadcast((msg) => scheduler.enqueueBatch(msg))
   weather.onStorm((text) => slack._post(text).catch(() => {}))
   weather.start()
 
@@ -142,6 +144,11 @@ async function main() {
   // M5 Track 1 deployment notification — fires once on server boot after this deploy
   if (process.env.M5_NOTIFY_SENT !== 'true') {
     slack.notifyM5Shipped().catch(() => {})
+  }
+
+  // M9 Track 1 deployment notification — fires once on server boot after this deploy
+  if (process.env.M9_NOTIFY_SENT !== 'true') {
+    slack.notifyM9Shipped().catch(() => {})
   }
 
   // Persist simTime periodically

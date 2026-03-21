@@ -108,6 +108,24 @@ export class SlackAgent {
     )
   }
 
+  async notifyM9Shipped() {
+    await this._post(
+      '*M9 Track 1 SHIPPED: Rivers and Erosion Terrain*\n\n' +
+      'The planet now has living rivers carved from mountains to ocean.\n\n' +
+      '*What was built:*\n' +
+      '• Flow-field river generation — 10 seeded rivers per planet, steepest-descent from h>100m peaks to sea level\n' +
+      '• Valley carving — terrain depressed 5-15m along river corridors; visible V-shaped valleys on terrain mesh\n' +
+      '• River ribbon renderer — animated water shader with Fresnel opacity, depth color, wave shimmer; 2m→15m width\n' +
+      '• Current physics — player KCC pushed by flow direction (0.2-0.8 m/s) when standing in river channel\n' +
+      '• Fresh water — thirst restores 0.04/s passively while in river; E-key instant drink for 25% thirst reduction\n' +
+      '• Valley shelter — wind-chill reduced in deep valley sections (valley temp warmed toward 5°C floor)\n' +
+      '• River clay — 20-30 clay deposit nodes placed along riverbanks (alluvial deposit simulation)\n' +
+      '• HUD indicator — blue water droplet icon within 20m of river; changes text when inside channel\n\n' +
+      'Pass criteria verified: rivers visible, drinking restores thirst, current pushes player, clay nodes on banks.\n\n' +
+      'Production: https://universe-sim-beryl.vercel.app | Commit: 8df5d30'
+    )
+  }
+
   async notifyM5Shipped() {
     await this._post(
       '*M5 Track 1 SHIPPED: Server-Authoritative Shared World State*\n\n' +

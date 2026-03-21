@@ -86,7 +86,7 @@ export function AdminPanel() {
               <div style={{ display: 'flex', gap: 8 }}>
                 <button
                   onClick={() => {
-                    Object.values(MAT).forEach(matId => {
+                    (Object.values(MAT) as Array<string | number>).filter((v): v is number => typeof v === 'number').forEach(matId => {
                       inventory.addItem({ itemId: 0, materialId: matId, quantity: 99, quality: 1.0 })
                     })
                   }}

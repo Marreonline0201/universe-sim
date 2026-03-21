@@ -93,10 +93,21 @@ function makeOceanMaterial(): THREE.MeshPhongMaterial {
 
 function makeAtmosphereMaterial(): THREE.MeshBasicMaterial {
   return new THREE.MeshBasicMaterial({
-    color: new THREE.Color(0.45, 0.70, 1.00),
+    color: new THREE.Color(0.50, 0.72, 1.00),
     transparent: true,
-    opacity: 0.08,
+    opacity: 0.15,
     side: THREE.BackSide,   // render inside — creates glow halo
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+  })
+}
+
+function makeHazeMaterial(): THREE.MeshBasicMaterial {
+  return new THREE.MeshBasicMaterial({
+    color: new THREE.Color(0.65, 0.82, 1.00),
+    transparent: true,
+    opacity: 0.06,
+    side: THREE.BackSide,
     depthWrite: false,
     blending: THREE.AdditiveBlending,
   })
@@ -108,11 +119,15 @@ export function PlanetTerrain() {
   // Generate geometry once — no reactive dependencies
   const terrainGeo = useMemo(() => generatePlanetGeometry(160), [])
   const oceanGeo   = useMemo(() => generateOceanGeometry(48), [])
-  const atmosphereGeo = useMemo(() => new THREE.SphereGeometry(PLANET_RADIUS * 1.035, 32, 32), [])
+  // Outer atmosphere glow halo (large, thin ring seen from space)
+  const atmosphereGeo = useMemo(() => new THREE.SphereGeometry(PLANET_RADIUS * 1.05, 32, 32), [])
+  // Inner surface haze layer (close to ground, thickens at limb)
+  const hazeGeo       = useMemo(() => new THREE.SphereGeometry(PLANET_RADIUS * 1.012, 32, 32), [])
 
-  const terrainMat   = useMemo(makeTerrainMaterial, [])
-  const oceanMat     = useMemo(makeOceanMaterial, [])
+  const terrainMat    = useMemo(makeTerrainMaterial, [])
+  const oceanMat      = useMemo(makeOceanMaterial, [])
   const atmosphereMat = useMemo(makeAtmosphereMaterial, [])
+  const hazeMat       = useMemo(makeHazeMaterial, [])
 
   // Gentle ocean shimmer — oscillate ocean opacity slightly
   const oceanRef = useRef<THREE.Mesh>(null)
@@ -131,7 +146,10 @@ export function PlanetTerrain() {
       {/* Ocean surface */}
       <mesh ref={oceanRef} geometry={oceanGeo} material={oceanMat} />
 
-      {/* Atmosphere glow */}
+      {/* Inner haze layer — softens the surface-to-sky transition */}
+      <mesh geometry={hazeGeo} material={hazeMat} />
+
+      {/* Outer atmosphere glow — visible as blue limb from ground */}
       <mesh geometry={atmosphereGeo} material={atmosphereMat} />
     </group>
   )

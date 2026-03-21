@@ -33,6 +33,7 @@ interface ResourceNode {
   matId: number
   color: string
   x: number
+  y: number
   z: number
 }
 
@@ -92,7 +93,7 @@ function generateResourceNodes(): ResourceNode[] {
         const r = PLANET_RADIUS + h
         nodes.push({
           id: id++, type: nt.type, label: nt.label, matId: nt.matId, color: nt.color,
-          x: dir.x * r, z: dir.z * r,
+          x: dir.x * r, y: dir.y * r, z: dir.z * r,
         })
         placed = true
         break
@@ -103,7 +104,7 @@ function generateResourceNodes(): ResourceNode[] {
         const r = PLANET_RADIUS + Math.max(h, 0)
         nodes.push({
           id: id++, type: nt.type, label: nt.label, matId: nt.matId, color: nt.color,
-          x: spawnDir.x * r, z: spawnDir.z * r,
+          x: spawnDir.x * r, y: spawnDir.y * r, z: spawnDir.z * r,
         })
       }
     }
@@ -292,25 +293,25 @@ export function SceneRoot() {
       style={{ position: 'fixed', inset: 0 }}
       shadows
     >
-      <PerspectiveCamera makeDefault fov={70} near={0.5} far={8000} position={[0, PLANET_RADIUS + 200, 0]} />
-      <fog attach="fog" args={['#a8c8e8', 200, 3000]} />
+      <PerspectiveCamera makeDefault fov={70} near={0.5} far={20000} position={[0, PLANET_RADIUS + 200, 0]} />
+      <fogExp2 attach="fog" args={['#c0d8f4', 0.010]} />
       <ambientLight intensity={0.45} />
       <hemisphereLight args={['#87ceeb', '#3a4a1a', 0.7]} />
       <directionalLight
-        position={[2000, 3000, 1500]}
+        position={[4000, 6000, 3000]}
         intensity={2.2}
         castShadow
         shadow-mapSize={[2048, 2048]}
         shadow-camera-near={1}
-        shadow-camera-far={5000}
-        shadow-camera-left={-500}
-        shadow-camera-right={500}
-        shadow-camera-top={500}
-        shadow-camera-bottom={-500}
+        shadow-camera-far={10000}
+        shadow-camera-left={-600}
+        shadow-camera-right={600}
+        shadow-camera-top={600}
+        shadow-camera-bottom={-600}
       />
       {/* Sun — a simple point in the sky far from the planet */}
-      <Sky sunPosition={[2000, 3000, 1500]} turbidity={4} rayleigh={0.4} />
-      <Stars radius={4000} depth={100} count={5000} factor={4} />
+      <Sky sunPosition={[4000, 6000, 3000]} turbidity={4} rayleigh={0.4} />
+      <Stars radius={10000} depth={200} count={6000} factor={5} />
       <Suspense fallback={null}>
         <PlanetTerrain />
         <ResourceNodes />
@@ -417,9 +418,8 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
     let nearDist = Infinity
     for (const node of RESOURCE_NODES) {
       if (gatheredNodeIds.has(node.id)) continue
-      const nodeY = terrainYAt(node.x, node.z)
       const dx = px - node.x
-      const dy = py - nodeY
+      const dy = py - node.y
       const dz = pz - node.z
       const d2 = dx * dx + dy * dy + dz * dz
       if (d2 < nearDist) { nearDist = d2; nearNode = node }
@@ -535,15 +535,13 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
       for (const node of RESOURCE_NODES) {
         if (gatheredNodeIds.has(node.id)) continue
         if (node.matId !== MAT.WOOD && node.matId !== MAT.BARK && node.matId !== MAT.FIBER) continue
-        const nodeY = terrainYAt(node.x, node.z)
-        const dx = px - node.x, dy = py - nodeY, dz = pz - node.z
+        const dx = px - node.x, dy = py - node.y, dz = pz - node.z
         const dist = Math.sqrt(dx * dx + dy * dy + dz * dz)
         if (dist < nearestFireDist) { nearestFireDist = dist; nearestFireNode = node }
       }
       if (nearestFireNode) {
-        const nodeY = terrainYAt(nearestFireNode.x, nearestFireNode.z)
-        simManagerRef.current.placeWood(nearestFireNode.x, nodeY, nearestFireNode.z, nearestFireNode.matId)
-        simManagerRef.current.ignite(nearestFireNode.x, nodeY, nearestFireNode.z)
+        simManagerRef.current.placeWood(nearestFireNode.x, nearestFireNode.y, nearestFireNode.z, nearestFireNode.matId)
+        simManagerRef.current.ignite(nearestFireNode.x, nearestFireNode.y, nearestFireNode.z)
         gs.setGatherPrompt('Fire started!')
         setTimeout(() => useGameStore.getState().setGatherPrompt(null), 2000)
       }
@@ -558,7 +556,7 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
       for (const node of RESOURCE_NODES) {
         if (gatheredNodeIds.has(node.id)) continue
         const dx = node.x - px
-        const dy = terrainYAt(node.x, node.z) - py
+        const dy = node.y - py
         const dz = node.z - pz
         const dist = Math.sqrt(dx * dx + dy * dy + dz * dz)
         if (dist < stats.range && dist < nearestDist && canHarvest(itemId, node.type)) {
@@ -1409,14 +1407,11 @@ function ResourceNodes() {
   return (
     <>
       {RESOURCE_NODES.map((node, i) => {
-        // Nodes are stored with full (x, y, z) sphere coordinates (x = node.x, z = node.z stored for compat)
-        // For sphere placement, reconstruct y from sphere surface
-        const nodeY = terrainYAt(node.x, node.z)
         return (
           <group
             key={node.id}
             ref={el => { groupRefs.current[i] = el }}
-            position={[node.x, nodeY, node.z]}
+            position={[node.x, node.y, node.z]}
           >
             {node.type === 'wood'
               ? <TreeMesh id={node.id} />

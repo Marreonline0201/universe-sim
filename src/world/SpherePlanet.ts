@@ -15,9 +15,9 @@
 
 import * as THREE from 'three'
 
-// Planet radius in meters. 2000m gives a clear horizon at ~80m eye height —
-// obviously a sphere but still big enough for a meaningful open world (~50 km²).
-export const PLANET_RADIUS = 2000
+// Planet radius in meters. 4000m gives a horizon at ~120m eye height —
+// obviously a sphere but big enough for a meaningful open world (~200 km²).
+export const PLANET_RADIUS = 4000
 
 // Sea level: terrain below 0 is underwater
 export const SEA_LEVEL = 0

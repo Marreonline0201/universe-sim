@@ -130,6 +130,32 @@ async function main() {
           x: s.x, y: s.y, z: s.z,
         })
         slack._post(`*Steel Age unlocked!* ${settlementName} has mastered advanced metallurgy and carburization. The Steel Age begins.`).catch(() => {})
+      },
+      // M11 onMayorAppointed: civLevel 4+ settlement elects highest-trust NPC as mayor
+      (settlementId, settlementName, mayorNpcId, mayorName, s) => {
+        broadcastAll({
+          type: 'MAYOR_APPOINTED',
+          settlementId,
+          settlementName,
+          mayorNpcId,
+          mayorName,
+          x: s.x, y: s.y, z: s.z,
+        })
+        slack._post(`*Mayor appointed!* ${mayorName} has been elected mayor of ${settlementName}. The Civilization Age begins.`).catch(() => {})
+      },
+      // M11 onDiplomacy: inter-settlement diplomatic event
+      (idA, nameA, idB, nameB, status, eventType) => {
+        broadcastAll({
+          type: 'DIPLOMATIC_EVENT',
+          settlementA: idA,
+          nameA,
+          settlementB: idB,
+          nameB,
+          status,
+          eventType,
+        })
+        const emoji = eventType === 'WAR_DECLARED' ? 'x' : eventType === 'ALLIANCE_FORMED' ? '*' : '~'
+        slack._post(`[${emoji}] *Diplomacy:* ${nameA} and ${nameB} — ${eventType.replace(/_/g, ' ').toLowerCase()}.`).catch(() => {})
       }
     )
     // Outlaw: clean up expired redemption quests every tick

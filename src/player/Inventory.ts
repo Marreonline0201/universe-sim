@@ -228,6 +228,9 @@ export const MAT = {
   FISH: 60,              // caught by fishing_rod — food source and trade commodity
   SALT: 61,              // gathered/traded at coastal settlements — preserves food
   GRAIN: 62,             // produced by plains settlements — staple food
+  // ── M11: Civilization Age ────────────────────────────────────────────────
+  GLASS_INGOT: 63,       // sand+heat processed glass ingot — telescope lens substrate
+  MUSKET_BALL: 64,       // iron-cast ammunition for musket — 10 per craft
 } as const
 
 // ── Item IDs ──────────────────────────────────────────────────────────────────
@@ -262,6 +265,9 @@ export const ITEM = {
   SAILING_BOAT: 60,      // advanced vessel: can tack upwind up to 45° off wind
   COMPASS: 61,           // navigation tool: shows cardinal directions on HUD
   FISHING_ROD: 62,       // cast from water or riverbank — F key to fish
+  // ── M11: Civilization Age ────────────────────────────────────────────────
+  MUSKET: 63,            // first ranged firearm — iron barrel + gunpowder charge, 8s reload
+  TELESCOPE: 64,         // astronomy instrument — reveals moon, planets, L6 teaser
 } as const
 
 // ── Crafting Recipes ─────────────────────────────────────────────────────────
@@ -939,5 +945,82 @@ export const CRAFTING_RECIPES: CraftingRecipe[] = [
     inputs: [{ materialId: MAT.FISH, quantity: 1 }],
     output: { itemId: MAT.COOKED_MEAT, quantity: 1, isMaterial: true },
     knowledgeRequired: ['fire_making'],
+  },
+
+  // ── M11: Civilization Age — Gunpowder + Telescope ────────────────────────
+  //
+  // Gunpowder chemistry (Tier B — Approximate):
+  //   KNO₃ (saltpeter) + C (charcoal) + S (sulfur) → rapid oxidation, N₂ + CO₂ + SO₂
+  //   Historical ratio: 75% KNO₃, 15% C, 10% S by mass.
+  //   Saltpeter (potassium nitrate) occurs naturally near nitrogen-rich organic matter:
+  //   cave walls (bat guano), soil near animal pens, sheltered decomposition sites.
+  //   Discovery is emergent: player combines these three at a furnace → explosion + gunpowder.
+  //
+  // Telescope optics (Tier B):
+  //   Refracting telescope requires ground glass lenses (crown glass + lead glass).
+  //   Simplification: glass ingot (processed from sand+heat) → lens grinding.
+  //   Galileo's telescope (1609): 3× magnification. Here: reveals moon phase + planet hint.
+  {
+    // id 88 — Gunpowder: 2x saltpeter + 1x charcoal + 1x sulfur
+    // Emergent discovery: these three together cause explosive reaction (not just crafting).
+    // Furnace-adjacent crafting raises ambient temperature → KNO₃ oxidation begins.
+    id: 88, name: 'Gunpowder', tier: 3, time: 30,
+    inputs: [
+      { materialId: MAT.SALTPETER,      quantity: 2 },
+      { materialId: MAT.CHARCOAL,       quantity: 1 },
+      { materialId: MAT.SULFUR,         quantity: 1 },
+    ],
+    output: { itemId: MAT.GUNPOWDER, quantity: 2, isMaterial: true },
+    knowledgeRequired: ['chemistry'],
+  },
+  {
+    // id 89 — Musket: 4x iron_ingot + 2x gunpowder → iron barrel + flintlock mechanism
+    // First ranged weapon not requiring bowyer skill. Damage 80, reload 8s.
+    // Historical basis: matchlock musket (16th c.) → flintlock (17th c.).
+    // Iron barrel requires barrel drilling (implied by iron_ingot + furnace access).
+    id: 89, name: 'Musket', tier: 3, time: 180,
+    inputs: [
+      { materialId: MAT.IRON_INGOT, quantity: 4 },
+      { materialId: MAT.GUNPOWDER,  quantity: 2 },
+      { materialId: MAT.WOOD,       quantity: 2 },
+    ],
+    output: { itemId: ITEM.MUSKET, quantity: 1 },
+    knowledgeRequired: ['iron_smelting', 'chemistry'],
+  },
+  {
+    // id 90 — Musket Ball (×10): 2x iron → iron cast spherical projectile
+    // Real basis: lead balls were standard but iron balls were used in larger weapons.
+    // Game simplification: iron_ingot cast in clay mold → iron balls.
+    id: 90, name: 'Musket Balls (×10)', tier: 3, time: 20,
+    inputs: [
+      { materialId: MAT.IRON_INGOT, quantity: 2 },
+    ],
+    output: { itemId: MAT.MUSKET_BALL, quantity: 10, isMaterial: true },
+    knowledgeRequired: ['iron_smelting', 'chemistry'],
+  },
+  {
+    // id 91 — Glass Ingot: 4x sand → processed optical-grade glass (distinct from raw GLASS=18)
+    // Sand (SiO₂) melted at 1700°C, cooled slowly = annealed glass ingot.
+    // Charcoal furnace achieves ~1000–1200°C — adequate for crown glass (impure but functional).
+    id: 91, name: 'Glass Ingot', tier: 3, time: 90,
+    inputs: [
+      { materialId: MAT.SAND,     quantity: 4 },
+      { materialId: MAT.CHARCOAL, quantity: 2 },
+    ],
+    output: { itemId: MAT.GLASS_INGOT, quantity: 1, isMaterial: true },
+    knowledgeRequired: ['glassblowing', 'chemistry'],
+  },
+  {
+    // id 92 — Telescope: 4x iron_ingot + 2x glass_ingot → refracting telescope
+    // Iron tube housing + two ground glass lenses (objective + eyepiece).
+    // Reveals: moon phase ring, "distant lights" (planet teaser for L6).
+    // Press F while holding telescope to activate TelescopeView overlay.
+    id: 92, name: 'Telescope', tier: 3, time: 240,
+    inputs: [
+      { materialId: MAT.IRON_INGOT,  quantity: 4 },
+      { materialId: MAT.GLASS_INGOT, quantity: 2 },
+    ],
+    output: { itemId: ITEM.TELESCOPE, quantity: 1 },
+    knowledgeRequired: ['optics', 'iron_smelting'],
   },
 ]

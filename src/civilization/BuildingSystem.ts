@@ -162,6 +162,7 @@ const M = {
   STONE: 1, WOOD: 3, BARK: 4, CLAY: 8, BRONZE: 13, IRON_ORE: 14, IRON: 15, STEEL: 16,
   GLASS: 18, BRICK: 19, MORTAR: 20, ROPE: 23, LEATHER: 24,
   COPPER: 25, SILICON: 32, WIRE: 34, PLASTIC: 35, RUBBER: 36,
+  IRON_INGOT: 43, GLASS_INGOT: 63,
 } as const
 
 /**
@@ -287,6 +288,59 @@ export const BUILDING_TYPES: BuildingType[] = [
     materialsRequired: [{ materialId: M.STONE, quantity: 80 }, { materialId: M.WOOD, quantity: 30 }],
     size: [12, 4, 10], provides: ['medicine', 'healing', 'surgery_basic'],
     maxOccupants: 20, structuralStrength: 3.0, maintenanceRate: 0.3,
+  },
+
+  // ── M11: Tier 3 — Castle Fortifications ──────────────────────────────────
+  // Historical basis: medieval castle curtain walls, 13th–15th century.
+  // Structural strength values follow real masonry engineering:
+  //   Dry-stone: ~1 kN/m². Mortared stone (castles): 5–8 kN/m².
+  {
+    // Castle Wall Segment — 10m long × 8m tall curtain wall with crenellations.
+    // Players and NPC settlements (civLevel 4+) can place these to enclose territory.
+    id: 'castle_wall', name: 'Castle Wall Segment', tier: 3,
+    materialsRequired: [
+      { materialId: M.STONE,  quantity: 120 },
+      { materialId: M.MORTAR, quantity: 30  },
+    ],
+    size: [10, 8, 2], provides: ['defense', 'fortification', 'wall'],
+    maxOccupants: 0, structuralStrength: 7.0, maintenanceRate: 0.05,
+  },
+  {
+    // Castle Gate — arched stone gateway, 6m wide × 8m tall with portcullis housing.
+    // Allows gated entry: NPC settlements open/close based on player trust score.
+    id: 'castle_gate', name: 'Castle Gate', tier: 3,
+    materialsRequired: [
+      { materialId: M.STONE,  quantity: 80  },
+      { materialId: M.IRON,   quantity: 20  },
+      { materialId: M.MORTAR, quantity: 20  },
+    ],
+    size: [6, 8, 3], provides: ['defense', 'fortification', 'gate', 'access_control'],
+    maxOccupants: 10, structuralStrength: 8.0, maintenanceRate: 0.08,
+  },
+  {
+    // Watchtower — 15m tall square tower, extends defensive sight range.
+    // NPC archers stationed here provide garrison capability.
+    id: 'watchtower', name: 'Watchtower', tier: 3,
+    materialsRequired: [
+      { materialId: M.STONE,  quantity: 200 },
+      { materialId: M.MORTAR, quantity: 50  },
+      { materialId: M.WOOD,   quantity: 20  },
+    ],
+    size: [5, 15, 5], provides: ['defense', 'fortification', 'garrison', 'sight_range'],
+    maxOccupants: 6, structuralStrength: 6.5, maintenanceRate: 0.06,
+  },
+  {
+    // Observatory (M11: Astronomy track) — round stone tower with iron telescope mount.
+    // Building this in-world unlocks 'optics' knowledge for the player.
+    // Astronomy research bonus: +50% research point generation for the settlement.
+    id: 'observatory_tower', name: 'Observatory Tower', tier: 3,
+    materialsRequired: [
+      { materialId: M.STONE,  quantity: 150 },
+      { materialId: M.GLASS,  quantity: 20  },
+      { materialId: M.IRON,   quantity: 15  },
+    ],
+    size: [8, 18, 8], provides: ['astronomy', 'research_bonus', 'navigation_aid', 'optics_unlock'],
+    maxOccupants: 4, structuralStrength: 5.0, maintenanceRate: 0.15,
   },
 
   // ── Tier 4: Medieval ──────────────────────────────────────────────────────

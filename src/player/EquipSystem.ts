@@ -171,6 +171,28 @@ const STATS: Partial<Record<number, ItemStats>> = {
     harvestTypes: [],
     range:        1.0,
   },
+
+  // ── M11: Civilization Age items ──────────────────────────────────────────
+  //
+  // Musket: first firearm. Damage 80, range 60m. 8s reload.
+  // Historically: Brown Bess musket KE ~1800J, kills unarmored targets in one shot.
+  // Reload: bite cartridge, powder+ball down barrel, tamp ramrod, prime flintlock.
+  // Simplified to single 8s reload timer in GunpowderSystem.ts.
+  [ITEM.MUSKET]: {
+    name:         'Musket',
+    damage:       80,
+    harvestPower: 1,
+    harvestTypes: [],
+    range:        60.0,
+  },
+  // Telescope: no combat use. Equip + F key → TelescopeView overlay.
+  [ITEM.TELESCOPE]: {
+    name:         'Telescope',
+    damage:       0,
+    harvestPower: 1,
+    harvestTypes: [],
+    range:        1.0,
+  },
 }
 
 /** Return stats for the given itemId. Falls back to HAND stats if unknown or 0. */

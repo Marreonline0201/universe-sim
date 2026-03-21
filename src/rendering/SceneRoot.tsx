@@ -98,6 +98,20 @@ import {
 import { ShopHUD } from '../ui/ShopHUD'
 import { useShopStore } from '../store/shopStore'
 
+// M11 Track A: Gunpowder + Musket
+import { tickMusket, fireMusket, isMusketReady } from '../game/GunpowderSystem'
+import { MusketVFXRenderer } from './MusketVFXRenderer'
+
+// M11 Track B: Castle fortifications
+import { CastleRenderer } from './CastleRenderer'
+
+// M11 Track C: Diplomacy HUD
+import { DiplomacyHUD } from '../ui/DiplomacyHUD'
+
+// M11 Track D: Night sky + telescope
+import { NightSkyRenderer } from './NightSkyRenderer'
+import { TelescopeView } from '../ui/TelescopeView'
+
 // M9: Register river valley carving with the terrain height function.
 // Must happen before any geometry is generated (before generatePlanetGeometry is called).
 // registerRiverCarveDepth wires getRiverCarveDepth into terrainHeightAt so the
@@ -449,6 +463,17 @@ export function SceneRoot() {
   const simManagerRef = useRef<LocalSimManager | null>(null)
   const [pointerLocked, setPointerLocked] = useState(false)
   const [simManager, setSimManager] = useState<LocalSimManager | null>(null)
+  // M11: day angle forwarded from DayNightCycle to NightSkyRenderer + TelescopeView
+  const [dayAngle, setDayAngle] = useState(Math.PI * 0.6)
+  // M11: telescope overlay
+  const [telescopeOpen, setTelescopeOpen] = useState(false)
+
+  // M11: listen for open-telescope event dispatched from GameLoop
+  useEffect(() => {
+    const handler = () => setTelescopeOpen(true)
+    window.addEventListener('open-telescope', handler)
+    return () => window.removeEventListener('open-telescope', handler)
+  }, [])
 
   useEffect(() => {
     const check = () => setPointerLocked(!!document.pointerLockElement)
@@ -661,8 +686,9 @@ export function SceneRoot() {
       <PerspectiveCamera makeDefault fov={70} near={0.5} far={20000} position={[0, PLANET_RADIUS + 200, 0]} />
       <fogExp2 attach="fog" args={['#c0d8f4', 0.010]} />
       {/* DayNightCycle owns all sky/sun/ambient/hemisphere lighting — replaces static lights */}
-      <DayNightCycle />
-      <Stars radius={10000} depth={200} count={6000} factor={5} />
+      <DayNightCycle onDayAngleChange={setDayAngle} />
+      {/* M11 Track D: Photorealistic night sky — 2000 stars with stellar color classification */}
+      <NightSkyRenderer dayAngle={dayAngle} />
       <Suspense fallback={null}>
         <PlanetTerrain />
         <DigHolesRenderer />
@@ -678,6 +704,10 @@ export function SceneRoot() {
         <DeathLootDropsRenderer />
         <BedrollMeshRenderer />
         <SettlementRenderer />
+        {/* M11 Track B: Castle walls + watchtowers around civLevel 4+ settlements */}
+        <CastleRenderer />
+        {/* M11 Track A: Musket smoke + muzzle flash VFX */}
+        <MusketVFXRenderer />
         {/* M8: Weather particle system — follows player position */}
         <WeatherRendererWrapper />
         {/* M9: River ribbon meshes — generated from flow-field paths */}
@@ -709,6 +739,12 @@ export function SceneRoot() {
     <RiverHUD />
     {/* M10: Shop HUD — settlement trade panel */}
     <ShopHUD />
+    {/* M11 Track C: Diplomacy notifications banner (top-right) */}
+    <DiplomacyHUD />
+    {/* M11 Track D: Telescope overlay — full screen when telescope equipped + F pressed */}
+    {telescopeOpen && (
+      <TelescopeView dayAngle={dayAngle} onClose={() => setTelescopeOpen(false)} />
+    )}
     </>
   )
 }
@@ -1127,6 +1163,23 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
       if (gs.gatherPrompt !== null) gs.setGatherPrompt(null)
     }
 
+    // ── M11 Track D: Telescope — F key when telescope equipped ───────────────
+    {
+      const ps_tel = usePlayerStore.getState()
+      const telSlot = ps_tel.equippedSlot !== null ? inventory.getSlot(ps_tel.equippedSlot) : null
+      const hasTelescope = telSlot?.itemId === ITEM.TELESCOPE
+      if (hasTelescope && !gs.inputBlocked) {
+        if (gs.gatherPrompt !== '[F] Look through telescope') {
+          gs.setGatherPrompt('[F] Look through telescope')
+        }
+        if (controllerRef.current?.popInteract()) {
+          // TelescopeView is controlled by React state in the parent — dispatch a custom event
+          window.dispatchEvent(new CustomEvent('open-telescope'))
+          gs.setGatherPrompt(null)
+        }
+      }
+    }
+
     // ── Ambient temperature update ────────────────────────────────────────────
     if (simManagerRef.current) {
       const ps = usePlayerStore.getState()
@@ -1172,6 +1225,9 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
 
     // ── M8: Quenching system (hot steel → steel or soft_steel) ───────────────
     tickQuenching(inventory, simManagerRef.current, px, py, pz)
+
+    // ── M11 Track A: Musket reload tick ──────────────────────────────────────
+    tickMusket(dt)
 
     // ── P2-5: Building physics — fire damage to combustible structures ────────
     tickBuildingPhysics(dt, buildingSystem, simManagerRef.current)

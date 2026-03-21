@@ -16,6 +16,7 @@ import { useShopStore } from '../store/shopStore'
 import type { ShopCatalogItem } from '../store/shopStore'
 import { inventory, techTree } from '../game/GameSingletons'
 import type { LocalSimManager } from '../engine/LocalSimManager'
+import { useDiplomacyStore } from '../store/diplomacyStore'
 
 // Module-level reference to the active LocalSimManager.
 // Set by SceneRoot after the sim grid initialises.
@@ -514,6 +515,73 @@ export class WorldSocket {
         if (!(msg.ok as boolean)) {
           useUiStore.getState().addNotification(
             `Transaction failed: ${msg.reason as string ?? 'server error'}`, 'warning'
+          )
+        }
+        break
+      }
+
+      // ── M11: Civilization Age — Mayor + Diplomacy ───────────────────────────
+
+      case 'MAYOR_APPOINTED': {
+        const ds = useDiplomacyStore.getState()
+        ds.setMayor({
+          settlementId:   msg.settlementId   as number,
+          settlementName: msg.settlementName as string,
+          mayorNpcId:     msg.mayorNpcId     as number,
+          mayorName:      msg.mayorName      as string,
+          appointedAt:    Date.now(),
+        })
+        ds.addNotification({
+          type: 'mayor',
+          message: `${msg.settlementName as string} appoints ${msg.mayorName as string} as mayor. Civilization advances.`,
+          timestamp: Date.now(),
+        })
+        useUiStore.getState().addNotification(
+          `Civilization Age! ${msg.settlementName as string} has elected mayor ${msg.mayorName as string}. City walls and diplomacy are now possible.`,
+          'discovery'
+        )
+        // Unlock gunpowder + telescope knowledge when first mayor is appointed
+        techTree.markResearched('chemistry')
+        techTree.markResearched('optics')
+        inventory.discoverRecipe(88)   // gunpowder
+        inventory.discoverRecipe(89)   // musket
+        inventory.discoverRecipe(90)   // musket balls
+        inventory.discoverRecipe(91)   // glass ingot
+        inventory.discoverRecipe(92)   // telescope
+        break
+      }
+
+      case 'DIPLOMATIC_EVENT': {
+        const ds = useDiplomacyStore.getState()
+        const idA    = msg.settlementA as number
+        const idB    = msg.settlementB as number
+        const nameA  = msg.nameA       as string
+        const nameB  = msg.nameB       as string
+        const status = msg.status      as 'neutral' | 'allied' | 'war' | 'trade_partner'
+        const evType = msg.eventType   as string
+
+        ds.setRelation({ settlementA: idA, settlementB: idB, status, updatedAt: Date.now() })
+
+        const notifType: 'war' | 'peace' | 'envoy' | 'mayor' =
+          evType === 'WAR_DECLARED'    ? 'war'   :
+          evType === 'ALLIANCE_FORMED' ? 'peace' : 'envoy'
+
+        const message =
+          evType === 'WAR_DECLARED'    ? `WAR: ${nameA} has declared war on ${nameB}. Trade suspended between settlements.` :
+          evType === 'ALLIANCE_FORMED' ? `ALLIANCE: ${nameA} and ${nameB} form a military alliance.` :
+          `Envoy: ${nameA} establishes trade relations with ${nameB}.`
+
+        ds.addNotification({ type: notifType, message, timestamp: Date.now() })
+
+        if (evType === 'WAR_DECLARED') {
+          useUiStore.getState().addNotification(
+            `War declared: ${nameA} vs ${nameB}. NPC guards may be hostile in contested territory.`,
+            'error'
+          )
+        } else if (evType === 'ALLIANCE_FORMED') {
+          useUiStore.getState().addNotification(
+            `Alliance formed: ${nameA} and ${nameB}. Trade routes open between all allied settlements.`,
+            'info'
           )
         }
         break

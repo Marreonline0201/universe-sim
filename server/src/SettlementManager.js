@@ -32,9 +32,27 @@ const IRON_UNLOCK_LEVEL = 2
 // M8: Civ level at which settlements unlock steel/advanced metallurgy.
 // Level 3 = Steel Age — broadcasts SETTLEMENT_UNLOCKED_STEEL to all players.
 const STEEL_UNLOCK_LEVEL = 3
+// M11: Mayor appointment at civLevel 4. Diplomacy envoys start at civLevel 5.
+const MAYOR_UNLOCK_LEVEL  = 4
+const ENVOY_UNLOCK_LEVEL  = 5
 // Tracks which settlement IDs have already broadcast each discovery (server lifetime only).
-const _ironUnlocked  = new Set()
-const _steelUnlocked = new Set()
+const _ironUnlocked    = new Set()
+const _steelUnlocked   = new Set()
+const _mayorAppointed  = new Set()   // settlements that have broadcast a mayor appointment
+
+// M11: NPC name pool for mayor appointments (deterministic by settlement ID)
+const MAYOR_NAMES = [
+  'Aldric Stonewright', 'Maren Ashvale', 'Torrin Copperfield',
+  'Seraphine Dunmore', 'Brynn Ironside', 'Caelan Frostholm',
+  'Lyra Saltmere', 'Edric Thornwall', 'Vesper Ridgecroft', 'Haemon Ashford',
+]
+
+// M11: Diplomacy state between settlement pairs
+// Key: `${minId}-${maxId}`, value: 'neutral' | 'allied' | 'war' | 'trade_partner'
+const _diplomacy = new Map()
+// Track last envoy send time per settlement pair (real epoch ms)
+const _lastEnvoy = new Map()
+const ENVOY_INTERVAL_MS = 5 * 60 * 1000  // 5 minutes between envoys
 
 // NPC recipe table — uses the SAME MAT IDs as the client Inventory.ts MAT enum:
 //   STONE=1  FLINT=2   WOOD=3    BARK=4    LEAF=5    BONE=6   HIDE=7
@@ -164,12 +182,14 @@ export class SettlementManager {
    * dtRealSec: real elapsed seconds (not sim seconds).
    * Returns array of { settlementId, civLevel } for any settlements that levelled up.
    */
-  tick(dtRealSec, onLevelUp, onIronUnlock, onSteelUnlock) {
+  tick(dtRealSec, onLevelUp, onIronUnlock, onSteelUnlock, onMayorAppointed, onDiplomacy) {
     this._craftTimer += dtRealSec
 
     for (const s of this._settlements.values()) {
       // Research accumulates passively — more NPCs = more points
-      const rpPerSec = Math.sqrt(s.npcCount) * (1 + s.civLevel * 0.3)
+      // M11: civLevel 5+ settlements research 2× faster (established cities)
+      const civBonus = s.civLevel >= 5 ? 2.0 : 1.0
+      const rpPerSec = Math.sqrt(s.npcCount) * (1 + s.civLevel * 0.3) * civBonus
       s.researchPts += rpPerSec * dtRealSec
 
       // Level up check
@@ -191,7 +211,49 @@ export class SettlementManager {
           if (onSteelUnlock) onSteelUnlock(s.id, s.name, s)
           console.log(`[SettlementManager] ${s.name} unlocked steel metallurgy!`)
         }
+        // M11: Appoint a mayor when settlement reaches civLevel 4 (Civilization Age)
+        if (s.civLevel >= MAYOR_UNLOCK_LEVEL && !_mayorAppointed.has(s.id)) {
+          _mayorAppointed.add(s.id)
+          const mayorName = MAYOR_NAMES[(s.id - 1) % MAYOR_NAMES.length]
+          const mayorNpcId = s.id * 1000 + 1   // deterministic NPC ID for this settlement's mayor
+          console.log(`[SettlementManager] ${s.name} appoints mayor: ${mayorName}`)
+          if (onMayorAppointed) onMayorAppointed(s.id, s.name, mayorNpcId, mayorName, s)
+        }
         this._persistSettlement(s).catch(() => {})
+      }
+    }
+
+    // M11: Diplomacy envoy tick — civLevel 5+ settlements send envoys every 5 minutes
+    const envoySettlements = Array.from(this._settlements.values()).filter(s => s.civLevel >= ENVOY_UNLOCK_LEVEL)
+    if (envoySettlements.length >= 2) {
+      const now = Date.now()
+      for (let i = 0; i < envoySettlements.length; i++) {
+        for (let j = i + 1; j < envoySettlements.length; j++) {
+          const a = envoySettlements[i]
+          const b = envoySettlements[j]
+          const key = `${Math.min(a.id, b.id)}-${Math.max(a.id, b.id)}`
+          const lastSent = _lastEnvoy.get(key) ?? 0
+          if (now - lastSent >= ENVOY_INTERVAL_MS) {
+            _lastEnvoy.set(key, now)
+            const currentRel = _diplomacy.get(key) ?? 'neutral'
+            // Envoy improves relations: neutral → trade_partner → allied
+            let newRel = currentRel
+            if (currentRel === 'neutral')       newRel = 'trade_partner'
+            else if (currentRel === 'war')       newRel = 'neutral'      // peace after long war
+            else if (currentRel === 'trade_partner') {
+              // Small chance to escalate to full alliance or to war
+              const roll = Math.random()
+              if (roll < 0.15) newRel = 'allied'
+              else if (roll > 0.95) newRel = 'war'
+            }
+            _diplomacy.set(key, newRel)
+            const eventType = newRel === 'war' ? 'WAR_DECLARED'
+              : newRel === 'allied' ? 'ALLIANCE_FORMED'
+              : 'DIPLOMATIC_ENVOY'
+            console.log(`[SettlementManager] Diplomacy ${a.name} ↔ ${b.name}: ${eventType} (${newRel})`)
+            if (onDiplomacy) onDiplomacy(a.id, a.name, b.id, b.name, newRel, eventType)
+          }
+        }
       }
     }
 
@@ -200,6 +262,22 @@ export class SettlementManager {
       this._craftTimer = 0
       this._runCraftTick()
     }
+  }
+
+  /** Returns current diplomacy status between two settlements. */
+  getDiplomacy(idA, idB) {
+    const key = `${Math.min(idA, idB)}-${Math.max(idA, idB)}`
+    return _diplomacy.get(key) ?? 'neutral'
+  }
+
+  /** Returns all active diplomacy relations as array. */
+  getDiplomacySnapshot() {
+    const result = []
+    for (const [key, status] of _diplomacy.entries()) {
+      const [a, b] = key.split('-').map(Number)
+      result.push({ settlementA: a, settlementB: b, status })
+    }
+    return result
   }
 
   /**

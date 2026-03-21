@@ -21,11 +21,11 @@ const SLOT_COUNT = 40
  * Recipe output IDs that represent processed materials (not equipped items).
  * These are stored as raw-material slots (itemId: 0) so subsequent recipes can consume them.
  * Values: MAT.CHARCOAL=10, MAT.BRONZE=13, MAT.IRON=15, MAT.STEEL=16, MAT.GLASS=18,
- *         MAT.CLOTH=22, MAT.ROPE=23, MAT.LEATHER=24, MAT.COPPER=25,
+ *         MAT.BRICK=19, MAT.CLOTH=22, MAT.ROPE=23, MAT.LEATHER=24, MAT.COPPER=25,
  *         MAT.CHARCOAL_POWDER=30, MAT.GUNPOWDER=31, MAT.SILICON=32, MAT.CIRCUIT=33,
  *         MAT.WIRE=34, MAT.PLASTIC=35, MAT.FUEL=37, MAT.PLUTONIUM=40, MAT.COOKED_MEAT=41
  */
-const MATERIAL_OUTPUT_IDS = new Set([10, 13, 15, 16, 18, 22, 23, 24, 25, 30, 31, 32, 33, 34, 35, 37, 40, 41])
+const MATERIAL_OUTPUT_IDS = new Set([10, 13, 15, 16, 18, 19, 22, 23, 24, 25, 30, 31, 32, 33, 34, 35, 37, 40, 41])
 
 export class Inventory {
   private slots: (InventorySlot | null)[] = new Array(SLOT_COUNT).fill(null)
@@ -313,7 +313,7 @@ export const CRAFTING_RECIPES: CraftingRecipe[] = [
   {
     id: 12, name: 'Brick', tier: 1, time: 120,
     inputs: [{ materialId: MAT.CLAY, quantity: 8 }, { materialId: MAT.SAND, quantity: 2 }],
-    output: { itemId: ITEM.CLAY_POT, quantity: 4 },   // reuse id, represents brick block
+    output: { itemId: MAT.BRICK, quantity: 4 },
     knowledgeRequired: ['pottery'],
   },
   {

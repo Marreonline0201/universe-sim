@@ -17,6 +17,7 @@ import { useRef, useState } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { Sky } from '@react-three/drei'
 import * as THREE from 'three'
+import { usePlayerStore } from '../store/playerStore'
 
 // One full day = 1200 real seconds (20 minutes)
 const DAY_DURATION_S = 1200
@@ -80,7 +81,11 @@ export function DayNightCycle({ onDayAngleChange }: Props) {
 
     // ── Directional light ────────────────────────────────────────────────────
     if (dirLightRef.current) {
-      dirLightRef.current.position.set(sx, sy, 3000)
+      // Move shadow camera target to follow player so shadows work anywhere on sphere
+      const ps = usePlayerStore.getState()
+      dirLightRef.current.target.position.set(ps.x, ps.y, ps.z)
+      dirLightRef.current.target.updateMatrixWorld()
+      dirLightRef.current.position.set(ps.x + sx, ps.y + sy, ps.z + 3000)
       dirLightRef.current.intensity = Math.max(0.02, 2.2 * sinA + 0.05)
 
       // Warm orange/red at dawn/dusk (low sun angle)

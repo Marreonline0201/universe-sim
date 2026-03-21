@@ -479,10 +479,11 @@ export class PlayerController {
       }
       case 'orbit': {
         const orbitD = this.thirdPersonDist * 3
+        // Negate lookDir so camera sits BEHIND the player (lookDir points forward)
         camera.position.set(
-          ex + lookDir.x * orbitD,
-          ey + lookDir.y * orbitD,
-          ez + lookDir.z * orbitD,
+          ex - lookDir.x * orbitD,
+          ey - lookDir.y * orbitD,
+          ez - lookDir.z * orbitD,
         )
         camera.lookAt(ex, ey, ez)
         break

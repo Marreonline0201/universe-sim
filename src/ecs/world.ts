@@ -135,9 +135,11 @@ export function createCreatureEntity(
   addComponent(w, Rotation, eid)
   Rotation.w[eid] = 1  // identity quaternion
   addComponent(w, Health, eid)
-  Health.current[eid] = 100
-  Health.max[eid] = 100
-  Health.regenRate[eid] = 0.1
+  // Scale HP with mass: insects ~5 HP, small animals ~20, large mammals ~80
+  const baseHp = Math.max(5, Math.round(opts.mass * 2))
+  Health.current[eid] = baseHp
+  Health.max[eid] = baseHp
+  Health.regenRate[eid] = 0.05
   addComponent(w, CreatureBody, eid)
   CreatureBody.speciesId[eid] = opts.speciesId
   CreatureBody.neuralLevel[eid] = opts.neuralLevel

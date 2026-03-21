@@ -1732,3 +1732,458 @@ A notification was also sent to the project's Slack channel confirming the work 
 | Slack notification sent | Done |
 
 **What comes next:** The status page is a useful monitoring tool for the project team. Future improvements could include showing individual NPC behaviour histories, a timeline of major world events, or a minimap that zooms into the area around a specific player.
+
+---
+
+### Session: M0 — Universe Made Visible — 2026-03-21
+
+**What happened in this session:**
+This milestone had one goal: make the world feel alive the moment a player spawns. Before this session, the world was visually static — a flat green planet with no movement, no weather, no creatures, no fire unless the player deliberately started one. After this session, fire flickers in the distance, day turns to night, creatures wander, and the temperature HUD shows real values that actually change as you move through the environment.
+
+---
+
+#### What Was Built — In Plain Language
+
+**1. Ambient Fires — The World Is Already on Fire When You Arrive**
+
+When the world starts up, six clusters of wood are placed around the map and automatically ignited using the same real Arrhenius combustion system the player uses. This means that within seconds of spawning, the player can see fire flickering in the distance — real fire, not a scripted animation. They can walk toward it and feel the temperature rise. This proves the chemistry engine is working without the player having to do anything first.
+
+**2. Day and Night — The Sun Moves**
+
+A real day/night cycle was added. The sun (a directional light and sky shader) rotates around the planet on a 20-minute cycle — 20 real minutes = 1 full day in the simulation. At dawn and dusk, the sky uses a Rayleigh scattering approximation — the same physics that makes real sunrises orange and sunsets red. At noon, the sky is a cool blue. At midnight, it is deep navy with stars visible. The ambient light (how bright everything is) follows a smooth curve, not a sudden switch — so the world gradually gets darker and lighter the way the real world does.
+
+**3. Biome Temperatures — The Temperature Bar Actually Means Something**
+
+Before this session, the temperature display in the HUD was always exactly 15 degrees C everywhere, regardless of where you were. This was because the simulation grid was initialised with the same flat value everywhere.
+
+Now, the grid is initialised based on terrain. Mountain peaks start at -5 degrees C. Desert lowlands start at 35 degrees C. Sea-level temperate terrain starts at 15 degrees C. This means walking from a valley into the mountains genuinely gets colder. Standing near a fire genuinely raises the reading. The temperature bar is now scientifically grounded.
+
+**4. Organisms — The World Has Life**
+
+Ten creatures were spawned from the game's genome encoder at world startup. The genome encoder is a system that produces creature blueprints with varied traits — so these ten creatures are not identical copies. They wander with a simple AI and are rendered with subsurface scattering — a lighting technique that makes organic materials look like they have some translucency, the way a human hand looks when held up to a bright light.
+
+**5. SimGrid Visualizer — See the Chemistry Running**
+
+A new debug overlay was added, toggled by pressing Tab. When active, it draws a heat map over the terrain showing the temperature of every grid cell — blue for cold, yellow for warm, red for hot. This lets developers (and curious players) verify that the chemistry engine is actually running. Fires show as bright red hotspots. The mountain peaks show as blue. Walking toward a fire and watching the cells shift from yellow to red to white is direct visual proof that real thermodynamics are operating.
+
+**6. Fire Photorealism**
+
+The fire rendering was upgraded significantly:
+- Lights now flicker. Each point light's intensity varies using a sine wave combined with noise — so no two flames look identical at any moment.
+- Color follows temperature. A fire at 300 degrees C is deep red. At 600 degrees C it is orange. At 1200+ degrees C it approaches white-hot. This matches real blackbody radiation.
+- Smoke plumes appear above flames as particle trails.
+- Billboard sprites show flame shapes rather than just glowing spheres.
+
+**7. Tree Wind Sway**
+
+Trees now sway in wind using a vertex shader — a small program that runs on the graphics card and shifts each vertex (corner) of the tree mesh slightly over time at 0.5 Hz with 2 centimetres of movement. The result is a gentle, organic sway that makes the world feel inhabited by physics.
+
+---
+
+#### What Players See Now (Day One Experience)
+
+A new player opens the URL, signs in, and spawns. Within 30 seconds:
+- Fire is flickering visibly somewhere in the world. They did not need to light it.
+- The sky is changing — if it is dawn, the sky is orange. If it is dusk, it is warm red.
+- Creatures are moving around in the distance.
+- The temperature bar shows a real value that depends on where they are standing.
+- The trees sway.
+
+The world feels alive before the player does anything. This was the exact design goal for M0.
+
+---
+
+#### Status Summary
+
+| Feature | Status |
+|---|---|
+| Ambient fires (6 pre-ignited wood clusters at world start) | Done |
+| 20-minute day/night cycle with Rayleigh scatter | Done |
+| Biome-correct temperature initialisation | Done |
+| 10 organisms spawned from genome encoder | Done |
+| SimGrid Visualizer (Tab-toggle heat map overlay) | Done |
+| Fire photorealism (flicker, color gradient, smoke, billboards) | Done |
+| Tree wind sway vertex shader | Done |
+
+---
+
+### Session: M1 through M4 — All 7 Survival Slices — 2026-03-21
+
+**What happened in this session:**
+The entire survival loop was built and verified end-to-end. Seven distinct "slices" of gameplay — each one a complete chain from action to consequence — were implemented and tested. A survival slice is only considered done when a player can start from nothing and complete the whole chain without hitting a dead end. No half-built features.
+
+---
+
+#### What a "Survival Slice" Means
+
+A survival slice is a complete, playable arc of gameplay. It starts with the player having something specific (materials, a wound, a cold night) and ends with a concrete outcome (an item crafted, a wound healed, shelter providing warmth). Every step of that chain must work in the actual running game — not just in code, but in a real browser session.
+
+---
+
+#### The Seven Slices
+
+**Slice 1: Gather Rock and Wood into Inventory**
+
+The most basic action in the game. Walk toward a stone on the ground or a tree in the world. Press F when close enough. The rock or wood appears in your inventory in the correct slot. The resource node shrinks, shows a particle burst, and then disappears. It respawns 60 seconds later. A live hotbar at the bottom of the screen shows the first five inventory slots, updated every 200 milliseconds so you can always see what you are carrying.
+
+This sounds simple, but it is the foundation of everything. Without gather working perfectly, nothing else is possible.
+
+**Slice 2: Craft a Stone Tool, Equip It, Chop a Tree**
+
+With stone and flint in your inventory, press C to open crafting. The stone tool recipe appears because you have the required materials. Click craft. The stone tool appears in your inventory. Open inventory (I), click the stone tool, click Equip. A stone tool icon appears in your hand slot.
+
+Now walk toward a tree and attack it. The tree has a visible health bar above it. Each hit reduces the bar by one third. On the third hit, the tree disappears and drops wood into the world, which you can then gather. This is the first chain where a crafted tool has a real, physical effect on a world object.
+
+**Slice 3: Light a Fire Using Real Chemistry**
+
+Gather tinder (fiber or bark) and wood. Equip flint from inventory. Walk near any wood or bark resource node in the world. Left-click (attack). The game detects that you have flint equipped and a combustible material nearby. It places a wood cell in the chemistry grid at that position and injects 50,000 joules of heat — enough to exceed wood's ignition temperature and trigger Arrhenius combustion. Fire appears. Heat begins spreading cell by cell. The temperature reading on your HUD rises.
+
+This is not a trigger that fires an animation. The chemistry engine is running in real time and the fire is a genuine consequence of thermodynamics.
+
+**Slice 4: Cook Food and Eat It**
+
+Raw food gathered from the world (berries, roots, caught fish) can be placed near an active fire. The simulation thermodynamics system checks: is this food item within two metres of a cell above 200 degrees C? If yes, the cooking timer begins. After enough time at temperature, the food converts from "raw" to "cooked." Eating cooked food restores the hunger (satiety) bar significantly more than eating raw food. Eating raw food works but provides less nutrition and carries a small infection risk.
+
+This is the first slice where the fire — which was itself created by real chemistry — now drives another game mechanic. The chemistry grid is not just visuals. It is a game system.
+
+**Slice 5: Treat a Wound with Herbs**
+
+When the player takes damage — from combat, environmental hazard, or an animal attack — a wound is created. The wound has a bacterial load tracked by the logistic growth equation (the same equation biologists use to model real bacterial population growth). As time passes, the bacterial load grows. If it reaches a critical level, health begins dropping.
+
+Gather herbs from the world (a specific plant node type). Apply herbs to the wound from the inventory. Each application reduces the bacterial load. The wound status can be seen in the character panel. Once bacterial load reaches zero, the wound closes and health stops dropping. The game does not say "you are healed" as a scripted event — the bacteria are simply gone.
+
+**Slice 6: Build a Bedroll Shelter and Sleep**
+
+Craft a bedroll (recipe: 3 Fiber + 2 Wood). Go to an open area and place the bedroll in the world using the build panel. Approach it and press E. The player enters a sleep state. While sleeping, stamina (the fatigue bar) restores at an accelerated rate. When the player wakes, stamina has improved. The bedroll also sets a respawn anchor — if the player dies, they will appear here rather than at the world spawn point.
+
+**Slice 7: Smelt Copper and Craft Copper Tools**
+
+The full copper smelting chain:
+1. Gather copper ore (identified as Cu2S — copper sulfide, the real form of copper ore)
+2. Gather coal (the carbon source for the reduction reaction)
+3. Build a furnace from stone and clay
+4. Light a fire beneath the furnace
+5. Place the ore and coal into the furnace
+6. As the fire heats the furnace, the chemistry engine runs: Cu2S + C + heat produces Cu (copper metal) + SO2 (sulfur dioxide gas)
+7. Copper metal appears in the furnace output slot
+8. Use copper to craft a copper knife, copper axe, or copper pickaxe
+9. Each crafted tool has a quality rating determined by smithingXp — a skill that improves as you craft more items
+
+This is the first time the game demonstrates that the same chemistry system that makes fire also makes metallurgy. It is the same engine, the same equations, applied to a different reaction.
+
+---
+
+#### Status Summary
+
+| Slice | What It Tests | Status |
+|---|---|---|
+| Slice 1 | Gather resource into inventory, hotbar updates | Done |
+| Slice 2 | Craft tool, equip, use on world object with health bar | Done |
+| Slice 3 | Flint + wood = real Arrhenius fire | Done |
+| Slice 4 | Cook food over fire, eat, hunger restores | Done |
+| Slice 5 | Wound + bacterial growth + herb treatment + healing | Done |
+| Slice 6 | Build bedroll, sleep, stamina restores, respawn anchor set | Done |
+| Slice 7 | Smelt copper (real chemistry), craft copper tools with quality system | Done |
+
+---
+
+### Session: M5 — Shared World — 2026-03-21
+
+**What happened in this session:**
+The world became genuinely shared. Before M5, players could see each other moving around, but the world itself was not truly synchronized — one player could gather a resource and another player would still see it there. One player could light a fire and no one else would see it. M5 fixed all of that.
+
+---
+
+#### What Was Built — In Plain Language
+
+**Server-Authoritative Resource Depletion**
+
+When a player gathers a resource node, the game now sends a NODE_DESTROYED message to the Railway server. The server broadcasts this to every connected player. Every client immediately removes that node from the world. This means two players can never gather the same rock or the same tree. Resources are truly shared and finite.
+
+When a new player joins mid-session, the server sends them a WORLD_SNAPSHOT that includes the full list of currently depleted nodes. The new player's game immediately removes those nodes. The world they join looks consistent with what everyone else sees.
+
+**Fire Synchronization**
+
+When a player lights a fire, a FIRE_STARTED message is sent to the server with the position of the fire. The server relays this to all connected clients. Every player's screen shows the fire at the same location. This is the first time a player's chemistry action has an effect that other players can actually see.
+
+**Player Nameplates**
+
+Each player now has their Clerk username displayed above their head as a floating nameplate. This lets players identify each other without any extra interaction.
+
+**Death System**
+
+When health reaches zero, the YOU DIED screen appears. This is not just a game over screen — it triggers a chain of real events:
+
+1. Every item in the player's inventory is dropped to the ground at the player's position as world-pickable loot. Other players nearby can see and collect these items.
+2. The player is respawned at their placed bedroll, or at the world spawn if no bedroll exists.
+3. Respawn vitals are groggy — reduced but not empty — giving the player a few minutes to recover before being in danger again.
+4. The player's criminal record is preserved through death. Murder count does not reset.
+
+**Bedroll Craft**
+
+The bedroll recipe (3 Fiber + 2 Wood) was wired to the shared world. A placed bedroll is visible to other players and sets the respawn anchor in a way that persists across the session.
+
+**Criminal Record in the Database**
+
+A new field called murder_count was added to the player_saves table in the Neon database. It persists through death and through logging out. If a player kills another player — detected by the PLAYER_KILLED WebSocket message — their murder count increments in the database. The record follows them permanently.
+
+**Photorealism Pass**
+
+A round of visual upgrades was applied to make the world more convincing:
+- Wet terrain edges: the ground darkens and gets shinier near the ocean edge, simulating wet soil. This is implemented by increasing roughness and darkening the albedo within 20 metres of sea level.
+- Rock specular highlights: rock surfaces now reflect light differently depending on the angle you view them from, making them look more like real stone.
+- Creature subsurface scattering: creatures now have a faint backlit glow when the light source is behind them — simulating the way real animal skin and plant leaves let some light through.
+- Bloom and Vignette post-processing: fires and emissive surfaces now glow beyond their edges (Bloom). The edges of the screen are darkened slightly (Vignette). Both effects are standard in modern games and significantly improve visual quality.
+
+---
+
+#### Status Summary
+
+| Feature | Status |
+|---|---|
+| NODE_DESTROYED server broadcast to all clients | Done |
+| WORLD_SNAPSHOT includes depleted nodes for new joiners | Done |
+| FIRE_STARTED relay to all clients | Done |
+| Player nameplates (Clerk username above head) | Done |
+| YOU DIED overlay with inventory drop | Done |
+| Respawn at bedroll with groggy vitals | Done |
+| murder_count in Neon DB, survives death | Done |
+| Wet terrain edges | Done |
+| Rock specular highlights | Done |
+| Creature subsurface scattering | Done |
+| Bloom + Vignette post-processing | Done |
+
+---
+
+### Session: M6 — NPC Civilization — 2026-03-21
+
+**What happened in this session:**
+The world got its first permanent inhabitants. Five named settlements were placed on the planet, each with its own population of NPCs, its own civilization level, its own territory, and its own relationship with each player based on what that player has done.
+
+---
+
+#### What Was Built — In Plain Language
+
+**Five Named Settlements**
+
+Five towns now exist permanently in the world:
+
+| Settlement | Character |
+|---|---|
+| Ashford | A modest plains settlement near the spawn area — the first town most players encounter |
+| Ironhaven | A mid-elevation town positioned near iron deposits — more advanced than Ashford |
+| Saltmere | A coastal trading post in the lowlands |
+| Thornwall | A defensive settlement in the forested highlands |
+| Ridgepost | A remote outpost on rocky ridge terrain |
+
+Each is rendered with 3D building footprints that scale with civilization level — a Level 0 settlement has two small huts; a Level 3 settlement has five larger stone buildings. A central fire or torch glows at the heart of each settlement, visible at night.
+
+**Settlements Advance by Doing Things**
+
+Settlements have a civilization level (civLevel) that advances over time as the NPCs craft and research. The progression rules are the same chemistry rules the player uses — NPCs cannot magically learn iron smelting, they have to meet the same temperature and material requirements as the player would. This means settlements advance at different rates depending on what resources are available near them.
+
+**NPC Memory in the Database**
+
+Each settlement's NPCs remember every player they have encountered. This memory is stored in the Neon database as a trust score and a threat score per player. If a player trades with a settlement, trust goes up. If a player attacks an NPC, threat goes up. If a player kills someone nearby, threat goes up. This memory persists between sessions — NPCs remember you next time you log in.
+
+**Territory and Patrol**
+
+Each settlement controls a 150-metre radius around its center. NPCs patrol this territory and react to intruders. A player who enters the territory is noticed by nearby NPCs. Their reaction depends on the stored trust/threat score for that player.
+
+**Trade System**
+
+Players can initiate trade with a settlement NPC by approaching and pressing E. A TRADE_OFFER message goes to the server containing the items the player is offering. The server checks the settlement's civLevel and trust score to determine what is available in exchange. If the trade is acceptable, TRADE_ACCEPT fires and items transfer between the player's inventory and the settlement's stockpile.
+
+**Gate Closure**
+
+If a player's threat score at a settlement reaches 3 or above, the settlement gates close and NPCs will not interact with that player. A visible barrier appears at the settlement entrance. The SettlementHUD (a small panel that appears when you are within range of a settlement) shows a HOSTILE banner when this happens. At low threat it shows FRIENDLY; at medium threat, WARY.
+
+---
+
+#### Status Summary
+
+| Feature | Status |
+|---|---|
+| 5 named settlements (Ashford, Ironhaven, Saltmere, Thornwall, Ridgepost) | Done |
+| Settlement civLevel advancement via crafting and research | Done |
+| NPC memory (trust/threat per player) in Neon DB | Done |
+| Territory radius (150m), patrol, reaction to intruders | Done |
+| Trade system (TRADE_OFFER / TRADE_ACCEPT / inventory transfer) | Done |
+| Gate closure at threat level 3 | Done |
+| SettlementHUD with FRIENDLY / WARY / HOSTILE banners | Done |
+| Settlement 3D rendering (buildings scale with civLevel, central fire) | Done |
+
+---
+
+### Session: M7 — Iron Age and PvP Outlaw System — 2026-03-21
+
+**What happened in this session:**
+The progression chain was extended to iron — the next major material tier after copper. At the same time, a complete player-versus-player crime and justice system was built, giving the world real social consequences for violence.
+
+---
+
+#### What Was Built — In Plain Language
+
+**Iron Ore Placement**
+
+Iron ore now appears at mid-elevation terrain following sedimentary geology rules — the same way iron ore actually forms in the real world. It is not randomly scattered. Players have to explore to mid-elevation areas to find it, and it does not appear at sea level or on mountain peaks. This gives geography meaning: where you are determines what resources are accessible.
+
+**The Blast Furnace**
+
+A new crafting structure — the blast furnace — was added. It requires 8 stone and 4 clay to build and must reach temperatures above 1,000 degrees C to smelt iron. This is realistic: real iron smelting requires much higher temperatures than copper smelting. A basic fire is not enough. Players need to build a more powerful heat source and maintain it while the reaction runs.
+
+**Real Iron Reduction Chemistry**
+
+The iron smelting reaction in the game uses the real balanced equation:
+
+Fe2O3 (iron oxide ore) + 3C (carbon from coal) produces 2Fe (iron metal) + 3CO2 (carbon dioxide gas)
+
+This is the exact equation used in real blast furnaces, unchanged. When the temperature in the furnace cell exceeds 1,000 degrees C and the right materials are present, the chemistry worker runs this reaction and iron metal appears in the output.
+
+**Iron Tools with the Smithing Quality System**
+
+Iron knife, axe, and pickaxe can be crafted from iron metal. Each tool has a quality rating determined by smithingXp — a skill value that increases each time the player crafts a metal item. Higher smithing skill produces better quality tools with higher damage, durability, and harvesting speed.
+
+Iron ore specifically requires an iron pickaxe to mine. This creates a progression gate: you need copper tools to build the blast furnace infrastructure, and iron tools to then mine more iron ore. The material tiers lock into each other logically.
+
+**Settlement Responds to Iron Age**
+
+When any settlement reaches civLevel 2, the server broadcasts a SETTLEMENT_UNLOCKED_IRON message to all connected players. This means the shared world is aware that an NPC civilization has discovered iron — a real historical milestone. Players near that settlement see a notification.
+
+**PvP Kill Detection**
+
+If a player attacks and kills another player, the game fires a PLAYER_KILLED WebSocket message containing the killer's ID and the victim's ID. The server processes this:
+1. The victim's murder_count in the server's knowledge is noted, and their own count is unaffected.
+2. The killer's murder_count in the Neon database increments by 1.
+3. The consequence system checks the new murder count and applies the appropriate tier of response.
+
+**Tiered NPC Reactions to Murder**
+
+NPCs across all settlements react to murder count:
+
+| Murder Count | Response |
+|---|---|
+| 0 | Normal — full trade and friendliness available |
+| 1 to 2 | Wary — NPCs are cautious, trade prices worsen slightly |
+| 3 to 4 | Gates close at all settlements — no trade, no interaction |
+| 5 or more | Active bounty placed — WANTED label above the player's head with the bounty amount in copper |
+
+**Bounty Collection**
+
+If a player with a bounty is killed by another player, the copper amount is transferred directly from the server's tracked pool to the killer's inventory. The killer receives a toast notification: "Bounty collected: X copper." The killed player's WANTED status resets and their murder count is reduced by the equivalent of the bounty tier.
+
+**Redemption Quests**
+
+Players can reduce their murder count by completing quests offered by settlements (only accessible if threat is below the gate-closure level):
+- Escort quest: guide an NPC safely to a destination
+- Delivery quest: carry goods from one settlement to another
+- Defense quest: protect a settlement from a raid for a set duration
+
+Completing any redemption quest reduces murder_count by 1. This gives violent players a path back to civilization without requiring a server reset.
+
+**Criminal Record Survives Death**
+
+Murder count is stored in the Neon database on the player_saves table. When a player dies and respawns, their murder count is unchanged. The death screen shows the message "Your crimes are remembered." This is intentional — committing violence has lasting consequences in the world.
+
+---
+
+#### Status Summary
+
+| Feature | Status |
+|---|---|
+| Iron ore at mid-elevation terrain (sedimentary placement) | Done |
+| Blast furnace (8 stone + 4 clay, requires 1000C+) | Done |
+| Fe2O3 + 3C real reduction chemistry | Done |
+| Iron knife, axe, pickaxe with smithingXp quality system | Done |
+| Iron pickaxe required to mine iron ore (progression gate) | Done |
+| SETTLEMENT_UNLOCKED_IRON broadcast when civLevel reaches 2 | Done |
+| PLAYER_KILLED WebSocket message and murder_count increment | Done |
+| Tiered NPC reactions (wary / gates close / bounty) at murder thresholds | Done |
+| WANTED label + bounty amount above outlaw's head | Done |
+| Bounty collection: copper transferred to killer's inventory | Done |
+| Redemption quests (escort / delivery / defense) reduce murder_count | Done |
+| Criminal record survives death ("Your crimes are remembered") | Done |
+
+---
+
+### Session: M8 — In Progress — 2026-03-21
+
+**What is being built:**
+M8 is running on three parallel tracks. The first track (weather) has a working renderer already in the scene. The other two tracks are in design and early implementation.
+
+---
+
+#### Track 1: Weather System
+
+A Markov-chain weather system has been built and the visual renderer is live in the game. Here is what that means in plain language:
+
+A Markov chain is a mathematical model where the current state determines the probabilities of what state comes next. For weather, that means: if it is currently CLOUDY, there is a 40% chance it stays CLOUDY next hour, a 30% chance it becomes RAIN, a 20% chance it clears to CLEAR, and a 10% chance it becomes STORM. The game rolls these probabilities on a timer and transitions between states naturally — the same way real weather works at a broad level.
+
+The weather states are: CLEAR, CLOUDY, RAIN, STORM, SNOW.
+
+The visual effects for each state:
+- RAIN: 2,000 line segments falling with wind-direction and gravity. The lines are instanced (meaning the graphics card draws all 2,000 in a single efficient operation rather than 2,000 separate draw calls).
+- SNOW: 800 billboard quad sprites spiraling slowly downward. Activates when temperature is below 0 degrees C.
+- STORM: random lightning flashes at 15 to 45 second intervals, briefly making the whole scene bright.
+- Wind (CLEAR and CLOUDY): 300 dust and leaf sprites drifting horizontally in the wind direction.
+- Clouds: a billboard quad mesh near the horizon with opacity driven by weather state (invisible in CLEAR, dense in STORM).
+
+The remaining work on Track 1 is wiring fire extinguishing to the chemistry grid. When the state is RAIN or STORM, fire cells should have their heat drained and eventually extinguish. The renderer works but this back-end connection is not yet complete.
+
+**What players can see right now:** Rain, snow, and storm effects are visible in the world during the appropriate weather states. Lightning flashes during storms. Trees sway more forcefully in high wind. Fire does not yet extinguish in rain — that is the remaining work.
+
+---
+
+#### Track 2: Steel Age (Planned)
+
+The next material tier after iron. Steel is iron with a precise amount of carbon added — a process called carburization that occurs when iron is heated in the presence of carbon-rich material for an extended time. The planned mechanics:
+- Carburization: heat iron + carbon at the right temperature range for long enough
+- Quenching: rapidly cool the steel to lock in hardness (plunge into water while still hot)
+- Steel tools and armor significantly more durable and effective than iron equivalents
+
+This track has not yet started implementation.
+
+---
+
+#### Track 3: Science Companion Website (Planned)
+
+A separate website (universe-companion.vercel.app) is planned to explain the real science behind the game's mechanics. A player who wants to understand why fire needs oxygen, or why iron requires higher temperatures than copper, or why bacterial infections grow logistically, can visit this site and get a clear plain-language explanation backed by the real formulas.
+
+The science companion is a Claude-backed Next.js application — meaning when you ask it a question about the game's science, it uses an AI to give a thorough answer grounded in the real physics, chemistry, and biology that powers the game. It is not a strategy guide. It teaches the science so players can figure out the game mechanics themselves.
+
+The HUD Science panel button currently links to this URL. The site's content is not yet live.
+
+---
+
+#### M8 Status Summary
+
+| Track | Feature | Status |
+|---|---|---|
+| Track 1 | Markov-chain weather state machine | Done |
+| Track 1 | Rain particles (2000 instanced line segments) | Done |
+| Track 1 | Snow particles (800 instanced billboard quads) | Done |
+| Track 1 | Storm lightning flashes | Done |
+| Track 1 | Wind particles (300 dust/leaf sprites) | Done |
+| Track 1 | Cloud billboard mesh | Done |
+| Track 1 | Fire extinguishing during rain (chemistry grid connection) | In Progress |
+| Track 2 | Steel carburization chemistry | Planned |
+| Track 2 | Quenching mechanic | Planned |
+| Track 2 | Steel tools and armor | Planned |
+| Track 3 | Science companion website (universe-companion.vercel.app) | Planned |
+
+---
+
+## Overall Progress Summary — As of 2026-03-21
+
+This table shows the complete milestone history of the game in one place. Each milestone represents a real, playable, verified stage of the game.
+
+| Milestone | What It Delivered | Status |
+|---|---|---|
+| M0: Universe Visible | Ambient fire, day/night cycle, biome temperatures, 10 organisms, SimGrid heat visualizer, fire photorealism, tree wind sway | Done |
+| M1-M4: Survival Loop | All 7 slices: gather, craft+equip+use, fire chemistry, cook+eat, wound+herb+heal, sleep+shelter, smelt copper | Done |
+| M5: Shared World | Node depletion sync, fire sync, nameplates, death+loot drop+respawn, bedroll, criminal record | Done |
+| M6: NPC Civilization | 5 named settlements, NPC memory in DB, territory + patrol, trade system, gate closure, settlement HUD | Done |
+| M7: Iron Age + Outlaw | Iron ore, blast furnace, real iron chemistry, iron tools, PvP kill detection, murder tiers, bounties, redemption quests | Done |
+| M8: Weather + Steel + Science | Weather renderer done, fire extinguishing in progress, steel age and companion site planned | In Progress |
+
+The game is a functioning multiplayer survival game with real physics, real chemistry, a persistent criminal justice system, NPC civilizations with memory, and a photorealistic world. The core loop — gather, craft, survive, trade, advance — works end-to-end at every material tier from stone through copper to iron.

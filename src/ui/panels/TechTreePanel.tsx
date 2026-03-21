@@ -4,7 +4,9 @@
 import { useState, useEffect } from 'react'
 import { ReactFlow, Background, Controls, type Node, type Edge, MarkerType } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
-import { techTree } from '../../game/GameSingletons'
+import { techTree, inventory, journal } from '../../game/GameSingletons'
+import { DISCOVERIES } from '../../player/DiscoveryJournal'
+import { TECH_TO_DISCOVERY } from '../../civilization/TechDiscoveries'
 import { TECH_NODES, type TechNode } from '../../civilization/TechTree'
 import { useGameStore } from '../../store/gameStore'
 import { useUiStore } from '../../store/uiStore'
@@ -15,11 +17,14 @@ const TIER_LABELS = [
   'Industrial', 'Modern', 'Information', 'Fusion', 'Simulation',
 ]
 
-function NodeCard({ node, onResearch }: { node: TechNode; onResearch: (id: string) => void }) {
+function NodeCard({ node, ep, onResearch }: { node: TechNode; ep: number; onResearch: (id: string) => void }) {
   const researched  = techTree.isResearched(node.id)
   const inProgress  = techTree.isInProgress(node.id)
   const prereqsMet  = node.prerequisites.every(p => techTree.isResearched(p))
+  const godMode     = inventory.isGodMode()
+  const canAfford   = godMode || ep >= node.epCost
   const available   = !researched && !inProgress && prereqsMet
+  const clickable   = available && (godMode || canAfford)
 
   let borderColor = 'rgba(255,255,255,0.1)'
   let textColor = '#888'
@@ -27,7 +32,8 @@ function NodeCard({ node, onResearch }: { node: TechNode; onResearch: (id: strin
 
   if (researched)  { borderColor = 'rgba(46,204,113,0.5)'; textColor = '#2ecc71'; bgColor = 'rgba(46,204,113,0.08)' }
   if (inProgress)  { borderColor = 'rgba(241,196,15,0.5)';  textColor = '#f1c40f'; bgColor = 'rgba(241,196,15,0.08)' }
-  if (available)   { borderColor = 'rgba(52,152,219,0.5)';  textColor = '#3498db'; bgColor = 'rgba(52,152,219,0.08)' }
+  if (available && canAfford)  { borderColor = 'rgba(52,152,219,0.5)'; textColor = '#3498db'; bgColor = 'rgba(52,152,219,0.08)' }
+  if (available && !canAfford) { borderColor = 'rgba(231,76,60,0.4)';  textColor = '#e74c3c'; bgColor = 'rgba(231,76,60,0.04)' }
 
   return (
     <div
@@ -37,18 +43,19 @@ function NodeCard({ node, onResearch }: { node: TechNode; onResearch: (id: strin
         background: bgColor,
         border: `1px solid ${borderColor}`,
         borderRadius: 6,
-        cursor: available ? 'pointer' : 'default',
+        cursor: clickable ? 'pointer' : 'default',
         transition: 'all 0.1s',
       }}
-      onClick={() => available && onResearch(node.id)}
+      onClick={() => clickable && onResearch(node.id)}
     >
       <div style={{ fontSize: 11, fontWeight: 700, color: textColor, lineHeight: 1.3 }}>
         {node.name}
       </div>
       <div style={{ fontSize: 9, color: '#666', marginTop: 2 }}>
-        {node.epCost} EP
+        {godMode ? 'FREE' : `${node.epCost} EP`}
         {inProgress && ' · researching…'}
         {researched && ' · ✓'}
+        {available && !canAfford && ' · need EP'}
       </div>
     </div>
   )
@@ -121,33 +128,34 @@ function buildTechGraph(_simSeconds: number): { nodes: Node[]; edges: Edge[] } {
 export function TechTreePanel() {
   const simSeconds = useGameStore(s => s.simSeconds)
   const addNotification = useUiStore(s => s.addNotification)
-  const setCivTier = usePlayerStore(s => s.setCivTier)
-  const addEvolutionPoints = usePlayerStore(s => s.addEvolutionPoints)
+  const ep = usePlayerStore(s => s.evolutionPoints)
+  const addEP = usePlayerStore(s => s.addEvolutionPoints)
   const [, forceRefresh] = useState(0)
   const [selectedTier, setSelectedTier] = useState<number | null>(null)
   const [graphView, setGraphView] = useState(false)
 
-  // Tick in-progress research + wire downstream effects on completion
-  useEffect(() => {
-    const newlyCompleted = techTree.tickResearch(simSeconds)
-    if (newlyCompleted.length > 0) {
-      for (const id of newlyCompleted) {
-        const node = TECH_NODES.find(n => n.id === id)
-        addNotification(`Research complete: ${node?.name ?? id}`, 'discovery')
-        // Award EP per completed node
-        addEvolutionPoints(5 + (node?.tier ?? 0) * 3)
-      }
-      // Advance civTier to match highest researched tech tier
-      setCivTier(techTree.getCurrentTier())
-      forceRefresh(r => r + 1)
-    }
-  }, [simSeconds, addNotification, setCivTier, addEvolutionPoints])
+  // Refresh display when sim time advances (research progress is ticked in GameLoop)
+  useEffect(() => { forceRefresh(r => r + 1) }, [simSeconds])
 
   function handleResearch(nodeId: string) {
+    const node = TECH_NODES.find(n => n.id === nodeId)
+    if (!node) return
+    const godMode = inventory.isGodMode()
+    if (!godMode && ep < node.epCost) {
+      addNotification(`Need ${node.epCost} EP to research ${node.name}`, 'warning')
+      return
+    }
     const ok = techTree.startResearch(nodeId, simSeconds)
     if (ok) {
-      const node = TECH_NODES.find(n => n.id === nodeId)
-      addNotification(`Researching: ${node?.name ?? nodeId}`, 'info')
+      if (!godMode) addEP(-node.epCost)
+      if (godMode) {
+        // Instant research — record journal entry now (tickResearch won't fire for god-mode nodes)
+        const discoveryKey = TECH_TO_DISCOVERY[nodeId]
+        if (discoveryKey && DISCOVERIES[discoveryKey]) journal.record(DISCOVERIES[discoveryKey], simSeconds)
+        addNotification(`Researched: ${node.name}`, 'discovery')
+      } else {
+        addNotification(`Researching: ${node.name}`, 'info')
+      }
       forceRefresh(r => r + 1)
     }
   }
@@ -236,7 +244,7 @@ export function TechTreePanel() {
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
                   {nodes.map(node => (
-                    <NodeCard key={node.id} node={node} onResearch={handleResearch} />
+                    <NodeCard key={node.id} node={node} ep={ep} onResearch={handleResearch} />
                   ))}
                 </div>
               </div>

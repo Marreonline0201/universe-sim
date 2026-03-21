@@ -12,15 +12,19 @@ import { CreatureRenderer } from './entities/CreatureRenderer'
 import { RemotePlayersRenderer } from './RemotePlayersRenderer'
 import { useMultiplayerStore } from '../store/multiplayerStore'
 import type { RemoteNpc } from '../store/multiplayerStore'
-import { world, createPlayerEntity, Metabolism, Health, Position, Rotation } from '../ecs/world'
+import { world, createPlayerEntity, Metabolism, Health, Position, Rotation, IsDead } from '../ecs/world'
+import { removeComponent } from 'bitecs'
 import { PlayerController } from '../player/PlayerController'
 import { MetabolismSystem, setMetabolismDt } from '../ecs/systems/MetabolismSystem'
-import { inventory, buildingSystem } from '../game/GameSingletons'
+import { inventory, buildingSystem, techTree, evolutionTree, journal } from '../game/GameSingletons'
+import { TECH_NODES } from '../civilization/TechTree'
+import { DISCOVERIES } from '../player/DiscoveryJournal'
+import { TECH_TO_DISCOVERY } from '../civilization/TechDiscoveries'
 import { MAT, ITEM } from '../player/Inventory'
 import { BUILDING_TYPES } from '../civilization/BuildingSystem'
 import { getItemStats, canHarvest } from '../player/EquipSystem'
 import { PlanetTerrain } from './PlanetTerrain'
-import { surfaceRadiusAt, terrainHeightAt, getSpawnPosition, PLANET_RADIUS } from '../world/SpherePlanet'
+import { surfaceRadiusAt, terrainHeightAt, getSpawnPosition, PLANET_RADIUS, SEA_LEVEL } from '../world/SpherePlanet'
 import { LocalSimManager } from '../engine/LocalSimManager'
 import { FireRenderer } from './FireRenderer'
 
@@ -50,6 +54,14 @@ const NODE_TYPES = [
   { type: 'sand',        label: 'Sand',        matId: MAT.SAND,       color: '#d4c47a', count: 8  },
   { type: 'sulfur',      label: 'Sulfur',      matId: MAT.SULFUR,     color: '#cccc22', count: 4  },
   { type: 'bark',        label: 'Bark',        matId: MAT.BARK,       color: '#7a5a2a', count: 15 },
+  { type: 'bone',        label: 'Bone',        matId: MAT.BONE,       color: '#e8e0cc', count: 12 },
+  { type: 'hide',        label: 'Hide',        matId: MAT.HIDE,       color: '#c2894a', count: 10 },
+  { type: 'leaf',        label: 'Leaf',        matId: MAT.LEAF,       color: '#55aa33', count: 20 },
+  { type: 'gold',        label: 'Gold',        matId: MAT.GOLD,       color: '#ffd700', count: 3  },
+  { type: 'silver',      label: 'Silver',      matId: MAT.SILVER,     color: '#c0c0c0', count: 4  },
+  { type: 'uranium',     label: 'Uranium',     matId: MAT.URANIUM,    color: '#44ff44', count: 2  },
+  { type: 'rubber',      label: 'Rubber',      matId: MAT.RUBBER,     color: '#2a2a2a', count: 5  },
+  { type: 'saltpeter',   label: 'Saltpeter',   matId: MAT.SALTPETER,  color: '#f0f0e0', count: 4  },
 ]
 
 function seededRand(seed: number): () => number {
@@ -209,6 +221,17 @@ export function SceneRoot() {
       rapierWorld.addNodeColliders(RESOURCE_NODES)
 
       const eid = createPlayerEntity(world, spawnX, spawnY, spawnZ)
+
+      // If loadSave() already resolved before this point, playerStore may hold saved vitals.
+      // createPlayerEntity always resets ECS to defaults, so we pull saved values in here.
+      // (The other ordering — entity created first, save loads after — is handled in saveStore.)
+      const savedPs = usePlayerStore.getState()
+      if (savedPs.health < 1)    Health.current[eid]          = savedPs.health * Health.max[eid]
+      if (savedPs.hunger > 0)    Metabolism.hunger[eid]        = savedPs.hunger
+      if (savedPs.thirst > 0)    Metabolism.thirst[eid]        = savedPs.thirst
+      if (savedPs.energy < 1)    Metabolism.energy[eid]        = savedPs.energy
+      if (savedPs.fatigue > 0)   Metabolism.fatigue[eid]       = savedPs.fatigue
+
       setEntityId(eid)
 
       // Create keyboard/mouse controller for the player
@@ -363,6 +386,38 @@ export function SceneRoot() {
 
 // ── Per-frame game loop (runs inside Canvas so useFrame works) ────────────────
 
+// Apply cumulative ECS stat bonuses from all unlocked evolution nodes.
+// Called whenever the unlocked node set changes. Always recalculates from
+// base values so repeated calls are idempotent (no double-counting).
+function applyEvolutionEffects(eid: number): void {
+  const BASE_HP    = 100
+  const BASE_REGEN = 0.1   // HP/s
+  const BASE_RATE  = 0.07  // metabolicRate (≈ 70 kg × 0.001)
+
+  let maxHp   = BASE_HP
+  let regen   = BASE_REGEN
+  let metRate = BASE_RATE
+
+  for (const node of evolutionTree.getUnlocked()) {
+    switch (node.id) {
+      case 'thick_hide':          maxHp += 20; regen += 0.03; break
+      case 'armor_plating':       maxHp += 40; regen += 0.05; break
+      case 'size_increase_1':     maxHp += 25; break
+      case 'size_increase_2':     maxHp += 50; break
+      case 'endothermy':          maxHp += 15; metRate *= 1.15; break
+      case 'fat_reserves':        metRate *= 0.70; break
+      case 'efficient_digestion': regen  += 0.04; metRate *= 0.85; break
+      case 'four_limbs':          maxHp += 10; break
+      case 'upright_posture':     maxHp += 10; break
+    }
+  }
+
+  Health.max[eid]                = maxHp
+  if (Health.current[eid] > maxHp) Health.current[eid] = maxHp
+  Health.regenRate[eid]          = regen
+  Metabolism.metabolicRate[eid]  = metRate
+}
+
 interface GameLoopProps {
   controllerRef: RefObject<PlayerController | null>
   simManagerRef: RefObject<LocalSimManager | null>
@@ -374,11 +429,14 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
   const updateVitals        = usePlayerStore(s => s.updateVitals)
   const setPosition         = usePlayerStore(s => s.setPosition)
   const addEvolutionPoints  = usePlayerStore(s => s.addEvolutionPoints)
+  const setCivTier          = usePlayerStore(s => s.setCivTier)
   const spectateTarget      = useGameStore(s => s.spectateTarget)
   const placementMode       = useGameStore(s => s.placementMode)
   const setPlacementMode    = useGameStore(s => s.setPlacementMode)
   const bumpBuildVersion    = useGameStore(s => s.bumpBuildVersion)
   const epAccumRef          = useRef(0)
+  const tierRef             = useRef(0)
+  const evoUnlockedRef      = useRef(-1)  // -1 forces apply on first frame
   const fwdVec              = useRef(new THREE.Vector3())
 
   useFrame((_, delta) => {
@@ -412,11 +470,55 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
       fatigue: Metabolism.fatigue[entityId],
     })
 
+    // 3b. Death / respawn — if player is dead, teleport back to spawn and reset vitals
+    if (Health.current[entityId] <= 0) {
+      const [sx, sy, sz] = getSpawnPosition()
+      const physics = rapierWorld.getPlayer()
+      if (physics) {
+        physics.body.setNextKinematicTranslation({ x: sx, y: sy, z: sz })
+      }
+      Position.x[entityId] = sx; Position.y[entityId] = sy; Position.z[entityId] = sz
+      Health.current[entityId] = Health.max[entityId] || 100
+      Metabolism.hunger[entityId] = 0.5   // respawn hungry (not full, not dying)
+      Metabolism.thirst[entityId] = 0.5
+      Metabolism.energy[entityId] = 0.7
+      removeComponent(world, IsDead, entityId)
+      useUiStore.getState().addNotification('You died and respawned at spawn.', 'warning')
+    }
+
     // 4a. EP trickle — 1 EP per 30 real seconds of survival
     epAccumRef.current += dt
     if (epAccumRef.current >= 30) {
       epAccumRef.current -= 30
       addEvolutionPoints(1)
+    }
+
+    // 4b-tech. Tick in-progress research (runs every frame regardless of which panel is open)
+    const simSecs = useGameStore.getState().simSeconds
+    const newlyDone = techTree.tickResearch(simSecs)
+    if (newlyDone.length > 0) {
+      for (const id of newlyDone) {
+        const node = TECH_NODES.find(n => n.id === id)
+        useUiStore.getState().addNotification(`Research complete: ${node?.name ?? id}`, 'discovery')
+        addEvolutionPoints(5 + (node?.tier ?? 0) * 3)
+        const discoveryKey = TECH_TO_DISCOVERY[id]
+        if (discoveryKey && DISCOVERIES[discoveryKey]) {
+          journal.record(DISCOVERIES[discoveryKey], simSecs)
+        }
+      }
+    }
+    // Sync civTier whenever researched tier changes (covers both normal and god-mode research)
+    const currentTier = techTree.getCurrentTier()
+    if (currentTier !== tierRef.current) {
+      tierRef.current = currentTier
+      setCivTier(currentTier)
+    }
+
+    // 4c. Evolution effects — reapply whenever new nodes are unlocked
+    const evoCount = evolutionTree.getUnlockedIds().length
+    if (evoCount !== evoUnlockedRef.current) {
+      evoUnlockedRef.current = evoCount
+      applyEvolutionEffects(entityId)
     }
 
     // 4b. Node respawn — check if any gathered nodes are ready to come back
@@ -472,20 +574,17 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
 
         if (controllerRef.current?.popInteract()) {
           // Check materials
-          const canBuild = btype.materialsRequired.every(req => {
-            const idx = inventory.findItem(req.materialId)
-            if (idx === -1) return false
-            const slot = inventory.getSlot(idx)
-            return slot !== null && slot.quantity >= req.quantity
-          })
+          const canBuild = btype.materialsRequired.every(req =>
+            inventory.countMaterial(req.materialId) >= req.quantity
+          )
           const addNotification = useUiStore.getState().addNotification
           if (canBuild) {
             // Consume materials
             for (const req of btype.materialsRequired) {
               let remaining = req.quantity
-              for (let i = 0; i < 40 && remaining > 0; i++) {
+              for (let i = 0; i < inventory.slotCount && remaining > 0; i++) {
                 const slot = inventory.getSlot(i)
-                if (slot && slot.materialId === req.materialId) {
+                if (slot && slot.itemId === 0 && slot.materialId === req.materialId) {
                   const take = Math.min(slot.quantity, remaining)
                   inventory.removeItem(i, take)
                   remaining -= take
@@ -509,7 +608,7 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
 
     if (nearNode && nearDist < 9) { // within 3m
       // Ores require at minimum a stone tool to mine
-      const oreMatIds: number[] = [MAT.COPPER_ORE, MAT.IRON_ORE, MAT.COAL, MAT.TIN_ORE, MAT.SULFUR]
+      const oreMatIds: number[] = [MAT.COPPER_ORE, MAT.IRON_ORE, MAT.COAL, MAT.TIN_ORE, MAT.SULFUR, MAT.GOLD, MAT.SILVER, MAT.URANIUM]
       const isOre = oreMatIds.includes(nearNode.matId)
       const hasPickaxe = inventory.hasItemById(ITEM.STONE_TOOL)
         || inventory.hasItemById(ITEM.AXE)
@@ -597,6 +696,7 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
         inventory.addItem({ itemId: 0, materialId: nearest.matId, quantity: qty, quality })
         gatheredNodeIds.add(nearest.id)
         NODE_RESPAWN_AT.set(nearest.id, Date.now() + NODE_RESPAWN_DELAY)
+        useUiStore.getState().addNotification(`Harvested ${qty > 1 ? qty + '× ' : ''}${nearest.label}`, 'info')
       }
     }
 
@@ -647,8 +747,17 @@ function BuildingGhost({ entityId }: { entityId: number }) {
     else fwdVec.current.normalize()
     const ghostDir = playerPos.clone().addScaledVector(fwdVec.current, 6).normalize()
     const ghostSR  = surfaceRadiusAt(ghostDir.x * PLANET_RADIUS, ghostDir.y * PLANET_RADIUS, ghostDir.z * PLANET_RADIUS)
-    const gx = ghostDir.x * ghostSR, gy = ghostDir.y * ghostSR, gz = ghostDir.z * ghostSR
-    ghostRef.current.position.set(gx, gy + btype.size[1] / 2, gz)
+    // Offset along surface normal (outward) by half building height — correct on any part of sphere
+    const halfH = btype.size[1] / 2
+    const gx = ghostDir.x * (ghostSR + halfH)
+    const gy = ghostDir.y * (ghostSR + halfH)
+    const gz = ghostDir.z * (ghostSR + halfH)
+    ghostRef.current.position.set(gx, gy, gz)
+    // Align ghost to surface normal (Y-up → outward normal)
+    ghostRef.current.quaternion.setFromUnitVectors(
+      new THREE.Vector3(0, 1, 0),
+      ghostDir,
+    )
   })
 
   if (!placementMode) return null
@@ -697,8 +806,16 @@ function PlacedBuildingsRenderer() {
         const [w, h, d] = btype.size
         const color = BUILDING_COLORS[btype.tier] ?? '#888'
         const [bx, by, bz] = b.position
+        // Align building to surface normal so it stands upright anywhere on sphere
+        const bLen = Math.sqrt(bx * bx + by * by + bz * bz)
+        const bNorm = bLen > 0.01 ? new THREE.Vector3(bx / bLen, by / bLen, bz / bLen) : new THREE.Vector3(0, 1, 0)
+        const bQuat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), bNorm)
+        // Position center at surface + half height along normal
+        const cx = bx + bNorm.x * h / 2
+        const cy = by + bNorm.y * h / 2
+        const cz = bz + bNorm.z * h / 2
         return (
-          <group key={b.id} position={[bx, by + h / 2, bz]}>
+          <group key={b.id} position={[cx, cy, cz]} quaternion={bQuat}>
             {/* Main structure */}
             <mesh castShadow receiveShadow>
               <boxGeometry args={[w, h, d]} />
@@ -724,7 +841,9 @@ function PlacedBuildingsRenderer() {
 // Slot is re-read every frame inside useFrame to avoid stale closure bugs.
 // If the player drops/consumes the equipped item, the mesh hides immediately.
 function EquippedItemMesh({ entityId }: { entityId: number }) {
-  const meshRef = useRef<THREE.Mesh>(null)
+  const meshRef       = useRef<THREE.Mesh>(null)
+  const _q            = useRef(new THREE.Quaternion())
+  const _localOffset  = useRef(new THREE.Vector3())
 
   useFrame(() => {
     if (!meshRef.current) return
@@ -745,7 +864,8 @@ function EquippedItemMesh({ entityId }: { entityId: number }) {
     const pz = Position.z[entityId]
 
     // Player rotation quaternion from ECS (not camera — third-person game)
-    const q = new THREE.Quaternion(
+    const q = _q.current
+    q.set(
       Rotation.x[entityId],
       Rotation.y[entityId],
       Rotation.z[entityId],
@@ -753,8 +873,8 @@ function EquippedItemMesh({ entityId }: { entityId: number }) {
     )
 
     // Hand offset in player-local space: right, slightly forward, slightly down
-    const localOffset = new THREE.Vector3(0.5, -0.3, 0.4)
-    localOffset.applyQuaternion(q)
+    const localOffset = _localOffset.current
+    localOffset.set(0.5, -0.3, 0.4).applyQuaternion(q)
 
     meshRef.current.position.set(px + localOffset.x, py + localOffset.y, pz + localOffset.z)
     meshRef.current.quaternion.copy(q)
@@ -1255,6 +1375,12 @@ function LocalNpcMesh({ npc }: { npc: LocalNpcState }) {
   const rLegRef  = useRef<THREE.Group>(null)
   const lArmRef  = useRef<THREE.Group>(null)
   const rArmRef  = useRef<THREE.Group>(null)
+  // Scratch vectors — allocated once, reused every frame (no GC pressure)
+  const _up    = useRef(new THREE.Vector3())
+  const _north = useRef(new THREE.Vector3())
+  const _east  = useRef(new THREE.Vector3())
+  const _fwd   = useRef(new THREE.Vector3())
+  const _mat   = useRef(new THREE.Matrix4())
 
   const si = npc.skinIdx
   const skin  = NPC_SKIN_TONES[si]
@@ -1277,22 +1403,31 @@ function LocalNpcMesh({ npc }: { npc: LocalNpcState }) {
     const up = pos.clone().normalize()
 
     if (npc.wandering) {
-      // Compute forward direction in local tangent plane
-      const north = new THREE.Vector3(0, 0, 1)
+      // Compute forward direction in local tangent plane (reuse scratch refs — no alloc)
+      const north = _north.current.set(0, 0, 1)
       north.addScaledVector(up, -north.dot(up)).normalize()
-      const east = new THREE.Vector3().crossVectors(up, north).normalize()
+      const east = _east.current.crossVectors(up, north).normalize()
       const fwdX = north.x * Math.cos(npc.yaw) + east.x * Math.sin(npc.yaw)
       const fwdY = north.y * Math.cos(npc.yaw) + east.y * Math.sin(npc.yaw)
       const fwdZ = north.z * Math.cos(npc.yaw) + east.z * Math.sin(npc.yaw)
 
       const spd = NPC_WANDER_SPEED * delta
-      pos.x += fwdX * spd
-      pos.y += fwdY * spd
-      pos.z += fwdZ * spd
+      const nx2 = pos.x + fwdX * spd
+      const ny2 = pos.y + fwdY * spd
+      const nz2 = pos.z + fwdZ * spd
 
-      // Clamp back to terrain surface
-      const sr = surfaceRadiusAt(pos.x, pos.y, pos.z)
-      pos.normalize().multiplyScalar(sr + 0.9)
+      // Check the target height — refuse to step into ocean, turn around instead
+      const targetH = surfaceRadiusAt(nx2, ny2, nz2) - PLANET_RADIUS
+      if (targetH < 2) {
+        // About to walk into water — reverse direction
+        npc.yaw += Math.PI + (Math.random() - 0.5) * 0.8
+        npc.stateTimer = 1 + Math.random() * 2
+      } else {
+        pos.x = nx2; pos.y = ny2; pos.z = nz2
+        // Clamp back to terrain surface
+        const sr = surfaceRadiusAt(pos.x, pos.y, pos.z)
+        pos.normalize().multiplyScalar(sr + 0.9)
+      }
 
       npc.walkPhase += delta * 3.5
     }
@@ -1300,19 +1435,19 @@ function LocalNpcMesh({ npc }: { npc: LocalNpcState }) {
     // Position and orient root group
     root.position.copy(pos)
 
-    // Align group Y-axis to surface normal, face movement direction
-    const up2 = pos.clone().normalize()
-    const north2 = new THREE.Vector3(0, 0, 1)
+    // Align group Y-axis to surface normal, face movement direction (no allocations)
+    const up2    = _up.current.copy(pos).normalize()
+    const north2 = _north.current.set(0, 0, 1)
     north2.addScaledVector(up2, -north2.dot(up2)).normalize()
-    const east2 = new THREE.Vector3().crossVectors(up2, north2).normalize()
-    const fwd2 = north2.clone().multiplyScalar(Math.cos(npc.yaw)).addScaledVector(east2, Math.sin(npc.yaw))
-    const mat = new THREE.Matrix4().set(
+    const east2 = _east.current.crossVectors(up2, north2).normalize()
+    const fwd2  = _fwd.current.copy(north2).multiplyScalar(Math.cos(npc.yaw)).addScaledVector(east2, Math.sin(npc.yaw))
+    _mat.current.set(
       east2.x, up2.x, -fwd2.x, 0,
       east2.y, up2.y, -fwd2.y, 0,
       east2.z, up2.z, -fwd2.z, 0,
       0,       0,     0,       1,
     )
-    root.quaternion.setFromRotationMatrix(mat)
+    root.quaternion.setFromRotationMatrix(_mat.current)
 
     // Walk cycle limbs
     const swing = npc.wandering ? Math.sin(npc.walkPhase) * 0.5 : 0

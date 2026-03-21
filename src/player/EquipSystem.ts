@@ -16,7 +16,7 @@ const HAND: ItemStats = {
   name:         'Hand',
   damage:       1,
   harvestPower: 1,
-  harvestTypes: ['wood', 'fiber', 'bark'],
+  harvestTypes: ['wood', 'fiber', 'bark', 'bone', 'hide', 'leaf', 'rubber', 'saltpeter'],
   range:        2.0,
 }
 
@@ -26,14 +26,14 @@ const STATS: Partial<Record<number, ItemStats>> = {
     name:         'Stone Tool',
     damage:       5,
     harvestPower: 2,
-    harvestTypes: ['stone', 'flint', 'clay', 'wood', 'fiber', 'sand', 'bark'],
+    harvestTypes: ['stone', 'flint', 'clay', 'wood', 'fiber', 'sand', 'bark', 'coal', 'tin_ore', 'copper_ore', 'iron_ore', 'sulfur', 'leaf', 'rubber', 'saltpeter', 'gold', 'silver', 'uranium'],
     range:        2.5,
   },
   [ITEM.KNIFE]: {
     name:         'Knife',
     damage:       8,
     harvestPower: 2,
-    harvestTypes: ['fiber', 'bark'],
+    harvestTypes: ['fiber', 'bark', 'hide', 'bone'],
     range:        1.5,
   },
   [ITEM.SPEAR]: {
@@ -47,7 +47,7 @@ const STATS: Partial<Record<number, ItemStats>> = {
     name:         'Axe',
     damage:       10,
     harvestPower: 3,
-    harvestTypes: ['stone', 'wood', 'clay', 'fiber', 'bark'],
+    harvestTypes: ['stone', 'wood', 'clay', 'fiber', 'bark', 'coal', 'tin_ore', 'copper_ore', 'iron_ore', 'sulfur', 'gold', 'silver', 'uranium', 'rubber', 'saltpeter'],
     range:        2.5,
   },
   [ITEM.BOW]: {
@@ -97,10 +97,14 @@ export interface FoodStats {
   thirstRestore: number   // amount to SUBTRACT from thirst
 }
 
-// materialId → food stats. Starts empty — food materials don't exist yet.
+// materialId → food stats.
 const FOOD_STATS: Partial<Record<number, FoodStats>> = {
-  // Example (fill in when food MAT values exist):
-  // [MAT.COOKED_MEAT]: { hungerRestore: 0.4, thirstRestore: 0.0 },
+  // Raw plant materials — edible for basic survival
+  [MAT.FIBER]: { hungerRestore: 0.12, thirstRestore: 0.04 },  // edible plant fiber
+  [MAT.BARK]:  { hungerRestore: 0.05, thirstRestore: 0.0  },  // emergency bark chewing
+  [MAT.CLAY]:  { hungerRestore: 0.0,  thirstRestore: 0.08 },  // wet clay quenches thirst slightly
+  [MAT.LEAF]:  { hungerRestore: 0.08, thirstRestore: 0.06 },  // fresh leaves — mild nutrition + moisture
+  [MAT.COOKED_MEAT]: { hungerRestore: 0.40, thirstRestore: 0.05 },  // cooked meat — substantial food
 }
 
 /** Return food stats for a materialId, or null if it is not food. */

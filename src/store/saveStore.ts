@@ -5,6 +5,7 @@
 import { usePlayerStore } from './playerStore'
 import { useGameStore } from './gameStore'
 import { inventory, techTree, evolutionTree, journal } from '../game/GameSingletons'
+import { Health, Metabolism } from '../ecs/world'
 
 const GOD_MODE_KEY = 'universe_god_mode'
 
@@ -62,6 +63,18 @@ export async function loadSave(getToken: () => Promise<string | null>) {
   // Discovery journal — full entry objects
   if (Array.isArray(data.journalEntries) && data.journalEntries.length > 0) {
     journal.loadEntries(data.journalEntries)
+  }
+
+  // If the ECS entity already exists (engine init beat loadSave), write vitals directly
+  // so they aren't overwritten by the GameLoop reading from default-initialised ECS values.
+  const entityId = usePlayerStore.getState().entityId
+  if (entityId !== null) {
+    const maxHp = Health.max[entityId] || 100
+    Health.current[entityId]         = (data.health ?? 1) * maxHp
+    Metabolism.hunger[entityId]      = data.hunger  ?? 0
+    Metabolism.thirst[entityId]      = data.thirst  ?? 0
+    Metabolism.energy[entityId]      = data.energy  ?? 1
+    Metabolism.fatigue[entityId]     = data.fatigue ?? 0
   }
 
   // God mode — stored in localStorage (admin pref, not game state)

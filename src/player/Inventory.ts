@@ -17,6 +17,16 @@ export interface CraftingRecipe {
 
 const SLOT_COUNT = 40
 
+/**
+ * Recipe output IDs that represent processed materials (not equipped items).
+ * These are stored as raw-material slots (itemId: 0) so subsequent recipes can consume them.
+ * Values: MAT.CHARCOAL=10, MAT.BRONZE=13, MAT.IRON=15, MAT.STEEL=16, MAT.GLASS=18,
+ *         MAT.CLOTH=22, MAT.ROPE=23, MAT.LEATHER=24, MAT.COPPER=25,
+ *         MAT.CHARCOAL_POWDER=30, MAT.GUNPOWDER=31, MAT.SILICON=32, MAT.CIRCUIT=33,
+ *         MAT.WIRE=34, MAT.PLASTIC=35, MAT.FUEL=37, MAT.PLUTONIUM=40, MAT.COOKED_MEAT=41
+ */
+const MATERIAL_OUTPUT_IDS = new Set([10, 13, 15, 16, 18, 22, 23, 24, 25, 30, 31, 32, 33, 34, 35, 37, 40, 41])
+
 export class Inventory {
   private slots: (InventorySlot | null)[] = new Array(SLOT_COUNT).fill(null)
   private knownRecipes: Set<number> = new Set()
@@ -82,19 +92,18 @@ export class Inventory {
       if (recipe.knowledgeRequired.length > 0 && !this.knownRecipes.has(recipeId)) return false
       if (currentTier < recipe.tier) return false
       for (const input of recipe.inputs) {
-        if (this.findItem(input.materialId) === -1) return false
-        const slot = this.slots[this.findItem(input.materialId)]
-        if (!slot || slot.quantity < input.quantity) return false
+        if (this.countMaterial(input.materialId) < input.quantity) return false
       }
     }
 
     // Consume inputs (skipped in god mode — materials never depleted)
+    // Only consume raw-material slots (itemId === 0) — never consume equipped items.
     if (!this._godMode) {
       for (const input of recipe.inputs) {
         let remaining = input.quantity
         for (let i = 0; i < this.slots.length && remaining > 0; i++) {
           const s = this.slots[i]
-          if (s && s.materialId === input.materialId) {
+          if (s && s.itemId === 0 && s.materialId === input.materialId) {
             const take = Math.min(s.quantity, remaining)
             s.quantity -= take
             remaining  -= take
@@ -104,12 +113,17 @@ export class Inventory {
       }
     }
 
-    // Add output
+    // Add output.
+    // Recipe outputs that are processed materials (rope, bronze, etc.) use MAT.* as itemId —
+    // store them as raw-material slots (itemId: 0) so subsequent recipes can consume them.
+    // All other outputs are manufactured items — store with materialId: 0 to avoid
+    // being mistakenly found by material searches.
+    const isMaterialOutput = MATERIAL_OUTPUT_IDS.has(recipe.output.itemId)
     return this.addItem({
-      itemId: recipe.output.itemId,
-      materialId: recipe.output.itemId,
-      quantity: recipe.output.quantity,
-      quality: 0.7,
+      itemId:     isMaterialOutput ? 0 : recipe.output.itemId,
+      materialId: isMaterialOutput ? recipe.output.itemId : 0,
+      quantity:   recipe.output.quantity,
+      quality:    0.7,
     })
   }
 
@@ -144,12 +158,27 @@ export class Inventory {
     return this.slots[i] ?? null
   }
 
-  /** Returns slot index of first slot containing materialId, or -1. */
+  get slotCount(): number {
+    return this.slots.length
+  }
+
+  /** Returns slot index of first raw-material slot containing materialId, or -1.
+   *  Skips slots with itemId > 0 (those are manufactured items, not raw materials). */
   findItem(materialId: number): number {
     for (let i = 0; i < this.slots.length; i++) {
-      if (this.slots[i]?.materialId === materialId) return i
+      const s = this.slots[i]
+      if (s && s.materialId === materialId && s.itemId === 0) return i
     }
     return -1
+  }
+
+  /** Returns total quantity of a raw material across all slots. */
+  countMaterial(materialId: number): number {
+    let total = 0
+    for (const s of this.slots) {
+      if (s && s.itemId === 0 && s.materialId === materialId) total += s.quantity
+    }
+    return total
   }
 
   /** Returns true if any slot contains an item with the given itemId. */
@@ -187,7 +216,7 @@ export const MAT = {
   SULFUR: 28, SALTPETER: 29, CHARCOAL_POWDER: 30,
   GUNPOWDER: 31, SILICON: 32, CIRCUIT: 33, WIRE: 34,
   PLASTIC: 35, RUBBER: 36, FUEL: 37, LUBRICANT: 38,
-  URANIUM: 39, PLUTONIUM: 40,
+  URANIUM: 39, PLUTONIUM: 40, COOKED_MEAT: 41,
 } as const
 
 // ── Item IDs ──────────────────────────────────────────────────────────────────
@@ -530,5 +559,89 @@ export const CRAFTING_RECIPES: CraftingRecipe[] = [
     inputs: [{ materialId: MAT.SILICON, quantity: 999999 }, { materialId: MAT.GOLD, quantity: 999999 }, { materialId: MAT.PLUTONIUM, quantity: 999999 }],
     output: { itemId: ITEM.SIMULATION_ENGINE_ITEM, quantity: 1 },
     knowledgeRequired: ['matrioshka_brain', 'simulation_hypothesis', 'reality_engineering'],
+  },
+
+  // ── Missing production chain recipes ──────────────────────────────────────
+  // These fill the gaps in the material progression — without them mid/late
+  // game crafting is completely blocked even in normal mode.
+  {
+    id: 51, name: 'Charcoal', tier: 0, time: 30,
+    inputs: [{ materialId: MAT.WOOD, quantity: 3 }],
+    output: { itemId: MAT.CHARCOAL, quantity: 1 },
+    knowledgeRequired: ['fire_making'],
+  },
+  {
+    id: 52, name: 'Leather', tier: 0, time: 20,
+    inputs: [{ materialId: MAT.HIDE, quantity: 2 }],
+    output: { itemId: MAT.LEATHER, quantity: 1 },
+    knowledgeRequired: ['tool_use'],
+  },
+  {
+    id: 53, name: 'Cloth', tier: 0, time: 25,
+    inputs: [{ materialId: MAT.FIBER, quantity: 5 }],
+    output: { itemId: MAT.CLOTH, quantity: 1 },
+    knowledgeRequired: [],
+  },
+  {
+    id: 54, name: 'Smelt Copper', tier: 1, time: 120,
+    inputs: [{ materialId: MAT.COPPER_ORE, quantity: 3 }, { materialId: MAT.CHARCOAL, quantity: 2 }],
+    output: { itemId: MAT.COPPER, quantity: 1 },
+    knowledgeRequired: ['metallurgy', 'smelting'],
+  },
+  {
+    id: 55, name: 'Smelt Iron', tier: 2, time: 180,
+    inputs: [{ materialId: MAT.IRON_ORE, quantity: 4 }, { materialId: MAT.CHARCOAL, quantity: 3 }],
+    output: { itemId: MAT.IRON, quantity: 1 },
+    knowledgeRequired: ['iron_smelting'],
+  },
+  {
+    id: 56, name: 'Smelt Steel', tier: 3, time: 240,
+    inputs: [{ materialId: MAT.IRON, quantity: 4 }, { materialId: MAT.COAL, quantity: 2 }],
+    output: { itemId: MAT.STEEL, quantity: 1 },
+    knowledgeRequired: ['steel_making'],
+  },
+  {
+    id: 57, name: 'Copper Wire', tier: 5, time: 60,
+    inputs: [{ materialId: MAT.COPPER, quantity: 2 }],
+    output: { itemId: MAT.WIRE, quantity: 3 },
+    knowledgeRequired: ['electromagnetism'],
+  },
+
+  // ── Additional material production recipes ─────────────────────────────────
+  {
+    id: 58, name: 'Charcoal Powder', tier: 5, time: 15,
+    inputs: [{ materialId: MAT.CHARCOAL, quantity: 2 }],
+    output: { itemId: MAT.CHARCOAL_POWDER, quantity: 1 },
+    knowledgeRequired: ['chemistry'],
+  },
+  {
+    id: 59, name: 'Silicon', tier: 6, time: 300,
+    inputs: [{ materialId: MAT.SAND, quantity: 8 }, { materialId: MAT.CHARCOAL, quantity: 3 }],
+    output: { itemId: MAT.SILICON, quantity: 1 },
+    knowledgeRequired: ['semiconductor_physics', 'chemistry'],
+  },
+  {
+    id: 60, name: 'Fuel', tier: 5, time: 180,
+    inputs: [{ materialId: MAT.COAL, quantity: 3 }],
+    output: { itemId: MAT.FUEL, quantity: 1 },
+    knowledgeRequired: ['thermodynamics', 'chemistry'],
+  },
+  {
+    id: 61, name: 'Plastic', tier: 6, time: 240,
+    inputs: [{ materialId: MAT.FUEL, quantity: 2 }, { materialId: MAT.SILICON, quantity: 1 }],
+    output: { itemId: MAT.PLASTIC, quantity: 2 },
+    knowledgeRequired: ['chemistry', 'materials_science'],
+  },
+  {
+    id: 62, name: 'Plutonium', tier: 7, time: 86400,
+    inputs: [{ materialId: MAT.URANIUM, quantity: 5 }],
+    output: { itemId: MAT.PLUTONIUM, quantity: 1 },
+    knowledgeRequired: ['nuclear_physics', 'nuclear_engineering'],
+  },
+  {
+    id: 63, name: 'Cooked Meat', tier: 0, time: 30,
+    inputs: [{ materialId: MAT.BONE, quantity: 2 }, { materialId: MAT.WOOD, quantity: 1 }],
+    output: { itemId: MAT.COOKED_MEAT, quantity: 2 },
+    knowledgeRequired: ['fire_making'],
   },
 ]

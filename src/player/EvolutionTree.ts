@@ -34,6 +34,11 @@ export class EvolutionTree {
     this.points = Math.max(0, this.points + ep)
   }
 
+  /** Overwrite internal EP counter to match the authoritative store value. */
+  setPoints(ep: number): void {
+    this.points = Math.max(0, ep)
+  }
+
   get currentPoints(): number {
     return this.points
   }

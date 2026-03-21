@@ -157,8 +157,9 @@ function handleMessage(ws, msg) {
     }
 
     case 'PLAYER_UPDATE': {
-      const { userId, x, y, z, health } = msg
+      const userId = ws._userId
       if (!userId) return
+      const { x, y, z, health } = msg
       players.update(userId, { x, y, z, health })
       break
     }

@@ -6,6 +6,7 @@ import { inventory } from '../../game/GameSingletons'
 import { MAT, ITEM, type InventorySlot } from '../../player/Inventory'
 import { usePlayerStore } from '../../store/playerStore'
 import { getItemStats, getFoodStats } from '../../player/EquipSystem'
+import { Metabolism } from '../../ecs/world'
 
 // Reverse lookup maps for display names
 const MAT_NAMES: Record<number, string> = Object.fromEntries(
@@ -25,7 +26,7 @@ function SlotCell({ slot, index, selected, equipped, onSelect }: {
   return (
     <div
       onClick={() => onSelect(index)}
-      title={slot ? `${ITEM_NAMES[slot.itemId] ?? slot.itemId} (${MAT_NAMES[slot.materialId] ?? slot.materialId}) ×${slot.quantity}` : ''}
+      title={slot ? `${slot.itemId === 0 ? (MAT_NAMES[slot.materialId] ?? slot.materialId) : (ITEM_NAMES[slot.itemId] ?? slot.itemId)} ×${slot.quantity}` : ''}
       style={{
         width: 52,
         height: 52,
@@ -88,6 +89,7 @@ export function InventoryPanel() {
   const equipAction   = usePlayerStore(s => s.equip)
   const unequipAction = usePlayerStore(s => s.unequip)
   const updateVitals  = usePlayerStore(s => s.updateVitals)
+  const entityId      = usePlayerStore(s => s.entityId)
 
   // Poll inventory every 200ms so newly gathered items appear immediately
   useEffect(() => {
@@ -120,9 +122,9 @@ export function InventoryPanel() {
 
   return (
     <div style={{ color: '#fff', fontFamily: 'monospace' }}>
-      {/* 8×5 grid */}
+      {/* 8-column grid — dynamically sized to match actual inventory (god mode can exceed 40 slots) */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(8, 52px)', gap: 4 }}>
-        {Array.from({ length: 40 }, (_, i) => (
+        {Array.from({ length: inventory.slotCount }, (_, i) => (
           <SlotCell
             key={i}
             index={i}
@@ -149,7 +151,7 @@ export function InventoryPanel() {
               : (ITEM_NAMES[selectedSlot.itemId] ?? `item #${selectedSlot.itemId}`)}
           </div>
           <div style={{ fontSize: 11, color: '#aaa', marginBottom: 2 }}>
-            Material: {MAT_NAMES[selectedSlot.materialId] ?? selectedSlot.materialId}
+            Material: {selectedSlot.materialId === 0 ? '—' : (MAT_NAMES[selectedSlot.materialId] ?? selectedSlot.materialId)}
           </div>
           <div style={{ fontSize: 11, color: '#aaa', marginBottom: 2 }}>
             Quantity: {selectedSlot.quantity}
@@ -178,11 +180,19 @@ export function InventoryPanel() {
             <button
               onClick={() => {
                 if (selected === null || !foodStats) return
-                const current = usePlayerStore.getState()
-                updateVitals({
-                  hunger: Math.max(0, current.hunger - foodStats.hungerRestore),
-                  thirst: Math.max(0, current.thirst - foodStats.thirstRestore),
-                })
+                // Update ECS Metabolism directly — GameLoop overwrites playerStore from ECS every frame,
+                // so writing only to playerStore would be discarded on the next tick.
+                if (entityId !== null) {
+                  Metabolism.hunger[entityId] = Math.max(0, Metabolism.hunger[entityId] - foodStats.hungerRestore)
+                  Metabolism.thirst[entityId] = Math.max(0, Metabolism.thirst[entityId] - foodStats.thirstRestore)
+                } else {
+                  // Fallback: no entity yet, write to store only
+                  const current = usePlayerStore.getState()
+                  updateVitals({
+                    hunger: Math.max(0, current.hunger - foodStats.hungerRestore),
+                    thirst: Math.max(0, current.thirst - foodStats.thirstRestore),
+                  })
+                }
                 inventory.removeItem(selected, 1)
                 setSelected(null)
               }}

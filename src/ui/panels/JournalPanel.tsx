@@ -1,7 +1,7 @@
 // ── JournalPanel ───────────────────────────────────────────────────────────────
 // Scrollable list of discovered journal entries grouped by category.
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { journal } from '../../game/GameSingletons'
 import type { Discovery } from '../../player/DiscoveryJournal'
 
@@ -37,6 +37,13 @@ function formatSimTime(secs: number): string {
 export function JournalPanel() {
   const [activeCategory, setActiveCategory] = useState<Discovery['category'] | null>(null)
   const [expanded, setExpanded] = useState<string | null>(null)
+  const [, forceRefresh] = useState(0)
+
+  // Poll every 500ms so new journal entries appear without reopening the panel
+  useEffect(() => {
+    const id = setInterval(() => forceRefresh(r => r + 1), 500)
+    return () => clearInterval(id)
+  }, [])
 
   const allDiscoveries = journal.getAll()
   const filtered = activeCategory

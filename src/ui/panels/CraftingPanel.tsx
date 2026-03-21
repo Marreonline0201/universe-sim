@@ -13,61 +13,54 @@ const KNOWLEDGE_TO_TECH: Record<string, string[]> = (() => {
   const map: Record<string, string[]> = {}
   // Hand-coded mapping from recipe knowledgeRequired strings → tech node IDs
   const entries: [string, string[]][] = [
-    ['tool_use',            ['stone_knapping']],
+    // Tier 0 — Stone Age
+    ['tool_use',            ['stone_tools']],           // stone_tools = "Stone Knapping"
     ['fire_making',         ['fire']],
-    ['ranged_weapons',      ['hunting']],
-    ['pottery',             ['pottery']],
-    ['metallurgy',          ['copper_smelting']],
-    ['smelting',            ['copper_smelting']],
-    ['weapon_smithing',     ['copper_smelting', 'iron_smelting', 'steel_making']],
-    ['armor_smithing',      ['copper_smelting', 'iron_smelting']],
+    ['ranged_weapons',      ['bow_arrow', 'hunting']],
     ['agriculture',         ['agriculture']],
     ['navigation',          ['sailing']],
     ['carpentry',           ['wheel']],
+    ['writing',             ['writing']],
+    // Tier 1-2 — Bronze / Iron Age
+    ['pottery',             ['pottery']],
+    ['metallurgy',          ['metallurgy_copper']],
+    ['smelting',            ['metallurgy_copper']],
+    ['weapon_smithing',     ['bronze', 'iron_smelting', 'steel_making']],
+    ['armor_smithing',      ['bronze', 'iron_smelting']],
     ['iron_smelting',       ['iron_smelting']],
     ['steel_making',        ['steel_making']],
-    ['mechanics',           ['mechanics']],
     ['glassblowing',        ['glassblowing']],
-    ['wind_power',          ['windmill']],
-    ['hydraulics',          ['watermill']],
-    ['writing',             ['writing']],
-    ['optics',              ['optics']],
-    ['thermodynamics',      ['steam_engine']],
+    ['materials_science',   ['steel_making', 'iron_smelting']],
+    // Tier 3-4 — Classical / Medieval
+    ['mechanics',           ['engineering_classical']],
+    ['wind_power',          ['wind_power']],
+    ['hydraulics',          ['water_power']],
+    ['optics',              ['optics_basic']],
+    ['engineering',         ['engineering_classical']],
+    // Tier 5 — Industrial
+    ['thermodynamics',      ['thermodynamics_classical']],
     ['steam_power',         ['steam_engine']],
-    ['engineering',         ['structural_engineering']],
-    ['electromagnetism',    ['electromagnetism']],
-    ['communication',       ['telegraph']],
-    ['chemistry',           ['chemistry']],
-    ['alchemy',             ['alchemy']],
-    ['internal_combustion', ['internal_combustion']],
-    ['aerodynamics',        ['aerodynamics']],
-    ['electronics',         ['electronics']],
+    ['chemistry',           ['industrial_chemistry']],
+    ['electromagnetism',    ['electromagnetism_classical']],
+    // Tier 6-7 — Modern
     ['nuclear_physics',     ['nuclear_fission']],
     ['semiconductor_physics',['transistor']],
-    ['logic',               ['computer_science']],
+    ['electronics',         ['transistor', 'integrated_circuit']],
+    ['logic',               ['integrated_circuit']],
     ['aerospace',           ['rocketry']],
-    ['orbital_mechanics',   ['orbital_mechanics']],
-    ['propulsion',          ['advanced_propulsion']],
-    ['plasma_physics',      ['nuclear_fusion']],
-    ['superconductivity',   ['superconductivity']],
-    ['nanotechnology',      ['nanotechnology']],
-    ['molecular_assembly',  ['molecular_assembly']],
     ['AI',                  ['artificial_intelligence']],
-    ['quantum_mechanics',   ['quantum_computing']],
-    ['cryogenics',          ['cryogenics']],
-    ['exotic_matter',       ['exotic_matter']],
-    ['general_relativity',  ['general_relativity']],
+    // Tier 8-9 — Post-Human / Transcendent
+    ['plasma_physics',      ['nuclear_fusion']],
     ['fusion_power',        ['nuclear_fusion']],
-    ['megastructure_engineering', ['megastructure_engineering']],
-    ['stellar_engineering', ['stellar_engineering']],
-    ['self_replicating_machines', ['von_neumann_probes']],
-    ['computronium',        ['computronium']],
-    ['dyson_sphere',        ['dyson_sphere']],
-    ['superintelligence',   ['superintelligence']],
-    ['matrioshka_brain',    ['matrioshka_brain']],
-    ['simulation_hypothesis',['simulation_hypothesis']],
-    ['reality_engineering', ['reality_engineering']],
-    ['materials_science',   ['steel_making', 'iron_smelting']],
+    ['nanotechnology',      ['nanotechnology']],
+    ['megastructure_engineering', ['megastructure']],
+    ['dyson_sphere',        ['dyson_sphere_tech']],
+    ['superintelligence',   ['agi']],
+    ['matrioshka_brain',    ['matrioshka_brain_tech']],
+    ['simulation_hypothesis',['universe_simulation_tech']],
+    ['reality_engineering', ['physical_constants_control']],
+    ['quantum_mechanics',   ['quantum_physics']],
+    ['general_relativity',  ['relativity']],
   ]
   for (const [k, nodes] of entries) map[k] = nodes
   return map
@@ -96,10 +89,7 @@ function canCraft(recipe: CraftingRecipe, civTier: number): boolean {
   if (civTier < recipe.tier) return false
   if (!hasAllKnowledge(recipe)) return false
   for (const input of recipe.inputs) {
-    const idx = inventory.findItem(input.materialId)
-    if (idx === -1) return false
-    const slot = inventory.getSlot(idx)
-    if (!slot || slot.quantity < input.quantity) return false
+    if (inventory.countMaterial(input.materialId) < input.quantity) return false
   }
   return true
 }
@@ -132,6 +122,9 @@ export function CraftingPanel() {
 
   function handleCraft() {
     if (!selectedRecipe) return
+    // Sync the panel's tech-tree check with inventory's recipe discovery system.
+    // If the panel shows this recipe as craftable, the player has the knowledge — mark it discovered.
+    if (hasAllKnowledge(selectedRecipe)) inventory.discoverRecipe(selectedRecipe.id)
     const ok = inventory.craft(selectedRecipe.id, civTier)
     if (ok) {
       addNotification(`Crafted: ${selectedRecipe.name}`, 'info')

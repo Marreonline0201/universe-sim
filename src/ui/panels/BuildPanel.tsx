@@ -15,18 +15,18 @@ const MAT_NAMES: Record<number, string> = Object.fromEntries(
   Object.entries(MAT).map(([k, v]) => [v, k.toLowerCase().replace(/_/g, ' ')])
 )
 
-// Tech nodes that unlock each building tier
+// Tech nodes that unlock each building tier (IDs must match TechTree TECH_NODES)
 const TIER_UNLOCK_TECHS: Record<number, string[]> = {
   0: [],  // Stone Age — always available
   1: ['pottery', 'sailing', 'agriculture'],
   2: ['iron_smelting'],
-  3: ['writing', 'mechanics'],
-  4: ['windmill', 'optics'],
-  5: ['steam_engine', 'structural_engineering'],
-  6: ['electromagnetism', 'computer_science'],
+  3: ['writing', 'engineering_classical'],
+  4: ['wind_power', 'optics_basic'],
+  5: ['steam_engine', 'engineering_classical'],
+  6: ['electromagnetism_classical', 'integrated_circuit'],
   7: ['rocketry', 'nanotechnology'],
-  8: ['nuclear_fusion', 'superconductivity'],
-  9: ['simulation_hypothesis'],
+  8: ['nuclear_fusion', 'nanotechnology'],
+  9: ['universe_simulation_tech'],
 }
 
 function isTierUnlocked(tier: number): boolean {
@@ -36,12 +36,9 @@ function isTierUnlocked(tier: number): boolean {
 }
 
 function canAfford(bt: BuildingType): boolean {
-  return bt.materialsRequired.every(req => {
-    const idx = inventory.findItem(req.materialId)
-    if (idx === -1) return false
-    const slot = inventory.getSlot(idx)
-    return slot !== null && slot.quantity >= req.quantity
-  })
+  return bt.materialsRequired.every(req =>
+    inventory.countMaterial(req.materialId) >= req.quantity
+  )
 }
 
 const TIER_LABELS = [
@@ -216,8 +213,7 @@ export function BuildPanel() {
                     {/* Material requirements */}
                     <div style={{ marginTop: 5, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                       {bt.materialsRequired.map((req, i) => {
-                        const idx = inventory.findItem(req.materialId)
-                        const have = idx !== -1 ? (inventory.getSlot(idx)?.quantity ?? 0) : 0
+                        const have = inventory.countMaterial(req.materialId)
                         const ok = have >= req.quantity
                         return (
                           <span

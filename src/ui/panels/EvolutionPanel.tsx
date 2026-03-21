@@ -151,10 +151,9 @@ export function EvolutionPanel() {
   const [activeCategory, setActiveCategory] = useState<EvolutionNode['category'] | null>(null)
   const [graphView, setGraphView] = useState(false)
 
-  // Sync EP from store into the evolution tree singleton
+  // Sync EP from store into the evolution tree singleton (bidirectional — store is authoritative)
   useEffect(() => {
-    const diff = epFromStore - evolutionTree.currentPoints
-    if (diff > 0) evolutionTree.addPoints(diff)
+    evolutionTree.setPoints(epFromStore)
   }, [epFromStore])
 
   function handleUnlock(nodeId: string) {

@@ -111,9 +111,9 @@ export class PlayerController {
     this.input.scrollDelta = 0
   }
 
-  /** Returns true on the frame the player presses F or E (consumed once). */
+  /** Returns true on the frame the player presses F (consumed once). */
   popInteract(): boolean {
-    const held = this.keys.has('KeyF') || this.keys.has('KeyE')
+    const held = this.keys.has('KeyF')
     if (held && !this._interactConsumed) {
       this._interactConsumed = true
       return true

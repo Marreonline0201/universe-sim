@@ -5,7 +5,8 @@
 import { usePlayerStore } from './playerStore'
 import { useGameStore } from './gameStore'
 import { inventory, techTree, evolutionTree, journal, buildingSystem } from '../game/GameSingletons'
-import { Health, Metabolism } from '../ecs/world'
+import { Health, Metabolism, Position } from '../ecs/world'
+import { rapierWorld } from '../physics/RapierWorld'
 
 const GOD_MODE_KEY = 'universe_god_mode'
 
@@ -71,8 +72,8 @@ export async function loadSave(getToken: () => Promise<string | null>) {
     useGameStore.getState().bumpBuildVersion()
   }
 
-  // If the ECS entity already exists (engine init beat loadSave), write vitals directly
-  // so they aren't overwritten by the GameLoop reading from default-initialised ECS values.
+  // If the ECS entity already exists (engine init beat loadSave), write vitals and
+  // position directly so they aren't overwritten by the GameLoop on the next frame.
   const entityId = usePlayerStore.getState().entityId
   if (entityId !== null) {
     const maxHp = Health.max[entityId] || 100
@@ -81,6 +82,15 @@ export async function loadSave(getToken: () => Promise<string | null>) {
     Metabolism.thirst[entityId]      = data.thirst  ?? 0
     Metabolism.energy[entityId]      = data.energy  ?? 1
     Metabolism.fatigue[entityId]     = data.fatigue ?? 0
+
+    const sx = data.x ?? 0, sy = data.y ?? 0.9, sz = data.z ?? 0
+    const hasSavedPos = Math.abs(sx) > 0.5 || Math.abs(sy - 0.9) > 0.5 || Math.abs(sz) > 0.5
+    if (hasSavedPos) {
+      Position.x[entityId] = sx
+      Position.y[entityId] = sy
+      Position.z[entityId] = sz
+      rapierWorld.getPlayer()?.body.setNextKinematicTranslation({ x: sx, y: sy, z: sz })
+    }
   }
 
   // God mode — stored in localStorage (admin pref, not game state)

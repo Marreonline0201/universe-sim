@@ -16,6 +16,7 @@ import type { BuildingSystem } from '../civilization/BuildingSystem'
 import { BUILDING_TYPES } from '../civilization/BuildingSystem'
 import { usePlayerStore } from '../store/playerStore'
 import { useUiStore } from '../store/uiStore'
+import { Metabolism, Health } from '../ecs/world'
 
 // ── M5: Death System ──────────────────────────────────────────────────────────
 //
@@ -84,11 +85,12 @@ export function tickFoodCooking(
 ): void {
   if (!simMgr) return
 
-  // Find all raw meat slots in inventory
+  // Find all raw meat and fish slots in inventory
   for (let i = 0; i < inv.slotCount; i++) {
     const slot = inv.getSlot(i)
-    if (!slot || slot.itemId !== 0 || slot.materialId !== MAT.RAW_MEAT) {
-      // Remove stale cooking progress if slot no longer holds raw meat
+    const isCookable = slot && slot.itemId === 0 && (slot.materialId === MAT.RAW_MEAT || slot.materialId === MAT.FISH)
+    if (!isCookable) {
+      // Remove stale cooking progress if slot no longer holds cookable food
       cookingProgress.delete(i)
       continue
     }
@@ -102,15 +104,16 @@ export function tickFoodCooking(
       cookingProgress.set(i, next)
 
       if (next >= COOK_DURATION_S) {
-        // Food is cooked — convert raw meat to cooked meat
+        // Food is cooked — convert raw food to cooked meat
         cookingProgress.delete(i)
-        const qty = slot.quantity
-        // Remove raw meat from this slot
+        const qty = slot!.quantity
+        const isRawMeat = slot!.materialId === MAT.RAW_MEAT
+        // Remove raw food from this slot
         inv.removeItem(i, qty)
-        // Add cooked meat
+        // Add cooked meat (fish also becomes cooked meat for simplicity)
         inv.addItem({ itemId: 0, materialId: MAT.COOKED_MEAT, quantity: qty, quality: 0.9 })
         useUiStore.getState().addNotification(
-          `${qty > 1 ? qty + 'x ' : ''}Meat cooked! Press [F] near cooked meat to eat.`,
+          `${qty > 1 ? qty + 'x ' : ''}${isRawMeat ? 'Meat' : 'Fish'} cooked! Press [E] to eat.`,
           'discovery'
         )
         // Auto-unlock cooking knowledge
@@ -128,17 +131,18 @@ export function tickFoodCooking(
 }
 
 // Eat cooked meat from inventory → restore hunger bar
-export function tryEatFood(inv: Inventory): boolean {
+export function tryEatFood(inv: Inventory, entityId: number): boolean {
   // Find first cooked meat slot
   const slotIdx = inv.findItem(MAT.COOKED_MEAT)
   if (slotIdx < 0) return false
 
   inv.removeItem(slotIdx, 1)
 
-  // Restore hunger
+  // Restore hunger in both React store and ECS array
   const ps = usePlayerStore.getState()
   const newHunger = Math.max(0, ps.hunger - HUNGER_RESTORE)
   ps.updateVitals({ hunger: newHunger })
+  Metabolism.hunger[entityId] = newHunger
   useUiStore.getState().addNotification(
     `Ate cooked meat — hunger reduced to ${Math.round(newHunger * 100)}%`,
     'info'
@@ -157,7 +161,7 @@ const HERB_BACTERIA_REDUCTION = 30
 // Sepsis threshold — bacteria at max level drains health
 const SEPSIS_THRESHOLD = 80
 
-export function tickWoundSystem(dt: number): void {
+export function tickWoundSystem(dt: number, entityId: number): void {
   const ps = usePlayerStore.getState()
   if (ps.wounds.length === 0) return
 
@@ -173,8 +177,8 @@ export function tickWoundSystem(dt: number): void {
   }
   if (healthDrain > 0) {
     markInfectionDamage()
-    const newHealth = Math.max(0, ps.health - healthDrain)
-    ps.updateVitals({ health: newHealth })
+    // Write directly to ECS — GameLoop overwrites playerStore from ECS every frame
+    Health.current[entityId] = Math.max(0, Health.current[entityId] - healthDrain * Health.max[entityId])
   }
 
   // Remove healed wounds (bacteria < 0.5)
@@ -249,12 +253,13 @@ export function isNearSleepSite(
   return usePlayerStore.getState().bedrollPlaced
 }
 
-export function tickSleepSystem(dt: number): void {
+export function tickSleepSystem(dt: number, entityId: number): void {
   const ps = usePlayerStore.getState()
   if (!ps.isSleeping) return
 
   const newFatigue = Math.max(0, ps.fatigue - FATIGUE_RESTORE_RATE * dt)
   ps.updateVitals({ fatigue: newFatigue })
+  Metabolism.fatigue[entityId] = newFatigue
 
   // Check if sleep complete
   const elapsed = ps.sleepStartTime !== null

@@ -35,6 +35,11 @@ export function useWorldSocket(): void {
     _adminSocket = socket
     socket.connect()
 
+    // Expose identity for DecoderPanel and other UI components that need to
+    // send authenticated WS messages (e.g. VELAR_DECODED).
+    ;(window as any).__userId   = userId
+    ;(window as any).__username = username
+
     // Send player position updates at 10 Hz via rAF throttle
     let rafId: number
     function loop() {

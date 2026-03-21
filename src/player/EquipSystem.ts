@@ -251,6 +251,7 @@ const FOOD_STATS: Partial<Record<number, FoodStats>> = {
   [MAT.LEAF]:  { hungerRestore: 0.08, thirstRestore: 0.06 },  // fresh leaves — mild nutrition + moisture
   [MAT.COOKED_MEAT]: { hungerRestore: 0.40, thirstRestore: 0.05 },  // cooked meat — substantial food
   [MAT.RAW_MEAT]:    { hungerRestore: 0.15, thirstRestore: 0.02 },  // raw meat — risky, low nutrition
+  [MAT.FISH]:        { hungerRestore: 0.20, thirstRestore: 0.08 },  // raw fish — good food, high water content
 }
 
 /** Return food stats for a materialId, or null if it is not food. */

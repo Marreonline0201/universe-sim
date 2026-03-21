@@ -11,6 +11,9 @@ import { NotificationSystem } from './NotificationSystem'
 import { inventory } from '../game/GameSingletons'
 import { MAT, ITEM } from '../player/Inventory'
 import { cookingProgress } from '../game/SurvivalSystems'
+import { FirstContactOverlay } from './FirstContactOverlay'
+import { useVelarStore } from '../store/velarStore'
+import { getReactorTemp, isCleanupActive, getCleanupTimeRemaining, SAFE_TEMP_CELSIUS, MELT_THRESHOLD_C } from '../game/NuclearReactorSystem'
 
 // ── Armor slot visual constants ────────────────────────────────────────────────
 const STEEL_BLUE = '#4a9eff'
@@ -444,6 +447,96 @@ function Crosshair() {
   )
 }
 
+// ── M13: ReactorWidget — small nuclear reactor status bar ─────────────────────
+
+function ReactorWidget() {
+  const reactorTemp     = useVelarStore(s => s.reactorTemp)
+  const reactorMeltdown = useVelarStore(s => s.reactorMeltdown)
+  const reactorActive   = useVelarStore(s => s.reactorActive)
+  const [tick, setTick] = useState(0)
+
+  // Poll cleanup timer
+  useEffect(() => {
+    const id = setInterval(() => setTick(t => t + 1), 1000)
+    return () => clearInterval(id)
+  }, [])
+
+  const cleanupActive = isCleanupActive()
+  const cleanupSecs   = getCleanupTimeRemaining()
+  const temp          = getReactorTemp()
+
+  const barColor =
+    reactorMeltdown    ? '#ff1111' :
+    temp > MELT_THRESHOLD_C ? '#ff4400' :
+    temp > SAFE_TEMP_CELSIUS  ? '#ffaa00' :
+    '#00cc88'
+
+  const tempFill = Math.min(1, Math.max(0, temp / MELT_THRESHOLD_C))
+
+  return (
+    <div style={{
+      position:  'fixed',
+      top:       14,
+      left:      14,
+      zIndex:    150,
+      background: 'rgba(6,10,14,0.88)',
+      border:    `1px solid ${barColor}55`,
+      borderRadius: '4px',
+      padding:   '8px 12px',
+      fontFamily: '"Courier New", monospace',
+      color:     barColor,
+      fontSize:  '10px',
+      minWidth:  '160px',
+      boxShadow: reactorMeltdown ? `0 0 20px ${barColor}66` : 'none',
+      pointerEvents: 'none',
+    }}>
+      <div style={{ letterSpacing: '0.12em', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+        <div style={{
+          width: '6px', height: '6px', borderRadius: '50%',
+          background: barColor,
+          boxShadow: reactorMeltdown ? `0 0 8px ${barColor}` : 'none',
+        }} />
+        {reactorMeltdown ? 'MELTDOWN' : 'REACTOR ONLINE'}
+      </div>
+      <div style={{ marginBottom: '4px' }}>
+        CORE: {temp.toFixed(0)}°C
+        {temp > SAFE_TEMP_CELSIUS && !reactorMeltdown && ' — ADD COOLING'}
+        {reactorMeltdown && ' — CRITICAL'}
+      </div>
+      {/* Temperature bar */}
+      <div style={{
+        width: '100%', height: '4px',
+        background: 'rgba(255,255,255,0.1)',
+        borderRadius: '2px',
+        overflow: 'hidden',
+        marginBottom: '4px',
+      }}>
+        <div style={{
+          width: `${tempFill * 100}%`,
+          height: '100%',
+          background: barColor,
+          transition: 'width 0.3s, background 0.3s',
+        }} />
+      </div>
+      {reactorMeltdown && cleanupActive && (
+        <div style={{ color: '#ff4444', fontSize: '9px' }}>
+          CLEANUP: {cleanupSecs.toFixed(0)}s remaining
+        </div>
+      )}
+      {reactorMeltdown && !cleanupActive && (
+        <div style={{ color: '#ff4444', fontSize: '9px' }}>
+          CLEANUP WINDOW EXPIRED
+        </div>
+      )}
+      {reactorActive && !reactorMeltdown && (
+        <div style={{ color: '#00cc88', fontSize: '9px', opacity: 0.7 }}>
+          100 kW — electric forge, arc welder, electrolysis enabled
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Main HUD ──────────────────────────────────────────────────────────────────
 
 export function HUD() {
@@ -474,8 +567,47 @@ export function HUD() {
 
   const tempColor = ambientTemp < 0 ? '#88bbff' : ambientTemp < 30 ? '#88ff88' : ambientTemp < 50 ? '#ffaa44' : '#ff4444'
 
+  // ── M13: Velar first-contact overlay state ─────────────────────────────────
+  const showFirstContact  = useVelarStore(s => s.showFirstContact)
+  const decodedByName     = useVelarStore(s => s.decodedByName)
+  const setShowFirstContact = useVelarStore(s => s.setShowFirstContact)
+  const reactorMeltdown   = useVelarStore(s => s.reactorMeltdown)
+  const reactorActive     = useVelarStore(s => s.reactorActive)
+
+  // Listen for first-contact event dispatched by WorldSocket VELAR_DECODED handler
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail
+      useVelarStore.getState().markDecoded(detail.decoderId, detail.decoderName)
+    }
+    window.addEventListener('velar-first-contact', handler)
+    return () => window.removeEventListener('velar-first-contact', handler)
+  }, [])
+
+  // Expose player userId/name to VelarSignalView for the VELAR_DECODED broadcast
+  useEffect(() => {
+    const userId = (window as any).__userId
+    if (userId) {
+      ;(window as any).__userId   = userId
+      ;(window as any).__username = (window as any).__username ?? 'Explorer'
+    }
+  }, [])
+
   return (
     <>
+      {/* ── M13: First Contact cinematic overlay ────────────────────────────── */}
+      {showFirstContact && (
+        <FirstContactOverlay
+          decoderName={decodedByName ?? 'Unknown'}
+          onDone={() => setShowFirstContact(false)}
+        />
+      )}
+
+      {/* ── M13: Reactor HUD widget (top-left, below vitals) ────────────────── */}
+      {(reactorActive || reactorMeltdown) && (
+        <ReactorWidget />
+      )}
+
       <div style={{
         position: 'fixed',
         inset: 0,

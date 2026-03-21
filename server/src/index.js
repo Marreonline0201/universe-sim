@@ -18,6 +18,7 @@ import { OutlawSystem, WANTED_THRESHOLD } from './OutlawSystem.js'
 import { WeatherSystem } from './WeatherSystem.js'
 import { SeasonSystem } from './SeasonSystem.js'
 import { TradeEconomy } from './TradeEconomy.js'
+import { migrateSchema as migrateDiscoverySchema, recordDecode, recordProbe } from './DiscoveryDb.js'
 
 const PORT = parseInt(process.env.PORT ?? '8080', 10)
 const PERSIST_INTERVAL_MS = 30_000 // save simTime to DB every 30 s
@@ -55,6 +56,7 @@ async function main() {
     await outlaw.load()
     await tradeEcon.migrateSchema()
     await tradeEcon.load(settlements.getAll())
+    await migrateDiscoverySchema()  // M13: discoveries + planets tables
     const settings = await loadSettings()
     // Don't restore an admin-set ultra-high timeScale — use normal unless bootstrapping
     clock.setSimTime(settings.simTime)
@@ -669,6 +671,142 @@ function handleMessage(ws, msg) {
         })
         slack._post(`*Anomaly Signal!* The Velar anomaly has responded. Something is out there.`).catch(() => {})
       }, 30_000)
+      break
+    }
+
+    // ── M13 Track A: Velar signal decoded ──────────────────────────────────────
+
+    case 'VELAR_DECODED': {
+      // Client reports player has decoded the Velar signal.
+      // Persist to discoveries table and broadcast to all clients.
+      const userId = ws._userId
+      if (!userId) return
+      const p = players.get(userId)
+      const decoderName = p?.username ?? userId
+
+      console.log(`[server] VELAR_DECODED by ${decoderName}`)
+
+      // Persist to Neon DB (discoveries table)
+      recordDecode(userId, decoderName).then(() => {
+        console.log('[server] VELAR_DECODED persisted to DB')
+      }).catch(() => {})
+
+      // Broadcast to ALL players
+      broadcastAll({
+        type:        'VELAR_DECODED',
+        decoderId:   userId,
+        decoderName,
+        timestamp:   Date.now(),
+      })
+
+      slack._post(`*First Contact!* ${decoderName} has decoded the Velar signal. The universe is not empty.`).catch(() => {})
+      break
+    }
+
+    // ── M13 Track B: Orbital capsule launch ────────────────────────────────────
+
+    case 'ORBITAL_CAPSULE_LAUNCHED': {
+      // Client launches an orbital capsule toward a target planet.
+      // Server computes probe result and broadcasts PROBE_LANDED after 5s.
+      const userId = ws._userId
+      if (!userId) return
+      const { targetPlanet } = msg
+      if (typeof targetPlanet !== 'string') return
+
+      const p = players.get(userId)
+      const username = p?.username ?? userId
+
+      // Planet data — matches OrbitalMechanicsSystem.ts SYSTEM_PLANETS
+      const PLANETS = {
+        Aethon: { seed: 0xaethon1, type: 'rocky',    semiMajorAU: 0.7 },
+        Velar:  { seed: 0xvelar01, type: 'gas',       semiMajorAU: 2.1 },
+        Sulfis: { seed: 0xsulf001, type: 'volcanic',  semiMajorAU: 0.4 },
+      }
+
+      const planet = PLANETS[targetPlanet]
+      if (!planet) return
+
+      console.log(`[server] ORBITAL_CAPSULE_LAUNCHED by ${username} → ${targetPlanet}`)
+      slack._post(`*Orbital capsule launched!* ${username} is sending a probe to ${targetPlanet}...`).catch(() => {})
+
+      // Compute probe result (seeded deterministic random)
+      function seededRand(seed) {
+        let s = seed >>> 0
+        return () => {
+          s = (Math.imul(s, 1664525) + 1013904223) >>> 0
+          return s / 0xffffffff
+        }
+      }
+
+      const rand = seededRand(planet.seed)
+      let surfaceTemp, atmosphere, resources
+
+      if (planet.type === 'rocky') {
+        surfaceTemp = Math.round(220 + rand() * 280)
+        const co2 = (40 + rand() * 55).toFixed(0)
+        const n2  = Math.max(0, 100 - parseFloat(co2) - rand() * 5).toFixed(0)
+        atmosphere = `CO2 ${co2}%, N2 ${n2}%`
+        resources = ['iron_ore', 'silicate', 'frozen_water', 'copper_ore', 'titanium', 'basalt']
+          .sort(() => rand() - 0.5).slice(0, 2 + Math.floor(rand() * 3))
+      } else if (planet.type === 'gas') {
+        surfaceTemp = Math.round(60 + rand() * 120)
+        atmosphere = `H2 ${(70 + rand() * 20).toFixed(0)}%, He ${(5 + rand() * 15).toFixed(0)}%, CH4 trace`
+        resources = ['methane', 'ammonia', 'hydrogen_gas', 'helium3', 'ice_crystals']
+          .sort(() => rand() - 0.5).slice(0, 2 + Math.floor(rand() * 2))
+      } else {
+        surfaceTemp = Math.round(500 + rand() * 400)
+        atmosphere = `SO2 ${(60 + rand() * 30).toFixed(0)}%, CO2 ${(rand() * 30).toFixed(0)}%`
+        resources = ['sulfur', 'iron_ore', 'obsidian', 'volcanic_ash', 'rare_earth']
+          .sort(() => rand() - 0.5).slice(0, 2 + Math.floor(rand() * 3))
+      }
+
+      // Broadcast PROBE_LANDED after 5s (simulated transit)
+      setTimeout(() => {
+        broadcastAll({
+          type:         'PROBE_LANDED',
+          planetName:   targetPlanet,
+          surfaceTemp,
+          atmosphere,
+          resources,
+          discoveredBy: userId,
+          discovererName: username,
+        })
+        console.log(`[server] PROBE_LANDED on ${targetPlanet}: ${surfaceTemp}K, resources: ${resources.join(', ')}`)
+        slack._post(`*Probe landed on ${targetPlanet}!* Surface: ${surfaceTemp}K. Resources: ${resources.join(', ')}`).catch(() => {})
+
+        // Persist to Neon DB
+        recordProbe(targetPlanet, surfaceTemp, atmosphere, resources.join(','), userId).catch(() => {})
+      }, 5000)
+      break
+    }
+
+    // ── M13 Track C: Reactor events ────────────────────────────────────────────
+
+    case 'REACTOR_MELTDOWN': {
+      // Client reports reactor meltdown. Broadcast to all.
+      const userId = ws._userId
+      if (!userId) return
+      const { pos } = msg
+      const p = players.get(userId)
+      const username = p?.username ?? userId
+
+      console.error(`[server] REACTOR_MELTDOWN reported by ${username} at`, pos)
+      broadcastAll({ type: 'REACTOR_MELTDOWN', pos, launcherName: username })
+      slack._post(`*REACTOR MELTDOWN!* ${username}'s nuclear reactor has gone critical. Radiation zone active.`).catch(() => {})
+      break
+    }
+
+    case 'REACTOR_CLEANED': {
+      // Client confirms meltdown cleanup complete.
+      const userId = ws._userId
+      if (!userId) return
+      const { pos } = msg
+      const p = players.get(userId)
+      const username = p?.username ?? userId
+
+      console.log(`[server] REACTOR_CLEANED by ${username}`)
+      broadcastAll({ type: 'REACTOR_CLEANED', pos, cleanerName: username })
+      slack._post(`*Meltdown contained!* ${username} has cleaned up the reactor site.`).catch(() => {})
       break
     }
 

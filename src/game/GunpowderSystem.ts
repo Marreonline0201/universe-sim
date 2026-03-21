@@ -41,7 +41,7 @@ const SMOKE_DURATION  = 2.0       // seconds
 
 // Module-level musket state (one musket per player)
 const _musket: MusketState = {
-  reloadProgress: 0,
+  reloadProgress: 1,  // starts loaded — player has already charged it before equipping
   isReloading: false,
   reloadStartTime: 0,
   lastFiredAt: 0,

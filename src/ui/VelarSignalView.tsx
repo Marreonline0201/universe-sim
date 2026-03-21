@@ -15,6 +15,8 @@
 //   - Flashing "TRANSMITTING RESPONSE..." footer when active
 
 import { useState, useEffect, useRef } from 'react'
+import { DecoderPanel } from './DecoderPanel'
+import { useVelarStore } from '../store/velarStore'
 
 export interface AnomalySignalData {
   launcherId:   string
@@ -48,8 +50,12 @@ export function VelarSignalView({ signal }: Props) {
   const [pulseIdx, setPulseIdx]       = useState(0)
   const [signalBars, setSignalBars]   = useState([0.3, 0.5, 0.7, 0.9, 0.6])
   const [transmitting, setTransmitting] = useState(false)
+  const [showDecoder, setShowDecoder]   = useState(false)
   const timerRef  = useRef<ReturnType<typeof setTimeout> | null>(null)
   const frameRef  = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  const isDecoded   = useVelarStore(s => s.isDecoded)
+  const markDecoded = useVelarStore(s => s.markDecoded)
 
   const pulses = signal ? textToMorsePulses(signal.message) : []
 
@@ -215,6 +221,55 @@ export function VelarSignalView({ signal }: Props) {
       }}>
         CLASSIFICATION: UNKNOWN INTELLIGENCE // ACCESS LEVEL 7 REQUIRED
       </div>
+
+      {/* M13: Decoder button / status */}
+      {!isDecoded && !showDecoder && transmitting && (
+        <button
+          onClick={() => setShowDecoder(true)}
+          style={{
+            display:       'block',
+            width:         '100%',
+            marginBottom:  '8px',
+            padding:       '8px 0',
+            background:    'rgba(0,229,204,0.1)',
+            border:        '1px solid rgba(0,229,204,0.4)',
+            borderRadius:  '4px',
+            color:         '#00e5cc',
+            fontFamily:    '"Courier New", monospace',
+            fontSize:      '10px',
+            letterSpacing: '0.12em',
+            cursor:        'pointer',
+            pointerEvents: 'all',
+          }}
+        >
+          ATTEMPT DECODE
+        </button>
+      )}
+
+      {showDecoder && !isDecoded && (
+        <div style={{ pointerEvents: 'all' }}>
+          <DecoderPanel
+            onSuccess={() => {
+              // userId from window — companion site doesn't have auth, use 'player'
+              const uid  = (window as any).__userId  ?? 'player'
+              const uname = (window as any).__username ?? 'Unknown'
+              markDecoded(uid, uname)
+            }}
+          />
+        </div>
+      )}
+
+      {isDecoded && (
+        <div style={{
+          fontSize:      '9px',
+          color:         '#00e5cc',
+          marginBottom:  '8px',
+          letterSpacing: '0.1em',
+          opacity:       0.9,
+        }}>
+          COORDINATES LOCKED — VELAR CONTACT ESTABLISHED
+        </div>
+      )}
 
       {/* Transmitting footer */}
       {transmitting && (

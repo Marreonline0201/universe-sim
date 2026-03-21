@@ -163,6 +163,8 @@ const M = {
   GLASS: 18, BRICK: 19, MORTAR: 20, ROPE: 23, LEATHER: 24,
   COPPER: 25, URANIUM: 39, SILICON: 32, WIRE: 34, PLASTIC: 35, RUBBER: 36,
   IRON_INGOT: 43, GLASS_INGOT: 63, CIRCUIT_BOARD: 66, NUCLEAR_FUEL: 67,
+  // M13
+  HYDROGEN: 68,
 } as const
 
 /**
@@ -402,6 +404,45 @@ export const BUILDING_TYPES: BuildingType[] = [
     size: [12, 18, 12], provides: ['nuclear_power', 'power_grid', 'unlimited_power'],
     maxOccupants: 5, structuralStrength: 25.0, maintenanceRate: 0.15,
   },
+  // ── M13: Tier 4 — Nuclear Age Infrastructure ─────────────────────────────
+  // nuclear_reactor: proper M13 version using recipe 101 inputs (steel + circuit + nuclear_fuel)
+  // electric_forge:  EAF-style smelter — requires nuclear_power in settlement
+  // arc_welder:      high-precision electronics assembly station
+  {
+    id: 'nuclear_reactor', name: 'Nuclear Reactor', tier: 4,
+    materialsRequired: [
+      { materialId: M.IRON_INGOT,    quantity: 8 },
+      { materialId: M.CIRCUIT_BOARD, quantity: 4 },
+      { materialId: M.NUCLEAR_FUEL,  quantity: 2 },
+    ],
+    size: [12, 18, 12], provides: ['nuclear_power', 'power_grid', 'unlimited_power', 'electrolysis'],
+    maxOccupants: 5, structuralStrength: 25.0, maintenanceRate: 0.1,
+  },
+  {
+    // Electric Arc Furnace — smelt 3× faster than blast furnace when nuclear_power present.
+    // Real: graphite electrode + 3-phase AC → 1800°C arc. Industrial steel production.
+    id: 'electric_forge', name: 'Electric Forge', tier: 4,
+    materialsRequired: [
+      { materialId: M.IRON_INGOT,    quantity: 6 },
+      { materialId: M.CIRCUIT_BOARD, quantity: 3 },
+      { materialId: M.COPPER,        quantity: 4 },
+    ],
+    size: [6, 5, 6], provides: ['electric_smelting', 'fast_forge', 'nuclear_powered'],
+    maxOccupants: 3, structuralStrength: 8.0, maintenanceRate: 0.5,
+  },
+  {
+    // Arc Welder station — precision electronics fabrication.
+    // Required to assemble satellites, orbital_capsules, and advanced circuits.
+    id: 'arc_welder', name: 'Arc Welder Station', tier: 4,
+    materialsRequired: [
+      { materialId: M.IRON_INGOT,    quantity: 4 },
+      { materialId: M.CIRCUIT_BOARD, quantity: 2 },
+      { materialId: M.WIRE,          quantity: 4 },
+    ],
+    size: [4, 3, 4], provides: ['arc_welding', 'electronics_fab', 'nuclear_powered'],
+    maxOccupants: 2, structuralStrength: 5.0, maintenanceRate: 0.3,
+  },
+
   {
     // Cast iron cannon on oak carriage wheels. Muzzle-load, 10s reload.
     // Range ~200m, ballistic arc, splash damage 8m radius.

@@ -123,6 +123,9 @@ import { ElectricLightPass, registerElectricSettlements } from './ElectricLightP
 
 // M12 Track C: civLevel 6 gate handled in SettlementManager (server) + WorldSocket
 
+// M13 Track C: Nuclear reactor tick
+import { tickNuclearReactor } from '../game/NuclearReactorSystem'
+
 // M9: Register river valley carving with the terrain height function.
 // Must happen before any geometry is generated (before generatePlanetGeometry is called).
 // registerRiverCarveDepth wires getRiverCarveDepth into terrainHeightAt so the
@@ -1290,10 +1293,10 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
     tickFoodCooking(dt, inventory, simManagerRef.current, px, py, pz)
 
     // ── Slice 5: Wound + infection system ─────────────────────────────────────
-    tickWoundSystem(dt)
+    tickWoundSystem(dt, entityId ?? 0)
 
     // ── Slice 6: Sleep / stamina restoration ──────────────────────────────────
-    tickSleepSystem(dt)
+    tickSleepSystem(dt, entityId ?? 0)
 
     // ── Slice 7: Furnace smelting (copper) ───────────────────────────────────
     tickFurnaceSmelting(
@@ -1330,6 +1333,15 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
 
     // ── M12 Track A: Rocket launch tick ──────────────────────────────────────
     tickRocket(dt)
+
+    // ── M13 Track C: Nuclear reactor tick ────────────────────────────────────
+    // hasWaterCooling: simplified — true if player is near a water source (river/ocean)
+    // Full implementation: check for water_tank building within 5m of reactor.
+    // playerPos is read from ECS Position component each frame.
+    {
+      const ps = usePlayerStore.getState()
+      tickNuclearReactor(dt, false, [ps.x, ps.y, ps.z])
+    }
 
     // ── P2-5: Building physics — fire damage to combustible structures ────────
     tickBuildingPhysics(dt, buildingSystem, simManagerRef.current)
@@ -1409,7 +1421,47 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
       const itemId       = equippedItem?.itemId ?? 0
       const stats        = getItemStats(itemId)
 
-      // ── Check creatures first — weapons should damage living things ────────
+      // ── M11: Musket firing — requires ammo, enforces reload time ────────────
+      const _isMusket = itemId === ITEM.MUSKET
+      if (_isMusket) {
+        if (!isMusketReady()) {
+          useUiStore.getState().addNotification('Musket reloading...', 'warning')
+        } else {
+          const hasBall = inventory.countMaterial(MAT.MUSKET_BALL) > 0
+          if (!hasBall) {
+            useUiStore.getState().addNotification('No musket balls! Craft iron balls first.', 'warning')
+          } else {
+            const ballSlot = inventory.findItem(MAT.MUSKET_BALL)
+            if (ballSlot >= 0) inventory.removeItem(ballSlot, 1)
+            let targetEid: number | null = null
+            let _nearestDist = Infinity
+            for (const [eid] of creatureWander) {
+              const dx = Position.x[eid] - px, dy = Position.y[eid] - py, dz = Position.z[eid] - pz
+              const dist = Math.sqrt(dx * dx + dy * dy + dz * dz)
+              if (dist < stats.range && dist < _nearestDist) { _nearestDist = dist; targetEid = eid }
+            }
+            const shotResult = fireMusket(px, py, pz, targetEid)
+            if (shotResult && shotResult.effectiveHit && targetEid !== null) {
+              Health.current[targetEid] = Math.max(0, Health.current[targetEid] - shotResult.damage)
+              if (Health.current[targetEid] <= 0) {
+                inventory.addItem({ itemId: 0, materialId: MAT.RAW_MEAT, quantity: 1, quality: 0.8 })
+                inventory.addItem({ itemId: 0, materialId: MAT.HIDE, quantity: 1, quality: 0.7 })
+                creatureWander.delete(targetEid)
+                removeEntity(world, targetEid)
+                addEvolutionPoints(3)
+                useUiStore.getState().addNotification('Creature killed by musket shot!', 'discovery')
+              } else {
+                useUiStore.getState().addNotification(`Musket hit — ${shotResult.damage} dmg! Reloading (8s)...`, 'warning')
+              }
+            } else if (shotResult) {
+              useUiStore.getState().addNotification('Musket fired — missed! Reloading (8s)...', 'info')
+            }
+          }
+        }
+      }
+
+      // ── Check creatures / harvest (skip for musket — ranged only) ────────────
+      if (!_isMusket) {
       let hitCreature = false
       let nearestCreatureEid = -1
       let nearestCreatureDist = Infinity
@@ -1584,6 +1636,7 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
           )
         }
       }
+      } // end if (!_isMusket)
     }
 
     // ── Eat (E key when cooked food in inventory) ─────────────────────────────
@@ -1638,13 +1691,30 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
       }
     }
 
-    // ── E key: eat cooked food ────────────────────────────────────────────────
+    // ── E key: eat cooked food, apply herb, or drink from river ──────────────
+    // Priority: food > herb > river drink. popEat() is consumed once so all
+    // three actions must be checked in a single block.
     if (!gs.inputBlocked && controllerRef.current?.popEat?.()) {
-      if (!tryEatFood(inventory)) {
-        // If no food, try herb treatment instead
-        tryApplyHerb(inventory)
+      if (!tryEatFood(inventory, entityId ?? 0)) {
+        const _psE = usePlayerStore.getState()
+        if (_psE.wounds.length > 0 && !tryApplyHerb(inventory)) {
+          // Has wounds but no herb — give feedback
+          useUiStore.getState().addNotification('No herbs (Leaf) to treat wound.', 'warning')
+        } else if (_psE.wounds.length === 0) {
+          // No food and no wounds — try river drink if player is standing in a river
+          const _inRiver = useRiverStore.getState().inRiver
+          if (_inRiver) {
+            if (_psE.thirst > 0.01) {
+              const instant = Math.min(_psE.thirst, 0.25)
+              _psE.updateVitals({ thirst: Math.max(0, _psE.thirst - instant) })
+              Metabolism.thirst[entityId ?? 0] = Math.max(0, _psE.thirst - instant)
+              useUiStore.getState().addNotification('Drank from river — thirst reduced!', 'info')
+            }
+          // else: not in river, no action available — silent
+        }
       }
     }
+    } // end if (!gs.inputBlocked && popEat)
 
     // ── H key: apply herb to wound ────────────────────────────────────────────
     if (!gs.inputBlocked && controllerRef.current?.popHerb?.()) {
@@ -1866,16 +1936,7 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
           if (gs.gatherPrompt === null) gs.setGatherPrompt(drinkLabel)
         }
 
-        // E key: explicit drink action when near river
-        if (!gs.inputBlocked && inRiver && controllerRef.current?.popEat?.()) {
-          const psDrink = usePlayerStore.getState()
-          if (psDrink.thirst > 0.01) {
-            const instant = Math.min(psDrink.thirst, 0.25)
-            psDrink.updateVitals({ thirst: Math.max(0, psDrink.thirst - instant) })
-            Metabolism.thirst[entityId] = Math.max(0, psDrink.thirst - instant)
-            useUiStore.getState().addNotification('Drank from river — thirst reduced!', 'info')
-          }
-        }
+        // E key river drinking is handled in the unified E key block above
       } else {
         // No river nearby
         if (rStore.nearRiver)   rStore.setNearRiver(false)

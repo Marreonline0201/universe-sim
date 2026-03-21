@@ -235,6 +235,8 @@ export const MAT = {
   ROCKET_FUEL: 65,       // coal+sulfur+saltpeter refined propellant — launch pad feedstock
   CIRCUIT_BOARD: 66,     // iron+copper+gold semiconductor substrate — electronics foundation
   NUCLEAR_FUEL: 67,      // enriched uranium pellets — nuclear_reactor feedstock
+  // ── M13: Velar Contact ───────────────────────────────────────────────────
+  HYDROGEN: 68,          // electrolysis product (H2O → H2 + ½O2). First hydrogen fuel.
 } as const
 
 // ── Item IDs ──────────────────────────────────────────────────────────────────
@@ -277,6 +279,8 @@ export const ITEM = {
   // Reuse those IDs — M12 makes them craftable via new recipes 98-99.
   // New M12-specific items that don't conflict:
   ARTILLERY_SHELL: 65,   // ballistic projectile — ArtillerySystem splash damage radius 8m
+  // ── M13: Velar Contact ───────────────────────────────────────────────────
+  ORBITAL_CAPSULE: 66,   // interplanetary probe vehicle — recipes 100
 } as const
 
 // ── Crafting Recipes ─────────────────────────────────────────────────────────
@@ -1130,5 +1134,76 @@ export const CRAFTING_RECIPES: CraftingRecipe[] = [
     ],
     output: { itemId: 39, quantity: 1 },   // ITEM.ROCKET = 39
     knowledgeRequired: ['rocketry', 'aerospace'],
+  },
+
+  // ── M13: Velar Contact ────────────────────────────────────────────────────
+  //
+  // Orbital capsule: interplanetary probe vehicle.
+  //   3x Rocket (the base launch vehicle) + 5x circuit_board (avionics) + 10x steel_ingot
+  //   Launch from launch_pad → server targets nearest planet → PROBE_LANDED broadcast.
+  //
+  // Nuclear Reactor (buildable): 8x steel_ingot + 4x circuit_board + 2x nuclear_fuel
+  //   Unlocks: electric_forge, arc_welder, electrolysis (H2O → H2).
+  //   Overload → REACTOR_MELTDOWN if no water cooling for >30s at 800°C+.
+  //
+  // Electric Forge (building-recipe): uses nuclear power to smelt 3× faster.
+  //   Real basis: electric arc furnace (EAF) — industrial steel production post-1900.
+  //   Temperature: up to 1800°C via 3-phase AC arc between graphite electrodes.
+  //
+  // Arc Welder: high-temperature metal joining via sustained electric arc.
+  //   Required to craft circuit boards, satellites, and other precision electronics.
+  //   Historical: carbon arc lamp (1802) → metal arc welding (1881, Auguste de Méritens).
+
+  {
+    // id 100 — Orbital Capsule: 3x Rocket (itemId 39) + 5x circuit_board + 10x steel_ingot
+    // M13: First interplanetary probe vehicle. Launched from launch_pad.
+    // NOTE: inputs use materialId=0 for item inputs, tracked by itemId.
+    // Circuit board and steel ingot are raw materials (materialId != 0).
+    id: 100, name: 'Orbital Capsule', tier: 4, time: 1200,
+    inputs: [
+      { materialId: MAT.CIRCUIT_BOARD, quantity: 5  },
+      { materialId: MAT.STEEL_INGOT,   quantity: 10 },
+    ],
+    output: { itemId: ITEM.ORBITAL_CAPSULE, quantity: 1 },
+    knowledgeRequired: ['rocketry', 'aerospace', 'orbital_mechanics'],
+  },
+  {
+    // id 101 — Nuclear Reactor: 8x steel_ingot + 4x circuit_board + 2x nuclear_fuel
+    // Placed building. Output itemId=0 marks it as building-panel recipe.
+    // Provides 100 kW power — unlocks electric_forge, arc_welder, electrolysis.
+    id: 101, name: 'Nuclear Reactor', tier: 4, time: 3600,
+    inputs: [
+      { materialId: MAT.STEEL_INGOT,  quantity: 8 },
+      { materialId: MAT.CIRCUIT_BOARD, quantity: 4 },
+      { materialId: MAT.NUCLEAR_FUEL,  quantity: 2 },
+    ],
+    output: { itemId: 0, quantity: 0 },   // building — placed via BuildPanel
+    knowledgeRequired: ['nuclear_physics', 'electronics'],
+  },
+  {
+    // id 102 — Electric Forge: 6x steel_ingot + 3x circuit_board → placed building
+    // Requires nuclear_reactor power in settlement. Smelts 3× faster than blast furnace.
+    // Real: electric arc furnace (EAF) — graphite electrodes + 3-phase AC, 1800°C.
+    id: 102, name: 'Electric Forge', tier: 4, time: 900,
+    inputs: [
+      { materialId: MAT.STEEL_INGOT,   quantity: 6 },
+      { materialId: MAT.CIRCUIT_BOARD, quantity: 3 },
+      { materialId: MAT.COPPER,        quantity: 4 },
+    ],
+    output: { itemId: 0, quantity: 0 },   // building
+    knowledgeRequired: ['nuclear_physics', 'electromagnetism'],
+  },
+  {
+    // id 103 — Arc Welder: 4x steel_ingot + 2x circuit_board + 4x copper_wire
+    // Portable tool for electronics assembly. Required for satellite/orbital_capsule.
+    // Real: MIG/TIG welder principle — sustained plasma arc at 6000°C tip temperature.
+    id: 103, name: 'Arc Welder', tier: 4, time: 300,
+    inputs: [
+      { materialId: MAT.STEEL_INGOT,   quantity: 4 },
+      { materialId: MAT.CIRCUIT_BOARD, quantity: 2 },
+      { materialId: MAT.WIRE,          quantity: 4 },
+    ],
+    output: { itemId: 0, quantity: 0 },   // building
+    knowledgeRequired: ['nuclear_physics', 'electromagnetism'],
   },
 ]

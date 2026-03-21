@@ -13,6 +13,9 @@
 
 import React, { useEffect, useState } from 'react'
 import { VelarSignalView, type AnomalySignalData } from './VelarSignalView'
+import { OrbitalView } from './OrbitalView'
+import { useVelarStore } from '../store/velarStore'
+import { useGameStore } from '../store/gameStore'
 
 interface Props {
   dayAngle: number       // sun angle in radians — used to compute moon phase
@@ -97,9 +100,14 @@ const PLANET_DATA = [
   },
 ]
 
+type TelescopeTab = 'moon' | 'planets' | 'orbital'
+
 export function TelescopeView({ dayAngle, onClose, anomalySignal }: Props) {
   const { fraction, label, age } = getMoonPhase(dayAngle)
   const [activePlanet, setActivePlanet] = useState<number | null>(null)
+  const [activeTab, setActiveTab]       = useState<TelescopeTab>('moon')
+  const simSeconds = useGameStore(s => s.simSeconds)
+  const isDecoded  = useVelarStore(s => s.isDecoded)
 
   // Close on Escape
   useEffect(() => {
@@ -170,76 +178,114 @@ export function TelescopeView({ dayAngle, onClose, anomalySignal }: Props) {
             Refracting Telescope — Observation Log
           </div>
 
-          {/* Moon section */}
-          <div style={{
-            background: 'rgba(10,20,40,0.7)',
-            border: '1px solid #1a2a4a',
-            borderRadius: 8,
-            padding: '12px 20px',
-            width: '100%',
-            textAlign: 'center',
-          }}>
-            <div style={{ fontSize: 11, color: '#4a6a8a', marginBottom: 8, letterSpacing: 2 }}>LUNAR OBSERVATION</div>
-            <MoonPhaseDiagram fraction={fraction} />
-            <div style={{ marginTop: 8, fontSize: 14, color: '#d0e4f0' }}>{label}</div>
-            <div style={{ fontSize: 11, color: '#4a6a8a', marginTop: 4 }}>
-              Age: {age.toFixed(1)} days — Illumination: {(fraction * 100).toFixed(0)}%
-            </div>
-          </div>
-
-          {/* Planets section */}
-          <div style={{ width: '100%' }}>
-            <div style={{ fontSize: 11, color: '#4a6a8a', marginBottom: 8, letterSpacing: 2 }}>WANDERING STARS (PLANETS)</div>
-            {PLANET_DATA.map((planet, i) => (
-              <div
-                key={planet.name}
-                onClick={() => setActivePlanet(activePlanet === i ? null : i)}
+          {/* Tab navigation */}
+          <div style={{ display: 'flex', gap: 6, width: '100%' }}>
+            {(['moon', 'planets', 'orbital'] as TelescopeTab[]).map(tab => (
+              <button
+                key={tab}
+                onClick={() => setActiveTab(tab)}
                 style={{
-                  padding: '8px 12px',
-                  marginBottom: 6,
-                  background: activePlanet === i ? 'rgba(30,60,90,0.8)' : 'rgba(10,20,40,0.5)',
-                  border: `1px solid ${activePlanet === i ? '#2a5a8a' : '#1a2a3a'}`,
-                  borderRadius: 6,
-                  cursor: 'pointer',
-                  transition: 'all 0.2s',
+                  flex:         1,
+                  padding:      '5px 0',
+                  background:   activeTab === tab ? 'rgba(30,60,90,0.8)' : 'rgba(10,20,40,0.4)',
+                  border:       `1px solid ${activeTab === tab ? '#2a5a8a' : '#1a2a3a'}`,
+                  borderRadius: 4,
+                  color:        activeTab === tab ? '#c0d8f0' : '#4a6a8a',
+                  fontFamily:   'monospace',
+                  fontSize:     10,
+                  cursor:       'pointer',
+                  letterSpacing: 1,
+                  textTransform: 'uppercase',
                 }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <div style={{
-                    width: 8, height: 8, borderRadius: '50%',
-                    background: planet.color,
-                    boxShadow: `0 0 6px ${planet.color}`,
-                    flexShrink: 0,
-                  }} />
-                  <span style={{ fontSize: 13, color: '#c0d8f0', fontWeight: 600 }}>{planet.name}</span>
-                  <span style={{ fontSize: 10, color: '#4a6a8a', marginLeft: 'auto' }}>
-                    {activePlanet === i ? '[ collapse ]' : '[ analyze ]'}
-                  </span>
-                </div>
-                {activePlanet === i && (
-                  <div style={{ marginTop: 8 }}>
-                    <div style={{ fontSize: 11, color: '#8ab0c8', lineHeight: 1.5 }}>
-                      {planet.description}
-                    </div>
-                    {planet.teaser && (
-                      <div style={{
-                        marginTop: 8,
-                        padding: '6px 10px',
-                        background: 'rgba(80,40,0,0.4)',
-                        border: '1px solid #6a4a20',
-                        borderRadius: 4,
-                        fontSize: 10,
-                        color: '#d4a060',
-                        fontStyle: 'italic',
-                      }}>
-                        ANOMALY DETECTED: {planet.teaser}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
+                {tab === 'orbital' ? (isDecoded ? 'Orbital' : 'Orbital *') : tab}
+              </button>
             ))}
           </div>
+
+          {/* ── Moon tab ─────────────────────────────────────────────────────── */}
+          {activeTab === 'moon' && (
+            <>
+              <div style={{
+                background: 'rgba(10,20,40,0.7)',
+                border: '1px solid #1a2a4a',
+                borderRadius: 8,
+                padding: '12px 20px',
+                width: '100%',
+                textAlign: 'center',
+              }}>
+                <div style={{ fontSize: 11, color: '#4a6a8a', marginBottom: 8, letterSpacing: 2 }}>LUNAR OBSERVATION</div>
+                <MoonPhaseDiagram fraction={fraction} />
+                <div style={{ marginTop: 8, fontSize: 14, color: '#d0e4f0' }}>{label}</div>
+                <div style={{ fontSize: 11, color: '#4a6a8a', marginTop: 4 }}>
+                  Age: {age.toFixed(1)} days — Illumination: {(fraction * 100).toFixed(0)}%
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* ── Planets tab ──────────────────────────────────────────────────── */}
+          {activeTab === 'planets' && (
+            <div style={{ width: '100%' }}>
+              <div style={{ fontSize: 11, color: '#4a6a8a', marginBottom: 8, letterSpacing: 2 }}>WANDERING STARS (PLANETS)</div>
+              {PLANET_DATA.map((planet, i) => (
+                <div
+                  key={planet.name}
+                  onClick={() => setActivePlanet(activePlanet === i ? null : i)}
+                  style={{
+                    padding: '8px 12px',
+                    marginBottom: 6,
+                    background: activePlanet === i ? 'rgba(30,60,90,0.8)' : 'rgba(10,20,40,0.5)',
+                    border: `1px solid ${activePlanet === i ? '#2a5a8a' : '#1a2a3a'}`,
+                    borderRadius: 6,
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div style={{
+                      width: 8, height: 8, borderRadius: '50%',
+                      background: planet.color,
+                      boxShadow: `0 0 6px ${planet.color}`,
+                      flexShrink: 0,
+                    }} />
+                    <span style={{ fontSize: 13, color: '#c0d8f0', fontWeight: 600 }}>{planet.name}</span>
+                    <span style={{ fontSize: 10, color: '#4a6a8a', marginLeft: 'auto' }}>
+                      {activePlanet === i ? '[ collapse ]' : '[ analyze ]'}
+                    </span>
+                  </div>
+                  {activePlanet === i && (
+                    <div style={{ marginTop: 8 }}>
+                      <div style={{ fontSize: 11, color: '#8ab0c8', lineHeight: 1.5 }}>
+                        {planet.description}
+                      </div>
+                      {planet.teaser && (
+                        <div style={{
+                          marginTop: 8,
+                          padding: '6px 10px',
+                          background: 'rgba(80,40,0,0.4)',
+                          border: '1px solid #6a4a20',
+                          borderRadius: 4,
+                          fontSize: 10,
+                          color: '#d4a060',
+                          fontStyle: 'italic',
+                        }}>
+                          ANOMALY DETECTED: {planet.teaser}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* ── Orbital Mechanics tab (M13 Track B) ─────────────────────────── */}
+          {activeTab === 'orbital' && (
+            <div style={{ width: '100%', overflowY: 'auto' }}>
+              <OrbitalView simTime={simSeconds} />
+            </div>
+          )}
 
           <div style={{ fontSize: 10, color: '#2a4a6a', marginTop: 'auto' }}>
             Press ESC to lower telescope

@@ -18,6 +18,8 @@ import { inventory, techTree } from '../game/GameSingletons'
 import type { LocalSimManager } from '../engine/LocalSimManager'
 import { useDiplomacyStore } from '../store/diplomacyStore'
 import { receiveRadioBroadcast, registerTower } from '../game/RadioSystem'
+import { useVelarStore } from '../store/velarStore'
+import { generateProbeResult, SYSTEM_PLANETS } from '../game/OrbitalMechanicsSystem'
 
 // Module-level reference to the active LocalSimManager.
 // Set by SceneRoot after the sim grid initialises.
@@ -655,6 +657,73 @@ export class WorldSocket {
         )
         useUiStore.getState().addNotification(
           `[Radio] ${msg.settlementName as string}: ${msg.message as string}`,
+          'info'
+        )
+        break
+      }
+
+      // ── M13: Velar Contact ──────────────────────────────────────────────────
+
+      case 'VELAR_DECODED': {
+        // Server confirms decode — broadcast to all players.
+        const decoderName = msg.decoderName as string ?? 'Unknown'
+        const decoderId   = msg.decoderId   as string ?? ''
+        useVelarStore.getState().markDecoded(decoderId, decoderName)
+        useUiStore.getState().addNotification(
+          `First Contact! ${decoderName} has decoded the Velar signal. The universe is not empty.`,
+          'discovery'
+        )
+        // Dispatch event so HUD can show FirstContactOverlay
+        window.dispatchEvent(new CustomEvent('velar-first-contact', {
+          detail: { decoderName, decoderId }
+        }))
+        break
+      }
+
+      case 'PROBE_LANDED': {
+        // Server confirms orbital capsule probe landing.
+        const planetName  = msg.planetName  as string
+        const surfaceTemp = msg.surfaceTemp  as number
+        const atmosphere  = msg.atmosphere   as string
+        const resources   = (msg.resources   as string[]) ?? []
+        const discoveredBy = msg.discoveredBy as string ?? ''
+
+        useVelarStore.getState().addProbeResult({
+          planetName, surfaceTemp, atmosphere, resources,
+          discoveredAt: Date.now(),
+          discoveredBy,
+        })
+
+        // Unlock new recipes from probe data (resources from other planets)
+        const planetEntry = SYSTEM_PLANETS.find(p => p.name === planetName)
+        if (planetEntry) {
+          // Discover probe data recipes (future M14) — notification for now
+        }
+
+        useUiStore.getState().addNotification(
+          `Probe landed on ${planetName}! Surface: ${surfaceTemp}K. Resources: ${resources.join(', ')}`,
+          'discovery'
+        )
+        window.dispatchEvent(new CustomEvent('probe-landed', { detail: msg }))
+        break
+      }
+
+      case 'REACTOR_MELTDOWN': {
+        // Server confirms reactor meltdown — radiation zone active.
+        const { pos, launcherName } = msg
+        useVelarStore.getState().triggerMeltdown(pos as [number, number, number])
+        useUiStore.getState().addNotification(
+          `REACTOR MELTDOWN${launcherName ? ` at ${launcherName as string}'s settlement` : ''}! Radiation zone active — 20m radius, 2 HP/s drain. Deliver Clay + Stone to contain.`,
+          'error'
+        )
+        break
+      }
+
+      case 'REACTOR_CLEANED': {
+        // Server confirms meltdown contained.
+        useVelarStore.getState().clearMeltdown()
+        useUiStore.getState().addNotification(
+          'Reactor meltdown contained! Radiation zone cleared.',
           'info'
         )
         break

@@ -38,5 +38,6 @@ export default async function handler(req: any, res: any) {
     evolutionTree: JSON.parse(row.evolution_tree ?? '[]'),
     knownRecipes: JSON.parse(row.known_recipes ?? '[]'),
     journalEntries: JSON.parse(row.journal_entries ?? '[]'),
+    buildings: JSON.parse(row.buildings ?? '[]'),
   })
 }

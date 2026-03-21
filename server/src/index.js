@@ -15,6 +15,10 @@ import { SlackAgent } from './SlackAgent.js'
 const PORT = parseInt(process.env.PORT ?? '8080', 10)
 const PERSIST_INTERVAL_MS = 30_000 // save simTime to DB every 30 s
 
+// Admin secret — must match VITE_ADMIN_SECRET on the client.
+// Set in Railway env; unset = admin commands disabled.
+const ADMIN_SECRET = process.env.ADMIN_SECRET ?? null
+
 // ── Bootstrap ──────────────────────────────────────────────────────────────────
 
 const clock    = new WorldClock()
@@ -165,6 +169,11 @@ function handleMessage(ws, msg) {
     }
 
     case 'ADMIN_SET_TIME': {
+      // Reject if no secret configured or secret doesn't match
+      if (!ADMIN_SECRET || msg.adminSecret !== ADMIN_SECRET) {
+        console.warn(`[server] Rejected ADMIN_SET_TIME from ${ws._userId ?? 'unknown'} (bad secret)`)
+        return
+      }
       const { timeScale, paused } = msg
       if (typeof timeScale === 'number' && timeScale > 0) {
         clock.setTimeScale(timeScale)

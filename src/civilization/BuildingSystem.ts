@@ -149,6 +149,12 @@ export class BuildingSystem {
   get count(): number {
     return this.buildings.size
   }
+
+  /** Restore placed buildings from a serialized list (e.g. from DB). */
+  loadBuildings(buildings: PlacedBuilding[]): void {
+    this.buildings = new Map(buildings.map(b => [b.id, { ...b }]))
+    this.nextId = buildings.reduce((max, b) => Math.max(max, b.id + 1), 1)
+  }
 }
 
 // ── Material IDs (mirrored from Inventory.ts) ─────────────────────────────────

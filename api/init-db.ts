@@ -36,6 +36,7 @@ export default async function handler(_req: Request) {
   await sql`ALTER TABLE player_saves ADD COLUMN IF NOT EXISTS known_recipes          TEXT DEFAULT '[]'`
   await sql`ALTER TABLE player_saves ADD COLUMN IF NOT EXISTS tech_tree_in_progress  TEXT DEFAULT '[]'`
   await sql`ALTER TABLE player_saves ADD COLUMN IF NOT EXISTS journal_entries        TEXT DEFAULT '[]'`
+  await sql`ALTER TABLE player_saves ADD COLUMN IF NOT EXISTS buildings              TEXT DEFAULT '[]'`
 
   return Response.json({ ok: true })
 }

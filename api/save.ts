@@ -27,7 +27,7 @@ export default async function handler(req: any, res: any) {
       health, hunger, thirst, energy, fatigue,
       ev_points, civ_tier, discoveries, current_goal, sim_seconds,
       inventory, tech_tree, tech_tree_in_progress, evolution_tree, known_recipes,
-      journal_entries,
+      journal_entries, buildings,
       updated_at
     ) VALUES (
       ${userId}, ${body.username ?? ''}, ${body.x ?? 0}, ${body.y ?? 0.9}, ${body.z ?? 0},
@@ -42,6 +42,7 @@ export default async function handler(req: any, res: any) {
       ${JSON.stringify(body.evolutionTree ?? [])},
       ${JSON.stringify(body.knownRecipes ?? [])},
       ${JSON.stringify(body.journalEntries ?? [])},
+      ${JSON.stringify(body.buildings ?? [])},
       NOW()
     )
     ON CONFLICT (user_id) DO UPDATE SET
@@ -65,6 +66,7 @@ export default async function handler(req: any, res: any) {
       evolution_tree          = EXCLUDED.evolution_tree,
       known_recipes           = EXCLUDED.known_recipes,
       journal_entries         = EXCLUDED.journal_entries,
+      buildings               = EXCLUDED.buildings,
       updated_at              = NOW()
   `
 

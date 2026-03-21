@@ -4,7 +4,7 @@
  */
 import { usePlayerStore } from './playerStore'
 import { useGameStore } from './gameStore'
-import { inventory, techTree, evolutionTree, journal } from '../game/GameSingletons'
+import { inventory, techTree, evolutionTree, journal, buildingSystem } from '../game/GameSingletons'
 import { Health, Metabolism } from '../ecs/world'
 
 const GOD_MODE_KEY = 'universe_god_mode'
@@ -65,6 +65,11 @@ export async function loadSave(getToken: () => Promise<string | null>) {
     journal.loadEntries(data.journalEntries)
   }
 
+  // Placed buildings
+  if (Array.isArray(data.buildings) && data.buildings.length > 0) {
+    buildingSystem.loadBuildings(data.buildings)
+  }
+
   // If the ECS entity already exists (engine init beat loadSave), write vitals directly
   // so they aren't overwritten by the GameLoop reading from default-initialised ECS values.
   const entityId = usePlayerStore.getState().entityId
@@ -111,6 +116,7 @@ export async function saveGame(getToken: () => Promise<string | null>, username:
       evolutionTree: evolutionTree.getUnlockedIds(),
       knownRecipes: inventory.getKnownRecipes(),
       journalEntries: journal.getAll(),
+      buildings: buildingSystem.getAllBuildings(),
     }),
   })
 }

@@ -44,12 +44,7 @@ export function useWorldSocket(): void {
       lastUpdateRef.current = now
 
       const { x, y, z, health } = usePlayerStore.getState()
-      socket.send({
-        type: 'PLAYER_UPDATE',
-        userId,
-        x, y, z,
-        health,
-      })
+      socket.send({ type: 'PLAYER_UPDATE', x, y, z, health })
     }
     rafId = requestAnimationFrame(loop)
 
@@ -62,10 +57,12 @@ export function useWorldSocket(): void {
   }, [userId, user])
 }
 
+const ADMIN_SECRET = import.meta.env.VITE_ADMIN_SECRET as string | undefined
+
 /** Call this from admin UI to push a time-scale change to all clients via server. */
 export function sendAdminSetTime(timeScale: number, paused?: boolean): void {
   // Access the socket via a module-level ref so TimeControls can call this
-  _adminSocket?.send({ type: 'ADMIN_SET_TIME', timeScale, paused })
+  _adminSocket?.send({ type: 'ADMIN_SET_TIME', timeScale, paused, adminSecret: ADMIN_SECRET ?? '' })
 }
 
 // Module-level reference kept in sync by the hook

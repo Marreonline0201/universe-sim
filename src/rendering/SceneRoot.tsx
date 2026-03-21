@@ -90,7 +90,10 @@ function generateResourceNodes(): ResourceNode[] {
         const dir  = spawnDir.clone().applyAxisAngle(axis, arcDist)
         const h    = terrainHeightAt(dir)
         if (h < 0) continue  // underwater — try again
-        const r = PLANET_RADIUS + h
+        // Sink 2m below the exact terrain height so the base is embedded in
+        // the rendered mesh (which underestimates convex peaks by 1–3m due to
+        // vertex interpolation at segs=160 ~35m grid spacing).
+        const r = PLANET_RADIUS + h - 0.8
         nodes.push({
           id: id++, type: nt.type, label: nt.label, matId: nt.matId, color: nt.color,
           x: dir.x * r, y: dir.y * r, z: dir.z * r,
@@ -101,7 +104,7 @@ function generateResourceNodes(): ResourceNode[] {
       if (!placed) {
         // Fallback: place exactly at spawn (guaranteed land)
         const h = terrainHeightAt(spawnDir)
-        const r = PLANET_RADIUS + Math.max(h, 0)
+        const r = PLANET_RADIUS + Math.max(h, 0) - 2.0
         nodes.push({
           id: id++, type: nt.type, label: nt.label, matId: nt.matId, color: nt.color,
           x: spawnDir.x * r, y: spawnDir.y * r, z: spawnDir.z * r,
@@ -201,6 +204,9 @@ export function SceneRoot() {
       // Init Rapier physics BEFORE creating the player entity.
       // Builds planet trimesh collider + player capsule KCC.
       await rapierWorld.init(spawnX, spawnY, spawnZ)
+
+      // Add static colliders for trees and rocks so the player can't walk through them
+      rapierWorld.addNodeColliders(RESOURCE_NODES)
 
       const eid = createPlayerEntity(world, spawnX, spawnY, spawnZ)
       setEntityId(eid)

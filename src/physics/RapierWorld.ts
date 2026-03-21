@@ -132,8 +132,8 @@ class RapierWorldManager {
     const controller = this._world.createCharacterController(0.01)
     controller.setApplyImpulsesToDynamicBodies(false)
     controller.setSlideEnabled(true)
-    controller.setMaxSlopeClimbAngle(50 * Math.PI / 180)  // max slope the character can walk up
-    controller.setMinSlopeSlideAngle(30 * Math.PI / 180)  // slopes steeper than this → slide off
+    controller.setMaxSlopeClimbAngle(55 * Math.PI / 180)  // max slope the character can walk up
+    controller.setMinSlopeSlideAngle(65 * Math.PI / 180)  // only cliff-steep slopes slide (was 30°)
     controller.enableAutostep(0.5, 0.2, true)             // step up ledges up to 0.5m
 
     // NOTE: We intentionally do NOT call enableSnapToGround here.
@@ -148,6 +148,69 @@ class RapierWorldManager {
   isReady():  boolean             { return this._ready }
   getPlayer(): PhysicsPlayer | null { return this._player }
   getWorld():  RAPIER.World | null  { return this._world }
+
+  /**
+   * Add static colliders for resource nodes (trees, rocks, etc.) so the player
+   * cannot walk through them.
+   *
+   * @param nodes  Array of { x, y, z, type } — world-space surface positions.
+   *               type 'wood' → tall cylinder; everything else → sphere.
+   */
+  addNodeColliders(nodes: Array<{ x: number; y: number; z: number; type: string }>): void {
+    const world = this._world
+    if (!world) return
+
+    for (const node of nodes) {
+      // Surface normal at this node position = outward direction
+      const len = Math.sqrt(node.x * node.x + node.y * node.y + node.z * node.z)
+      if (len < 1) continue
+      const nx = node.x / len, ny = node.y / len, nz = node.z / len
+
+      // Place the collider center slightly above the node origin so the
+      // collision shape sits at ground level (node origin is already 0.8m below
+      // actual terrain surface).
+      const cx = node.x + nx * 1.5
+      const cy = node.y + ny * 1.5
+      const cz = node.z + nz * 1.5
+
+      // Build a rotation that aligns the collider's local Y-axis with the
+      // surface normal so capsules stand perpendicular to the sphere.
+      // Rapier quaternion: (x, y, z, w)
+      // Rotation from world-Y (0,1,0) → surface normal (nx, ny, nz)
+      const dot = ny  // dot((0,1,0), (nx,ny,nz)) = ny
+      let qx: number, qy: number, qz: number, qw: number
+      if (dot < -0.9999) {
+        // Anti-parallel — rotate 180° around X
+        qx = 1; qy = 0; qz = 0; qw = 0
+      } else {
+        // cross((0,1,0), (nx,ny,nz)) = (nz, 0, -nx)
+        const cx2 = nz, cy2 = 0, cz2 = -nx
+        const s = Math.sqrt((1 + dot) * 2)
+        const inv = 1 / s
+        qx = cx2 * inv; qy = cy2 * inv; qz = cz2 * inv; qw = s / 2
+      }
+
+      const staticBody = world.createRigidBody(
+        RAPIER.RigidBodyDesc.fixed().setTranslation(cx, cy, cz).setRotation({ x: qx, y: qy, z: qz, w: qw }),
+      )
+
+      if (node.type === 'wood') {
+        // Tree trunk: capsule halfHeight=1.2m radius=0.35m (tree trunk in local Y)
+        world.createCollider(
+          RAPIER.ColliderDesc.capsule(1.2, 0.35).setFriction(0.8),
+          staticBody,
+        )
+      } else if (node.type === 'stone' || node.type === 'flint' || node.type === 'copper_ore'
+              || node.type === 'iron_ore' || node.type === 'coal' || node.type === 'tin_ore') {
+        // Rock/ore: sphere radius=0.5m
+        world.createCollider(
+          RAPIER.ColliderDesc.ball(0.5).setFriction(0.9),
+          staticBody,
+        )
+      }
+      // bark, fiber, sand, sulfur, clay — intentionally no collider (too small/flat)
+    }
+  }
 
   /** Advance the physics simulation by dt seconds. */
   step(dt: number): void {

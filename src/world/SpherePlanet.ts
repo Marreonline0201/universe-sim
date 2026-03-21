@@ -308,43 +308,50 @@ export function surfaceRadiusAt(px: number, py: number, pz: number): number {
  */
 export function getSpawnPosition(): [number, number, number] {
   const v = new THREE.Vector3()
-  let bestH = -Infinity
+
+  // Scan the full sphere at 5° resolution (36×72 = 2592 points).
+  // Score each land point to pick the BEST spawn, not the first one found.
+  //
+  // Biome rules that produce snow/rock:
+  //   snow: |dir.y| > 0.82  OR  height > 220
+  //   rock: height > 180
+  //   alpine: height > 120
+  //
+  // Target: |dir.y| < 0.68 (temperate/tropical latitude) AND 25 ≤ h ≤ 120
+  // This lands the player in temperate forest, savanna, or desert — never snow.
+  const LAT_STEPS = 36
+  const LON_STEPS = 72
+
+  let bestScore = -Infinity
   let bestDir: [number, number, number] = [0, 1, 0]
+  let bestH = 10
 
-  const LAT_STEPS = 36   // every 5° latitude — finer grid for better land search
-  const LON_STEPS = 72   // every 5° longitude
-
-  // Pass 1: temperate / tropical zone only (|v.y| ≤ 0.65)
-  outer1:
   for (let la = 0; la <= LAT_STEPS; la++) {
-    const lat     = (la / LAT_STEPS) * Math.PI
-    const sinLat  = Math.sin(lat)
-    const cosLat  = Math.cos(lat)
-    if (Math.abs(cosLat) > 0.65) continue   // skip polar latitudes in pass 1
+    const lat    = (la / LAT_STEPS) * Math.PI
+    const sinLat = Math.sin(lat)
+    const cosLat = Math.cos(lat)
     for (let lo = 0; lo < LON_STEPS; lo++) {
       const lon = (lo / LON_STEPS) * Math.PI * 2
       v.set(sinLat * Math.cos(lon), cosLat, sinLat * Math.sin(lon)).normalize()
       const h = terrainHeightAt(v)
-      if (h > bestH) { bestH = h; bestDir = [v.x, v.y, v.z] }
-      if (h >= 10) break outer1
-    }
-  }
+      if (h < 10) continue  // ocean/sea — skip
 
-  // Pass 2: any land (full sphere scan), only if pass 1 found nothing usable
-  if (bestH < 10) {
-    bestH  = -Infinity
-    bestDir = [0, 1, 0]
-    outer2:
-    for (let la = 0; la <= LAT_STEPS; la++) {
-      const lat    = (la / LAT_STEPS) * Math.PI
-      const sinLat = Math.sin(lat)
-      const cosLat = Math.cos(lat)
-      for (let lo = 0; lo < LON_STEPS; lo++) {
-        const lon = (lo / LON_STEPS) * Math.PI * 2
-        v.set(sinLat * Math.cos(lon), cosLat, sinLat * Math.sin(lon)).normalize()
-        const h = terrainHeightAt(v)
-        if (h > bestH) { bestH = h; bestDir = [v.x, v.y, v.z] }
-        if (h >= 10) break outer2
+      const absY = Math.abs(v.y)
+
+      // Heavy penalty for polar latitudes (|v.y| > 0.68 → tundra/snow)
+      const polarPenalty = absY > 0.68 ? (absY - 0.68) * 12.0 : 0
+
+      // Heavy penalty for high altitude (h > 120 → alpine/rock/snow)
+      const altPenalty = h > 120 ? (h - 120) * 0.15 : 0
+
+      // Bonus for being clearly inland (h in 30–100 is the sweet spot)
+      const inlandBonus = h >= 30 && h <= 100 ? 3.0 : (h >= 10 ? 1.0 : 0)
+
+      const score = inlandBonus - polarPenalty - altPenalty
+      if (score > bestScore) {
+        bestScore = score
+        bestDir   = [v.x, v.y, v.z]
+        bestH     = h
       }
     }
   }

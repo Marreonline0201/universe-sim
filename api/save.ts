@@ -30,7 +30,7 @@ export default async function handler(req: any, res: any) {
       journal_entries, buildings,
       updated_at
     ) VALUES (
-      ${userId}, ${body.username ?? ''}, ${body.x ?? 0}, ${body.y ?? 0.9}, ${body.z ?? 0},
+      ${userId}, ${body.username ?? ''}, ${body.x ?? 0}, ${body.y ?? 0}, ${body.z ?? 0},
       ${body.health ?? 1}, ${body.hunger ?? 0}, ${body.thirst ?? 0},
       ${body.energy ?? 1}, ${body.fatigue ?? 0},
       ${body.evolutionPoints ?? 0}, ${body.civTier ?? 0},

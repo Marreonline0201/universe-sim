@@ -1636,3 +1636,99 @@ The agent visited the site and played through it to find any problems.
 ---
 
 **What comes next:** The fire simulation is the foundation for all chemistry. The next logical step is spreading fire (fire that propagates to adjacent cells), cooking (food placed near fire changes properties), and eventually more complex chemistry like smelting. The grid is also the future home of weather simulation, poison gases, and atmospheric modeling.
+
+---
+
+### Session: Status Website Built — 2026-03-20
+
+**What happened in this session:**
+A brand-new companion website was built and launched at the address `/status/`. Think of this as a mission control screen — a live dashboard that lets anyone peek inside the game world and see exactly what is happening right now, without actually logging in and playing.
+
+This is not a page you play the game on. It is a read-only viewing window into the world. Like watching a city from a news helicopter — you can see everything happening below, but you are not down there yourself.
+
+---
+
+#### What Was Built — In Plain Language
+
+**1. A new page at /status/**
+
+A completely separate page was added to the game's website. It loads independently of the main game, has its own look, and is dedicated entirely to showing the world's status in real time.
+
+**2. A live connection to the game server**
+
+A piece of code called `useStatusSocket` was written to connect this page directly to the game server the moment you open it. It connects as a "viewer only" — it can see everything happening on the server, but it cannot change anything.
+
+Think of it like tuning into a live radio broadcast. You can hear everything, but your radio does not affect what the presenter is doing.
+
+**3. A satellite map of the planet**
+
+The centrepiece of the page is an animated map drawn on a canvas (think of a canvas as a blank drawing board the browser can paint on in real time). This map shows:
+
+- The planet's terrain, drawn with procedurally generated alien landscapes — meaning the terrain patterns are created by math rather than hand-painted. Every time you look, the world has its own unique alien feel.
+- NPC dots — tiny coloured circles showing where each of the 50 computer-controlled characters are on the planet. The colour of each dot tells you what that NPC is currently doing (for example, one colour for "wandering," another for "resting," another for "threatened").
+- Player markers — glowing, pulsing dots showing where real human players are in the world. The pulse effect is intentional — it makes player positions stand out at a glance, just like a blinking cursor on a screen.
+
+**4. An Epoch Bar at the top**
+
+Across the very top of the page runs a header bar showing three pieces of information about the world's current state:
+- The world time (how many billions of years into the universe's history the simulation currently is)
+- The epoch name (what era the universe is currently in — for example, "Contemporary Era")
+- The time scale (how fast simulated time is currently passing)
+
+At the time this was built and tested, the bar was showing: **Contemporary Era, 10.7 billion years, time scale active**.
+
+**5. A Server Stats sidebar**
+
+On one side of the page, a panel shows live statistics from the server:
+- Whether the connection to the server is active or not
+- How many players are currently connected
+- A breakdown of NPC types and how many of each are in the world
+- A plain-language description of the current epoch (what is happening in the universe at this point in time)
+
+**6. A Player Roster panel**
+
+A list of all human players currently in the game, shown as cards. Each card shows the player's name and a health bar — a coloured bar showing how much health they currently have, similar to the kind you would see in any video game but pulled from the live simulation.
+
+**7. A Player Detail popup**
+
+If you click on any player's card in the roster, a popup window opens showing more detailed information about that specific player. Think of it like clicking on someone's profile card to get the full view.
+
+**8. The whole page assembled with a space theme**
+
+All of these components were put together inside a single page called `StatusApp`. The visual style is dark — deep black background, glowing lines, subtle space-mission-control colours. The intention is that it should feel like looking at a real NASA ground control display, not a generic website.
+
+---
+
+#### Confirmed Working
+
+After everything was built, it was tested live in a browser. The results:
+
+- The bundle (the compiled, ready-to-use version of the code) came out at **29.92 kilobytes** — a small, fast-loading file.
+- The page connected to the live game server successfully.
+- The Epoch Bar showed: **Contemporary Era, 10.7 billion years**.
+- The server reported **50 NPCs active** in the world.
+- All panels, the map, and the roster displayed correctly.
+
+A notification was also sent to the project's Slack channel confirming the work was complete.
+
+---
+
+#### Status Summary
+
+| Component | Status |
+|-----------|--------|
+| New /status/ page and entry point | Done |
+| Live WebSocket connection (read-only viewer) | Done |
+| Satellite map with alien terrain | Done |
+| NPC dots coloured by behaviour state | Done |
+| Pulsing player position markers | Done |
+| Epoch Bar (world time, epoch name, time scale) | Done |
+| Server Stats sidebar | Done |
+| Player Roster with health bars | Done |
+| Player Detail popup (click any player card) | Done |
+| Dark space/mission-control visual theme | Done |
+| Build verified (29.92 kB bundle) | Done |
+| Live test confirmed (10.7 Gyr, 50 NPCs active) | Done |
+| Slack notification sent | Done |
+
+**What comes next:** The status page is a useful monitoring tool for the project team. Future improvements could include showing individual NPC behaviour histories, a timeline of major world events, or a minimap that zooms into the area around a specific player.

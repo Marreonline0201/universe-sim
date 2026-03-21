@@ -393,9 +393,9 @@ const COMBUSTIBLE_TYPE_IDS = new Set<string>([
 ])
 
 // Build combustibility set from BUILDING_TYPES materials at module load time
-const COMBUSTIBLE_MATERIAL_IDS = new Set([MAT.WOOD, MAT.FIBER, MAT.BARK, MAT.HIDE])
+const COMBUSTIBLE_MATERIAL_IDS = new Set<number>([MAT.WOOD, MAT.FIBER, MAT.BARK, MAT.HIDE])
 for (const bt of BUILDING_TYPES) {
-  if (bt.materialsRequired.some(r => COMBUSTIBLE_MATERIAL_IDS.has(r.materialId))) {
+  if (bt.materialsRequired.some(r => COMBUSTIBLE_MATERIAL_IDS.has(r.materialId as number))) {
     COMBUSTIBLE_TYPE_IDS.add(bt.id)
   }
 }

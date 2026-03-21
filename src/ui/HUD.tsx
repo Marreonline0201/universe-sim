@@ -4,6 +4,8 @@ import { usePlayerStore } from '../store/playerStore'
 import { useMultiplayerStore } from '../store/multiplayerStore'
 import { useWeatherStore } from '../store/weatherStore'
 import type { WeatherState } from '../store/weatherStore'
+import { useSeasonStore } from '../store/seasonStore'
+import type { SeasonName } from '../store/seasonStore'
 import { SidebarShell } from './SidebarShell'
 import { NotificationSystem } from './NotificationSystem'
 import { inventory } from '../game/GameSingletons'
@@ -307,6 +309,107 @@ function WeatherWidget({ state, tempC }: WeatherWidgetProps) {
   )
 }
 
+// ── M10 Track A: Season HUD widget ───────────────────────────────────────────
+
+function SeasonIcon({ season }: { season: SeasonName }) {
+  const size = 16
+  switch (season) {
+    case 'SPRING':
+      return (
+        <svg width={size} height={size} viewBox="0 0 16 16" style={{ display: 'block' }}>
+          {/* Flower petals */}
+          {[0, 72, 144, 216, 288].map((deg, i) => {
+            const r = (deg * Math.PI) / 180
+            const cx = 8 + Math.cos(r) * 4, cy = 8 + Math.sin(r) * 4
+            return <circle key={i} cx={cx} cy={cy} r="2.2" fill="#f8b4c8" opacity={0.9} />
+          })}
+          <circle cx="8" cy="8" r="2" fill="#f1c40f" />
+        </svg>
+      )
+    case 'SUMMER':
+      return (
+        <svg width={size} height={size} viewBox="0 0 16 16" style={{ display: 'block' }}>
+          <circle cx="8" cy="8" r="4" fill="#ff8c00" />
+          {[0, 45, 90, 135, 180, 225, 270, 315].map((deg, i) => {
+            const r = (deg * Math.PI) / 180
+            const x1 = 8 + Math.cos(r) * 5.5, y1 = 8 + Math.sin(r) * 5.5
+            const x2 = 8 + Math.cos(r) * 7.2, y2 = 8 + Math.sin(r) * 7.2
+            return <line key={i} x1={x1} y1={y1} x2={x2} y2={y2} stroke="#ff8c00" strokeWidth="1.5" strokeLinecap="round" />
+          })}
+        </svg>
+      )
+    case 'AUTUMN':
+      return (
+        <svg width={size} height={size} viewBox="0 0 16 16" style={{ display: 'block' }}>
+          {/* Maple-leaf silhouette in amber */}
+          <path d="M8 2 L6 5 L4 4 L6 7 L3 8 L6 9 L5 12 L8 10 L11 12 L10 9 L13 8 L10 7 L12 4 L10 5 Z" fill="#d4822a" />
+        </svg>
+      )
+    case 'WINTER':
+      return (
+        <svg width={size} height={size} viewBox="0 0 16 16" style={{ display: 'block' }}>
+          {/* Snowflake */}
+          {[0, 60, 120].map((deg, i) => {
+            const r = (deg * Math.PI) / 180
+            return (
+              <g key={i}>
+                <line x1={8 + Math.cos(r) * 6} y1={8 + Math.sin(r) * 6} x2={8 - Math.cos(r) * 6} y2={8 - Math.sin(r) * 6} stroke="#88ccff" strokeWidth="1.5" strokeLinecap="round" />
+              </g>
+            )
+          })}
+          <circle cx="8" cy="8" r="1.5" fill="#88ccff" />
+        </svg>
+      )
+  }
+}
+
+const SEASON_COLORS: Record<SeasonName, string> = {
+  SPRING: '#f8b4c8',
+  SUMMER: '#ff8c00',
+  AUTUMN: '#d4822a',
+  WINTER: '#88ccff',
+}
+
+function SeasonWidget({ season, progress }: { season: SeasonName; progress: number }) {
+  const color = SEASON_COLORS[season]
+  const pct = Math.round(progress * 100)
+  return (
+    <div style={{
+      display: 'flex',
+      alignItems: 'center',
+      gap: 5,
+      background: 'rgba(0,0,0,0.4)',
+      border: `1px solid ${color}44`,
+      borderRadius: 3,
+      padding: '3px 7px 3px 5px',
+      marginTop: 2,
+    }}>
+      <SeasonIcon season={season} />
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+        <span style={{
+          fontSize: 8,
+          color,
+          fontFamily: 'monospace',
+          letterSpacing: 1,
+          fontWeight: 700,
+          textTransform: 'uppercase',
+          lineHeight: 1.3,
+        }}>
+          {season}
+        </span>
+        <span style={{
+          fontSize: 8,
+          color: 'rgba(255,255,255,0.45)',
+          fontFamily: 'monospace',
+          lineHeight: 1.3,
+        }}>
+          {pct}%
+        </span>
+      </div>
+    </div>
+  )
+}
+
 // ── Crosshair ─────────────────────────────────────────────────────────────────
 
 function Crosshair() {
@@ -351,6 +454,7 @@ export function HUD() {
   const playerWeather = weatherStore.getPlayerWeather()
   const weatherState = playerWeather?.state ?? 'CLEAR'
   const weatherTemp  = playerWeather?.temperature ?? ambientTemp
+  const { season, progress: seasonProgress } = useSeasonStore()
 
   // Polling tick — drives hotbar re-reads every 200ms so gathered items appear immediately
   const [hotbarTick, setHotbarTick] = useState(0)
@@ -447,6 +551,8 @@ export function HUD() {
           </div>
           {/* ── M8: Weather widget ── */}
           <WeatherWidget state={weatherState} tempC={weatherTemp} />
+          {/* ── M10 Track A: Season widget ── */}
+          <SeasonWidget season={season} progress={seasonProgress} />
         </div>
 
         {/* ── Bottom-left: vitals ── */}

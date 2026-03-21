@@ -10,6 +10,10 @@ import { usePlayerStore } from '../store/playerStore'
 import { useUiStore } from '../store/uiStore'
 import { useWeatherStore } from '../store/weatherStore'
 import type { SectorWeather } from '../store/weatherStore'
+import { useSeasonStore } from '../store/seasonStore'
+import type { SeasonState } from '../store/seasonStore'
+import { useShopStore } from '../store/shopStore'
+import type { ShopCatalogItem } from '../store/shopStore'
 import { inventory, techTree } from '../game/GameSingletons'
 import type { LocalSimManager } from '../engine/LocalSimManager'
 
@@ -122,6 +126,10 @@ export class WorldSocket {
         // M8: Seed weather state for newly joining player
         if (Array.isArray(msg.weather)) {
           useWeatherStore.getState().setSectors(msg.weather as SectorWeather[])
+        }
+        // M10 Track A: Seed season state for newly joining player
+        if (msg.season && typeof msg.season === 'object') {
+          useSeasonStore.getState().setSeason(msg.season as SeasonState)
         }
         // M7: Seed outlaw wanted list from remote players' murder counts.
         // Server threshold is 5; reward formula mirrors OutlawSystem.getBountyReward.
@@ -454,6 +462,60 @@ export class WorldSocket {
         inventory.discoverRecipe(73)  // steel crossbow
         inventory.discoverRecipe(74)  // cast iron pot
         inventory.discoverRecipe(75)  // cast iron door
+        break
+      }
+
+      // ── M10 Track A: Season system ──────────────────────────────────────────
+
+      case 'SEASON_CHANGED': {
+        useSeasonStore.getState().setSeason({
+          season:        msg.season        as SeasonState['season'],
+          seasonIndex:   msg.seasonIndex   as number,
+          progress:      msg.progress      as number,
+          tempModifier:  msg.tempModifier  as number,
+          rainfallProb:  msg.rainfallProb  as number,
+          isSnow:        msg.isSnow        as boolean,
+          metabolicMult: msg.metabolicMult as number,
+        })
+        const seasonLabels: Record<string, string> = {
+          SPRING: 'Spring has arrived — blossoms fill the air, rainfall increases.',
+          SUMMER: 'Summer is here — temperatures rise +10°C, wildlife is active.',
+          AUTUMN: 'Autumn descends — leaves turn amber, prepare food stores.',
+          WINTER: 'Winter approaches — temperatures drop -15°C, fire is essential!',
+        }
+        const label = seasonLabels[msg.season as string]
+        if (label && msg.progress as number < 0.05) {
+          useUiStore.getState().addNotification(label, 'info')
+        }
+        break
+      }
+
+      // ── M10 Track C: Advanced Trade Economy ─────────────────────────────────
+
+      case 'SHOP_OPEN': {
+        useShopStore.getState().openShop(
+          msg.settlementId   as number,
+          msg.settlementName as string,
+          (msg.catalog as ShopCatalogItem[]) ?? [],
+        )
+        break
+      }
+
+      case 'SHOP_CATALOG_UPDATE': {
+        if (useShopStore.getState().settlementId === msg.settlementId as number) {
+          useShopStore.getState().updateCatalog((msg.catalog as ShopCatalogItem[]) ?? [])
+        }
+        break
+      }
+
+      case 'SHOP_BUY_RESULT':
+      case 'SHOP_SELL_RESULT': {
+        // Server acknowledgement — client already applied the transaction optimistically
+        if (!(msg.ok as boolean)) {
+          useUiStore.getState().addNotification(
+            `Transaction failed: ${msg.reason as string ?? 'server error'}`, 'warning'
+          )
+        }
         break
       }
 

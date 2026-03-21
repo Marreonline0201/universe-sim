@@ -223,6 +223,11 @@ export const MAT = {
   // ── M9: Animal drops ─────────────────────────────────────────────────────
   WOLF_PELT: 57,         // skinned from killed wolf — crafting: warm clothing
   BOAR_TUSK: 58,         // dropped by boar on death — crafting: tusk tools
+  // ── M10: Trade economy + sailing ─────────────────────────────────────────
+  COPPER_COIN: 59,       // currency — minted from copper ingots, universal exchange medium
+  FISH: 60,              // caught by fishing_rod — food source and trade commodity
+  SALT: 61,              // gathered/traded at coastal settlements — preserves food
+  GRAIN: 62,             // produced by plains settlements — staple food
 } as const
 
 // ── Item IDs ──────────────────────────────────────────────────────────────────
@@ -252,6 +257,11 @@ export const ITEM = {
   // ── M9: Hunting gear ─────────────────────────────────────────────────────
   BONE_NEEDLE: 57,       // crafting component: bone → bone_needle → leather_armor
   LEATHER_ARMOR: 58,     // light armor: 10% damage reduction, lighter than steel
+  // ── M10: Sailing + Navigation ─────────────────────────────────────────────
+  RAFT: 59,              // basic water vessel: moves with wind + paddle force
+  SAILING_BOAT: 60,      // advanced vessel: can tack upwind up to 45° off wind
+  COMPASS: 61,           // navigation tool: shows cardinal directions on HUD
+  FISHING_ROD: 62,       // cast from water or riverbank — F key to fish
 } as const
 
 // ── Crafting Recipes ─────────────────────────────────────────────────────────
@@ -861,5 +871,73 @@ export const CRAFTING_RECIPES: CraftingRecipe[] = [
     ],
     output: { itemId: ITEM.KNIFE, quantity: 1 },
     knowledgeRequired: ['tool_use'],
+  },
+
+  // ── M10 Track A: No crafting items (season is automatic) ──────────────────
+
+  // ── M10 Track B: Sailing + Navigation + Fishing ───────────────────────────
+  {
+    // id 81 — Rope (3x fiber → 1 rope, accessible recipe — track B sailing prerequisite)
+    // Duplicate route alongside recipe 5 (5x fiber → rope) — cheaper for boat building.
+    id: 81, name: 'Rope (quick)', tier: 0, time: 10,
+    inputs: [{ materialId: MAT.FIBER, quantity: 3 }],
+    output: { itemId: MAT.ROPE, quantity: 1, isMaterial: true },
+    knowledgeRequired: [],
+  },
+  {
+    // id 82 — Raft: 6x wood + 4x fiber + 2x rope
+    id: 82, name: 'Raft', tier: 0, time: 120,
+    inputs: [
+      { materialId: MAT.WOOD,  quantity: 6 },
+      { materialId: MAT.FIBER, quantity: 4 },
+      { materialId: MAT.ROPE,  quantity: 2 },
+    ],
+    output: { itemId: ITEM.RAFT, quantity: 1 },
+    knowledgeRequired: ['navigation', 'carpentry'],
+  },
+  {
+    // id 83 — Sailing Boat: 8x wood + 4x iron_ingot + 6x rope
+    id: 83, name: 'Sailing Boat', tier: 2, time: 300,
+    inputs: [
+      { materialId: MAT.WOOD,       quantity: 8 },
+      { materialId: MAT.IRON_INGOT, quantity: 4 },
+      { materialId: MAT.ROPE,       quantity: 6 },
+    ],
+    output: { itemId: ITEM.SAILING_BOAT, quantity: 1 },
+    knowledgeRequired: ['navigation', 'carpentry', 'iron_smelting'],
+  },
+  {
+    // id 84 — Compass: 1x iron_ingot → compass for HUD navigation
+    id: 84, name: 'Compass', tier: 2, time: 45,
+    inputs: [{ materialId: MAT.IRON_INGOT, quantity: 1 }],
+    output: { itemId: ITEM.COMPASS, quantity: 1 },
+    knowledgeRequired: ['iron_smelting', 'navigation'],
+  },
+  {
+    // id 85 — Fishing Rod: 2x wood + 3x fiber
+    id: 85, name: 'Fishing Rod', tier: 0, time: 20,
+    inputs: [
+      { materialId: MAT.WOOD,  quantity: 2 },
+      { materialId: MAT.FIBER, quantity: 3 },
+    ],
+    output: { itemId: ITEM.FISHING_ROD, quantity: 1 },
+    knowledgeRequired: [],
+  },
+
+  // ── M10 Track C: Currency + Trade Economy ─────────────────────────────────
+  {
+    // id 86 — Mint Copper Coins: 5x copper → 20x copper_coin at any anvil
+    // (tier 0 but requires copper which is tier 1 — gate is materials, not tier)
+    id: 86, name: 'Mint Copper Coins', tier: 0, time: 30,
+    inputs: [{ materialId: MAT.COPPER, quantity: 5 }],
+    output: { itemId: MAT.COPPER_COIN, quantity: 20, isMaterial: true },
+    knowledgeRequired: ['metallurgy'],
+  },
+  {
+    // id 87 — Cook Fish: raw fish → cooked fish (better nutrition than raw)
+    id: 87, name: 'Cook Fish', tier: 0, time: 15,
+    inputs: [{ materialId: MAT.FISH, quantity: 1 }],
+    output: { itemId: MAT.COOKED_MEAT, quantity: 1, isMaterial: true },
+    knowledgeRequired: ['fire_making'],
   },
 ]

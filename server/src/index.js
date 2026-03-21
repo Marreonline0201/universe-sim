@@ -16,6 +16,8 @@ import { NpcMemory } from './NpcMemory.js'
 import { SettlementManager, TERRITORY_RADIUS } from './SettlementManager.js'
 import { OutlawSystem, WANTED_THRESHOLD } from './OutlawSystem.js'
 import { WeatherSystem } from './WeatherSystem.js'
+import { SeasonSystem } from './SeasonSystem.js'
+import { TradeEconomy } from './TradeEconomy.js'
 
 const PORT = parseInt(process.env.PORT ?? '8080', 10)
 const PERSIST_INTERVAL_MS = 30_000 // save simTime to DB every 30 s
@@ -36,6 +38,8 @@ const npcMemory   = new NpcMemory()
 const settlements = new SettlementManager()
 const outlaw      = new OutlawSystem()
 const weather     = new WeatherSystem()
+const seasons     = new SeasonSystem()
+const tradeEcon   = new TradeEconomy()
 
 async function main() {
   // Ensure DB schema is current
@@ -49,6 +53,8 @@ async function main() {
     await settlements.load()
     await outlaw.migrateSchema()
     await outlaw.load()
+    await tradeEcon.migrateSchema()
+    await tradeEcon.load(settlements.getAll())
     const settings = await loadSettings()
     // Don't restore an admin-set ultra-high timeScale — use normal unless bootstrapping
     clock.setSimTime(settings.simTime)
@@ -136,6 +142,15 @@ async function main() {
   weather.onBroadcast((msg) => scheduler.enqueueBatch(msg))
   weather.onStorm((text) => slack._post(text).catch(() => {}))
   weather.start()
+
+  // M10 Track A: Season cycle — broadcasts SEASON_CHANGED every 30 real seconds
+  seasons.onBroadcast((msg) => broadcastAll(msg))
+  seasons.start()
+
+  // M10 Track C: Trade economy tick — surplus production, caravan movement
+  setInterval(() => {
+    tradeEcon.tick(1)
+  }, 1000)
 
   clock.start()
   scheduler.start()
@@ -243,6 +258,7 @@ function handleMessage(ws, msg) {
         depletedNodes: nodeSync.getDepletedSnapshot(),
         settlements:   settlements.getSnapshot(),
         weather:       weather.getSnapshot(),
+        season:        seasons.getSnapshot(),
       }))
 
       // Notify others (use getAll() to get serializable player without ws socket)
@@ -529,6 +545,63 @@ function handleMessage(ws, msg) {
       if (typeof paused === 'boolean') {
         clock.setPaused(paused)
       }
+      break
+    }
+
+    // ── M10 Track C: Advanced Trade Economy ────────────────────────────────────
+
+    case 'SHOP_OPEN_REQUEST': {
+      // Client requests shop catalog when near a settlement leader.
+      const userId = ws._userId
+      if (!userId) return
+      const { settlementId } = msg
+      if (typeof settlementId !== 'number') return
+
+      const gatesClosed = npcMemory.gatesClosed(settlementId, userId)
+      if (gatesClosed) {
+        ws.send(JSON.stringify({ type: 'GATES_CLOSED', settlementId }))
+        return
+      }
+
+      const s = settlements.getSettlement(settlementId)
+      if (!s) return
+
+      const catalog = tradeEcon.getShopCatalog(settlementId)
+      ws.send(JSON.stringify({
+        type:           'SHOP_OPEN',
+        settlementId,
+        settlementName: s.name,
+        catalog,
+        coinBalance:    tradeEcon.getCoinBalance(settlementId),
+      }))
+      break
+    }
+
+    case 'SHOP_BUY': {
+      // Player buys `qty` of `matId` from settlement.
+      const userId = ws._userId
+      if (!userId) return
+      const { settlementId, matId, qty } = msg
+      if (typeof settlementId !== 'number' || typeof matId !== 'number' || typeof qty !== 'number') return
+
+      const result = tradeEcon.playerBuyFromSettlement(settlementId, matId, qty)
+      ws.send(JSON.stringify({ type: 'SHOP_BUY_RESULT', ...result, settlementId, matId, qty }))
+      break
+    }
+
+    case 'SHOP_SELL': {
+      // Player sells `qty` of `matId` to settlement.
+      const userId = ws._userId
+      if (!userId) return
+      const { settlementId, matId, qty } = msg
+      if (typeof settlementId !== 'number' || typeof matId !== 'number' || typeof qty !== 'number') return
+
+      const result = tradeEcon.playerSellToSettlement(settlementId, matId, qty)
+      ws.send(JSON.stringify({ type: 'SHOP_SELL_RESULT', ...result, settlementId, matId, qty }))
+
+      // Broadcast updated catalog so all nearby players see fresh prices
+      const catalog = tradeEcon.getShopCatalog(settlementId)
+      broadcastAll({ type: 'SHOP_CATALOG_UPDATE', settlementId, catalog })
       break
     }
 

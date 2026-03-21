@@ -79,6 +79,25 @@ import {
   tickEcosystemBalance,
 } from '../ecs/systems/AnimalAISystem'
 
+// M10 Track A: Seasonal terrain pass
+import { SeasonalTerrainPass } from './SeasonalTerrainPass'
+import { useSeasonStore } from '../store/seasonStore'
+
+// M10 Track B: Sailing + fishing
+import { SailingRenderer } from './SailingRenderer'
+import {
+  tickSailing,
+  startFishing,
+  tickFishing,
+  cancelFishing,
+  isFishingActive,
+  type VesselType,
+} from '../world/SailingSystem'
+
+// M10 Track C: Shop UI
+import { ShopHUD } from '../ui/ShopHUD'
+import { useShopStore } from '../store/shopStore'
+
 // M9: Register river valley carving with the terrain height function.
 // Must happen before any geometry is generated (before generatePlanetGeometry is called).
 // registerRiverCarveDepth wires getRiverCarveDepth into terrainHeightAt so the
@@ -672,8 +691,12 @@ export function SceneRoot() {
           <PlayerMesh entityId={entityId} />
           <EquippedItemMesh entityId={entityId} />
           <BuildingGhost entityId={entityId} />
+          {/* M10 Track B: Sailing vessel mesh (only visible when sailing) */}
+          <SailingRenderer entityId={entityId} />
         </>
       )}
+      {/* M10 Track A: Seasonal terrain overlays (spring blossoms, autumn tint, winter snow) */}
+      <SeasonalTerrainPass />
       {/* Post-processing — subtle filmic effects, never stylised */}
       {/* EffectComposer (Bloom + Vignette) removed: @react-three/postprocessing 3.0.4
           crashes with @react-three/fiber 8.18.0 — re-enable after upgrading postprocessing */}
@@ -684,6 +707,8 @@ export function SceneRoot() {
     <SettlementHUD />
     {/* M9: River HUD — fresh water indicator */}
     <RiverHUD />
+    {/* M10: Shop HUD — settlement trade panel */}
+    <ShopHUD />
     </>
   )
 }
@@ -752,6 +777,7 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
   const fwdVec                  = useRef(new THREE.Vector3())
   const settlementCheckTimerRef = useRef(0)   // M6: seconds since last proximity check
   const ecosystemTimerRef       = useRef(0)   // M9: seconds since last ecosystem respawn check
+  const fishingStateRef         = useRef<'idle'|'waiting'|'bite'>('idle')  // M10 Track B
 
   useFrame((_, delta) => {
     // Cap dt to avoid spiral-of-death on slow frames
@@ -1697,6 +1723,122 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
         if (rStore.nearRiver)   rStore.setNearRiver(false)
         if (rStore.inRiver)     rStore.setInRiver(false)
         rStore.clearRiverCurrent()
+      }
+    }
+
+    // ── M10 Track A: Season metabolic multiplier ──────────────────────────────
+    // Winter increases metabolic rate (+20%): hunger drains faster.
+    // This is additive per-frame; we update ECS Metabolism.metabolicRate.
+    {
+      const seasonState = useSeasonStore.getState()
+      const mult = seasonState.metabolicMult ?? 1.0
+      if (mult !== 1.0) {
+        // Scale base metabolic rate — Metabolism system reads this each frame
+        const baseRate = 0.07  // from applyEvolutionEffects BASE_RATE
+        Metabolism.metabolicRate[entityId] = baseRate * mult
+      }
+
+      // Winter ambient temperature: apply seasonal temp modifier to ambient temp.
+      const tempMod = seasonState.tempModifier ?? 0
+      if (tempMod !== 0 && simManagerRef.current) {
+        const curTemp = usePlayerStore.getState().ambientTemp
+        // Lerp ambient temperature toward seasonal target (1°C/s transition rate)
+        const target = curTemp + tempMod * 0.02  // gentle continuous push
+        usePlayerStore.getState().setAmbientTemp(curTemp + (target - curTemp) * Math.min(1, dt))
+      }
+    }
+
+    // ── M10 Track B: Sailing + fishing ────────────────────────────────────────
+    {
+      // Determine if player has raft or sailing_boat equipped
+      const ps10 = usePlayerStore.getState()
+      const equippedSlot10 = ps10.equippedSlot ?? null
+      const equippedItem10 = equippedSlot10 !== null ? inventory.getSlot(equippedSlot10) : null
+      let vesselType: VesselType | null = null
+      if (equippedItem10 && equippedItem10.itemId === ITEM.RAFT) vesselType = 'raft'
+      else if (equippedItem10 && equippedItem10.itemId === ITEM.SAILING_BOAT) vesselType = 'sailing_boat'
+
+      // Get wind direction from weather store
+      const wStore10 = useWeatherStore.getState()
+      const pw10 = wStore10.getPlayerWeather()
+      const windDir10 = pw10?.windDir ?? 0
+      const windSpeed10 = pw10?.windSpeed ?? 3
+
+      // Keys: access from controller
+      const keysSet = (controllerRef.current as any)?._keys ?? (controllerRef.current as any)?.keys ?? new Set()
+
+      const sailDelta = tickSailing(
+        px, py, pz,
+        windDir10, windSpeed10,
+        keysSet,
+        dt,
+        vesselType,
+      )
+
+      if (sailDelta) {
+        // Apply sailing movement directly to ECS position
+        Position.x[entityId] += sailDelta.dx
+        Position.y[entityId] += sailDelta.dy
+        Position.z[entityId] += sailDelta.dz
+      }
+
+      // Fishing: F key near water or river starts casting
+      const nearWater = py < PLANET_RADIUS + 2  // rough ocean check
+      const nearRiver10 = useRiverStore.getState().inRiver
+      const canFish = (nearWater || nearRiver10) && inventory.hasItemById(ITEM.FISHING_ROD)
+      const gs10 = useGameStore.getState()
+
+      if (canFish && !isFishingActive()) {
+        const fishLabel = '[F] Cast fishing rod'
+        if (gs10.gatherPrompt === null) gs10.setGatherPrompt(fishLabel)
+      }
+
+      if (canFish && controllerRef.current?.popInteract() && !isFishingActive()) {
+        const started = startFishing()
+        if (started) {
+          useUiStore.getState().addNotification('Line cast — waiting for a bite... (5-15s)', 'info')
+          gs10.setGatherPrompt('Fishing... [Esc to cancel]')
+          fishingStateRef.current = 'waiting'
+        }
+      }
+
+      if (isFishingActive()) {
+        const fishResult = tickFishing(dt)
+        fishingStateRef.current = fishResult
+        if (fishResult === 'bite') {
+          inventory.addItem({ itemId: 0, materialId: MAT.FISH, quantity: 1 + Math.floor(Math.random() * 2), quality: 0.8 })
+          useUiStore.getState().addNotification('Fish caught! Raw fish added to inventory.', 'discovery')
+          gs10.setGatherPrompt(null)
+          fishingStateRef.current = 'idle'
+        }
+      }
+
+      // Compass: when compass equipped, show bearing in gather prompt
+      if (equippedItem10 && equippedItem10.itemId === ITEM.COMPASS && gs10.gatherPrompt === null) {
+        const playerDir10 = new THREE.Vector3(px, py, pz).normalize()
+        // North = +Z direction projected onto tangent plane
+        const northTangent = new THREE.Vector3(0, 0, 1).addScaledVector(playerDir10, -new THREE.Vector3(0, 0, 1).dot(playerDir10))
+        // Player's forward in world space from camera
+        const camFwd = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion)
+        camFwd.addScaledVector(playerDir10, -camFwd.dot(playerDir10))
+        const bearing = northTangent.angleTo(camFwd) * (180 / Math.PI)
+        const cardinals = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']
+        const card = cardinals[Math.round(bearing / 45) % 8]
+        gs10.setGatherPrompt(`Compass: ${card} (${bearing.toFixed(0)}°)`)
+      }
+
+      // M10 Track C: Open shop when near settlement and player presses F with no other context
+      if (controllerRef.current?.popInteract()) {
+        const nearSettlement10 = useSettlementStore.getState().nearSettlementId
+        if (nearSettlement10 !== null && gs10.gatherPrompt === null) {
+          getWorldSocket()?.send({ type: 'SHOP_OPEN_REQUEST', settlementId: nearSettlement10 })
+        }
+      }
+
+      // Close shop on Escape
+      if (useShopStore.getState().open) {
+        const gs10b = useGameStore.getState()
+        if (gs10b.inputBlocked) useShopStore.getState().closeShop()
       }
     }
 

@@ -26,6 +26,7 @@ export default async function handler(_req: Request) {
       evolution_tree         TEXT DEFAULT '[]',
       known_recipes          TEXT DEFAULT '[]',
       journal_entries        TEXT DEFAULT '[]',
+      buildings              TEXT DEFAULT '[]',
       updated_at             TIMESTAMPTZ DEFAULT NOW()
     )
   `

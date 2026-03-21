@@ -4,6 +4,14 @@
 
 import { useMultiplayerStore } from '../store/multiplayerStore'
 import { useGameStore } from '../store/gameStore'
+import type { LocalSimManager } from '../engine/LocalSimManager'
+
+// Module-level reference to the active LocalSimManager.
+// Set by SceneRoot after the sim grid initialises.
+let _simManager: LocalSimManager | null = null
+export function setSimManagerForSocket(mgr: LocalSimManager | null): void {
+  _simManager = mgr
+}
 
 const MIN_BACKOFF_MS = 1_000
 const MAX_BACKOFF_MS = 30_000
@@ -96,6 +104,10 @@ export class WorldSocket {
         const remotePlayers = allPlayers.filter(p => p.userId !== this.userId)
         mp.setRemotePlayers(remotePlayers)
         mp.setRemoteNpcs((msg.npcs as RemoteNpc[]) ?? [])
+        // Seed depleted node state for newly joining player
+        if (Array.isArray(msg.depletedNodes)) {
+          mp.setDepletedNodes(msg.depletedNodes as number[])
+        }
         mp.setServerWorld(
           msg.simTime as number,
           msg.timeScale as number,
@@ -130,6 +142,26 @@ export class WorldSocket {
       }
       case 'PLAYER_LEFT': {
         mp.removeRemotePlayer(msg.userId as string)
+        break
+      }
+      case 'NODE_DESTROYED': {
+        // Server confirmed a node was depleted — hide it on this client.
+        mp.addDepletedNode(msg.nodeId as number)
+        break
+      }
+      case 'NODE_RESPAWNED': {
+        // Server timer fired — make the node visible again on this client.
+        mp.removeDepletedNode(msg.nodeId as number)
+        break
+      }
+      case 'FIRE_STARTED': {
+        // Another player ignited a fire — replicate ignition in local sim grid.
+        const fx = msg.x as number
+        const fy = msg.y as number
+        const fz = msg.z as number
+        if (_simManager) {
+          _simManager.ignite(fx, fy, fz)
+        }
         break
       }
       default:

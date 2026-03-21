@@ -11,6 +11,7 @@ import { BroadcastScheduler } from './BroadcastScheduler.js'
 import { loadSettings, saveSettings, migrateSchema } from './WorldSettingsSync.js'
 import { BOOTSTRAP_TARGET_SECS, NORMAL_TIMESCALE } from './WorldClock.js'
 import { SlackAgent } from './SlackAgent.js'
+import { NodeStateSync } from './NodeStateSync.js'
 
 const PORT = parseInt(process.env.PORT ?? '8080', 10)
 const PERSIST_INTERVAL_MS = 30_000 // save simTime to DB every 30 s
@@ -26,11 +27,14 @@ const players  = new PlayerRegistry()
 const npcs     = new NpcManager()
 const scheduler = new BroadcastScheduler(clock, players, npcs)
 const slack    = new SlackAgent(clock, players, npcs)
+const nodeSync = new NodeStateSync()
 
 async function main() {
-  // Ensure DB has sim_time column
+  // Ensure DB schema is current
   if (process.env.DATABASE_URL) {
     await migrateSchema()
+    await nodeSync.migrateSchema()
+    await nodeSync.load()
     const settings = await loadSettings()
     // Don't restore an admin-set ultra-high timeScale — use normal unless bootstrapping
     clock.setSimTime(settings.simTime)
@@ -61,6 +65,11 @@ async function main() {
 
   // Tick NPCs every 100 ms (same rate as clock)
   clock.onTick(() => npcs.tick(0.1))
+
+  // When a node respawn timer fires, broadcast NODE_RESPAWNED to all clients
+  nodeSync.onRespawn = (nodeId, x, y, z, type) => {
+    broadcastAll({ type: 'NODE_RESPAWNED', nodeId, x, y, z, nodeType: type })
+  }
 
   clock.start()
   scheduler.start()
@@ -152,6 +161,7 @@ function handleMessage(ws, msg) {
         bootstrapProgress: clock.bootstrapProgress,
         players: players.getAll(),
         npcs: npcs.getAll(),
+        depletedNodes: nodeSync.getDepletedSnapshot(),
       }))
 
       // Notify others (use getAll() to get serializable player without ws socket)
@@ -165,6 +175,27 @@ function handleMessage(ws, msg) {
       if (!userId) return
       const { x, y, z, health } = msg
       players.update(userId, { x, y, z, health })
+      break
+    }
+
+    case 'NODE_DESTROYED': {
+      // A client reports it depleted a resource node (tree felled, ore mined).
+      // Server records it authoritatively and broadcasts to ALL clients (including sender)
+      // so every client removes the node from its scene.
+      const { nodeId, nodeType, x, y, z } = msg
+      if (typeof nodeId !== 'number') return
+      nodeSync.markDepleted(nodeId, nodeType ?? 'unknown', x ?? 0, y ?? 0, z ?? 0)
+      broadcastAll({ type: 'NODE_DESTROYED', nodeId, nodeType })
+      break
+    }
+
+    case 'FIRE_STARTED': {
+      // A client ignited a fire at a world position. Broadcast to all OTHER clients
+      // so they call their own LocalSimManager.ignite() at the same position.
+      // The initiating client already ran ignite() locally — don't echo back.
+      const { x, y, z } = msg
+      if (typeof x !== 'number' || typeof y !== 'number' || typeof z !== 'number') return
+      broadcast({ type: 'FIRE_STARTED', x, y, z }, ws)
       break
     }
 
@@ -199,6 +230,16 @@ function broadcast(msg, excludeWs = null) {
   const payload = JSON.stringify(msg)
   players.forEachSocket((ws) => {
     if (ws !== excludeWs && ws.readyState === WebSocket.OPEN) {
+      ws.send(payload)
+    }
+  })
+}
+
+/** Broadcast a message to ALL connected clients including the sender. */
+function broadcastAll(msg) {
+  const payload = JSON.stringify(msg)
+  players.forEachSocket((ws) => {
+    if (ws.readyState === WebSocket.OPEN) {
       ws.send(payload)
     }
   })

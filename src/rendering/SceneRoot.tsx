@@ -44,7 +44,8 @@ import { LocalSimManager } from '../engine/LocalSimManager'
 import { FireRenderer } from './FireRenderer'
 import { DayNightCycle } from './DayNightCycle'
 import { SimGridVisualizer } from './SimGridVisualizer'
-import { getWorldSocket, setSimManagerForSocket } from '../net/useWorldSocket'
+import { getWorldSocket } from '../net/useWorldSocket'
+import { setSimManagerForSocket } from '../net/WorldSocket'
 
 // ── Resource node definitions ─────────────────────────────────────────────────
 
@@ -205,6 +206,30 @@ const RESOURCE_NODE_QUATS: THREE.Quaternion[] = RESOURCE_NODES.map(n =>
 const gatheredNodeIds = new Set<number>()
 const NODE_RESPAWN_AT = new Map<number, number>()
 const NODE_RESPAWN_DELAY = 60_000
+
+// ── M5: Death loot drop state ─────────────────────────────────────────────────
+// When the player dies, dropped items are stored here as world pickups.
+// Each pickup is a ResourceNode-compatible object with a unique id >= 100000
+// (to avoid collisions with the seeded RESOURCE_NODES ids, which max at ~330).
+// Pickups can be gathered by pressing F near them (same proximity mechanic).
+// They do NOT respawn — they persist until the player picks them up.
+interface LootDrop {
+  id: number
+  x: number; y: number; z: number
+  matId: number; itemId: number
+  label: string
+  quantity: number
+  quality: number
+}
+const DEATH_LOOT_DROPS: LootDrop[] = []
+const gatheredLootIds = new Set<number>()
+let _lootIdCounter = 100_000
+
+// ── M5: Bedroll world anchor ──────────────────────────────────────────────────
+// Tracks the placed bedroll mesh position for rendering.
+// Updated when a bedroll item is placed via the Z-sleep mechanic.
+interface BedrollAnchor { x: number; y: number; z: number; surfNormQuat: THREE.Quaternion }
+let _placedBedroll: BedrollAnchor | null = null
 
 // Auto-open inventory on the player's first-ever gather so the playtester can
 // immediately inspect the item without knowing to press I.
@@ -795,10 +820,13 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
 
     // 5. Resource proximity + gather (3D distance on sphere surface)
     const gs = useGameStore.getState()
+    // Merge local gathered set with server-authoritative depleted set so nodes
+    // removed by other players are invisible to this client too.
+    const serverDepleted = useMultiplayerStore.getState().depletedNodes
     let nearNode: ResourceNode | null = null
     let nearDist = Infinity
     for (const node of RESOURCE_NODES) {
-      if (gatheredNodeIds.has(node.id)) continue
+      if (gatheredNodeIds.has(node.id) || serverDepleted.has(node.id)) continue
       const dx = px - node.x
       const dy = py - node.y
       const dz = pz - node.z
@@ -878,6 +906,13 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
         gs.setGatherPrompt(null)
         const qty = isOre ? 3 : 1
         inventory.addItem({ itemId: 0, materialId: nearNode.matId, quantity: qty, quality: 0.8 })
+        // Notify server — all other clients will remove this node from their scene
+        getWorldSocket()?.send({
+          type: 'NODE_DESTROYED',
+          nodeId: nearNode.id,
+          nodeType: nearNode.type,
+          x: nearNode.x, y: nearNode.y, z: nearNode.z,
+        })
         // Unlock stone tool recipe on first stone or flint gather
         if (nearNode.matId === MAT.STONE || nearNode.matId === MAT.FLINT) {
           inventory.discoverRecipe(1)
@@ -940,7 +975,7 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
       let nearestBurnable: ResourceNode | null = null
       let nearestBurnDist = 3.0
       for (const node of RESOURCE_NODES) {
-        if (gatheredNodeIds.has(node.id)) continue
+        if (gatheredNodeIds.has(node.id) || serverDepleted.has(node.id)) continue
         if (node.matId !== MAT.WOOD && node.matId !== MAT.BARK && node.matId !== MAT.FIBER) continue
         const dx = px - node.x, dy = py - node.y, dz = pz - node.z
         const dist = Math.sqrt(dx * dx + dy * dy + dz * dz)
@@ -962,7 +997,7 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
       let nearestFireNode: ResourceNode | null = null
       let nearestFireDist = 3.0
       for (const node of RESOURCE_NODES) {
-        if (gatheredNodeIds.has(node.id)) continue
+        if (gatheredNodeIds.has(node.id) || serverDepleted.has(node.id)) continue
         if (node.matId !== MAT.WOOD && node.matId !== MAT.BARK && node.matId !== MAT.FIBER) continue
         const dx = px - node.x, dy = py - node.y, dz = pz - node.z
         const dist = Math.sqrt(dx * dx + dy * dy + dz * dz)
@@ -972,6 +1007,8 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
         // Path A: Strike flint near an in-world wood/bark/fiber node
         simManagerRef.current.placeWood(nearestFireNode.x, nearestFireNode.y, nearestFireNode.z, nearestFireNode.matId)
         simManagerRef.current.ignite(nearestFireNode.x, nearestFireNode.y, nearestFireNode.z)
+        // Broadcast ignition source to all other clients
+        getWorldSocket()?.send({ type: 'FIRE_STARTED', x: nearestFireNode.x, y: nearestFireNode.y, z: nearestFireNode.z })
         gs.setGatherPrompt(null)
         useUiStore.getState().addNotification('Fire started! Temperature rising...', 'info')
       } else {
@@ -989,6 +1026,8 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
           // Place wood in sim grid at player's feet and ignite
           simManagerRef.current.placeWood(px, py - 1, pz)
           simManagerRef.current.ignite(px, py - 1, pz)
+          // Broadcast ignition source to all other clients
+          getWorldSocket()?.send({ type: 'FIRE_STARTED', x: px, y: py - 1, z: pz })
           gs.setGatherPrompt(null)
           useUiStore.getState().addNotification('Fire started from inventory! Temperature rising...', 'info')
         } else if (!hasWood || !hasTinder) {
@@ -1004,7 +1043,7 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
       let nearestDist = Infinity
 
       for (const node of RESOURCE_NODES) {
-        if (gatheredNodeIds.has(node.id)) continue
+        if (gatheredNodeIds.has(node.id) || serverDepleted.has(node.id)) continue
         const dx = node.x - px
         const dy = node.y - py
         const dz = node.z - pz
@@ -1029,6 +1068,13 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
           inventory.addItem({ itemId: 0, materialId: nearest.matId, quantity: qty, quality })
           gatheredNodeIds.add(nearest.id)
           NODE_RESPAWN_AT.set(nearest.id, Date.now() + NODE_RESPAWN_DELAY)
+          // Notify server — all other clients will remove this node from their scene
+          getWorldSocket()?.send({
+            type: 'NODE_DESTROYED',
+            nodeId: nearest.id,
+            nodeType: nearest.type,
+            x: nearest.x, y: nearest.y, z: nearest.z,
+          })
           const verb = nearest.type === 'wood' ? 'Felled' : 'Harvested'
           useUiStore.getState().addNotification(`${verb} ${qty}× ${nearest.label}`, 'info')
         } else {
@@ -2216,6 +2262,13 @@ function TreeMesh({ id }: { id: number }) {
   const leafG2   = nodeRand(id, 2) > 0.5 ? '#2a7030' : '#174d17'
   const leafG3   = '#3a8a2a'
 
+  // Wind foliage materials — vertex-shader micro-flutter + full PBR lighting.
+  // One per foliage layer. useMemo [] — stable for this tree's lifetime.
+  const crownHeight = 3.5 * scale * 1.1  // full tree height for amplitude normalisation
+  const mat1 = useMemo(() => makeWindFoliageMaterial(leafG1, crownHeight), []) // eslint-disable-line react-hooks/exhaustive-deps
+  const mat2 = useMemo(() => makeWindFoliageMaterial(leafG2, crownHeight), []) // eslint-disable-line react-hooks/exhaustive-deps
+  const mat3 = useMemo(() => makeWindFoliageMaterial(leafG3, crownHeight), []) // eslint-disable-line react-hooks/exhaustive-deps
+
   // Per-tree phase offset — ensures trees don't all sway in sync
   // Scientific basis: turbulent wind spectrum → each tree resonates at slightly
   // different natural frequency depending on mass, height, stiffness.
@@ -2241,6 +2294,15 @@ function TreeMesh({ id }: { id: number }) {
     // Apply in two axes: primary wind direction + orthogonal gust component
     crown.rotation.z = sway + windYaw * 0.3
     crown.rotation.x = sway * 0.35 + Math.sin(t * 0.7 * freqMult + phaseOffset * 0.7) * 0.015
+
+    // Micro-flutter: push elapsed time into vertex shader uniforms
+    const windTime = t + phaseOffset
+    const u1 = (mat1 as any)._windUniforms
+    const u2 = (mat2 as any)._windUniforms
+    const u3 = (mat3 as any)._windUniforms
+    if (u1) u1.uTime.value = windTime
+    if (u2) u2.uTime.value = windTime
+    if (u3) u3.uTime.value = windTime
   })
 
   return (
@@ -2250,22 +2312,19 @@ function TreeMesh({ id }: { id: number }) {
         <cylinderGeometry args={[trunkTop, trunkBot, trunkH, 7]} />
         <meshStandardMaterial color="#5c3a1e" roughness={1} />
       </mesh>
-      {/* Crown group — all foliage layers sway together as a unit */}
+      {/* Crown group — macro rotation + per-vertex micro-flutter via wind shader */}
       <group ref={crownRef} position={[lean * trunkH, trunkH * 0.5, 0]}>
         {/* Lower foliage layer */}
-        <mesh position={[0, trunkH * 0.12, 0]} castShadow>
+        <mesh position={[0, trunkH * 0.12, 0]} castShadow material={mat1}>
           <coneGeometry args={[2.2 * scale, 2.8 * scale, 7]} />
-          <meshStandardMaterial color={leafG1} roughness={0.9} />
         </mesh>
         {/* Mid foliage layer */}
-        <mesh position={[0, trunkH * 0.32, 0]} castShadow>
+        <mesh position={[0, trunkH * 0.32, 0]} castShadow material={mat2}>
           <coneGeometry args={[1.6 * scale, 2.2 * scale, 6]} />
-          <meshStandardMaterial color={leafG2} roughness={0.9} />
         </mesh>
         {/* Top foliage layer */}
-        <mesh position={[0, trunkH * 0.48, 0]} castShadow>
+        <mesh position={[0, trunkH * 0.48, 0]} castShadow material={mat3}>
           <coneGeometry args={[1.0 * scale, 1.6 * scale, 6]} />
-          <meshStandardMaterial color={leafG3} roughness={0.9} />
         </mesh>
       </group>
     </group>
@@ -2296,11 +2355,13 @@ function RockMesh({ id, color }: { id: number; color: string }) {
   const scale = 0.5 + nodeRand(id, 3) * 0.6
   const rot   = nodeRand(id, 4) * Math.PI * 2
   const tilt  = (nodeRand(id, 5) - 0.5) * 0.4
+  // Specular face variation: upward faces shinier (rain-polished), sides rougher.
+  // useMemo [] — rock color is stable for its lifetime.
+  const mat = useMemo(() => makeRockMaterial(color), []) // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <group position={[0, 0.3 * scale, 0]} rotation={[tilt, rot, 0]} scale={[scale, scale * 0.7, scale]}>
-      <mesh castShadow>
+      <mesh castShadow material={mat}>
         <dodecahedronGeometry args={[0.55, 0]} />
-        <meshStandardMaterial color={color} roughness={0.95} metalness={0.05} />
       </mesh>
     </group>
   )
@@ -2377,9 +2438,13 @@ function ResourceNodes() {
   const groupRefs = useRef<(THREE.Group | null)[]>([])
 
   useFrame(() => {
+    const serverDepleted = useMultiplayerStore.getState().depletedNodes
     for (let i = 0; i < RESOURCE_NODES.length; i++) {
       const g = groupRefs.current[i]
-      if (g) g.visible = !gatheredNodeIds.has(RESOURCE_NODES[i].id)
+      if (g) {
+        const id = RESOURCE_NODES[i].id
+        g.visible = !gatheredNodeIds.has(id) && !serverDepleted.has(id)
+      }
     }
   })
 

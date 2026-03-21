@@ -42,6 +42,12 @@ interface MultiplayerState {
   bootstrapPhase: boolean
   bootstrapProgress: number
   setBootstrapState: (phase: boolean, progress: number) => void
+
+  // Server-authoritative depleted node IDs — merged with local gatheredNodeIds in SceneRoot
+  depletedNodes: Set<number>
+  setDepletedNodes: (ids: number[]) => void
+  addDepletedNode: (id: number) => void
+  removeDepletedNode: (id: number) => void
 }
 
 export const useMultiplayerStore = create<MultiplayerState>((set) => ({
@@ -79,4 +85,19 @@ export const useMultiplayerStore = create<MultiplayerState>((set) => ({
   bootstrapPhase: false,
   bootstrapProgress: 0,
   setBootstrapState: (phase, progress) => set({ bootstrapPhase: phase, bootstrapProgress: progress }),
+
+  depletedNodes: new Set<number>(),
+  setDepletedNodes: (ids) => set({ depletedNodes: new Set(ids) }),
+  addDepletedNode: (id) =>
+    set((s) => {
+      const next = new Set(s.depletedNodes)
+      next.add(id)
+      return { depletedNodes: next }
+    }),
+  removeDepletedNode: (id) =>
+    set((s) => {
+      const next = new Set(s.depletedNodes)
+      next.delete(id)
+      return { depletedNodes: next }
+    }),
 }))

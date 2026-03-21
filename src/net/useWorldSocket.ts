@@ -67,3 +67,8 @@ export function sendAdminSetTime(timeScale: number, paused?: boolean): void {
 
 // Module-level reference kept in sync by the hook
 let _adminSocket: WorldSocket | null = null
+
+/** Returns the active socket instance so non-hook code (SceneRoot game loop) can send messages. */
+export function getWorldSocket(): WorldSocket | null {
+  return _adminSocket
+}

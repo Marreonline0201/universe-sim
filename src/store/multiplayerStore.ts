@@ -7,6 +7,7 @@ export interface RemotePlayer {
   y: number
   z: number
   health: number
+  murderCount?: number  // M5: criminal record — skull icon shown when > 0
 }
 
 export interface RemoteNpc {

@@ -653,10 +653,12 @@ export const CRAFTING_RECIPES: CraftingRecipe[] = [
     output: { itemId: MAT.COOKED_MEAT, quantity: 1, isMaterial: true },
     knowledgeRequired: ['fire_making'],
   },
-  // ── Slice 6: Bedroll for sleep system ────────────────────────────────────
+  // ── Slice 6 / M5: Bedroll — respawn anchor + sleep site ─────────────────
+  // Recipe updated per M5 spec: 3x Fiber + 2x Wood (more accessible early-game).
+  // Placing a bedroll records it as the player's personal respawn point in Neon DB.
   {
     id: 65, name: 'Bedroll', tier: 0, time: 15,
-    inputs: [{ materialId: MAT.HIDE, quantity: 3 }, { materialId: MAT.FIBER, quantity: 4 }],
+    inputs: [{ materialId: MAT.FIBER, quantity: 3 }, { materialId: MAT.WOOD, quantity: 2 }],
     output: { itemId: ITEM.BEDROLL, quantity: 1 },
     knowledgeRequired: [],
   },

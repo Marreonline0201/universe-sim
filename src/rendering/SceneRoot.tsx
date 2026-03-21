@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { PerspectiveCamera, Stars } from '@react-three/drei'
 import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing'
-import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { RefObject } from 'react'
 import { SimulationEngine } from '../engine/SimulationEngine'
 import { rapierWorld } from '../physics/RapierWorld'
@@ -36,8 +36,6 @@ import {
   inflictWound,
   cookingProgress,
   markCombatDamage,
-  determinDeathCause,
-  resetDamageFlags,
 } from '../game/SurvivalSystems'
 import {
   checkAndTriggerDeath,
@@ -913,6 +911,37 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
       return
     }
 
+    // ── M5: Death loot pickup — check before regular resource gather ──────────
+    {
+      let nearLoot: (typeof DEATH_LOOT_DROPS)[0] | null = null
+      let nearLootDist = Infinity
+      for (const drop of DEATH_LOOT_DROPS) {
+        if (gatheredLootIds.has(drop.id)) continue
+        const ldx = px - drop.x
+        const ldy = py - drop.y
+        const ldz = pz - drop.z
+        const ld2 = ldx * ldx + ldy * ldy + ldz * ldz
+        if (ld2 < nearLootDist) { nearLootDist = ld2; nearLoot = drop }
+      }
+      if (nearLoot && nearLootDist < 9) {
+        const lootLabel = `[F] Pick up dropped loot (${nearLoot.quantity}x)`
+        if (gs.gatherPrompt === null) gs.setGatherPrompt(lootLabel)
+        if (!gs.inputBlocked && controllerRef.current?.popInteract()) {
+          gatheredLootIds.add(nearLoot.id)
+          // Remove from DEATH_LOOT_DROPS array
+          const idx = DEATH_LOOT_DROPS.findIndex((d) => d.id === nearLoot!.id)
+          if (idx >= 0) DEATH_LOOT_DROPS.splice(idx, 1)
+          inventory.addItem({
+            itemId: nearLoot.itemId,
+            materialId: nearLoot.matId,
+            quantity: nearLoot.quantity,
+            quality: nearLoot.quality,
+          })
+          useUiStore.getState().addNotification(`Recovered loot: ${nearLoot.label} x${nearLoot.quantity}`, 'discovery')
+        }
+      }
+    }
+
     if (nearNode && nearDist < 9) { // within 3m
       // Ores require at minimum a stone tool to mine
       const oreMatIds: number[] = [MAT.COPPER_ORE, MAT.IRON_ORE, MAT.COAL, MAT.TIN_ORE, MAT.SULFUR, MAT.GOLD, MAT.SILVER, MAT.URANIUM]
@@ -1295,6 +1324,75 @@ function BuildingGhost({ entityId }: { entityId: number }) {
   )
 }
 
+// ── M5: Death loot drops + bedroll renderers ──────────────────────────────────
+
+function DeathLootDropsRenderer() {
+  const [tick, setTick] = useState(0)
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), 500)
+    return () => clearInterval(id)
+  }, [])
+  const visible = DEATH_LOOT_DROPS.filter((d) => !gatheredLootIds.has(d.id))
+  if (visible.length === 0 || tick < 0) return null
+  return (
+    <>
+      {visible.map((drop) => {
+        const len = Math.sqrt(drop.x * drop.x + drop.y * drop.y + drop.z * drop.z)
+        const sn =
+          len > 1
+            ? new THREE.Vector3(drop.x / len, drop.y / len, drop.z / len)
+            : new THREE.Vector3(0, 1, 0)
+        const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), sn)
+        return (
+          <group key={drop.id} position={[drop.x + sn.x * 0.25, drop.y + sn.y * 0.25, drop.z + sn.z * 0.25]} quaternion={q}>
+            <mesh castShadow>
+              <boxGeometry args={[0.3, 0.3, 0.3]} />
+              <meshStandardMaterial color="#f1c40f" emissive="#f39c12" emissiveIntensity={0.5} roughness={0.4} />
+            </mesh>
+            <mesh rotation={[Math.PI / 2, 0, 0]}>
+              <ringGeometry args={[0.22, 0.3, 16]} />
+              <meshBasicMaterial color="#f39c12" transparent opacity={0.4} side={THREE.DoubleSide} />
+            </mesh>
+          </group>
+        )
+      })}
+    </>
+  )
+}
+
+function BedrollMeshRenderer() {
+  const [tick, setTick] = useState(0)
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), 2000)
+    return () => clearInterval(id)
+  }, [])
+  const anchor = placedBedrollAnchor
+  if (!anchor || tick < 0) return null
+  const len = Math.sqrt(anchor.x * anchor.x + anchor.y * anchor.y + anchor.z * anchor.z)
+  const sn =
+    len > 1
+      ? new THREE.Vector3(anchor.x / len, anchor.y / len, anchor.z / len)
+      : new THREE.Vector3(0, 1, 0)
+  const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), sn)
+  return (
+    <group position={[anchor.x + sn.x * 0.06, anchor.y + sn.y * 0.06, anchor.z + sn.z * 0.06]} quaternion={q}>
+      <mesh receiveShadow>
+        <boxGeometry args={[1.8, 0.08, 0.9]} />
+        <meshStandardMaterial color="#8B6914" roughness={0.9} />
+      </mesh>
+      <mesh position={[0.7, 0.07, 0]} receiveShadow>
+        <boxGeometry args={[0.35, 0.12, 0.7]} />
+        <meshStandardMaterial color="#c9a84c" roughness={0.85} />
+      </mesh>
+      <mesh position={[-0.1, 0.05, 0]}>
+        <boxGeometry args={[1.1, 0.09, 0.88]} />
+        <meshStandardMaterial color="#5a4a2a" roughness={0.95} transparent opacity={0.7} />
+      </mesh>
+      <pointLight color="#f1c40f" intensity={0.4} distance={4} />
+    </group>
+  )
+}
+
 // ── Placed buildings renderer ─────────────────────────────────────────────────
 
 const BUILDING_COLORS: Record<number, string> = {
@@ -1309,13 +1407,6 @@ const BUILDING_COLORS: Record<number, string> = {
   8: '#7A4A9A',  // tier 8: fusion
   9: '#9A4A7A',  // tier 9: simulation
 }
-
-// ── Stub renderers (implementations pending) ─────────────────────────────────
-// DeathLootDropsRenderer: will render dropped item meshes at death positions.
-// BedrollMeshRenderer: will render placed bedroll objects in the 3D world.
-// Both return null until their backing data stores are implemented.
-function DeathLootDropsRenderer() { return null }
-function BedrollMeshRenderer()    { return null }
 
 function PlacedBuildingsRenderer() {
   const buildVersion = useGameStore(s => s.buildVersion)

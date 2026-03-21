@@ -63,6 +63,18 @@ interface PlayerState {
   startSleep: () => void
   stopSleep: () => void
   setBedrollPlaced: (v: boolean) => void
+
+  // Death + Respawn system (M5)
+  isDead: boolean
+  deathCause: 'starvation' | 'infection' | 'combat' | 'drowning' | null
+  deathPos: { x: number; y: number; z: number } | null
+  bedrollPos: { x: number; y: number; z: number } | null
+  murderCount: number
+  triggerDeath: (cause: 'starvation' | 'infection' | 'combat' | 'drowning', pos: { x: number; y: number; z: number }) => void
+  clearDeath: () => void
+  setBedrollPos: (pos: { x: number; y: number; z: number } | null) => void
+  incrementMurderCount: () => void
+  setMurderCount: (n: number) => void
 }
 
 export const usePlayerStore = create<PlayerState>((set, get) => ({
@@ -151,4 +163,16 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   startSleep: () => set({ isSleeping: true, sleepStartTime: Date.now() }),
   stopSleep: () => set({ isSleeping: false, sleepStartTime: null }),
   setBedrollPlaced: (v) => set({ bedrollPlaced: v }),
+
+  // ── Death + Respawn system (M5) ───────────────────────────────────────────
+  isDead: false,
+  deathCause: null,
+  deathPos: null,
+  bedrollPos: null,
+  murderCount: 0,
+  triggerDeath: (cause, pos) => set({ isDead: true, deathCause: cause, deathPos: pos }),
+  clearDeath: () => set({ isDead: false, deathCause: null }),
+  setBedrollPos: (pos) => set({ bedrollPos: pos }),
+  incrementMurderCount: () => set((s) => ({ murderCount: s.murderCount + 1 })),
+  setMurderCount: (n) => set({ murderCount: Math.max(0, n) }),
 }))

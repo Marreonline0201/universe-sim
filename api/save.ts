@@ -31,6 +31,10 @@ export default async function handler(req: any, res: any) {
   await sql`ALTER TABLE player_saves ADD COLUMN IF NOT EXISTS known_recipes          TEXT DEFAULT '[]'`
   await sql`ALTER TABLE player_saves ADD COLUMN IF NOT EXISTS journal_entries        TEXT DEFAULT '[]'`
   await sql`ALTER TABLE player_saves ADD COLUMN IF NOT EXISTS buildings              TEXT DEFAULT '[]'`
+  await sql`ALTER TABLE player_saves ADD COLUMN IF NOT EXISTS bedroll_x             FLOAT DEFAULT NULL`
+  await sql`ALTER TABLE player_saves ADD COLUMN IF NOT EXISTS bedroll_y             FLOAT DEFAULT NULL`
+  await sql`ALTER TABLE player_saves ADD COLUMN IF NOT EXISTS bedroll_z             FLOAT DEFAULT NULL`
+  await sql`ALTER TABLE player_saves ADD COLUMN IF NOT EXISTS murder_count          INT DEFAULT 0`
 
   await sql`
     INSERT INTO player_saves (
@@ -39,6 +43,7 @@ export default async function handler(req: any, res: any) {
       ev_points, civ_tier, discoveries, current_goal, sim_seconds,
       inventory, tech_tree, tech_tree_in_progress, evolution_tree, known_recipes,
       journal_entries, buildings,
+      bedroll_x, bedroll_y, bedroll_z, murder_count,
       updated_at
     ) VALUES (
       ${userId}, ${body.username ?? ''}, ${body.x ?? 0}, ${body.y ?? 0}, ${body.z ?? 0},
@@ -54,6 +59,8 @@ export default async function handler(req: any, res: any) {
       ${JSON.stringify(body.knownRecipes ?? [])},
       ${JSON.stringify(body.journalEntries ?? [])},
       ${JSON.stringify(body.buildings ?? [])},
+      ${body.bedrollX ?? null}, ${body.bedrollY ?? null}, ${body.bedrollZ ?? null},
+      ${body.murderCount ?? 0},
       NOW()
     )
     ON CONFLICT (user_id) DO UPDATE SET
@@ -78,6 +85,10 @@ export default async function handler(req: any, res: any) {
       known_recipes           = EXCLUDED.known_recipes,
       journal_entries         = EXCLUDED.journal_entries,
       buildings               = EXCLUDED.buildings,
+      bedroll_x               = EXCLUDED.bedroll_x,
+      bedroll_y               = EXCLUDED.bedroll_y,
+      bedroll_z               = EXCLUDED.bedroll_z,
+      murder_count            = EXCLUDED.murder_count,
       updated_at              = NOW()
   `
 

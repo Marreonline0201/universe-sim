@@ -73,6 +73,17 @@ export async function loadSave(getToken: () => Promise<string | null>) {
     useGameStore.getState().bumpBuildVersion()
   }
 
+  // Bedroll position (M5)
+  if (data.bedrollX != null && data.bedrollY != null && data.bedrollZ != null) {
+    ps.setBedrollPos({ x: data.bedrollX, y: data.bedrollY, z: data.bedrollZ })
+    ps.setBedrollPlaced(true)
+  }
+
+  // Murder count (M5 criminal record)
+  if (data.murderCount && data.murderCount > 0) {
+    ps.setMurderCount(data.murderCount)
+  }
+
   // If the ECS entity already exists (engine init beat loadSave), write vitals and
   // position directly so they aren't overwritten by the GameLoop on the next frame.
   const entityId = usePlayerStore.getState().entityId
@@ -130,6 +141,10 @@ export async function saveGame(getToken: () => Promise<string | null>, username:
       knownRecipes: inventory.getKnownRecipes(),
       journalEntries: journal.getAll(),
       buildings: buildingSystem.getAllBuildings(),
+      bedrollX: ps.bedrollPos?.x ?? null,
+      bedrollY: ps.bedrollPos?.y ?? null,
+      bedrollZ: ps.bedrollPos?.z ?? null,
+      murderCount: ps.murderCount,
     }),
   })
 }

@@ -15,6 +15,47 @@ import { BUILDING_TYPES } from '../civilization/BuildingSystem'
 import { usePlayerStore } from '../store/playerStore'
 import { useUiStore } from '../store/uiStore'
 
+// ── M5: Death System ──────────────────────────────────────────────────────────
+//
+// Death cause priority (highest → lowest):
+//   combat   — killed by creature or player attack (health dropped by external damage)
+//   infection — septic wound (bacteriaCount > SEPSIS_THRESHOLD drove health to 0)
+//   starvation — hunger reached 1.0 or thirst reached 1.0 and drained health to 0
+//   drowning — reserved for future water damage system (health 0 while submerged)
+//
+// The last-damage-source tracker lets us attribute cause correctly.
+
+export type DeathCause = 'starvation' | 'infection' | 'combat' | 'drowning'
+
+// Set by external damage sources (creature bite, player attack) each frame they deal damage.
+// Cleared at the start of each death check. Used to determine combat kills.
+let _lastDamageSourceWasCombat = false
+let _lastDamageWasInfection    = false
+
+export function markCombatDamage(): void {
+  _lastDamageSourceWasCombat = true
+}
+
+export function markInfectionDamage(): void {
+  _lastDamageWasInfection = true
+}
+
+/** Determine death cause from current player state. Call just before clearing health. */
+export function determinDeathCause(
+  ps: { hunger: number; thirst: number; wounds: Array<{ bacteriaCount: number }> }
+): DeathCause {
+  if (_lastDamageSourceWasCombat) return 'combat'
+  if (_lastDamageWasInfection || ps.wounds.some(w => w.bacteriaCount > 80)) return 'infection'
+  if (ps.hunger >= 0.99 || ps.thirst >= 0.99) return 'starvation'
+  return 'starvation'  // fallback
+}
+
+/** Reset damage-source flags each frame (call at start of GameLoop tick). */
+export function resetDamageFlags(): void {
+  _lastDamageSourceWasCombat = false
+  _lastDamageWasInfection    = false
+}
+
 // ── Slice 4: Food Cooking System ─────────────────────────────────────────────
 //
 // Physics basis: proteins denature above ~70°C (Maillard reaction starts ~140°C).
@@ -129,6 +170,7 @@ export function tickWoundSystem(dt: number): void {
     }
   }
   if (healthDrain > 0) {
+    markInfectionDamage()
     const newHealth = Math.max(0, ps.health - healthDrain)
     ps.updateVitals({ health: newHealth })
   }
@@ -246,7 +288,7 @@ export function tryStartSleep(
 
   if (!hasBedroll && !nearShelter) {
     useUiStore.getState().addNotification(
-      'Need a Bedroll (craft from 3 Hide + 4 Fiber) or shelter to sleep.',
+      'Need a Bedroll (craft from 3 Fiber + 2 Wood) or shelter to sleep.',
       'warning'
     )
     return false

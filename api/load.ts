@@ -39,5 +39,9 @@ export default async function handler(req: any, res: any) {
     knownRecipes: JSON.parse(row.known_recipes ?? '[]'),
     journalEntries: JSON.parse(row.journal_entries ?? '[]'),
     buildings: JSON.parse(row.buildings ?? '[]'),
+    bedrollX: row.bedroll_x ?? null,
+    bedrollY: row.bedroll_y ?? null,
+    bedrollZ: row.bedroll_z ?? null,
+    murderCount: row.murder_count ?? 0,
   })
 }

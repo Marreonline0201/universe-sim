@@ -450,11 +450,13 @@ export function HUD() {
   const { paused, simTime, epoch } = useGameStore()
   const { health, hunger, thirst, energy, fatigue, ambientTemp, evolutionPoints, equippedSlot, equippedArmorSlot, equipArmor, unequipArmor, wounds, isSleeping, quenchSecondsRemaining } = usePlayerStore()
   const { connectionStatus, remotePlayers } = useMultiplayerStore()
-  const weatherStore = useWeatherStore()
-  const playerWeather = weatherStore.getPlayerWeather()
+  const weatherSectors = useWeatherStore(s => s.sectors)
+  const weatherPlayerSectorId = useWeatherStore(s => s.playerSectorId)
+  const playerWeather = weatherSectors.find(s => s.sectorId === weatherPlayerSectorId) ?? weatherSectors[0] ?? null
   const weatherState = playerWeather?.state ?? 'CLEAR'
   const weatherTemp  = playerWeather?.temperature ?? ambientTemp
-  const { season, progress: seasonProgress } = useSeasonStore()
+  const season = useSeasonStore(s => s.season)
+  const seasonProgress = useSeasonStore(s => s.progress)
 
   // Polling tick — drives hotbar re-reads every 200ms so gathered items appear immediately
   const [hotbarTick, setHotbarTick] = useState(0)

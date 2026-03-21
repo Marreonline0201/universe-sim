@@ -8,6 +8,9 @@ import { usePlayerStore } from '../store/playerStore'
 import { useUiStore } from '../store/uiStore'
 import { determinDeathCause, resetDamageFlags } from './SurvivalSystems'
 import { MAT, ITEM, type Inventory } from '../player/Inventory'
+import { world, IsDead } from '../ecs/world'
+import { removeComponent } from 'bitecs'
+import { surfaceRadiusAt, PLANET_RADIUS } from '../world/SpherePlanet'
 
 // Reverse lookup maps so dropped loot labels are human-readable
 const MAT_NAMES: Record<number, string> = Object.fromEntries(
@@ -73,15 +76,34 @@ export function checkAndTriggerDeath(
 
   const cause = determinDeathCause(ps)
 
+  // Death position on sphere surface — used to compute surface-projected scatter
+  const deathDir = { x: dpx / PLANET_RADIUS, y: dpy / PLANET_RADIUS, z: dpz / PLANET_RADIUS }
+  const deathLen = Math.sqrt(deathDir.x ** 2 + deathDir.y ** 2 + deathDir.z ** 2) || 1
+  deathDir.x /= deathLen; deathDir.y /= deathLen; deathDir.z /= deathLen
+
+  // Build two tangent vectors perpendicular to the surface normal (deathDir)
+  const tx = deathDir.y !== 0 || deathDir.z !== 0 ? 1 : 0
+  const ty = deathDir.x !== 0 || deathDir.z !== 0 ? 0 : 1
+  const tz = 0
+  const tLen = Math.sqrt(tx * tx + ty * ty + tz * tz) || 1
+  const t1x = tx / tLen, t1y = ty / tLen, t1z = tz / tLen
+
   // Drop all inventory items as world pickups scattered around death position
   for (const { slot } of inv.listItems()) {
     const angle = Math.random() * Math.PI * 2
     const radius = 0.8 + Math.random() * 1.2
+    // Scatter in the tangent plane then project back to sphere surface
+    const ox = Math.cos(angle) * radius * t1x
+    const oy = Math.cos(angle) * radius * t1y
+    const oz = Math.sin(angle) * radius
+    const nx = dpx + ox, ny = dpy + oy, nz = dpz + oz
+    const sr = surfaceRadiusAt(nx, ny, nz)
+    const nDir = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1
     DEATH_LOOT_DROPS.push({
       id: _lootIdCounter++,
-      x: dpx + Math.cos(angle) * radius,
-      y: dpy,
-      z: dpz + Math.sin(angle) * radius,
+      x: (nx / nDir) * sr,
+      y: (ny / nDir) * sr,
+      z: (nz / nDir) * sr,
       matId:    slot.materialId,
       itemId:   slot.itemId,
       label:    slot.itemId > 0 ? (ITEM_NAMES[slot.itemId] ?? `item${slot.itemId}`) : (MAT_NAMES[slot.materialId] ?? `mat${slot.materialId}`),
@@ -114,7 +136,7 @@ export function checkAndTriggerDeath(
 // Called when the player clicks RESPAWN on the DeathScreen.
 // Teleports to bedroll (or world spawn), resets vitals to groggy state.
 export function executeRespawn(
-  _entityId: number,  // reserved for future entity-specific logic
+  entityId: number,
   setEcsPosition: (x: number, y: number, z: number) => void,
   setEcsHealth: (hp: number) => void,
   setEcsMetabolism: (hunger: number, thirst: number, energy: number) => void,
@@ -134,6 +156,9 @@ export function executeRespawn(
   const maxHp = 100  // will be corrected by ECS on next frame if evolution modified it
   setEcsHealth(maxHp * 0.5)
   setEcsMetabolism(0.4, 0.4, 0.7)
+
+  // Clear ECS dead flag so MetabolismSystem stops treating this entity as dead
+  removeComponent(world, IsDead, entityId)
 
   // Clear death overlay
   ps.clearDeath()

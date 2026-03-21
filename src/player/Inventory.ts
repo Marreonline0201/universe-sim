@@ -231,6 +231,10 @@ export const MAT = {
   // ── M11: Civilization Age ────────────────────────────────────────────────
   GLASS_INGOT: 63,       // sand+heat processed glass ingot — telescope lens substrate
   MUSKET_BALL: 64,       // iron-cast ammunition for musket — 10 per craft
+  // ── M12: Space Age ───────────────────────────────────────────────────────
+  ROCKET_FUEL: 65,       // coal+sulfur+saltpeter refined propellant — launch pad feedstock
+  CIRCUIT_BOARD: 66,     // iron+copper+gold semiconductor substrate — electronics foundation
+  NUCLEAR_FUEL: 67,      // enriched uranium pellets — nuclear_reactor feedstock
 } as const
 
 // ── Item IDs ──────────────────────────────────────────────────────────────────
@@ -268,6 +272,11 @@ export const ITEM = {
   // ── M11: Civilization Age ────────────────────────────────────────────────
   MUSKET: 63,            // first ranged firearm — iron barrel + gunpowder charge, 8s reload
   TELESCOPE: 64,         // astronomy instrument — reveals moon, planets, L6 teaser
+  // ── M12: Space Age ───────────────────────────────────────────────────────
+  // Note: SATELLITE (38) and ROCKET (39) already exist in Tier 7 stubs above.
+  // Reuse those IDs — M12 makes them craftable via new recipes 98-99.
+  // New M12-specific items that don't conflict:
+  ARTILLERY_SHELL: 65,   // ballistic projectile — ArtillerySystem splash damage radius 8m
 } as const
 
 // ── Crafting Recipes ─────────────────────────────────────────────────────────
@@ -1022,5 +1031,104 @@ export const CRAFTING_RECIPES: CraftingRecipe[] = [
     ],
     output: { itemId: ITEM.TELESCOPE, quantity: 1 },
     knowledgeRequired: ['optics', 'iron_smelting'],
+  },
+
+  // ── M12: Space Age ────────────────────────────────────────────────────────
+  //
+  // Circuit Board chemistry:
+  //   Iron (Fe) + Copper (Cu) trace routing + Gold (Au) contact pads → PCB substrate.
+  //   Real basis: printed circuit boards are etched copper on fiberglass (epoxy).
+  //   Simplified: iron_ingot (frame) + copper (traces) + gold (bond pads) → circuit_board.
+  //
+  // Rocket Fuel (simplified Tsiolkovsky):
+  //   KNO₃ (saltpeter) + C (coal) + S (sulfur) → sustained oxidizer burn at high mass flow.
+  //   Real solid rocket propellant: ammonium perchlorate + aluminium (more energetic).
+  //   Game simplification extends gunpowder chemistry to refined solid propellant.
+  //
+  // Nuclear Fuel:
+  //   Natural uranium ore → enriched U-235 pellets. Simplified: uranium_ore kiln-reduction.
+  //   Real: gaseous diffusion or centrifuge separation of U-235 from U-238.
+  {
+    // id 93 — Circuit Board: 2x iron_ingot + 3x copper + 1x gold → circuit_board mat
+    // Unlock: civLevel 6 broadcasts discover recipe 93 to all players.
+    id: 93, name: 'Circuit Board', tier: 4, time: 120,
+    inputs: [
+      { materialId: MAT.IRON_INGOT, quantity: 2 },
+      { materialId: MAT.COPPER,     quantity: 3 },
+      { materialId: MAT.GOLD,       quantity: 1 },
+    ],
+    output: { itemId: MAT.CIRCUIT_BOARD, quantity: 1, isMaterial: true },
+    knowledgeRequired: ['electronics', 'metallurgy'],
+  },
+  {
+    // id 94 — Generator: 8x iron_ingot + 6x copper + 2x circuit_board
+    // Placed building — output itemId 0 marks it as a placed-building recipe
+    // (BuildPanel reads materialsRequired from BUILDING_TYPES, not this output).
+    id: 94, name: 'Generator', tier: 4, time: 300,
+    inputs: [
+      { materialId: MAT.IRON_INGOT,    quantity: 8 },
+      { materialId: MAT.COPPER,        quantity: 6 },
+      { materialId: MAT.CIRCUIT_BOARD, quantity: 2 },
+    ],
+    output: { itemId: 0, quantity: 0 },   // building — placed via BuildPanel, not held
+    knowledgeRequired: ['electronics', 'electromagnetism'],
+  },
+  {
+    // id 95 — Radio Tower: 6x iron_ingot + 4x copper + 3x circuit_board
+    id: 95, name: 'Radio Tower', tier: 4, time: 240,
+    inputs: [
+      { materialId: MAT.IRON_INGOT,    quantity: 6 },
+      { materialId: MAT.COPPER,        quantity: 4 },
+      { materialId: MAT.CIRCUIT_BOARD, quantity: 3 },
+    ],
+    output: { itemId: 0, quantity: 0 },   // building — placed via BuildPanel
+    knowledgeRequired: ['electronics', 'communication'],
+  },
+  {
+    // id 96 — Rocket Fuel (×4): 4x coal + 2x sulfur + 2x saltpeter → rocket_fuel
+    // High-energy solid propellant batch — 4 units per craft.
+    id: 96, name: 'Rocket Fuel (×4)', tier: 4, time: 60,
+    inputs: [
+      { materialId: MAT.COAL,      quantity: 4 },
+      { materialId: MAT.SULFUR,    quantity: 2 },
+      { materialId: MAT.SALTPETER, quantity: 2 },
+    ],
+    output: { itemId: MAT.ROCKET_FUEL, quantity: 4, isMaterial: true },
+    knowledgeRequired: ['chemistry', 'rocketry'],
+  },
+  {
+    // id 97 — Nuclear Fuel: 3x uranium → 1x nuclear_fuel pellet
+    // Enrichment simplified: kiln reduction at max temperature concentrates U-235.
+    id: 97, name: 'Nuclear Fuel', tier: 4, time: 600,
+    inputs: [
+      { materialId: MAT.URANIUM, quantity: 3 },
+    ],
+    output: { itemId: MAT.NUCLEAR_FUEL, quantity: 1, isMaterial: true },
+    knowledgeRequired: ['nuclear_physics', 'chemistry'],
+  },
+  {
+    // id 98 — Satellite (M12): 12x iron_ingot + 4x circuit_board + 2x glass_ingot
+    // Reuses ITEM.SATELLITE=38. Solar panels (glass) + electronics + iron frame.
+    // When launched via rocket, passively reveals fog-of-war for owning settlement.
+    id: 98, name: 'Satellite (M12)', tier: 4, time: 480,
+    inputs: [
+      { materialId: MAT.IRON_INGOT,    quantity: 12 },
+      { materialId: MAT.CIRCUIT_BOARD, quantity: 4  },
+      { materialId: MAT.GLASS_INGOT,   quantity: 2  },
+    ],
+    output: { itemId: 38, quantity: 1 },   // ITEM.SATELLITE = 38
+    knowledgeRequired: ['electronics', 'rocketry', 'optics'],
+  },
+  {
+    // id 99 — Rocket (M12): 20x iron_ingot + 8x rocket_fuel + 4x circuit_board
+    // Reuses ITEM.ROCKET=39. Single-stage launch vehicle. F near launch_pad → RocketSystem.
+    id: 99, name: 'Rocket (M12)', tier: 4, time: 900,
+    inputs: [
+      { materialId: MAT.IRON_INGOT,    quantity: 20 },
+      { materialId: MAT.ROCKET_FUEL,   quantity: 8  },
+      { materialId: MAT.CIRCUIT_BOARD, quantity: 4  },
+    ],
+    output: { itemId: 39, quantity: 1 },   // ITEM.ROCKET = 39
+    knowledgeRequired: ['rocketry', 'aerospace'],
   },
 ]

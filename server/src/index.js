@@ -156,8 +156,22 @@ async function main() {
         })
         const emoji = eventType === 'WAR_DECLARED' ? 'x' : eventType === 'ALLIANCE_FORMED' ? '*' : '~'
         slack._post(`[${emoji}] *Diplomacy:* ${nameA} and ${nameB} — ${eventType.replace(/_/g, ' ').toLowerCase()}.`).catch(() => {})
+      },
+      // M12 onSpaceAge: settlement reaches civLevel 6 (Space Age)
+      (settlementId, settlementName, s) => {
+        broadcastAll({
+          type: 'CIVILIZATION_L6',
+          settlementId,
+          settlementName,
+          x: s.x, y: s.y, z: s.z,
+        })
+        slack._post(`*Space Age!* ${settlementName} has reached Civilization Level 6. The Space Age begins — generators, radio towers, and rocket launches are now possible.`).catch(() => {})
       }
     )
+    // M12: Handle ROCKET_LAUNCHED — after 30s broadcast ANOMALY_SIGNAL to all clients
+    // The ROCKET_LAUNCHED message is received in the WS handler (see below) and
+    // queued here via a setTimeout relay. This is the "30 second delay" mechanism.
+    // (Relay is registered in the WS message handler further down in this file.)
     // Outlaw: clean up expired redemption quests every tick
     outlaw.tickCleanup()
   }, 1000)
@@ -628,6 +642,57 @@ function handleMessage(ws, msg) {
       // Broadcast updated catalog so all nearby players see fresh prices
       const catalog = tradeEcon.getShopCatalog(settlementId)
       broadcastAll({ type: 'SHOP_CATALOG_UPDATE', settlementId, catalog })
+      break
+    }
+
+    // ── M12 Track A: Rocket launch ─────────────────────────────────────────────
+
+    case 'ROCKET_LAUNCHED': {
+      // Client reports rocket reached orbit from a launch pad.
+      // After 30s, broadcast ANOMALY_SIGNAL to all clients — the Velar anomaly responds.
+      const userId = ws._userId
+      if (!userId) return
+      const { pos } = msg
+      const p = players.get(userId)
+      const username = p?.username ?? userId
+      console.log(`[server] ROCKET_LAUNCHED by ${username} — scheduling ANOMALY_SIGNAL in 30s`)
+      broadcastAll({ type: 'ROCKET_ORBIT_ACHIEVED', launcherId: userId, launcherName: username, pos })
+      slack._post(`*Orbit achieved!* ${username} has launched a rocket into orbit. Something stirs in the cosmos...`).catch(() => {})
+      setTimeout(() => {
+        console.log(`[server] Broadcasting ANOMALY_SIGNAL — Velar responds!`)
+        broadcastAll({
+          type:        'ANOMALY_SIGNAL',
+          launcherId:  userId,
+          launcherName: username,
+          message:     'Signal detected from Velar. Coordinates locked. Something is watching.',
+          timestamp:   Date.now(),
+        })
+        slack._post(`*Anomaly Signal!* The Velar anomaly has responded. Something is out there.`).catch(() => {})
+      }, 30_000)
+      break
+    }
+
+    // ── M12 Track B: Radio broadcast ───────────────────────────────────────────
+
+    case 'PLAYER_RADIO_BROADCAST': {
+      // Player near a radio_tower broadcasts a message to other players in range.
+      const userId = ws._userId
+      if (!userId) return
+      const { settlementId, message } = msg
+      if (typeof settlementId !== 'number' || typeof message !== 'string') return
+
+      const s = settlements.getSettlement(settlementId)
+      if (!s) return
+
+      const safeMsg = message.slice(0, 120)
+      broadcastAll({
+        type:           'RADIO_BROADCAST',
+        settlementId,
+        settlementName: s.name,
+        message:        safeMsg,
+        towerPos:       [s.x, s.y, s.z],
+      })
+      console.log(`[server] Radio broadcast from ${s.name}: "${safeMsg}"`)
       break
     }
 

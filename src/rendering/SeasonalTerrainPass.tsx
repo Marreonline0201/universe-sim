@@ -137,7 +137,8 @@ function SpringBlossoms({ progress }: { progress: number }) {
 // ── Main SeasonalTerrainPass component ────────────────────────────────────────
 
 export function SeasonalTerrainPass() {
-  const { season, progress } = useSeasonStore()
+  const season = useSeasonStore(s => s.season)
+  const progress = useSeasonStore(s => s.progress)
 
   return (
     <>

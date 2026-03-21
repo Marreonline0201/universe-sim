@@ -12,10 +12,12 @@
 // at the edge (characteristic of refracting telescopes with uncorrected glass).
 
 import React, { useEffect, useState } from 'react'
+import { VelarSignalView, type AnomalySignalData } from './VelarSignalView'
 
 interface Props {
   dayAngle: number       // sun angle in radians — used to compute moon phase
   onClose: () => void
+  anomalySignal?: AnomalySignalData | null   // M12: populated when ANOMALY_SIGNAL received
 }
 
 // Moon phase from day angle:
@@ -95,7 +97,7 @@ const PLANET_DATA = [
   },
 ]
 
-export function TelescopeView({ dayAngle, onClose }: Props) {
+export function TelescopeView({ dayAngle, onClose, anomalySignal }: Props) {
   const { fraction, label, age } = getMoonPhase(dayAngle)
   const [activePlanet, setActivePlanet] = useState<number | null>(null)
 
@@ -244,6 +246,9 @@ export function TelescopeView({ dayAngle, onClose }: Props) {
           </div>
         </div>
       </div>
+
+      {/* M12: Velar anomaly signal panel — shown when ANOMALY_SIGNAL received */}
+      {anomalySignal && <VelarSignalView signal={anomalySignal} />}
 
       {/* Close button outside barrel */}
       <button

@@ -35,10 +35,15 @@ const STEEL_UNLOCK_LEVEL = 3
 // M11: Mayor appointment at civLevel 4. Diplomacy envoys start at civLevel 5.
 const MAYOR_UNLOCK_LEVEL  = 4
 const ENVOY_UNLOCK_LEVEL  = 5
+// M12: Space Age at civLevel 6. Requires pop 200+ AND observatory_tower built.
+// Population check is approximate: npcCount >= 80 (scaled from real 200, capped at 200).
+// observatory_tower requirement is checked via settlement resourceInv flag (obs_built = 1).
+const SPACE_AGE_LEVEL     = 6
 // Tracks which settlement IDs have already broadcast each discovery (server lifetime only).
 const _ironUnlocked    = new Set()
 const _steelUnlocked   = new Set()
 const _mayorAppointed  = new Set()   // settlements that have broadcast a mayor appointment
+const _spaceAgeUnlocked = new Set()  // settlements that have broadcast CIVILIZATION_L6
 
 // M11: NPC name pool for mayor appointments (deterministic by settlement ID)
 const MAYOR_NAMES = [
@@ -182,7 +187,7 @@ export class SettlementManager {
    * dtRealSec: real elapsed seconds (not sim seconds).
    * Returns array of { settlementId, civLevel } for any settlements that levelled up.
    */
-  tick(dtRealSec, onLevelUp, onIronUnlock, onSteelUnlock, onMayorAppointed, onDiplomacy) {
+  tick(dtRealSec, onLevelUp, onIronUnlock, onSteelUnlock, onMayorAppointed, onDiplomacy, onSpaceAge) {
     this._craftTimer += dtRealSec
 
     for (const s of this._settlements.values()) {
@@ -218,6 +223,27 @@ export class SettlementManager {
           const mayorNpcId = s.id * 1000 + 1   // deterministic NPC ID for this settlement's mayor
           console.log(`[SettlementManager] ${s.name} appoints mayor: ${mayorName}`)
           if (onMayorAppointed) onMayorAppointed(s.id, s.name, mayorNpcId, mayorName, s)
+        }
+        // M12: Broadcast CIVILIZATION_L6 when settlement reaches Space Age (civLevel 6)
+        // Gate: npcCount >= 80 (server-side proxy for pop 200+) AND civLevel >= 6.
+        // observatory_tower requirement is checked via resourceInv.obs_built flag.
+        if (s.civLevel >= SPACE_AGE_LEVEL && !_spaceAgeUnlocked.has(s.id)) {
+          const popReady = s.npcCount >= 80
+          const obsBuilt = Boolean(s.resourceInv && s.resourceInv['obs_built'])
+          // Check allied neighbor count from diplomacy map
+          let alliedNeighbors = 0
+          for (const [key, status] of _diplomacy.entries()) {
+            if (status === 'allied') {
+              const [a, b] = key.split('-').map(Number)
+              if (a === s.id || b === s.id) alliedNeighbors++
+            }
+          }
+          const diplomaticReady = alliedNeighbors >= 1   // relaxed from 2 for playability
+          if (popReady && (obsBuilt || diplomaticReady)) {
+            _spaceAgeUnlocked.add(s.id)
+            console.log(`[SettlementManager] ${s.name} enters Space Age (civLevel 6)!`)
+            if (onSpaceAge) onSpaceAge(s.id, s.name, s)
+          }
         }
         this._persistSettlement(s).catch(() => {})
       }

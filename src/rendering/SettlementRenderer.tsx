@@ -123,7 +123,8 @@ function SettlementMesh({ settlement }: { settlement: any }) {
 }
 
 export function SettlementRenderer() {
-  const settlements = useSettlementStore(s => Array.from(s.settlements.values()))
+  const settlementsMap = useSettlementStore(s => s.settlements)
+  const settlements = Array.from(settlementsMap.values())
 
   if (settlements.length === 0) return null
 

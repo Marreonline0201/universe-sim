@@ -49,7 +49,9 @@ interface WeatherRendererProps {
 
 export function WeatherRenderer({ playerX, playerY, playerZ }: WeatherRendererProps) {
   const { scene } = useThree()
-  const weather = useWeatherStore(s => s.getPlayerWeather())
+  const weatherSectors = useWeatherStore(s => s.sectors)
+  const weatherPlayerSectorId = useWeatherStore(s => s.playerSectorId)
+  const weather = weatherSectors.find(s => s.sectorId === weatherPlayerSectorId) ?? weatherSectors[0] ?? null
   const setLightning = useWeatherStore(s => s.setLightningActive)
 
   const state     = weather?.state     ?? 'CLEAR'

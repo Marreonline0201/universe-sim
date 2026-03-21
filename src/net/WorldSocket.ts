@@ -17,6 +17,7 @@ import type { ShopCatalogItem } from '../store/shopStore'
 import { inventory, techTree } from '../game/GameSingletons'
 import type { LocalSimManager } from '../engine/LocalSimManager'
 import { useDiplomacyStore } from '../store/diplomacyStore'
+import { receiveRadioBroadcast, registerTower } from '../game/RadioSystem'
 
 // Module-level reference to the active LocalSimManager.
 // Set by SceneRoot after the sim grid initialises.
@@ -584,6 +585,78 @@ export class WorldSocket {
             'info'
           )
         }
+        break
+      }
+
+      // ── M12: Space Age ──────────────────────────────────────────────────────
+
+      case 'CIVILIZATION_L6': {
+        // A settlement entered Space Age (civLevel 6).
+        // Unlock electronics + rocketry knowledge and discover Space Age recipes.
+        const sName = msg.settlementName as string
+        useUiStore.getState().addNotification(
+          `Space Age! ${sName} has reached Civilization Level 6. Generators, radio towers, and rocket launches are now possible!`,
+          'discovery'
+        )
+        techTree.markResearched('electronics')
+        techTree.markResearched('rocketry')
+        techTree.markResearched('aerospace')
+        techTree.markResearched('nuclear_physics')
+        inventory.discoverRecipe(93)   // circuit board
+        inventory.discoverRecipe(94)   // generator (building)
+        inventory.discoverRecipe(95)   // radio tower (building)
+        inventory.discoverRecipe(96)   // rocket fuel
+        inventory.discoverRecipe(97)   // nuclear fuel
+        inventory.discoverRecipe(98)   // satellite
+        inventory.discoverRecipe(99)   // rocket
+        // Register tower position for VFX
+        if (typeof msg.x === 'number') {
+          registerTower([msg.x as number, msg.y as number, msg.z as number], msg.settlementId as number)
+        }
+        break
+      }
+
+      case 'ROCKET_ORBIT_ACHIEVED': {
+        // Server confirms a rocket entered orbit.
+        const launcherName = msg.launcherName as string
+        useUiStore.getState().addNotification(
+          `Rocket launched by ${launcherName}! Orbit achieved. Something stirs in the cosmos...`,
+          'discovery'
+        )
+        // Dispatch event so TelescopeView opens automatically if player has telescope equipped
+        window.dispatchEvent(new CustomEvent('rocket-orbit-achieved', { detail: msg }))
+        break
+      }
+
+      case 'ANOMALY_SIGNAL': {
+        // Velar responds to the rocket launch after 30s delay.
+        const signal = {
+          launcherId:   msg.launcherId   as string,
+          launcherName: msg.launcherName as string,
+          message:      msg.message      as string,
+          timestamp:    msg.timestamp    as number,
+        }
+        useUiStore.getState().addNotification(
+          `ANOMALY SIGNAL DETECTED from Velar! Open your telescope to analyze.`,
+          'discovery'
+        )
+        // Store in window for TelescopeView to pick up
+        window.dispatchEvent(new CustomEvent('anomaly-signal', { detail: signal }))
+        break
+      }
+
+      case 'RADIO_BROADCAST': {
+        // Settlement radio tower broadcast — received by players in range.
+        receiveRadioBroadcast(
+          msg.settlementId   as number,
+          msg.settlementName as string,
+          msg.message        as string,
+          (msg.towerPos      as [number, number, number]) ?? [0, 0, 0],
+        )
+        useUiStore.getState().addNotification(
+          `[Radio] ${msg.settlementName as string}: ${msg.message as string}`,
+          'info'
+        )
         break
       }
 

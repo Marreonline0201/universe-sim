@@ -111,6 +111,17 @@ import { DiplomacyHUD } from '../ui/DiplomacyHUD'
 // M11 Track D: Night sky + telescope
 import { NightSkyRenderer } from './NightSkyRenderer'
 import { TelescopeView } from '../ui/TelescopeView'
+import type { AnomalySignalData } from '../ui/VelarSignalView'
+
+// M12 Track A: Rocketry
+import { tickRocket, beginLaunch, isLaunching } from '../game/RocketSystem'
+import { RocketVFXRenderer } from './RocketVFXRenderer'
+
+// M12 Track B: Radio + Electric lights
+import { RadioTowerVFXRenderer } from './RadioTowerVFXRenderer'
+import { ElectricLightPass, registerElectricSettlements } from './ElectricLightPass'
+
+// M12 Track C: civLevel 6 gate handled in SettlementManager (server) + WorldSocket
 
 // M9: Register river valley carving with the terrain height function.
 // Must happen before any geometry is generated (before generatePlanetGeometry is called).
@@ -467,12 +478,40 @@ export function SceneRoot() {
   const [dayAngle, setDayAngle] = useState(Math.PI * 0.6)
   // M11: telescope overlay
   const [telescopeOpen, setTelescopeOpen] = useState(false)
+  // M12: Velar anomaly signal state — populated when ANOMALY_SIGNAL received
+  const [anomalySignal, setAnomalySignal] = useState<AnomalySignalData | null>(null)
 
   // M11: listen for open-telescope event dispatched from GameLoop
   useEffect(() => {
     const handler = () => setTelescopeOpen(true)
     window.addEventListener('open-telescope', handler)
     return () => window.removeEventListener('open-telescope', handler)
+  }, [])
+
+  // M12: listen for anomaly-signal event dispatched from WorldSocket
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const signal = (e as CustomEvent).detail as AnomalySignalData
+      setAnomalySignal(signal)
+      setTelescopeOpen(true)   // auto-open telescope when signal arrives
+    }
+    window.addEventListener('anomaly-signal', handler)
+    return () => window.removeEventListener('anomaly-signal', handler)
+  }, [])
+
+  // M12: sync settlement civLevels to ElectricLightPass when settlement store changes
+  useEffect(() => {
+    const unsub = useSettlementStore.subscribe((state) => {
+      const list = Array.from(state.settlements.values()).map(s => ({
+        id:       s.id,
+        civLevel: s.civLevel,
+        x:        s.x,
+        y:        s.y,
+        z:        s.z,
+      }))
+      registerElectricSettlements(list)
+    })
+    return unsub
   }, [])
 
   useEffect(() => {
@@ -708,6 +747,12 @@ export function SceneRoot() {
         <CastleRenderer />
         {/* M11 Track A: Musket smoke + muzzle flash VFX */}
         <MusketVFXRenderer />
+        {/* M12 Track A: Rocket exhaust + heat shimmer + scorch */}
+        <RocketVFXRenderer />
+        {/* M12 Track B: Radio tower EM pulse rings */}
+        <RadioTowerVFXRenderer />
+        {/* M12 Track B: Tungsten electric lights on civLevel 6 settlements */}
+        <ElectricLightPass dayAngle={dayAngle} />
         {/* M8: Weather particle system — follows player position */}
         <WeatherRendererWrapper />
         {/* M9: River ribbon meshes — generated from flow-field paths */}
@@ -743,7 +788,11 @@ export function SceneRoot() {
     <DiplomacyHUD />
     {/* M11 Track D: Telescope overlay — full screen when telescope equipped + F pressed */}
     {telescopeOpen && (
-      <TelescopeView dayAngle={dayAngle} onClose={() => setTelescopeOpen(false)} />
+      <TelescopeView
+        dayAngle={dayAngle}
+        onClose={() => setTelescopeOpen(false)}
+        anomalySignal={anomalySignal}
+      />
     )}
     </>
   )
@@ -1123,14 +1172,32 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
           ? hasIronPickaxe
           : hasAnyPickaxe || hasIronPickaxe
 
+      const ps_gather = usePlayerStore.getState()
+      const gatherSlot = ps_gather.equippedSlot !== null ? inventory.getSlot(ps_gather.equippedSlot) : null
+      const gatherItemId = gatherSlot?.itemId ?? 0
+      const harvestPower = getItemStats(gatherItemId).harvestPower
+      const maxHits = getNodeMaxHits(nearNode.type, harvestPower)
+      const hitsSoFar = NODE_HITS_TAKEN.get(nearNode.id) ?? 0
+      const hitsRemaining = maxHits - hitsSoFar
+
       const label = canGather
-        ? `[F] Gather ${nearNode.label}`
+        ? maxHits > 1
+          ? `[F] Gather ${nearNode.label} (${hitsSoFar}/${maxHits} hits)`
+          : `[F] Gather ${nearNode.label}`
         : isIronOre
           ? `[Need Iron Pickaxe] ${nearNode.label}`
           : `[Need Stone Tool] ${nearNode.label}`
       if (gs.gatherPrompt !== label) gs.setGatherPrompt(label)
 
       if (canGather && !gs.inputBlocked && controllerRef.current?.popInteract()) {
+        const newHits = hitsSoFar + 1
+        if (newHits < maxHits) {
+          // Not fully harvested yet — record the hit, give feedback, skip gather
+          NODE_HITS_TAKEN.set(nearNode.id, newHits)
+          useUiStore.getState().addNotification(`Hit ${nearNode.label} (${newHits}/${maxHits})`, 'info')
+        } else {
+        // Final hit — fully gather the node
+        NODE_HITS_TAKEN.delete(nearNode.id)
         gatheredNodeIds.add(nearNode.id)
         NODE_RESPAWN_AT.set(nearNode.id, Date.now() + NODE_RESPAWN_DELAY)
         gs.setGatherPrompt(null)
@@ -1158,6 +1225,7 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
         if (isOre) {
           addEvolutionPoints(2)
         }
+        } // end else (final hit)
       }
     } else {
       if (gs.gatherPrompt !== null) gs.setGatherPrompt(null)
@@ -1176,6 +1244,37 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
           // TelescopeView is controlled by React state in the parent — dispatch a custom event
           window.dispatchEvent(new CustomEvent('open-telescope'))
           gs.setGatherPrompt(null)
+        }
+      }
+    }
+
+    // ── M12 Track A: Rocket — F key near launch_pad when rocket equipped ─────
+    {
+      const ps_rkt = usePlayerStore.getState()
+      const rktSlot = ps_rkt.equippedSlot !== null ? inventory.getSlot(ps_rkt.equippedSlot) : null
+      const hasRocket = rktSlot?.itemId === ITEM.ROCKET
+      if (hasRocket && !gs.inputBlocked && !isLaunching()) {
+        // Check player is within 15m of a launch_pad building
+        const launchPads = buildingSystem.getBuildingsProviding('rocket_launch')
+        let nearPad = false
+        let padPos: [number, number, number] = [px, py, pz]
+        for (const pad of launchPads) {
+          const dx = px - pad.position[0], dz = pz - pad.position[2]
+          if (Math.sqrt(dx * dx + dz * dz) < 15) { nearPad = true; padPos = pad.position; break }
+        }
+        if (nearPad) {
+          if (gs.gatherPrompt !== '[F] Launch Rocket') {
+            gs.setGatherPrompt('[F] Launch Rocket')
+          }
+          if (controllerRef.current?.popInteract()) {
+            beginLaunch(padPos)
+            // Consume the rocket item from inventory
+            for (let i = 0; i < inventory.slotCount; i++) {
+              const sl = inventory.getSlot(i)
+              if (sl?.itemId === ITEM.ROCKET) { inventory.removeItem(i, 1); break }
+            }
+            gs.setGatherPrompt(null)
+          }
         }
       }
     }
@@ -1228,6 +1327,9 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
 
     // ── M11 Track A: Musket reload tick ──────────────────────────────────────
     tickMusket(dt)
+
+    // ── M12 Track A: Rocket launch tick ──────────────────────────────────────
+    tickRocket(dt)
 
     // ── P2-5: Building physics — fire damage to combustible structures ────────
     tickBuildingPhysics(dt, buildingSystem, simManagerRef.current)

@@ -172,6 +172,36 @@ const STATS: Partial<Record<number, ItemStats>> = {
     range:        1.0,
   },
 
+  // ── M12: Space Age items ─────────────────────────────────────────────────
+  //
+  // Satellite (reuses ITEM.SATELLITE=38 from Tier 7 stub): equip + F near launch_pad.
+  // Rocket (reuses ITEM.ROCKET=39 from Tier 7 stub): F near launch_pad triggers launch.
+  // Artillery Shell (ITEM.ARTILLERY_SHELL=65): loaded into artillery building.
+  //
+  // ITEM.SATELLITE=38 and ITEM.ROCKET=39 stats are already defined via the
+  // Tier 7 placeholder recipes. We add stats here for the equipped-item system.
+  [ITEM.SATELLITE]: {
+    name:         'Satellite',
+    damage:       0,
+    harvestPower: 1,
+    harvestTypes: [],
+    range:        1.0,
+  },
+  [ITEM.ROCKET]: {
+    name:         'Rocket',
+    damage:       0,
+    harvestPower: 1,
+    harvestTypes: [],
+    range:        2.0,
+  },
+  [ITEM.ARTILLERY_SHELL]: {
+    name:         'Artillery Shell',
+    damage:       120,
+    harvestPower: 1,
+    harvestTypes: [],
+    range:        200.0,
+  },
+
   // ── M11: Civilization Age items ──────────────────────────────────────────
   //
   // Musket: first firearm. Damage 80, range 60m. 8s reload.

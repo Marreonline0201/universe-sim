@@ -92,7 +92,12 @@ interface ShopItem {
 }
 
 export function ShopHUD() {
-  const shop = useShopStore()
+  const shopOpen = useShopStore(s => s.open)
+  const shopSettlementId = useShopStore(s => s.settlementId)
+  const shopSettlementName = useShopStore(s => s.settlementName)
+  const shopCatalog = useShopStore(s => s.catalog)
+  const shopClose = useShopStore(s => s.closeShop)
+  const shop = { open: shopOpen, settlementId: shopSettlementId, settlementName: shopSettlementName, catalog: shopCatalog, closeShop: shopClose }
   const [tab, setTab] = useState<'buy' | 'sell'>('buy')
   const [qty, setQty] = useState<Record<number, number>>({})
 

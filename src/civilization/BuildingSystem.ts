@@ -161,8 +161,8 @@ export class BuildingSystem {
 const M = {
   STONE: 1, WOOD: 3, BARK: 4, CLAY: 8, BRONZE: 13, IRON_ORE: 14, IRON: 15, STEEL: 16,
   GLASS: 18, BRICK: 19, MORTAR: 20, ROPE: 23, LEATHER: 24,
-  COPPER: 25, SILICON: 32, WIRE: 34, PLASTIC: 35, RUBBER: 36,
-  IRON_INGOT: 43, GLASS_INGOT: 63,
+  COPPER: 25, URANIUM: 39, SILICON: 32, WIRE: 34, PLASTIC: 35, RUBBER: 36,
+  IRON_INGOT: 43, GLASS_INGOT: 63, CIRCUIT_BOARD: 66, NUCLEAR_FUEL: 67,
 } as const
 
 /**
@@ -341,6 +341,77 @@ export const BUILDING_TYPES: BuildingType[] = [
     ],
     size: [8, 18, 8], provides: ['astronomy', 'research_bonus', 'navigation_aid', 'optics_unlock'],
     maxOccupants: 4, structuralStrength: 5.0, maintenanceRate: 0.15,
+  },
+
+  // ── M12: Tier 4 — Space Age Infrastructure (civLevel 6 gate enforced in SettlementManager) ──
+  //
+  // Generator: electromagnetic induction machine — Faraday (1831) rotating copper coil.
+  // Real basis: coal/gas turbine generator. Simplified: iron + copper + circuit_board.
+  // Provides electric power for radio tower + electric_light systems.
+  //
+  // Radio Tower: Hertzian wave transmitter — Marconi (1895). Iron mast + copper antenna.
+  // Transmits settlement announcements at 300m effective range.
+  //
+  // Launch Pad: concrete apron + steel gantry — early access rocket launch (civLevel 6).
+  // Full-scale space_launch_complex exists at tier 7 for late game.
+  //
+  // Nuclear Reactor (small): compact fission reactor. Uranium (natural) + copper cooling.
+  // Structural strength 25 kN/m² (reinforced concrete containment dome).
+  //
+  // Artillery: cast iron cannon on wheeled carriage — Hundred Years War (14th century).
+  // Launches iron shells in ballistic arcs, managed by ArtillerySystem.ts.
+  {
+    id: 'generator', name: 'Generator', tier: 4,
+    materialsRequired: [
+      { materialId: M.IRON_INGOT,    quantity: 8  },
+      { materialId: M.COPPER,        quantity: 6  },
+      { materialId: M.CIRCUIT_BOARD, quantity: 2  },
+    ],
+    size: [4, 3, 4], provides: ['electric_power', 'power_grid', 'light_source'],
+    maxOccupants: 2, structuralStrength: 5.0, maintenanceRate: 0.8,
+  },
+  {
+    id: 'radio_tower', name: 'Radio Tower', tier: 4,
+    materialsRequired: [
+      { materialId: M.IRON_INGOT,    quantity: 6  },
+      { materialId: M.COPPER,        quantity: 4  },
+      { materialId: M.CIRCUIT_BOARD, quantity: 3  },
+    ],
+    size: [3, 20, 3], provides: ['radio_broadcast', 'communication', 'settlement_announce'],
+    maxOccupants: 1, structuralStrength: 4.0, maintenanceRate: 0.6,
+  },
+  {
+    id: 'launch_pad', name: 'Launch Pad', tier: 4,
+    materialsRequired: [
+      { materialId: M.STONE,         quantity: 80  },
+      { materialId: M.IRON_INGOT,    quantity: 40  },
+      { materialId: M.CIRCUIT_BOARD, quantity: 6   },
+    ],
+    size: [20, 5, 20], provides: ['rocketry', 'rocket_launch', 'space_access'],
+    maxOccupants: 10, structuralStrength: 12.0, maintenanceRate: 0.4,
+  },
+  {
+    // Small fission reactor — civLevel 6. Provides unlimited base power, enables
+    // nuclear_fuel consumption cycle. Structural strength reflects containment dome.
+    id: 'nuclear_reactor_small', name: 'Nuclear Reactor (Small)', tier: 4,
+    materialsRequired: [
+      { materialId: M.IRON_INGOT,   quantity: 30  },
+      { materialId: M.COPPER,       quantity: 20  },
+      { materialId: M.URANIUM,      quantity: 10  },
+    ],
+    size: [12, 18, 12], provides: ['nuclear_power', 'power_grid', 'unlimited_power'],
+    maxOccupants: 5, structuralStrength: 25.0, maintenanceRate: 0.15,
+  },
+  {
+    // Cast iron cannon on oak carriage wheels. Muzzle-load, 10s reload.
+    // Range ~200m, ballistic arc, splash damage 8m radius.
+    id: 'artillery', name: 'Artillery Cannon', tier: 4,
+    materialsRequired: [
+      { materialId: M.IRON_INGOT, quantity: 15  },
+      { materialId: M.WOOD,       quantity: 10  },
+    ],
+    size: [4, 2, 8], provides: ['siege_weapon', 'area_attack', 'settlement_defense'],
+    maxOccupants: 3, structuralStrength: 3.0, maintenanceRate: 1.2,
   },
 
   // ── Tier 4: Medieval ──────────────────────────────────────────────────────

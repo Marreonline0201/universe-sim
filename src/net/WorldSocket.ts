@@ -117,6 +117,19 @@ export class WorldSocket {
         if (Array.isArray(msg.settlements)) {
           useSettlementStore.getState().setSettlements(msg.settlements as any[])
         }
+        // M7: Seed outlaw wanted list from remote players' murder counts.
+        // Server threshold is 5; reward formula mirrors OutlawSystem.getBountyReward.
+        {
+          const WANTED_THRESHOLD = 5
+          const os = useOutlawStore.getState()
+          for (const rp of remotePlayers) {
+            const mc = (rp as any).murderCount as number ?? 0
+            if (mc >= WANTED_THRESHOLD) {
+              const reward = 200 + mc * 150
+              os.upsertWantedPlayer({ playerId: rp.userId, username: rp.username, murderCount: mc, reward })
+            }
+          }
+        }
         mp.setServerWorld(
           msg.simTime as number,
           msg.timeScale as number,

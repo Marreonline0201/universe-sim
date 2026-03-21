@@ -831,6 +831,14 @@ export function SceneRoot() {
     )}
     {/* M14 Track A: Interplanetary transit cinematic — 20s star-stream animation */}
     <TransitOverlayWrapper />
+    {/* M14 Track B: Velar response decode panel — opens after VELAR_RESPONSE received */}
+    {velarRespOpen && velarResponseReceived && (
+      <VelarResponsePanel
+        worldSeed={42}
+        onClose={() => setVelarRespOpen(false)}
+        onDecoded={() => setVelarRespOpen(false)}
+      />
+    )}
     </>
   )
 }
@@ -1362,6 +1370,36 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
       }
     }
 
+    // ── M14 Track B: Velar Key — F near gateway activates the multiverse portal ─
+    {
+      const velarSt = useVelarStore.getState()
+      if (velarSt.gatewayRevealed && !velarSt.gatewayActive && !gs.inputBlocked) {
+        let hasKey = false
+        for (let i = 0; i < inventory.slotCount; i++) {
+          const sl = inventory.getSlot(i)
+          if (sl?.itemId === _ITEM.VELAR_KEY) { hasKey = true; break }
+        }
+        if (hasKey) {
+          // Gateway is 200m NE of spawn — prompt within 80m (generous — hard to miss large ring)
+          if (gs.gatherPrompt !== '[F] Activate Velar Gateway') {
+            gs.setGatherPrompt('[F] Activate Velar Gateway')
+          }
+          if (controllerRef.current?.popInteract()) {
+            for (let i = 0; i < inventory.slotCount; i++) {
+              const sl = inventory.getSlot(i)
+              if (sl?.itemId === _ITEM.VELAR_KEY) { inventory.removeItem(i, 1); break }
+            }
+            try { getWorldSocket()?.send({ type: 'VELAR_GATEWAY_ACTIVATED' }) } catch {}
+            gs.setGatherPrompt(null)
+            useUiStore.getState().addNotification(
+              'Velar Key inserted. The gateway resonates... A new universe is opening.',
+              'discovery'
+            )
+          }
+        }
+      }
+    }
+
     // ── Ambient temperature update ────────────────────────────────────────────
     if (simManagerRef.current) {
       const ps = usePlayerStore.getState()
@@ -1406,7 +1444,7 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
     )
 
     // ── M8: Quenching system (hot steel → steel or soft_steel) ───────────────
-    tickQuenching(inventory, simManagerRef.current, px, py, pz)
+    tickQuenching(inventory, simManagerRef.current, px, py, pz, useRiverStore.getState().inRiver)
 
     // ── M11 Track A: Musket reload tick ──────────────────────────────────────
     tickMusket(dt)
@@ -1415,12 +1453,15 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
     tickRocket(dt)
 
     // ── M13 Track C: Nuclear reactor tick ────────────────────────────────────
-    // hasWaterCooling: simplified — true if player is near a water source (river/ocean)
-    // Full implementation: check for water_tank building within 5m of reactor.
+    // hasWaterCooling: true if player is near a river or ocean (simplified proxy for
+    // a water_tank building). Net heat rate = +40°C/s; cooling = -60°C/s → net -20°C/s.
     // playerPos is read from ECS Position component each frame.
     {
       const ps = usePlayerStore.getState()
-      tickNuclearReactor(dt, false, [ps.x, ps.y, ps.z], entityId ?? 0)
+      const _nearOcean = py < PLANET_RADIUS + 2  // near ocean surface
+      const _nearRiver = useRiverStore.getState().nearRiver
+      const _hasCooling = _nearRiver || _nearOcean
+      tickNuclearReactor(dt, _hasCooling, [ps.x, ps.y, ps.z], entityId ?? 0)
     }
 
     // ── P2-5: Building physics — fire damage to combustible structures ────────

@@ -681,7 +681,8 @@ function isNearWater(
 export function tickQuenching(
   inv: Inventory,
   simMgr: LocalSimManager | null,
-  px: number, py: number, pz: number
+  px: number, py: number, pz: number,
+  inRiver = false,
 ): void {
   const ps = usePlayerStore.getState()
 
@@ -712,8 +713,8 @@ export function tickQuenching(
     return
   }
 
-  // Check if player is near water → auto-quench
-  if (simMgr && isNearWater(px, py, pz, simMgr)) {
+  // Check if player is near water (ocean or river) → auto-quench
+  if (inRiver || (simMgr && isNearWater(px, py, pz, simMgr))) {
     const quality = hotSlot.quality  // preserve full quality
     inv.removeItem(hotSlotIdx, hotSlot.quantity)
     inv.addItem({ itemId: 0, materialId: MAT.STEEL_INGOT, quantity: hotSlot.quantity, quality })

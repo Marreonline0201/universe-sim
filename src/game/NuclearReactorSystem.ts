@@ -54,6 +54,7 @@ let _cleanupTimer:        number = 0
 let _cleanupActive:       boolean = false
 let _radiationDrainAcc:   number = 0
 let _power:               boolean = false   // is a reactor building placed + fueled?
+let _electrolysisAcc:     number = 0        // seconds accumulator for H2 production
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
@@ -74,6 +75,7 @@ export function deactivateReactor(): void {
   _reactorPos = null
   _power      = false
   _overThresholdSecs = 0
+  _electrolysisAcc   = 0
   useVelarStore.getState().setReactorActive(false)
 }
 
@@ -228,9 +230,17 @@ export function tickNuclearReactor(
   }
 
   // Electrolysis: if powered + water available → produce hydrogen periodically
-  // Uses a simple accumulator — 1 HYDROGEN unit per 30 real seconds
-  // (Full electrolysis implementation: H2O → H2 + ½O2 at ~1.23 eV/molecule)
-  // The game abstracts this as a passive material yield.
+  // 1 HYDROGEN unit per 30 real seconds (H2O → H2 + ½O2 abstracted as passive yield).
+  if (hasWaterCooling) {
+    _electrolysisAcc += dt
+    if (_electrolysisAcc >= 30) {
+      _electrolysisAcc -= 30
+      inventory.addItem({ itemId: 0, materialId: MAT.HYDROGEN, quantity: ELECTROLYSIS_H2_RATE, quality: 1.0 })
+      useUiStore.getState().addNotification('Electrolysis: 1× Hydrogen produced!', 'info')
+    }
+  } else {
+    _electrolysisAcc = 0  // reset accumulator when water cooling is lost
+  }
 }
 
 function _triggerMeltdown(): void {

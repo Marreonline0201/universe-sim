@@ -677,6 +677,10 @@ export class WorldSocket {
           `First Contact! ${decoderName} has decoded the Velar signal. The universe is not empty.`,
           'discovery'
         )
+        // Unlock M14 Velar Crystal + Velar Key recipes (gate: velar_decoded knowledge)
+        techTree.markResearched('velar_decoded')
+        inventory.discoverRecipe(104)  // Velar Crystal
+        inventory.discoverRecipe(105)  // Velar Key
         // Dispatch event so HUD can show FirstContactOverlay
         window.dispatchEvent(new CustomEvent('velar-first-contact', {
           detail: { decoderName, decoderId }

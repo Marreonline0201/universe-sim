@@ -19,6 +19,7 @@ import { WeatherSystem } from './WeatherSystem.js'
 import { SeasonSystem } from './SeasonSystem.js'
 import { TradeEconomy } from './TradeEconomy.js'
 import { migrateSchema as migrateDiscoverySchema, recordDecode, recordProbe } from './DiscoveryDb.js'
+import { UniverseRegistry } from './UniverseRegistry.js'
 
 const PORT = parseInt(process.env.PORT ?? '8080', 10)
 const PERSIST_INTERVAL_MS = 30_000 // save simTime to DB every 30 s
@@ -41,6 +42,7 @@ const outlaw      = new OutlawSystem()
 const weather     = new WeatherSystem()
 const seasons     = new SeasonSystem()
 const tradeEcon   = new TradeEconomy()
+const universeReg = new UniverseRegistry()  // M14: multiverse registry
 
 async function main() {
   // Ensure DB schema is current
@@ -57,6 +59,8 @@ async function main() {
     await tradeEcon.migrateSchema()
     await tradeEcon.load(settlements.getAll())
     await migrateDiscoverySchema()  // M13: discoveries + planets tables
+    await universeReg.migrateSchema()  // M14: universes table
+    await universeReg.load()           // M14: load known universe rooms
     const settings = await loadSettings()
     // Don't restore an admin-set ultra-high timeScale — use normal unless bootstrapping
     clock.setSimTime(settings.simTime)
@@ -297,6 +301,7 @@ function handleMessage(ws, msg) {
         bootstrapProgress: clock.bootstrapProgress,
         players: players.getAll(),
         npcs: npcs.getAll(),
+        universes: universeReg.getAll(),  // M14: known universe instances
         depletedNodes: nodeSync.getDepletedSnapshot(),
         settlements:   settlements.getSnapshot(),
         weather:       weather.getSnapshot(),
@@ -703,83 +708,6 @@ function handleMessage(ws, msg) {
       break
     }
 
-    // ── M13 Track B: Orbital capsule launch ────────────────────────────────────
-
-    case 'ORBITAL_CAPSULE_LAUNCHED': {
-      // Client launches an orbital capsule toward a target planet.
-      // Server computes probe result and broadcasts PROBE_LANDED after 5s.
-      const userId = ws._userId
-      if (!userId) return
-      const { targetPlanet } = msg
-      if (typeof targetPlanet !== 'string') return
-
-      const p = players.get(userId)
-      const username = p?.username ?? userId
-
-      // Planet data — matches OrbitalMechanicsSystem.ts SYSTEM_PLANETS
-      const PLANETS = {
-        Aethon: { seed: 0xaethon1, type: 'rocky',    semiMajorAU: 0.7 },
-        Velar:  { seed: 0xvelar01, type: 'gas',       semiMajorAU: 2.1 },
-        Sulfis: { seed: 0xsulf001, type: 'volcanic',  semiMajorAU: 0.4 },
-      }
-
-      const planet = PLANETS[targetPlanet]
-      if (!planet) return
-
-      console.log(`[server] ORBITAL_CAPSULE_LAUNCHED by ${username} → ${targetPlanet}`)
-      slack._post(`*Orbital capsule launched!* ${username} is sending a probe to ${targetPlanet}...`).catch(() => {})
-
-      // Compute probe result (seeded deterministic random)
-      function seededRand(seed) {
-        let s = seed >>> 0
-        return () => {
-          s = (Math.imul(s, 1664525) + 1013904223) >>> 0
-          return s / 0xffffffff
-        }
-      }
-
-      const rand = seededRand(planet.seed)
-      let surfaceTemp, atmosphere, resources
-
-      if (planet.type === 'rocky') {
-        surfaceTemp = Math.round(220 + rand() * 280)
-        const co2 = (40 + rand() * 55).toFixed(0)
-        const n2  = Math.max(0, 100 - parseFloat(co2) - rand() * 5).toFixed(0)
-        atmosphere = `CO2 ${co2}%, N2 ${n2}%`
-        resources = ['iron_ore', 'silicate', 'frozen_water', 'copper_ore', 'titanium', 'basalt']
-          .sort(() => rand() - 0.5).slice(0, 2 + Math.floor(rand() * 3))
-      } else if (planet.type === 'gas') {
-        surfaceTemp = Math.round(60 + rand() * 120)
-        atmosphere = `H2 ${(70 + rand() * 20).toFixed(0)}%, He ${(5 + rand() * 15).toFixed(0)}%, CH4 trace`
-        resources = ['methane', 'ammonia', 'hydrogen_gas', 'helium3', 'ice_crystals']
-          .sort(() => rand() - 0.5).slice(0, 2 + Math.floor(rand() * 2))
-      } else {
-        surfaceTemp = Math.round(500 + rand() * 400)
-        atmosphere = `SO2 ${(60 + rand() * 30).toFixed(0)}%, CO2 ${(rand() * 30).toFixed(0)}%`
-        resources = ['sulfur', 'iron_ore', 'obsidian', 'volcanic_ash', 'rare_earth']
-          .sort(() => rand() - 0.5).slice(0, 2 + Math.floor(rand() * 3))
-      }
-
-      // Broadcast PROBE_LANDED after 5s (simulated transit)
-      setTimeout(() => {
-        broadcastAll({
-          type:         'PROBE_LANDED',
-          planetName:   targetPlanet,
-          surfaceTemp,
-          atmosphere,
-          resources,
-          discoveredBy: userId,
-          discovererName: username,
-        })
-        console.log(`[server] PROBE_LANDED on ${targetPlanet}: ${surfaceTemp}K, resources: ${resources.join(', ')}`)
-        slack._post(`*Probe landed on ${targetPlanet}!* Surface: ${surfaceTemp}K. Resources: ${resources.join(', ')}`).catch(() => {})
-
-        // Persist to Neon DB
-        recordProbe(targetPlanet, surfaceTemp, atmosphere, resources.join(','), userId).catch(() => {})
-      }, 5000)
-      break
-    }
-
     // ── M13 Track C: Reactor events ────────────────────────────────────────────
 
     case 'REACTOR_MELTDOWN': {
@@ -807,6 +735,168 @@ function handleMessage(ws, msg) {
       console.log(`[server] REACTOR_CLEANED by ${username}`)
       broadcastAll({ type: 'REACTOR_CLEANED', pos, cleanerName: username })
       slack._post(`*Meltdown contained!* ${username} has cleaned up the reactor site.`).catch(() => {})
+      break
+    }
+
+    // ── M14 Track A: Interplanetary transit ────────────────────────────────────
+
+    case 'INTERPLANETARY_TRANSIT_LAUNCHED': {
+      // Client launched player in orbital capsule toward a destination planet.
+      // Broadcast to all players so they can see the capsule leave.
+      const userId = ws._userId
+      if (!userId) return
+      const p = players.get(userId)
+      const username = p?.username ?? userId
+      const { fromPlanet, toPlanet, destinationSeed } = msg
+
+      console.log(`[server] M14: ${username} launched transit from ${fromPlanet} → ${toPlanet}`)
+      broadcastAll({
+        type:            'TRANSIT_LAUNCHED',
+        userId,
+        username,
+        fromPlanet,
+        toPlanet,
+        destinationSeed,
+        timestamp:       Date.now(),
+      })
+      slack._post(`*Interplanetary transit!* ${username} has launched toward ${toPlanet ?? 'Home'}. The universe expands.`).catch(() => {})
+      break
+    }
+
+    case 'TRANSIT_ARRIVED': {
+      const userId = ws._userId
+      if (!userId) return
+      const p = players.get(userId)
+      const username = p?.username ?? userId
+      const { planet } = msg
+      console.log(`[server] M14: ${username} arrived at ${planet ?? 'Home'}`)
+      broadcastAll({ type: 'TRANSIT_ARRIVED_BROADCAST', userId, username, planet, timestamp: Date.now() })
+      slack._post(`*Transit complete!* ${username} has arrived at ${planet ?? 'Home'}.`).catch(() => {})
+      break
+    }
+
+    // ── M14 Track B: Velar response + gateway ──────────────────────────────────
+
+    case 'ORBITAL_CAPSULE_LAUNCHED': {
+      // Reuse M13 probe handler AND add M14 Velar response trigger.
+      // When targetPlanet === 'Velar', after PROBE_LANDED also send VELAR_RESPONSE.
+      const userId = ws._userId
+      if (!userId) return
+      const { targetPlanet } = msg
+      if (typeof targetPlanet !== 'string') return
+
+      const p = players.get(userId)
+      const username = p?.username ?? userId
+
+      const PLANETS = {
+        Aethon: { seed: 0xae7401, type: 'rocky',    semiMajorAU: 0.7 },
+        Velar:  { seed: 0xe1a001, type: 'gas',       semiMajorAU: 2.1 },
+        Sulfis: { seed: 0x501f01, type: 'volcanic',  semiMajorAU: 0.4 },
+      }
+      const planet = PLANETS[targetPlanet]
+      if (!planet) return
+
+      console.log(`[server] ORBITAL_CAPSULE_LAUNCHED by ${username} → ${targetPlanet}`)
+      slack._post(`*Orbital capsule launched!* ${username} is sending a probe to ${targetPlanet}...`).catch(() => {})
+
+      function seededRandLocal(seed) {
+        let s = seed >>> 0
+        return () => {
+          s = (Math.imul(s, 1664525) + 1013904223) >>> 0
+          return s / 0xffffffff
+        }
+      }
+      const rand = seededRandLocal(planet.seed)
+      let surfaceTemp, atmosphere, resources
+
+      if (planet.type === 'rocky') {
+        surfaceTemp = Math.round(220 + rand() * 280)
+        const co2 = (40 + rand() * 55).toFixed(0)
+        const n2  = Math.max(0, 100 - parseFloat(co2) - rand() * 5).toFixed(0)
+        atmosphere = `CO2 ${co2}%, N2 ${n2}%`
+        resources = ['iron_ore', 'silicate', 'frozen_water', 'copper_ore', 'titanium', 'basalt']
+          .sort(() => rand() - 0.5).slice(0, 2 + Math.floor(rand() * 3))
+      } else if (planet.type === 'gas') {
+        surfaceTemp = Math.round(60 + rand() * 120)
+        atmosphere = `H2 ${(70 + rand() * 20).toFixed(0)}%, He ${(5 + rand() * 15).toFixed(0)}%, CH4 trace`
+        resources = ['methane', 'ammonia', 'hydrogen_gas', 'helium3', 'ice_crystals']
+          .sort(() => rand() - 0.5).slice(0, 2 + Math.floor(rand() * 2))
+      } else {
+        surfaceTemp = Math.round(500 + rand() * 400)
+        atmosphere = `SO2 ${(60 + rand() * 30).toFixed(0)}%, CO2 ${(rand() * 30).toFixed(0)}%`
+        resources = ['sulfur', 'iron_ore', 'obsidian', 'volcanic_ash', 'rare_earth']
+          .sort(() => rand() - 0.5).slice(0, 2 + Math.floor(rand() * 3))
+      }
+
+      setTimeout(() => {
+        broadcastAll({
+          type:           'PROBE_LANDED',
+          planetName:     targetPlanet,
+          surfaceTemp,
+          atmosphere,
+          resources,
+          discoveredBy:   userId,
+          discovererName: username,
+        })
+        console.log(`[server] PROBE_LANDED on ${targetPlanet}: ${surfaceTemp}K`)
+        slack._post(`*Probe landed on ${targetPlanet}!* Surface: ${surfaceTemp}K. Resources: ${resources.join(', ')}`).catch(() => {})
+        recordProbe(targetPlanet, surfaceTemp, atmosphere, resources.join(','), userId).catch(() => {})
+
+        // M14 Track B: If probing Velar, send VELAR_RESPONSE after an additional 5s
+        if (targetPlanet === 'Velar') {
+          setTimeout(() => {
+            console.log('[server] M14: Sending VELAR_RESPONSE — Velar civilization responds to probe')
+            broadcastAll({
+              type:    'VELAR_RESPONSE',
+              symbols: ['life', 'star', 'path', 'here', 'come'],  // ordered sequence
+              message: 'Encoded transmission from Velar (2.1 AU). 5 symbols detected. Decode to reveal meaning.',
+              timestamp: Date.now(),
+            })
+            slack._post('*Velar responds!* A structured transmission has been received from Velar. The ancient ones have noticed us.').catch(() => {})
+          }, 5000)
+        }
+      }, 5000)
+      break
+    }
+
+    case 'VELAR_RESPONSE_DECODED': {
+      // Player has decoded all 5 Velar symbols — gateway coordinates unlocked.
+      const userId = ws._userId
+      if (!userId) return
+      const p = players.get(userId)
+      const username = p?.username ?? userId
+      console.log(`[server] M14: VELAR_RESPONSE_DECODED by ${username}`)
+      broadcastAll({
+        type:      'VELAR_GATEWAY_REVEALED',
+        decoderId: userId,
+        decoderName: username,
+        timestamp:  Date.now(),
+      })
+      slack._post(`*Velar Gateway revealed!* ${username} has decoded the Velar message. "WE ARE THE ORIGIN OF LIFE. COME HOME." A gateway structure has appeared.`).catch(() => {})
+      break
+    }
+
+    case 'VELAR_GATEWAY_ACTIVATED': {
+      // Player used the Velar Key at the gateway — spawn the Velar World universe.
+      const userId = ws._userId
+      if (!userId) return
+      const p = players.get(userId)
+      const username = p?.username ?? userId
+      console.log(`[server] M14: Velar Gateway activated by ${username} — spawning Velar World`)
+
+      universeReg.spawnVelarWorld(userId, username).then(velarSeed => {
+        broadcastAll({
+          type:      'VELAR_GATEWAY_ACTIVATED',
+          activatorId: userId,
+          activatorName: username,
+          velarSeed,
+          timestamp:   Date.now(),
+          universes:   universeReg.getAll(),
+        })
+        slack._post(`*MULTIVERSE UNLOCKED!* ${username} has activated the Velar Gateway. A new universe (seed 0x${velarSeed.toString(16)}) has been spawned — the Velar World awaits.`).catch(() => {})
+      }).catch(err => {
+        console.error('[server] M14: spawnVelarWorld error:', err.message)
+      })
       break
     }
 

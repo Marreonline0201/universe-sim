@@ -173,6 +173,10 @@ export class WorldSocket {
           const paused = msg.paused as boolean
           if (paused !== game.paused) game.togglePause()
         }
+        // M14: Seed known universe instances
+        if (Array.isArray(msg.universes)) {
+          window.dispatchEvent(new CustomEvent('universes-updated', { detail: msg.universes }))
+        }
         break
       }
       case 'PLAYER_JOINED': {
@@ -544,8 +548,8 @@ export class WorldSocket {
           'discovery'
         )
         // Unlock gunpowder + telescope knowledge when first mayor is appointed
-        techTree.markResearched('chemistry')
-        techTree.markResearched('optics')
+        techTree.markResearched('industrial_chemistry')  // 'chemistry' key → 'industrial_chemistry' node
+        techTree.markResearched('optics_basic')          // 'optics' key → 'optics_basic' node
         inventory.discoverRecipe(88)   // gunpowder
         inventory.discoverRecipe(89)   // musket
         inventory.discoverRecipe(90)   // musket balls
@@ -600,10 +604,10 @@ export class WorldSocket {
           `Space Age! ${sName} has reached Civilization Level 6. Generators, radio towers, and rocket launches are now possible!`,
           'discovery'
         )
-        techTree.markResearched('electronics')
-        techTree.markResearched('rocketry')
-        techTree.markResearched('aerospace')
-        techTree.markResearched('nuclear_physics')
+        techTree.markResearched('transistor')           // 'electronics' key → 'transistor' node
+        techTree.markResearched('integrated_circuit')   // 'electronics' key also → 'integrated_circuit'
+        techTree.markResearched('rocketry')             // 'aerospace' key → 'rocketry' node ✓
+        techTree.markResearched('nuclear_fission')      // 'nuclear_physics' key → 'nuclear_fission' node
         inventory.discoverRecipe(93)   // circuit board
         inventory.discoverRecipe(94)   // generator (building)
         inventory.discoverRecipe(95)   // radio tower (building)
@@ -726,6 +730,70 @@ export class WorldSocket {
           'Reactor meltdown contained! Radiation zone cleared.',
           'info'
         )
+        break
+      }
+
+      // ── M14 Track A: Interplanetary transit ─────────────────────────────────
+
+      case 'TRANSIT_LAUNCHED': {
+        const { username, toPlanet } = msg
+        if (msg.userId !== this.userId) {  // only show for other players
+          useUiStore.getState().addNotification(
+            `${username as string} has launched toward ${toPlanet as string ?? 'another planet'}!`,
+            'info'
+          )
+        }
+        break
+      }
+
+      case 'TRANSIT_ARRIVED_BROADCAST': {
+        const { username, planet } = msg
+        if (msg.userId !== this.userId) {
+          useUiStore.getState().addNotification(
+            `${username as string} has arrived at ${planet as string ?? 'Home'}.`,
+            'info'
+          )
+        }
+        break
+      }
+
+      // ── M14 Track B: Velar response + gateway ────────────────────────────────
+
+      case 'VELAR_RESPONSE': {
+        // Server sends Velar response after player probes Velar (2.1 AU).
+        useVelarStore.getState().markResponseReceived()
+        useUiStore.getState().addNotification(
+          'VELAR RESPONSE RECEIVED — 5 symbols detected. Open the Velar Response Panel to decode.',
+          'discovery'
+        )
+        window.dispatchEvent(new CustomEvent('velar-response-received', { detail: msg }))
+        break
+      }
+
+      case 'VELAR_GATEWAY_REVEALED': {
+        // Another player (or this player) decoded the Velar message.
+        const { decoderName } = msg
+        useVelarStore.getState().markGatewayRevealed()
+        useUiStore.getState().addNotification(
+          `${decoderName as string} decoded the Velar transmission! "WE ARE THE ORIGIN OF LIFE. COME HOME." A Velar Gateway has appeared 200m NE of spawn.`,
+          'discovery'
+        )
+        window.dispatchEvent(new CustomEvent('velar-gateway-revealed'))
+        break
+      }
+
+      case 'VELAR_GATEWAY_ACTIVATED': {
+        // Velar Gateway activated — Velar World universe spawned.
+        const { activatorName, velarSeed, universes } = msg
+        useVelarStore.getState().activateGateway(velarSeed as number)
+        if (Array.isArray(universes)) {
+          window.dispatchEvent(new CustomEvent('universes-updated', { detail: universes }))
+        }
+        useUiStore.getState().addNotification(
+          `MULTIVERSE UNLOCKED! ${activatorName as string} has activated the Velar Gateway. A new universe has been spawned — the Velar World awaits beyond the portal.`,
+          'discovery'
+        )
+        window.dispatchEvent(new CustomEvent('velar-gateway-activated', { detail: { velarSeed } }))
         break
       }
 

@@ -41,6 +41,15 @@ interface VelarState {
   tickReactor:          (dt: number, hasWaterCooling: boolean) => void
   triggerMeltdown:      (pos: [number, number, number]) => void
   clearMeltdown:        () => void
+
+  // ── M14 Track B: Velar Response + Gateway ────────────────────────────────
+  velarResponseReceived: boolean   // true after VELAR_RESPONSE server message
+  gatewayRevealed:       boolean   // true after player decodes all 5 symbols
+  gatewayActive:         boolean   // true after Velar Key is used at gateway
+  velarWorldSeed:        number    // seed for the Velar World universe instance
+  markResponseReceived:  () => void
+  markGatewayRevealed:   () => void
+  activateGateway:       (velarSeed: number) => void
 }
 
 export const useVelarStore = create<VelarState>((set, get) => ({
@@ -102,5 +111,20 @@ export const useVelarStore = create<VelarState>((set, get) => ({
     reactorMeltdown:    false,
     reactorMeltdownPos: null,
     reactorTemp:        20,
+  }),
+
+  // ── M14 Track B: Velar Response + Gateway ────────────────────────────────
+  velarResponseReceived: false,
+  gatewayRevealed:       false,
+  gatewayActive:         false,
+  velarWorldSeed:        0,
+
+  markResponseReceived: () => set({ velarResponseReceived: true }),
+
+  markGatewayRevealed: () => set({ gatewayRevealed: true }),
+
+  activateGateway: (velarSeed) => set({
+    gatewayActive:  true,
+    velarWorldSeed: velarSeed,
   }),
 }))

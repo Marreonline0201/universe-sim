@@ -113,6 +113,10 @@ import { DiplomacyHUD } from '../ui/DiplomacyHUD'
 import { NightSkyRenderer } from './NightSkyRenderer'
 import { TelescopeView } from '../ui/TelescopeView'
 import type { AnomalySignalData } from '../ui/VelarSignalView'
+import { DestinationPlanetMesh } from './DestinationPlanet'
+import { TransitOverlay } from '../ui/TransitOverlay'
+import { useTransitStore } from '../store/transitStore'
+import { beginInterplanetaryTransit } from '../game/InterplanetaryTransitSystem'
 
 // M12 Track A: Rocketry
 import { tickRocket, beginLaunch, isLaunching } from '../game/RocketSystem'
@@ -126,6 +130,13 @@ import { ElectricLightPass, registerElectricSettlements } from './ElectricLightP
 
 // M13 Track C: Nuclear reactor tick
 import { tickNuclearReactor } from '../game/NuclearReactorSystem'
+
+// M14: Interplanetary travel + Velar gateway + Multiverse
+import { VelarGatewayRenderer } from './VelarGatewayRenderer'
+import { VelarResponsePanel } from '../ui/VelarResponsePanel'
+import { useVelarStore } from '../store/velarStore'
+import { useUniverseSync } from '../store/universeStore'
+import { ITEM as _ITEM } from '../player/Inventory'
 
 // M9: Register river valley carving with the terrain height function.
 // Must happen before any geometry is generated (before generatePlanetGeometry is called).
@@ -485,6 +496,14 @@ export function SceneRoot() {
   // M12: Velar anomaly signal state — populated when ANOMALY_SIGNAL received
   const [anomalySignal, setAnomalySignal] = useState<AnomalySignalData | null>(null)
 
+  // M14: Transit state
+  const transitPhase    = useTransitStore(s => s.phase)
+  // M14: Velar response panel
+  const [velarRespOpen, setVelarRespOpen] = useState(false)
+  const velarResponseReceived = useVelarStore(s => s.velarResponseReceived)
+  // M14: Multiverse sync — subscribes to universes-updated window events
+  useUniverseSync()
+
   // M11: listen for open-telescope event dispatched from GameLoop
   useEffect(() => {
     const handler = () => setTelescopeOpen(true)
@@ -501,6 +520,13 @@ export function SceneRoot() {
     }
     window.addEventListener('anomaly-signal', handler)
     return () => window.removeEventListener('anomaly-signal', handler)
+  }, [])
+
+  // M14: listen for Velar response — open decode panel automatically
+  useEffect(() => {
+    const handler = () => setVelarRespOpen(true)
+    window.addEventListener('velar-response-received', handler)
+    return () => window.removeEventListener('velar-response-received', handler)
   }, [])
 
   // M12: sync settlement civLevels to ElectricLightPass when settlement store changes
@@ -733,7 +759,8 @@ export function SceneRoot() {
       {/* M11 Track D: Photorealistic night sky — 2000 stars with stellar color classification */}
       <NightSkyRenderer dayAngle={dayAngle} />
       <Suspense fallback={null}>
-        <PlanetTerrain />
+        {/* M14: Show destination planet when player has arrived via transit */}
+        {transitPhase === 'arrived' ? <DestinationPlanetMesh /> : <PlanetTerrain />}
         <DigHolesRenderer />
         <ResourceNodes />
         <NodeHealthBars />
@@ -757,12 +784,16 @@ export function SceneRoot() {
         <RadioTowerVFXRenderer />
         {/* M12 Track B: Tungsten electric lights on civLevel 6 settlements */}
         <ElectricLightPass dayAngle={dayAngle} />
+        {/* M14 Track B: Velar Gateway portal structure */}
+        <VelarGatewayRenderer />
         {/* M8: Weather particle system — follows player position */}
         <WeatherRendererWrapper />
         {/* M9: River ribbon meshes — generated from flow-field paths */}
         <RiverRenderer />
         {/* M9: Animal renderer — instanced deer/wolf/boar meshes */}
         <AnimalRenderer />
+        {/* M14 Track A: Destination planet — shown when transit phase === 'arrived' */}
+        <DestinationPlanetMeshWrapper />
       </Suspense>
       {entityId !== null && (
         <>
@@ -798,6 +829,8 @@ export function SceneRoot() {
         anomalySignal={anomalySignal}
       />
     )}
+    {/* M14 Track A: Interplanetary transit cinematic — 20s star-stream animation */}
+    <TransitOverlayWrapper />
     </>
   )
 }
@@ -1282,6 +1315,49 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
             }
             gs.setGatherPrompt(null)
           }
+        }
+      }
+    }
+
+    // ── M14 Track A: Interplanetary transit — F key near launch_pad with orbital capsule ──
+    {
+      const transitPhase = useTransitStore.getState().phase
+      if (transitPhase === 'idle' && !gs.inputBlocked) {
+        // Check if player has ORBITAL_CAPSULE equipped or in inventory
+        const hasCapOrEquip = (() => {
+          for (let i = 0; i < inventory.slotCount; i++) {
+            const sl = inventory.getSlot(i)
+            if (sl?.itemId === ITEM.ORBITAL_CAPSULE) return true
+          }
+          return false
+        })()
+
+        if (hasCapOrEquip) {
+          const launchPads = buildingSystem.getBuildingsProviding('rocket_launch')
+          let nearPad = false
+          let padPos: [number, number, number] = [px, py, pz]
+          for (const pad of launchPads) {
+            const dx = px - pad.position[0], dz = pz - pad.position[2]
+            if (Math.sqrt(dx * dx + dz * dz) < 15) { nearPad = true; padPos = pad.position; break }
+          }
+          if (nearPad) {
+            if (gs.gatherPrompt !== '[F] Board Orbital Capsule') {
+              gs.setGatherPrompt('[F] Board Orbital Capsule')
+            }
+            if (controllerRef.current?.popInteract()) {
+              beginInterplanetaryTransit(padPos, 'Home')
+              gs.setGatherPrompt(null)
+            }
+          }
+        }
+      } else if (transitPhase === 'arrived' && !gs.inputBlocked) {
+        // On destination planet: F near any flat surface returns home
+        if (gs.gatherPrompt !== '[F] Return Home') {
+          gs.setGatherPrompt('[F] Return Home')
+        }
+        if (controllerRef.current?.popInteract()) {
+          beginInterplanetaryTransit([px, py, pz], useTransitStore.getState().toPlanet)
+          gs.setGatherPrompt(null)
         }
       }
     }
@@ -3552,6 +3628,23 @@ function WeatherRendererWrapper() {
       playerZ={pos.z}
     />
   )
+}
+
+// ── M14 Track A: TransitOverlay wrapper ───────────────────────────────────────
+// Renders the 20s star-stream cinematic when transit is in progress.
+function TransitOverlayWrapper() {
+  const phase = useTransitStore(s => s.phase)
+  const { arriveAtDestination } = useTransitStore()
+  if (phase !== 'launching') return null
+  return <TransitOverlay onComplete={arriveAtDestination} />
+}
+
+// ── M14 Track A: DestinationPlanet wrapper ────────────────────────────────────
+// Replaces home planet view when transit phase === 'arrived'.
+function DestinationPlanetMeshWrapper() {
+  const phase = useTransitStore(s => s.phase)
+  if (phase !== 'arrived') return null
+  return <DestinationPlanetMesh />
 }
 
 // ── Scene geometry ────────────────────────────────────────────────────────────

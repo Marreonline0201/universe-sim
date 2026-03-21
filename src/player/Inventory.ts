@@ -237,6 +237,8 @@ export const MAT = {
   NUCLEAR_FUEL: 67,      // enriched uranium pellets — nuclear_reactor feedstock
   // ── M13: Velar Contact ───────────────────────────────────────────────────
   HYDROGEN: 68,          // electrolysis product (H2O → H2 + ½O2). First hydrogen fuel.
+  // ── M14: Interstellar Travel ─────────────────────────────────────────────
+  VELAR_CRYSTAL: 69,     // exotic crystalline material from Velar probe data — gateway component
 } as const
 
 // ── Item IDs ──────────────────────────────────────────────────────────────────
@@ -281,6 +283,8 @@ export const ITEM = {
   ARTILLERY_SHELL: 65,   // ballistic projectile — ArtillerySystem splash damage radius 8m
   // ── M13: Velar Contact ───────────────────────────────────────────────────
   ORBITAL_CAPSULE: 66,   // interplanetary probe vehicle — recipes 100
+  // ── M14: Interstellar Travel ─────────────────────────────────────────────
+  VELAR_KEY: 67,         // quantum-resonance key — activates the Velar Gateway (recipe 105)
 } as const
 
 // ── Crafting Recipes ─────────────────────────────────────────────────────────
@@ -1165,7 +1169,7 @@ export const CRAFTING_RECIPES: CraftingRecipe[] = [
       { materialId: MAT.STEEL_INGOT,   quantity: 10 },
     ],
     output: { itemId: ITEM.ORBITAL_CAPSULE, quantity: 1 },
-    knowledgeRequired: ['rocketry', 'aerospace', 'orbital_mechanics'],
+    knowledgeRequired: ['aerospace', 'electronics'],
   },
   {
     // id 101 — Nuclear Reactor: 8x steel_ingot + 4x circuit_board + 2x nuclear_fuel
@@ -1205,5 +1209,38 @@ export const CRAFTING_RECIPES: CraftingRecipe[] = [
     ],
     output: { itemId: 0, quantity: 0 },   // building
     knowledgeRequired: ['nuclear_physics', 'electromagnetism'],
+  },
+
+  // ── M14: Interstellar Travel ───────────────────────────────────────────────
+
+  // id 104 — Velar Crystal: synthesized from nuclear_fuel + hydrogen in arc_welder
+  // Exotic quantum-crystalline material predicted by Velar transmission data.
+  // Grows at the resonant frequency between hydrogen plasma and enriched uranium.
+  // Used as the core component of the Velar Key (recipe 105).
+  {
+    id: 104, name: 'Velar Crystal', tier: 4, time: 600,
+    inputs: [
+      { materialId: MAT.NUCLEAR_FUEL, quantity: 3 },
+      { materialId: MAT.HYDROGEN,     quantity: 5 },
+      { materialId: MAT.GOLD,         quantity: 2 },
+    ],
+    output: { itemId: MAT.VELAR_CRYSTAL, quantity: 1, isMaterial: true } as any,
+    knowledgeRequired: ['nuclear_physics', 'velar_decoded'],
+  },
+
+  // id 105 — Velar Key: 5x circuit_board + 3x nuclear_fuel + 10x steel_ingot + 1x velar_crystal
+  // Quantum-resonance key. When used at the Velar Gateway, establishes an
+  // inter-universal bridge — the first multiverse connection.
+  // Recipe requires Velar message decoded (velar_decoded knowledge gate).
+  {
+    id: 105, name: 'Velar Key', tier: 4, time: 1800,
+    inputs: [
+      { materialId: MAT.CIRCUIT_BOARD, quantity: 5  },
+      { materialId: MAT.NUCLEAR_FUEL,  quantity: 3  },
+      { materialId: MAT.STEEL_INGOT,   quantity: 10 },
+      { materialId: MAT.VELAR_CRYSTAL, quantity: 1  },
+    ],
+    output: { itemId: ITEM.VELAR_KEY, quantity: 1 },
+    knowledgeRequired: ['nuclear_physics', 'velar_decoded'],
   },
 ]

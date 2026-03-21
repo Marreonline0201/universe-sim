@@ -1,6 +1,6 @@
 # Universe Simulation — Player's Manual
 
-_Last updated: 2026-03-21 (M12)_
+_Last updated: 2026-03-21 (M13)_
 
 ---
 
@@ -23,13 +23,14 @@ This manual will walk you through everything you need to know to play Universe S
 9. [Astronomy and the Night Sky](#9-astronomy-and-the-night-sky)
 10. [Diplomacy — Mayors, Envoys, and War](#10-diplomacy--mayors-envoys-and-war)
 11. [The Space Age — Rockets and Radio](#11-the-space-age--rockets-and-radio)
-12. [Evolution System — Evolution Points](#12-evolution-system--evolution-points)
-13. [Discovery Journal — Unlocking Knowledge](#13-discovery-journal--unlocking-knowledge)
-14. [Crafting and Inventory](#14-crafting-and-inventory)
-15. [Tech Tree — Civilization Advancement](#15-tech-tree--civilization-advancement)
-16. [AI Creatures and NPCs](#16-ai-creatures-and-npcs)
-17. [Time Controls — Speeding Up and Slowing Down](#17-time-controls--speeding-up-and-slowing-down)
-18. [Tips for Beginners](#18-tips-for-beginners)
+12. [First Contact, Orbital Mechanics, and Nuclear Power](#12-first-contact-orbital-mechanics-and-nuclear-power)
+13. [Evolution System — Evolution Points](#13-evolution-system--evolution-points)
+14. [Discovery Journal — Unlocking Knowledge](#14-discovery-journal--unlocking-knowledge)
+15. [Crafting and Inventory](#15-crafting-and-inventory)
+16. [Tech Tree — Civilization Advancement](#16-tech-tree--civilization-advancement)
+17. [AI Creatures and NPCs](#17-ai-creatures-and-npcs)
+18. [Time Controls — Speeding Up and Slowing Down](#18-time-controls--speeding-up-and-slowing-down)
+19. [Tips for Beginners](#19-tips-for-beginners)
 
 ---
 
@@ -590,11 +591,127 @@ From a distance, a civLevel 6 settlement is immediately recognizable at night by
 |---|---|---|---|
 | Rocket Fuel | MAT 65 | Refine gunpowder blend to propellant grade | Rocket launch propellant |
 | Circuit Board | MAT 66 | Fabricate from silicon + copper + glass | Electronics; rocket guidance; radio |
-| Nuclear Fuel | MAT 67 | Process uranium ore in a refinery | Future: nuclear reactor (not yet operational) |
+| Nuclear Fuel | MAT 67 | Process uranium ore in a refinery | Nuclear reactor fuel rods |
 
 ---
 
-## 12. Evolution System — Evolution Points
+## 12. First Contact, Orbital Mechanics, and Nuclear Power
+
+### The Velar Signal Decoder
+
+After the first rocket launches and the Velar Signal panel appears, you are no longer just watching — you can respond. The signal contains a repeating 8-symbol Morse code sequence. Your job is to decode it and reply with the correct pattern.
+
+**How to use the Decoder Panel:**
+
+1. The Velar Signal panel appears 30 seconds after the first rocket launch.
+2. Look carefully at the blinking signal. The lights blink in a pattern of short flashes (dots) and long flashes (dashes). Watch at least two or three full repetitions to be sure you have the pattern right.
+3. Open the Decoder Panel (it appears automatically alongside the signal view).
+4. Use the DOT button and the DASH button to enter your 8-symbol interpretation of the signal.
+5. When you are ready, press Send.
+
+If your sequence is correct, two things happen immediately:
+- A VELAR DECODED announcement broadcasts to every player on the server. Everyone knows you have made first contact.
+- The First Contact Overlay begins: a 12-second cinematic plays, showing 200 stars with shimmering light effects. This is your universe acknowledging the moment.
+
+The discovery is recorded permanently in the database. The companion website at https://universe-companion.vercel.app will also display a full-width announcement banner the next time it checks for the event (every 15 seconds).
+
+**Tip:** The signal always repeats exactly. Do not guess — watch and count carefully. A wrong answer does nothing except reset your input so you can try again.
+
+### The Solar System — Three Planets
+
+After civilizations reach the Space Age, the star system's three planets become visible in the Orbital View. These are real worlds in real orbital physics, not decorative backgrounds.
+
+**To open the Orbital View:** Press the Orbital View button in your HUD, or find it in a panel after unlocking aerospace technology.
+
+The Orbital View shows a 400 x 400 pixel map of the solar system. The star is at the center. Three planets trace their elliptical orbits around it. Their positions update in real time as simulation time advances.
+
+**The three planets:**
+
+| Planet | Distance from Star | Character |
+|---|---|---|
+| Sulfis | 0.4 AU (very close) | Small, hot, mineral-rich. Completes an orbit fastest. |
+| Aethon | 0.7 AU | Temperate in simulated terms. Rocky terrain. |
+| Velar | 2.1 AU (distant) | The source of the first contact signal. Slow orbit. Atmosphere data awaits your first probe. |
+
+AU (astronomical unit) is the real unit of measurement for orbital distances — 1 AU is the average distance from the Earth to the Sun in our solar system.
+
+### Launching an Orbital Capsule
+
+Once you have decoded the Velar signal and unlocked Orbital Mechanics technology, you can build and launch an Orbital Capsule — a robotic probe that travels to a planet and sends back surface data.
+
+**Craft an Orbital Capsule (ITEM 66):**
+
+| Ingredient | Quantity |
+|---|---|
+| Circuit Board | 5 |
+| Steel Ingot | 10 |
+
+**Craft time:** 1200 seconds (20 minutes). This is a significant production commitment — make sure your electric forge or furnace is powered and your stockpiles are ready.
+
+**Launching:**
+1. Place the capsule at a launch pad.
+2. Select your target planet in the Orbital View — the map shows a launch arc that updates as planetary positions change. Time your launch so the arc intersects your target's orbit.
+3. Confirm the launch.
+
+When the capsule arrives, the server broadcasts a PROBE_LANDED message to all players with the planet's surface data: terrain type, mineral composition, and atmospheric conditions. This information is saved permanently and visible to everyone in the Orbital View.
+
+**Why does this matter?**
+Probe data unlocks new manufacturing possibilities. A planet rich in rare minerals may open new material synthesis chains in a future milestone. Velar in particular holds answers about the civilization that sent the first contact signal.
+
+### The Nuclear Reactor
+
+As of Milestone 13, the nuclear reactor is fully operational. It is the most powerful energy source in the game at this stage, and also the most dangerous if mismanaged.
+
+**What a nuclear reactor does:**
+A nuclear reactor generates 100 kilowatts of electrical power by sustaining a controlled fission chain reaction. This power can run the electric forge (which smelts three items at once) and the arc welder (required for advanced construction recipes). A well-maintained reactor is the backbone of a Space Age settlement's industrial capacity.
+
+**How to operate it safely:**
+
+The reactor has one critical variable: temperature. Watch the ReactorWidget in your HUD — it shows a temperature bar that changes color:
+- Green: safe operating range. The reactor is generating power normally.
+- Amber: elevated temperature. The cooling system may not be keeping up. Check your water supply to the coolant circuit.
+- Red: danger zone. Temperature is approaching the critical threshold. Act immediately.
+
+**The physics:**
+- While running, fission raises reactor temperature by +40 degrees C every second.
+- The water cooling circuit removes -60 degrees C every second when coolant is flowing.
+- Net result: a properly cooled reactor loses 20 degrees C per second and reaches a stable operating temperature.
+- If cooling fails and the temperature reaches 800 degrees C, the reactor enters meltdown.
+
+**Meltdown:**
+A meltdown creates a radiation zone 20 metres in radius around the reactor building. Any player inside this zone takes 2 HP of damage every second. Other players on the server are notified that a meltdown has occurred. The zone persists until it is cleaned up.
+
+**Cleanup mission:**
+To decontaminate a meltdown zone, gather 10 clay and 5 stone and complete the cleanup mission prompt that appears when you enter the radiation zone. The materials represent shielding and containment work. On completion, the radiation zone is removed.
+
+### New Manufacturing Stations (M13)
+
+Two new crafting stations become available with reactor power:
+
+**Electric Forge**
+The electric forge smelts three items simultaneously, tripling the throughput of your metal production compared to a standard fire furnace. It requires a powered reactor to operate. Craft it with Recipe 102.
+
+**Arc Welder**
+The arc welder generates an extremely hot electrical arc capable of joining metal components that cannot be assembled by ordinary forge methods. It is required for several advanced aerospace and nuclear construction recipes. Craft it with Recipe 103.
+
+### Hydrogen (MAT 68)
+
+When water is passed through an electrolysis unit connected to the reactor, it splits into hydrogen gas and oxygen. Hydrogen (MAT 68) is collected as a new material.
+
+**How to produce it:** Run water through the electrolysis attachment at an operating reactor. The process runs continuously while the reactor is powered (Recipe 101).
+
+**What hydrogen is used for:** Hydrogen is a fuel cell ingredient and a precursor to advanced propellant synthesis. Specific uses will expand in future milestones.
+
+### New Materials and Items (M13)
+
+| Material / Item | ID | How to Get | Use |
+|---|---|---|---|
+| Hydrogen | MAT 68 | Electrolysis at reactor (Recipe 101) | Fuel cells; advanced propellants |
+| Orbital Capsule | ITEM 66 | Craft with 5 circuit boards + 10 steel ingots (Recipe 100, 1200s) | Probe launch to survey a planet |
+
+---
+
+## 13. Evolution System — Evolution Points
 
 ### What are Evolution Points?
 
@@ -697,7 +814,7 @@ Examples:
 
 ---
 
-## 13. Discovery Journal — Unlocking Knowledge
+## 14. Discovery Journal — Unlocking Knowledge
 
 ### What Is the Discovery Journal?
 
@@ -769,7 +886,7 @@ Some discoveries give you special tools as the player — not just for your crea
 
 ---
 
-## 14. Crafting and Inventory
+## 15. Crafting and Inventory
 
 ### What Is the Inventory?
 
@@ -840,7 +957,8 @@ Materials are the raw building blocks you collect. Here is a list of all materia
 | Rocket Fuel | Refine gunpowder blend (Saltpeter + Carbon + Sulfur) to propellant grade (M11/M12) |
 | Glass Ingot | Smelt Sand in a kiln with heat (M11) |
 | Circuit Board | Fabricate from Silicon + Copper + Glass Ingot (M12) |
-| Nuclear Fuel | Process Uranium Ore in a refinery — future nuclear reactor use (M12) |
+| Nuclear Fuel | Process Uranium Ore in a refinery (M12) |
+| Hydrogen | Produced by electrolysis at a nuclear reactor (M13) |
 
 ### Crafting Recipes by Tier
 
@@ -950,6 +1068,10 @@ Recipes are grouped by civilization tier (0 through 9). You can only use recipes
 | Nuclear Reactor | 500 Steel + 50 Uranium + 100 Copper | Nuclear Physics + Engineering + Materials Science | 10 days |
 | Circuit Board | Silicon + Copper + Glass Ingot | Electronics + Semiconductor Physics | 30 min |
 | Radio Tower | 30 Steel + 20 Circuit Board + 10 Copper | Electronics + Communication | 2 hours |
+| Electric Forge | 20 Steel + 10 Circuit Board + 5 Copper | Electronics + Metallurgy | 2 hours |
+| Arc Welder | 15 Steel + 8 Circuit Board + 4 Copper | Electronics + Metallurgy | 1 hour |
+| Hydrogen (per batch) | Water + reactor power | Nuclear Physics + Electrochemistry | Continuous |
+| Orbital Capsule | 5 Circuit Board + 10 Steel Ingot | Aerospace + Orbital Mechanics | 1200 sec (20 min) |
 
 ---
 
@@ -988,7 +1110,7 @@ Crafting the Simulation Engine is the ultimate achievement of the game.
 
 ---
 
-## 15. Tech Tree — Civilization Advancement
+## 16. Tech Tree — Civilization Advancement
 
 ### What Is the Tech Tree?
 
@@ -1159,7 +1281,7 @@ At Tier 9, the game reveals its final truth: the universe you have been playing 
 
 ---
 
-## 16. AI Creatures and NPCs
+## 17. AI Creatures and NPCs
 
 ### Animals — Deer, Wolves, and Boars
 
@@ -1283,7 +1405,7 @@ You have several ways to interact with NPCs:
 
 ---
 
-## 17. Time Controls — Speeding Up and Slowing Down
+## 18. Time Controls — Speeding Up and Slowing Down
 
 ### What Are the Time Controls?
 
@@ -1336,7 +1458,7 @@ A good habit is to pause before making any major decision — using the Gene Edi
 
 ---
 
-## 18. Tips for Beginners
+## 19. Tips for Beginners
 
 These tips will help you get off to a strong start and avoid common mistakes.
 
@@ -1497,8 +1619,8 @@ The warm glow of a fully electrified settlement is visible across the map at nig
 
 ---
 
-**Save nuclear fuel — the reactor is coming.**
-Nuclear Fuel (MAT 67) has a recipe and an ID, but the nuclear reactor building is not yet operational in this milestone. Collect and store nuclear fuel whenever you refine it. When the reactor system ships in a future update, you will be glad to have stockpiled it.
+**The nuclear reactor is now operational (M13).**
+Nuclear Fuel (MAT 67) is the fuel source for the reactor building. Build the reactor (500 Steel + 50 Uranium + 100 Copper), load it with nuclear fuel rods, and start it up. Monitor the ReactorWidget temperature bar carefully — let the cooling circuit keep the temperature in the green. A well-run reactor powers your electric forge and arc welder and produces hydrogen as a byproduct. See Section 12 for full operating instructions.
 
 ---
 

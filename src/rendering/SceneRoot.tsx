@@ -1094,27 +1094,64 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
       const itemId       = equippedItem?.itemId ?? 0
       const stats        = getItemStats(itemId)
 
-      let nearest: (typeof RESOURCE_NODES)[0] | null = null
-      let nearestDist = Infinity
-
-      for (const node of RESOURCE_NODES) {
-        if (gatheredNodeIds.has(node.id) || serverDepleted.has(node.id)) continue
-        const dx = node.x - px
-        const dy = node.y - py
-        const dz = node.z - pz
+      // ── Check creatures first — weapons should damage living things ────────
+      let hitCreature = false
+      let nearestCreatureEid = -1
+      let nearestCreatureDist = Infinity
+      for (const [eid] of creatureWander) {
+        const dx = Position.x[eid] - px
+        const dy = Position.y[eid] - py
+        const dz = Position.z[eid] - pz
         const dist = Math.sqrt(dx * dx + dy * dy + dz * dz)
-        if (dist < stats.range && dist < nearestDist && canHarvest(itemId, node.type)) {
-          nearest = node
-          nearestDist = dist
+        if (dist < stats.range && dist < nearestCreatureDist) {
+          nearestCreatureDist = dist
+          nearestCreatureEid = eid
+        }
+      }
+      if (nearestCreatureEid >= 0) {
+        hitCreature = true
+        Health.current[nearestCreatureEid] = Math.max(0, Health.current[nearestCreatureEid] - stats.damage)
+        const hp = Health.current[nearestCreatureEid]
+        const maxHp = Health.max[nearestCreatureEid] || 100
+        if (hp <= 0) {
+          // Creature killed — drop raw meat + hide directly into inventory
+          inventory.addItem({ itemId: 0, materialId: MAT.RAW_MEAT, quantity: 1 + Math.floor(CreatureBody.size[nearestCreatureEid] * 2), quality: 0.8 })
+          inventory.addItem({ itemId: 0, materialId: MAT.HIDE,     quantity: 1, quality: 0.7 })
+          creatureWander.delete(nearestCreatureEid)
+          addEvolutionPoints(3)
+          useUiStore.getState().addNotification('Creature killed — raw meat + hide collected!', 'discovery')
+        } else {
+          useUiStore.getState().addNotification(
+            `Hit creature for ${stats.damage} dmg (${hp.toFixed(0)}/${maxHp} HP remaining)`,
+            'warning'
+          )
         }
       }
 
-      if (!nearest) {
-        // Give feedback so player knows the swing registered but nothing was in range
-        useUiStore.getState().addNotification(
-          `Nothing to hit — get closer or equip the right tool (reach: ${stats.range.toFixed(1)}m)`,
-          'warning'
-        )
+      // ── Resource node harvesting (only if no creature was hit) ─────────────
+      let nearest: (typeof RESOURCE_NODES)[0] | null = null
+      let nearestDist = Infinity
+
+      if (!hitCreature) {
+        for (const node of RESOURCE_NODES) {
+          if (gatheredNodeIds.has(node.id) || serverDepleted.has(node.id)) continue
+          const dx = node.x - px
+          const dy = node.y - py
+          const dz = node.z - pz
+          const dist = Math.sqrt(dx * dx + dy * dy + dz * dz)
+          if (dist < stats.range && dist < nearestDist && canHarvest(itemId, node.type)) {
+            nearest = node
+            nearestDist = dist
+          }
+        }
+
+        if (!nearest) {
+          // Give feedback so player knows the swing registered but nothing was in range
+          useUiStore.getState().addNotification(
+            `Nothing to hit — get closer or equip the right tool (reach: ${stats.range.toFixed(1)}m)`,
+            'warning'
+          )
+        }
       }
 
       if (nearest) {

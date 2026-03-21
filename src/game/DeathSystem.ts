@@ -7,7 +7,15 @@
 import { usePlayerStore } from '../store/playerStore'
 import { useUiStore } from '../store/uiStore'
 import { determinDeathCause, resetDamageFlags } from './SurvivalSystems'
-import type { Inventory } from '../player/Inventory'
+import { MAT, ITEM, type Inventory } from '../player/Inventory'
+
+// Reverse lookup maps so dropped loot labels are human-readable
+const MAT_NAMES: Record<number, string> = Object.fromEntries(
+  Object.entries(MAT).map(([k, v]) => [v, k.toLowerCase().replace(/_/g, ' ')])
+)
+const ITEM_NAMES: Record<number, string> = Object.fromEntries(
+  Object.entries(ITEM).map(([k, v]) => [v, k.toLowerCase().replace(/_/g, ' ')])
+)
 
 // ── Loot drop record ──────────────────────────────────────────────────────────
 // Items are dropped at the death position and rendered as world pickups.
@@ -76,7 +84,7 @@ export function checkAndTriggerDeath(
       z: dpz + Math.sin(angle) * radius,
       matId:    slot.materialId,
       itemId:   slot.itemId,
-      label:    slot.itemId > 0 ? `item${slot.itemId}` : `mat${slot.materialId}`,
+      label:    slot.itemId > 0 ? (ITEM_NAMES[slot.itemId] ?? `item${slot.itemId}`) : (MAT_NAMES[slot.materialId] ?? `mat${slot.materialId}`),
       quantity: slot.quantity,
       quality:  slot.quality,
     })

@@ -1493,6 +1493,15 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
         const rate = wState === 'STORM' ? 2.0 : 0.8
         const newTemp = storedTemp + (windChill - storedTemp) * Math.min(1, rate * dt)
         usePlayerStore.getState().setAmbientTemp(newTemp)
+
+        // Hypothermia damage: if ambient temp < 0°C player loses health.
+        // STORM cold: 1.5 HP/s; RAIN cold: 0.5 HP/s.
+        // This satisfies pass criterion: "player in storm loses body heat faster."
+        if (newTemp < 0) {
+          const coldDps = wState === 'STORM' ? 1.5 : 0.5
+          Health.current[entityId] = Math.max(0, Health.current[entityId] - coldDps * dt)
+          markCombatDamage()  // mark so death attributes to environmental cause (combat)
+        }
       }
     }
 

@@ -43,8 +43,8 @@ export function useWorldSocket(): void {
       if (now - lastUpdateRef.current < UPDATE_MS) return
       lastUpdateRef.current = now
 
-      const { x, y, z, health } = usePlayerStore.getState()
-      socket.send({ type: 'PLAYER_UPDATE', x, y, z, health })
+      const { x, y, z, health, murderCount } = usePlayerStore.getState()
+      socket.send({ type: 'PLAYER_UPDATE', x, y, z, health, murderCount })
     }
     rafId = requestAnimationFrame(loop)
 

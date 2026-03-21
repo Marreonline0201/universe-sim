@@ -50,6 +50,7 @@ import { DeathScreen as DeathScreenImport } from '../ui/DeathScreen'
 import { SettlementRenderer } from './SettlementRenderer'
 import { SettlementHUD } from '../ui/SettlementHUD'
 import { useSettlementStore } from '../store/settlementStore'
+import { useOutlawStore } from '../store/outlawStore'
 import { PlanetTerrain } from './PlanetTerrain'
 import { surfaceRadiusAt, terrainHeightAt, getSpawnPosition, PLANET_RADIUS, SEA_LEVEL } from '../world/SpherePlanet'
 import { LocalSimManager } from '../engine/LocalSimManager'
@@ -1165,6 +1166,47 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
         }
       }
 
+      // ── M7 T2: Check if player hit a remote player (PvP) ─────────────────────
+      // Scan all remote players within weapon range. The first hit remote player
+      // takes damage tracked client-side. When their health reaches 0 we notify
+      // the server which increments the killer's murder count authoritatively.
+      if (!hitCreature) {
+        const remotePlayers = useMultiplayerStore.getState().remotePlayers
+        for (const rp of remotePlayers.values()) {
+          const dx = rp.x - px, dy = rp.y - py, dz = rp.z - pz
+          const dist = Math.sqrt(dx * dx + dy * dy + dz * dz)
+          if (dist < stats.range + 1.5) {
+            // Deal damage — health is a 0..1 fraction on the remote player
+            const dmgFraction = stats.damage / 100  // normalise to 0..1 scale
+            const newHealth   = Math.max(0, (rp.health ?? 1) - dmgFraction)
+            useMultiplayerStore.getState().upsertRemotePlayer({ ...rp, health: newHealth })
+
+            if (newHealth <= 0) {
+              // Kill confirmed — report to server for authoritative murder count increment
+              getWorldSocket()?.send({ type: 'PLAYER_KILLED', victimId: rp.userId })
+
+              // If victim was a wanted player, collect the bounty
+              const wanted = useOutlawStore.getState().getWantedEntry(rp.userId)
+              if (wanted) {
+                getWorldSocket()?.send({ type: 'BOUNTY_COLLECT', targetId: rp.userId })
+              }
+
+              useUiStore.getState().addNotification(
+                `You killed ${rp.username}!${wanted ? ` Bounty claim submitted: ${wanted.reward} copper.` : ''}`,
+                'error'
+              )
+            } else {
+              useUiStore.getState().addNotification(
+                `Hit ${rp.username} for ${stats.damage} dmg (${(newHealth * 100).toFixed(0)}% HP remaining)`,
+                'warning'
+              )
+            }
+            hitCreature = true
+            break
+          }
+        }
+      }
+
       // ── M6: Check if player hit a server NPC near a settlement ──────────────
       if (!hitCreature) {
         const remoteNpcs = useMultiplayerStore.getState().remoteNpcs
@@ -1393,6 +1435,52 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
         if (nearestId !== null) {
           // Notify server; it will send TRADE_OFFER or GATES_CLOSED if appropriate
           getWorldSocket()?.send({ type: 'PLAYER_NEAR_SETTLEMENT', settlementId: nearestId })
+
+          // ── M7 T2: Tiered NPC reaction HUD messages ───────────────────────
+          // Show settlement status message based on local player's murder count.
+          // This runs only when the player is near a settlement, throttled to 3s.
+          const localMurderCount = usePlayerStore.getState().murderCount
+          const gatesAlreadyClosed = useSettlementStore.getState().closedGates.has(nearestId)
+          if (!gatesAlreadyClosed) {
+            if (localMurderCount >= 1 && localMurderCount <= 2) {
+              useUiStore.getState().addNotification('Strangers are wary of you. Shop prices increased.', 'warning')
+            }
+            // murder_count 3+ gate closure is handled server-side via GATES_CLOSED message
+          }
+        }
+      }
+    }
+
+    // ── M7 T2: NPC guard aggro — wanted players attacked on sight ─────────────
+    // When local player has murder_count >= 5, server NPCs near the player
+    // in a settlement territory apply combat damage (simulated client-side
+    // as environmental hazard from guards). Check once per 3s with settlement timer.
+    {
+      const localMurderCount = usePlayerStore.getState().murderCount
+      const WANTED_THRESHOLD_CLIENT = 5
+      const GUARD_RANGE_SQ = 30 * 30  // 30 metre aggro radius
+      const GUARD_DPS = 8             // damage per second from guard volley
+      if (localMurderCount >= WANTED_THRESHOLD_CLIENT) {
+        const nearestSettlement = useSettlementStore.getState().nearSettlementId
+        if (nearestSettlement !== null) {
+          // Guards deal damage proportional to dt — simulate arrow volley per frame
+          const ps3 = usePlayerStore.getState()
+          // Check if any server NPC is within 30m (they are settlement guards)
+          const remoteNpcs3 = useMultiplayerStore.getState().remoteNpcs
+          for (const npc of remoteNpcs3) {
+            const dx = npc.x - px, dy = (npc.y ?? 1) - py, dz = npc.z - pz
+            const distSq = dx * dx + dy * dy + dz * dz
+            if (distSq < GUARD_RANGE_SQ) {
+              // Guard attacks — apply damage per second, scaled by dt
+              const guardDmg = GUARD_DPS * dt
+              const maxHp    = Health.max[entityId] || 100
+              const newHp    = Math.max(0, Health.current[entityId] - guardDmg)
+              Health.current[entityId] = newHp
+              // Mark as combat damage so death is attributed correctly
+              markCombatDamage()
+              break  // one guard attack per frame is enough
+            }
+          }
         }
       }
     }

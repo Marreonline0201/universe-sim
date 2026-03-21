@@ -3,7 +3,7 @@
 
 export class PlayerRegistry {
   constructor() {
-    /** @type {Map<string, { userId: string; username: string; x: number; y: number; z: number; health: number; ws: import('ws').WebSocket }>} */
+    /** @type {Map<string, { userId: string; username: string; x: number; y: number; z: number; health: number; murderCount: number; ws: import('ws').WebSocket }>} */
     this._players = new Map()
   }
 
@@ -13,6 +13,7 @@ export class PlayerRegistry {
       username,
       x: 0, y: 0.9, z: 0,
       health: 1,
+      murderCount: 0,
       ws,
     })
   }
@@ -28,6 +29,7 @@ export class PlayerRegistry {
     if (patch.y !== undefined) p.y = patch.y
     if (patch.z !== undefined) p.z = patch.z
     if (patch.health !== undefined) p.health = patch.health
+    if (patch.murderCount !== undefined) p.murderCount = patch.murderCount
   }
 
   get(userId) {
@@ -39,10 +41,13 @@ export class PlayerRegistry {
     const result = []
     for (const p of this._players.values()) {
       result.push({
-        userId: p.userId,
-        username: p.username,
-        x: p.x, y: p.y, z: p.z,
-        health: p.health,
+        userId:      p.userId,
+        username:    p.username,
+        x:           p.x,
+        y:           p.y,
+        z:           p.z,
+        health:      p.health,
+        murderCount: p.murderCount,
       })
     }
     return result

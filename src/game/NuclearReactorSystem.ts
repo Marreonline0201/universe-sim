@@ -25,6 +25,8 @@ import { usePlayerStore } from '../store/playerStore'
 import { useUiStore } from '../store/uiStore'
 import { inventory } from './GameSingletons'
 import { MAT } from '../player/Inventory'
+import { Health } from '../ecs/world'
+import { markCombatDamage } from './SurvivalSystems'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -165,6 +167,7 @@ export function tickNuclearReactor(
   dt: number,
   hasWaterCooling: boolean,
   playerPos: [number, number, number],
+  entityId = 0,
 ): void {
   const vs = useVelarStore.getState()
 
@@ -175,8 +178,9 @@ export function tickNuclearReactor(
       if (_radiationDrainAcc >= 1) {
         const dmg = Math.floor(_radiationDrainAcc)
         _radiationDrainAcc -= dmg
-        const ps = usePlayerStore.getState()
-        ps.updateVitals({ health: ps.health - dmg / 100 })
+        // Write directly to ECS — GameLoop overwrites playerStore from ECS each frame
+        Health.current[entityId] = Math.max(0, Health.current[entityId] - dmg)
+        markCombatDamage()
       }
     }
 

@@ -38,6 +38,7 @@ import {
   inflictWound,
   cookingProgress,
   markCombatDamage,
+  resetDamageFlags,
 } from '../game/SurvivalSystems'
 import {
   checkAndTriggerDeath,
@@ -871,6 +872,9 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
     // Cap dt to avoid spiral-of-death on slow frames
     const dt = Math.min(delta, 0.1)
 
+    // M5: Reset damage-source flags at frame start so this frame's damage is tracked fresh
+    resetDamageFlags()
+
     // Admin spectate overrides player camera
     if (spectateTarget) {
       camera.position.set(spectateTarget.x, spectateTarget.y + 20, spectateTarget.z + 15)
@@ -1340,7 +1344,7 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
     // playerPos is read from ECS Position component each frame.
     {
       const ps = usePlayerStore.getState()
-      tickNuclearReactor(dt, false, [ps.x, ps.y, ps.z])
+      tickNuclearReactor(dt, false, [ps.x, ps.y, ps.z], entityId ?? 0)
     }
 
     // ── P2-5: Building physics — fire damage to combustible structures ────────
@@ -1698,8 +1702,7 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
       if (!tryEatFood(inventory, entityId ?? 0)) {
         const _psE = usePlayerStore.getState()
         if (_psE.wounds.length > 0 && !tryApplyHerb(inventory)) {
-          // Has wounds but no herb — give feedback
-          useUiStore.getState().addNotification('No herbs (Leaf) to treat wound.', 'warning')
+          // tryApplyHerb already showed the appropriate notification
         } else if (_psE.wounds.length === 0) {
           // No food and no wounds — try river drink if player is standing in a river
           const _inRiver = useRiverStore.getState().inRiver

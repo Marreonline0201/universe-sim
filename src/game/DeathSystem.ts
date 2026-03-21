@@ -6,7 +6,7 @@
 
 import { usePlayerStore } from '../store/playerStore'
 import { useUiStore } from '../store/uiStore'
-import { determinDeathCause, resetDamageFlags } from './SurvivalSystems'
+import { determinDeathCause } from './SurvivalSystems'
 import { MAT, ITEM, type Inventory } from '../player/Inventory'
 import { world, IsDead } from '../ecs/world'
 import { removeComponent } from 'bitecs'
@@ -58,9 +58,6 @@ export function checkAndTriggerDeath(
   playerPos: { x: number; y: number; z: number },
   inv: Inventory,
 ): boolean {
-  // Always reset damage flags at the start of the death check
-  resetDamageFlags()
-
   const ps = usePlayerStore.getState()
 
   // Already dead — stay halted

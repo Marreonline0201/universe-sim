@@ -6,6 +6,7 @@ import React, { useEffect } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useUiStore, type PanelId } from '../store/uiStore'
 import { useGameStore } from '../store/gameStore'
+import { cancelFishing, isFishingActive } from '../world/SailingSystem'
 import { InventoryPanel } from './panels/InventoryPanel'
 import { CraftingPanel } from './panels/CraftingPanel'
 import { TechTreePanel } from './panels/TechTreePanel'
@@ -98,7 +99,8 @@ export function SidebarShell() {
           break
         case 'Escape':
           e.preventDefault()
-          if (placementMode) setPlacementMode(null)
+          if (isFishingActive()) { cancelFishing(); useGameStore.getState().setGatherPrompt(null) }
+          else if (placementMode) setPlacementMode(null)
           else if (activePanel !== null) closePanel()
           else togglePanel('settings')
           break

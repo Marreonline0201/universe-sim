@@ -34,6 +34,9 @@ import {
   tryStartSleep,
   inflictWound,
   cookingProgress,
+  markCombatDamage,
+  determinDeathCause,
+  resetDamageFlags,
 } from '../game/SurvivalSystems'
 import { PlanetTerrain } from './PlanetTerrain'
 import { surfaceRadiusAt, terrainHeightAt, getSpawnPosition, PLANET_RADIUS, SEA_LEVEL } from '../world/SpherePlanet'
@@ -41,6 +44,7 @@ import { LocalSimManager } from '../engine/LocalSimManager'
 import { FireRenderer } from './FireRenderer'
 import { DayNightCycle } from './DayNightCycle'
 import { SimGridVisualizer } from './SimGridVisualizer'
+import { getWorldSocket, setSimManagerForSocket } from '../net/useWorldSocket'
 
 // ── Resource node definitions ─────────────────────────────────────────────────
 
@@ -452,6 +456,9 @@ export function SceneRoot() {
 
       simManagerRef.current = simMgr
       setSimManager(simMgr)
+      // Register sim manager with WorldSocket so FIRE_STARTED messages from
+      // remote players can call ignite() on this client's local grid.
+      setSimManagerForSocket(simMgr)
     })
 
     return () => {
@@ -460,6 +467,7 @@ export function SceneRoot() {
       controllerRef.current = null
       simManagerRef.current = null
       setSimManager(null)
+      setSimManagerForSocket(null)
     }
   }, [setEngineReady, setEntityId])
 
@@ -486,8 +494,8 @@ export function SceneRoot() {
         }}>
           <div style={{ fontSize: 22, fontWeight: 700, marginBottom: 6 }}>CLICK TO PLAY</div>
           <div style={{ fontSize: 11, color: '#aaa' }}>WASD — Move &nbsp;·&nbsp; Mouse — Look &nbsp;·&nbsp; Space — Jump &nbsp;·&nbsp; F — Interact &nbsp;·&nbsp; G — Dig</div>
-          <div style={{ fontSize: 11, color: '#aaa', marginTop: 4 }}>E — Eat food &nbsp;·&nbsp; H — Herb / treat wound &nbsp;·&nbsp; Z — Sleep &nbsp;·&nbsp; Q — Attack</div>
-          <div style={{ fontSize: 11, color: '#aaa', marginTop: 4 }}>ESC — Settings &nbsp;·&nbsp; I — Inventory &nbsp;·&nbsp; C — Craft &nbsp;·&nbsp; B — Build &nbsp;·&nbsp; T/J/Tab/M — More</div>
+          <div style={{ fontSize: 11, color: '#aaa', marginTop: 4 }}>E — Eat (in-game) / Evolution panel (menu) &nbsp;·&nbsp; H — Herb &nbsp;·&nbsp; Z — Sleep &nbsp;·&nbsp; Q — Attack</div>
+          <div style={{ fontSize: 11, color: '#aaa', marginTop: 4 }}>ESC — Settings &nbsp;·&nbsp; I — Inventory &nbsp;·&nbsp; C — Craft &nbsp;·&nbsp; B — Build &nbsp;·&nbsp; T/J/Tab/M/? — Panels</div>
         </div>
       </div>
     )}
@@ -2146,6 +2154,56 @@ function LocalNpcsRenderer() {
 function nodeRand(id: number, offset: number): number {
   let h = ((id * 374761 + offset * 668265) * 1274127) >>> 0
   return (h >>> 0) / 0xffffffff
+}
+
+// ── Foliage wind-sway material factory ───────────────────────────────────────
+// Creates a MeshStandardMaterial with per-vertex wind animation baked into the
+// vertex shader via onBeforeCompile. Crown sways more (high local Y), base
+// stays fixed (local Y = 0). uTime uniform is updated each frame by TreeMesh.
+// Formula matches spec: position.x += sin(uTime*0.5 + position.z*0.3)*0.02*(position.y/treeHeight)
+function makeWindFoliageMaterial(color: string, treeHeight: number): THREE.MeshStandardMaterial {
+  const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.9 })
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uTime       = { value: 0 }
+    shader.uniforms.uTreeHeight = { value: Math.max(treeHeight, 0.01) }
+    // Stash uniform refs on material for per-frame update
+    ;(mat as any)._windUniforms = shader.uniforms
+
+    shader.vertexShader = shader.vertexShader.replace(
+      'void main() {',
+      `uniform float uTime;
+uniform float uTreeHeight;
+void main() {`
+    )
+    shader.vertexShader = shader.vertexShader.replace(
+      '#include <project_vertex>',
+      `// Wind sway: amplitude scales 0 at base → full at crown tip
+float _windT = position.y / uTreeHeight;
+transformed.x += sin(uTime * 0.5 + position.z * 0.3) * 0.02 * _windT * uTreeHeight;
+// Secondary orthogonal gust for elliptical crown motion
+transformed.z += sin(uTime * 0.37 + position.x * 0.25) * 0.012 * _windT * uTreeHeight;
+#include <project_vertex>`
+    )
+  }
+  return mat
+}
+
+// ── Rock face-variation material factory ─────────────────────────────────────
+// Upward-facing faces (vNormal.y → 1) are shinier: rain-polished/worn.
+// Vertical side faces stay rough (sheltered, unweathered rock texture).
+// roughness *= (0.7 + 0.3 * abs(vNormal.y))  →  top=0.7×, sides=1.0×
+function makeRockMaterial(color: string): THREE.MeshStandardMaterial {
+  const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.95, metalness: 0.05 })
+  mat.onBeforeCompile = (shader) => {
+    shader.fragmentShader = shader.fragmentShader.replace(
+      '#include <roughnessmap_fragment>',
+      `#include <roughnessmap_fragment>
+      // Face-direction roughness: top faces are wet/worn (lower roughness),
+      // side faces are rough (sheltered from weather).
+      roughnessFactor *= (0.7 + 0.3 * abs(vNormal.y));`
+    )
+  }
+  return mat
 }
 
 function TreeMesh({ id }: { id: number }) {

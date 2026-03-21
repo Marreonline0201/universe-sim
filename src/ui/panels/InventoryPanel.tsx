@@ -52,13 +52,13 @@ function SlotCell({ slot, index, selected, equipped, onSelect }: {
     >
       {slot && (
         <>
-          <div style={{ fontSize: 11, color: '#ccc', textAlign: 'center', lineHeight: 1.2, padding: '0 2px' }}>
+          <div style={{ fontSize: 10, color: '#ccc', textAlign: 'center', lineHeight: 1.2, padding: '0 2px', wordBreak: 'break-word' }}>
             {slot.itemId === 0
-              ? (MAT_NAMES[slot.materialId]?.split(' ')[0] ?? '?')
-              : (ITEM_NAMES[slot.itemId]?.split(' ')[0] ?? MAT_NAMES[slot.itemId]?.split(' ')[0] ?? '?')}
+              ? (MAT_NAMES[slot.materialId] ?? '?')
+              : (ITEM_NAMES[slot.itemId] ?? MAT_NAMES[slot.itemId] ?? '?')}
           </div>
           <div style={{ fontSize: 9, color: '#888', marginTop: 2 }}>
-            {slot.itemId === 0 ? 'raw' : (MAT_NAMES[slot.materialId]?.split(' ')[0] ?? '')}
+            {slot.itemId === 0 ? 'mat' : 'item'}
           </div>
           {slot.quantity > 1 && (
             <div style={{

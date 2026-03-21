@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { PerspectiveCamera, Stars } from '@react-three/drei'
 import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing'
-import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { RefObject } from 'react'
 import { SimulationEngine } from '../engine/SimulationEngine'
 import { rapierWorld } from '../physics/RapierWorld'
@@ -47,6 +47,7 @@ import {
   placedBedrollAnchor,
   setPlacedBedrollAnchor,
 } from '../game/DeathSystem'
+import { DeathScreen as DeathScreenImport } from '../ui/DeathScreen'
 import { PlanetTerrain } from './PlanetTerrain'
 import { surfaceRadiusAt, terrainHeightAt, getSpawnPosition, PLANET_RADIUS, SEA_LEVEL } from '../world/SpherePlanet'
 import { LocalSimManager } from '../engine/LocalSimManager'
@@ -390,6 +391,28 @@ export function SceneRoot() {
   const setEntityId = usePlayerStore(s => s.setEntityId)
   const entityId = usePlayerStore(s => s.entityId)
 
+  // M5: Respawn handler — called by DeathScreen RESPAWN button
+  const handleRespawn = useCallback(() => {
+    if (entityId === null) return
+    const [sx, sy, sz] = getSpawnPosition()
+    executeRespawn(
+      entityId,
+      (x, y, z) => {
+        Position.x[entityId] = x
+        Position.y[entityId] = y
+        Position.z[entityId] = z
+        rapierWorld.getPlayer()?.body.setNextKinematicTranslation({ x, y, z })
+      },
+      (hp) => { Health.current[entityId] = hp },
+      (hunger, thirst, energy) => {
+        Metabolism.hunger[entityId] = hunger
+        Metabolism.thirst[entityId] = thirst
+        Metabolism.energy[entityId] = energy
+      },
+      [sx, sy, sz],
+    )
+  }, [entityId])
+
   // Sync time scale buttons → simulation clock
   useEffect(() => {
     engineRef.current?.clock.setTimeScale(timeScale)
@@ -574,6 +597,8 @@ export function SceneRoot() {
         <LocalNpcsRenderer />
         <FireRenderer simManager={simManager} />
         <SimGridVisualizer simManager={simManager} />
+        <DeathLootDropsRenderer />
+        <BedrollMeshRenderer />
       </Suspense>
       {entityId !== null && (
         <>
@@ -591,8 +616,16 @@ export function SceneRoot() {
         <Vignette offset={0.3} darkness={0.5} eskil={false} />
       </EffectComposer>
     </Canvas>
+    {/* M5: Death screen — shown above everything when player is dead */}
+    <DeathScreenWrapper onRespawn={handleRespawn} />
     </>
   )
+}
+
+// ── DeathScreenWrapper ────────────────────────────────────────────────────────
+// Conditionally renders DeathScreen. Imported statically; hidden until isDead.
+function DeathScreenWrapper({ onRespawn }: { onRespawn: () => void }) {
+  return <DeathScreenImport onRespawn={onRespawn} />
 }
 
 // ── Per-frame game loop (runs inside Canvas so useFrame works) ────────────────
@@ -720,6 +753,7 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
             const severity = 0.2 + Math.random() * 0.4  // mild to moderate bite
             Health.current[entityId] = Math.max(0, Health.current[entityId] - severity * 10)
             inflictWound(severity)
+            markCombatDamage()  // M5: mark so death is attributed to combat
           }
         }
       }
@@ -1155,11 +1189,31 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
 
     // ── Z key: sleep / wake ───────────────────────────────────────────────────
     if (!gs.inputBlocked && controllerRef.current?.popSleep?.()) {
-      tryStartSleep(
+      const didSleep = tryStartSleep(
         inventory,
         buildingSystem.getAllBuildings().map(b => ({ position: b.position, typeId: b.typeId })),
         px, py, pz
       )
+      // M5: Record bedroll placement as respawn anchor.
+      // tryStartSleep consumed the bedroll item and set bedrollPlaced = true.
+      // We capture the player position at that moment as the respawn point.
+      {
+        const psAfterSleep = usePlayerStore.getState()
+        if (didSleep && psAfterSleep.bedrollPlaced) {
+          // Always update position — placing a new bedroll overwrites the old one
+          const prevPos = psAfterSleep.bedrollPos
+          const sameSpot = prevPos
+            && Math.abs(prevPos.x - px) < 0.1
+            && Math.abs(prevPos.z - pz) < 0.1
+          if (!sameSpot) {
+            psAfterSleep.setBedrollPos({ x: px, y: py, z: pz })
+            setPlacedBedrollAnchor({ x: px, y: py, z: pz })
+            useUiStore.getState().addNotification(
+              'Bedroll placed! This is now your respawn point.', 'discovery'
+            )
+          }
+        }
+      }
     }
 
     // ── Dig (G key): loosen the ground and add materials ──────────────────────
@@ -1255,6 +1309,13 @@ const BUILDING_COLORS: Record<number, string> = {
   8: '#7A4A9A',  // tier 8: fusion
   9: '#9A4A7A',  // tier 9: simulation
 }
+
+// ── Stub renderers (implementations pending) ─────────────────────────────────
+// DeathLootDropsRenderer: will render dropped item meshes at death positions.
+// BedrollMeshRenderer: will render placed bedroll objects in the 3D world.
+// Both return null until their backing data stores are implemented.
+function DeathLootDropsRenderer() { return null }
+function BedrollMeshRenderer()    { return null }
 
 function PlacedBuildingsRenderer() {
   const buildVersion = useGameStore(s => s.buildVersion)

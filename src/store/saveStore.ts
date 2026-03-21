@@ -89,6 +89,11 @@ export async function loadSave(getToken: () => Promise<string | null>) {
     ps.addSmithingXp(data.smithingXp)
   }
 
+  // Slice 5: Wounds — restore active infections so logout doesn't reset them
+  if (Array.isArray(data.wounds) && data.wounds.length > 0) {
+    usePlayerStore.setState({ wounds: data.wounds })
+  }
+
   // If the ECS entity already exists (engine init beat loadSave), write vitals and
   // position directly so they aren't overwritten by the GameLoop on the next frame.
   const entityId = usePlayerStore.getState().entityId
@@ -151,6 +156,7 @@ export async function saveGame(getToken: () => Promise<string | null>, username:
       bedrollZ: ps.bedrollPos?.z ?? null,
       murderCount: ps.murderCount,
       smithingXp:  ps.smithingXp,
+      wounds:      ps.wounds,
     }),
   })
 }

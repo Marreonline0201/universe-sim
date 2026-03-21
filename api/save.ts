@@ -60,6 +60,7 @@ export default async function handler(req: any, res: any) {
   await sql`ALTER TABLE player_saves ADD COLUMN IF NOT EXISTS bedroll_z             FLOAT DEFAULT NULL`
   await sql`ALTER TABLE player_saves ADD COLUMN IF NOT EXISTS murder_count          INT DEFAULT 0`
   await sql`ALTER TABLE player_saves ADD COLUMN IF NOT EXISTS smithing_xp           REAL DEFAULT 0`
+  await sql`ALTER TABLE player_saves ADD COLUMN IF NOT EXISTS wounds                TEXT DEFAULT '[]'`
 
   await sql`
     INSERT INTO player_saves (
@@ -69,6 +70,7 @@ export default async function handler(req: any, res: any) {
       inventory, tech_tree, tech_tree_in_progress, evolution_tree, known_recipes,
       journal_entries, buildings,
       bedroll_x, bedroll_y, bedroll_z, murder_count, smithing_xp,
+      wounds,
       updated_at
     ) VALUES (
       ${userId}, ${body.username ?? ''}, ${body.x ?? 0}, ${body.y ?? 0}, ${body.z ?? 0},
@@ -86,6 +88,7 @@ export default async function handler(req: any, res: any) {
       ${JSON.stringify(body.buildings ?? [])},
       ${body.bedrollX ?? null}, ${body.bedrollY ?? null}, ${body.bedrollZ ?? null},
       ${body.murderCount ?? 0}, ${body.smithingXp ?? 0},
+      ${JSON.stringify(body.wounds ?? [])},
       NOW()
     )
     ON CONFLICT (user_id) DO UPDATE SET
@@ -115,6 +118,7 @@ export default async function handler(req: any, res: any) {
       bedroll_z               = EXCLUDED.bedroll_z,
       murder_count            = EXCLUDED.murder_count,
       smithing_xp             = EXCLUDED.smithing_xp,
+      wounds                  = EXCLUDED.wounds,
       updated_at              = NOW()
   `
 

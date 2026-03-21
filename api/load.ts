@@ -44,5 +44,6 @@ export default async function handler(req: any, res: any) {
     bedrollZ: row.bedroll_z ?? null,
     murderCount: row.murder_count ?? 0,
     smithingXp:  row.smithing_xp  ?? 0,
+    wounds: JSON.parse(row.wounds ?? '[]'),
   })
 }

@@ -7,3 +7,5 @@ rust/*/target/
 *.tsbuildinfo
 
 .env*.local
+
+.env*.local

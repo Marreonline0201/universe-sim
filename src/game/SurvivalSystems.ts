@@ -7,6 +7,8 @@
 //
 // All logic here is called from SceneRoot's GameLoop useFrame.
 
+import { terrainHeightAt } from '../world/SpherePlanet'
+import * as THREE from 'three'
 import { MAT, ITEM } from '../player/Inventory'
 import type { Inventory } from '../player/Inventory'
 import type { LocalSimManager } from '../engine/LocalSimManager'
@@ -657,30 +659,18 @@ export function tickBlastFurnaceSmelting(
 const QUENCH_WATER_RADIUS   = 3.0   // metres to water cell
 const WATER_Y_THRESHOLD     = 1.5   // sim grid y ≤ this = water cell
 
-/** Returns true if any sim grid cell near (px, pz) is a water cell (ocean/river). */
+/** Returns true if the player is standing at or near ocean/water surface.
+ *  On a sphere (PLANET_RADIUS=4000), water detection uses terrain height:
+ *  terrainHeightAt(dir) ≤ 0 means the tile is ocean/sea. */
 function isNearWater(
   px: number, py: number, pz: number,
-  simMgr: LocalSimManager
+  _simMgr: LocalSimManager
 ): boolean {
-  // We check cells at sea level (y ≤ WATER_Y_THRESHOLD) within QUENCH_WATER_RADIUS.
-  // getHotCells returns heat sources; for water we read cold/wet cells instead.
-  // Since the sim grid doesn't have an explicit "water type" API, we sample
-  // temperature at y=0 near the player — ocean cells are cold (~15°C) and
-  // at or below sea level. We look for any cell at y≤WATER_Y_THRESHOLD within radius.
-  //
-  // Simpler and more robust: check if the player's Y position is ≤ WATER_Y_THRESHOLD
-  // (they're wading in water), which already gates ocean/river proximity.
-  if (py <= WATER_Y_THRESHOLD) return true
-
-  // Also accept if there's a cold cell (< 20°C) at ground level within radius —
-  // this catches rivers and ponds that are slightly above sea level.
-  try {
-    const nearTemp = simMgr.getTemperatureAt(px, 0, pz)
-    // A cold cell near the player at ground level with player close to y=0 is water
-    if (nearTemp < 25 && py <= WATER_Y_THRESHOLD + QUENCH_WATER_RADIUS) return true
-  } catch { /* sim may not have this cell sampled yet */ }
-
-  return false
+  const len = Math.sqrt(px * px + py * py + pz * pz)
+  if (len < 1) return false  // at origin — shouldn't happen
+  const dir = new THREE.Vector3(px / len, py / len, pz / len)
+  // terrainHeightAt ≤ 0 → ocean (below sea level in terrain noise)
+  return terrainHeightAt(dir) <= 0
 }
 
 export function tickQuenching(

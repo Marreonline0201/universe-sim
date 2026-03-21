@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { PerspectiveCamera, Stars } from '@react-three/drei'
+import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing'
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import type { RefObject } from 'react'
 import { SimulationEngine } from '../engine/SimulationEngine'
@@ -38,6 +39,14 @@ import {
   determinDeathCause,
   resetDamageFlags,
 } from '../game/SurvivalSystems'
+import {
+  checkAndTriggerDeath,
+  executeRespawn,
+  DEATH_LOOT_DROPS,
+  gatheredLootIds,
+  placedBedrollAnchor,
+  setPlacedBedrollAnchor,
+} from '../game/DeathSystem'
 import { PlanetTerrain } from './PlanetTerrain'
 import { surfaceRadiusAt, terrainHeightAt, getSpawnPosition, PLANET_RADIUS, SEA_LEVEL } from '../world/SpherePlanet'
 import { LocalSimManager } from '../engine/LocalSimManager'
@@ -206,30 +215,6 @@ const RESOURCE_NODE_QUATS: THREE.Quaternion[] = RESOURCE_NODES.map(n =>
 const gatheredNodeIds = new Set<number>()
 const NODE_RESPAWN_AT = new Map<number, number>()
 const NODE_RESPAWN_DELAY = 60_000
-
-// ── M5: Death loot drop state ─────────────────────────────────────────────────
-// When the player dies, dropped items are stored here as world pickups.
-// Each pickup is a ResourceNode-compatible object with a unique id >= 100000
-// (to avoid collisions with the seeded RESOURCE_NODES ids, which max at ~330).
-// Pickups can be gathered by pressing F near them (same proximity mechanic).
-// They do NOT respawn — they persist until the player picks them up.
-interface LootDrop {
-  id: number
-  x: number; y: number; z: number
-  matId: number; itemId: number
-  label: string
-  quantity: number
-  quality: number
-}
-const DEATH_LOOT_DROPS: LootDrop[] = []
-const gatheredLootIds = new Set<number>()
-let _lootIdCounter = 100_000
-
-// ── M5: Bedroll world anchor ──────────────────────────────────────────────────
-// Tracks the placed bedroll mesh position for rendering.
-// Updated when a bedroll item is placed via the Z-sleep mechanic.
-interface BedrollAnchor { x: number; y: number; z: number; surfNormQuat: THREE.Quaternion }
-let _placedBedroll: BedrollAnchor | null = null
 
 // Auto-open inventory on the player's first-ever gather so the playtester can
 // immediately inspect the item without knowing to press I.
@@ -598,6 +583,13 @@ export function SceneRoot() {
           <BuildingGhost entityId={entityId} />
         </>
       )}
+      {/* Post-processing — subtle filmic effects, never stylised */}
+      <EffectComposer>
+        {/* Bloom: fire, emissive cells glow. Threshold 0.8 limits to HDR-bright pixels. */}
+        <Bloom luminanceThreshold={0.8} intensity={0.4} luminanceSmoothing={0.025} />
+        {/* Vignette: cinematic edge darkening. offset 0.3 confines it to outer 30%. */}
+        <Vignette offset={0.3} darkness={0.5} eskil={false} />
+      </EffectComposer>
     </Canvas>
     </>
   )
@@ -747,20 +739,20 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
       fatigue: Metabolism.fatigue[entityId],
     })
 
-    // 3b. Death / respawn — if player is dead, teleport back to spawn and reset vitals
-    if (Health.current[entityId] <= 0) {
-      const [sx, sy, sz] = getSpawnPosition()
-      const physics = rapierWorld.getPlayer()
-      if (physics) {
-        physics.body.setNextKinematicTranslation({ x: sx, y: sy, z: sz })
-      }
-      Position.x[entityId] = sx; Position.y[entityId] = sy; Position.z[entityId] = sz
-      Health.current[entityId] = Health.max[entityId] || 100
-      Metabolism.hunger[entityId] = 0.5   // respawn hungry (not full, not dying)
-      Metabolism.thirst[entityId] = 0.5
-      Metabolism.energy[entityId] = 0.7
-      removeComponent(world, IsDead, entityId)
-      useUiStore.getState().addNotification('You died and respawned at spawn.', 'warning')
+    // 3b. Death trigger (M5) - delegates to DeathSystem
+    {
+      const _hpRef = { current: Health.current[entityId] }
+      const _died = checkAndTriggerDeath(
+        _hpRef,
+        {
+          x: Position.x[entityId],
+          y: Position.y[entityId],
+          z: Position.z[entityId],
+        },
+        inventory,
+      )
+      Health.current[entityId] = _hpRef.current
+      if (_died) return
     }
 
     // 4a. EP trickle — 1 EP per 30 real seconds of survival
@@ -1052,6 +1044,14 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
           nearest = node
           nearestDist = dist
         }
+      }
+
+      if (!nearest) {
+        // Give feedback so player knows the swing registered but nothing was in range
+        useUiStore.getState().addNotification(
+          `Nothing to hit — get closer or equip the right tool (reach: ${stats.range.toFixed(1)}m)`,
+          'warning'
+        )
       }
 
       if (nearest) {

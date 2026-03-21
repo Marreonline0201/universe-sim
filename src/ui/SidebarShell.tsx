@@ -32,6 +32,20 @@ const PANEL_LABEL: Record<PanelId, string> = {
 
 const PANEL_WIDTH = 480
 
+// Right-edge icon strip entries — order determines vertical position
+const ICON_BUTTONS: Array<{ id: PanelId; icon: string; hint: string }> = [
+  { id: 'inventory',  icon: 'INV',  hint: 'Inventory (I)' },
+  { id: 'crafting',   icon: 'CRF',  hint: 'Crafting (C)' },
+  { id: 'build',      icon: 'BLD',  hint: 'Build (B)' },
+  { id: 'tech',       icon: 'TEC',  hint: 'Tech Tree (T)' },
+  { id: 'evolution',  icon: 'EVO',  hint: 'Evolution (E)' },
+  { id: 'journal',    icon: 'JRN',  hint: 'Journal (J)' },
+  { id: 'character',  icon: 'CHR',  hint: 'Character (Tab)' },
+  { id: 'map',        icon: 'MAP',  hint: 'Map (M)' },
+  { id: 'science',    icon: ' ? ',  hint: 'Science Companion (?)' },
+  { id: 'settings',   icon: 'SET',  hint: 'Settings (Esc)' },
+]
+
 const PANEL_COMPONENTS: Record<PanelId, React.ComponentType> = {
   inventory:  InventoryPanel,
   crafting:   CraftingPanel,
@@ -99,6 +113,70 @@ export function SidebarShell() {
 
   return (
     <>
+      {/* Right-edge icon strip — always visible, slides left when panel is open */}
+      <div style={{
+        position: 'fixed',
+        right: activePanel ? PANEL_WIDTH : 0,
+        top: '50%',
+        transform: 'translateY(-50%)',
+        zIndex: 195,
+        display: 'flex',
+        flexDirection: 'column',
+        background: 'rgba(10,10,10,0.93)',
+        borderLeft: '1px solid #2a2a2a',
+        borderTop: '1px solid #2a2a2a',
+        borderBottom: '1px solid #2a2a2a',
+        borderRadius: '6px 0 0 6px',
+        transition: 'right 0.28s cubic-bezier(0.4,0,0.2,1)',
+        pointerEvents: 'auto',
+        overflow: 'hidden',
+      }}>
+        {ICON_BUTTONS.map(({ id, icon, hint }) => {
+          const active = activePanel === id
+          return (
+            <button
+              key={id}
+              onClick={() => togglePanel(id)}
+              title={hint}
+              style={{
+                width: 44,
+                height: 34,
+                background: active ? 'rgba(205,68,32,0.22)' : 'transparent',
+                border: 'none',
+                borderLeft: `2px solid ${active ? '#cd4420' : 'transparent'}`,
+                color: active ? '#cd4420' : '#555',
+                fontSize: 9,
+                fontFamily: 'monospace',
+                fontWeight: 700,
+                letterSpacing: 0.5,
+                cursor: 'pointer',
+                transition: 'all 0.12s',
+                padding: 0,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+              onMouseEnter={e => {
+                if (!active) {
+                  e.currentTarget.style.color = '#ccc'
+                  e.currentTarget.style.borderLeftColor = '#444'
+                  e.currentTarget.style.background = 'rgba(255,255,255,0.04)'
+                }
+              }}
+              onMouseLeave={e => {
+                if (!active) {
+                  e.currentTarget.style.color = '#555'
+                  e.currentTarget.style.borderLeftColor = 'transparent'
+                  e.currentTarget.style.background = 'transparent'
+                }
+              }}
+            >
+              {icon}
+            </button>
+          )
+        })}
+      </div>
+
       {/* Sliding panel */}
       <AnimatePresence>
         {activePanel && (
@@ -157,51 +235,6 @@ export function SidebarShell() {
           </motion.div>
         )}
       </AnimatePresence>
-
-      {/* Science companion floating button — bottom right, always visible */}
-      <button
-          onClick={() => togglePanel('science')}
-          title="Science Companion (? or /)"
-          style={{
-            position: 'fixed',
-            bottom: 72,
-            right: 16,
-            width: 40,
-            height: 40,
-            borderRadius: '50%',
-            background: activePanel === 'science' ? '#cd4420' : 'rgba(20,20,20,0.92)',
-            border: `1px solid ${activePanel === 'science' ? '#cd4420' : '#333'}`,
-            color: activePanel === 'science' ? '#fff' : '#888',
-            fontSize: 16,
-            fontWeight: 700,
-            fontFamily: 'monospace',
-            cursor: 'pointer',
-            zIndex: 190,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            transition: 'all 0.15s',
-            pointerEvents: 'auto',
-            lineHeight: 1,
-          }}
-          onMouseEnter={e => {
-            if (activePanel !== 'science') {
-              e.currentTarget.style.borderColor = '#cd4420'
-              e.currentTarget.style.color = '#fff'
-              e.currentTarget.style.background = 'rgba(205,68,32,0.18)'
-            }
-          }}
-          onMouseLeave={e => {
-            if (activePanel !== 'science') {
-              e.currentTarget.style.borderColor = '#333'
-              e.currentTarget.style.color = '#888'
-              e.currentTarget.style.background = 'rgba(20,20,20,0.92)'
-            }
-          }}
-        >
-          ?
-        </button>
-
     </>
   )
 }

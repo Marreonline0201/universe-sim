@@ -21,6 +21,17 @@ export default async function handler(req: any, res: any) {
   const body = req.body ?? {}
   const sql = neon(process.env.DATABASE_URL!)
 
+  // Self-healing schema migration — ADD COLUMN IF NOT EXISTS is idempotent and
+  // becomes a no-op (metadata-only) once each column exists. Runs inline so the
+  // live table stays in sync with the schema without a manual init-db call.
+  await sql`ALTER TABLE player_saves ADD COLUMN IF NOT EXISTS inventory              TEXT DEFAULT '[]'`
+  await sql`ALTER TABLE player_saves ADD COLUMN IF NOT EXISTS tech_tree              TEXT DEFAULT '[]'`
+  await sql`ALTER TABLE player_saves ADD COLUMN IF NOT EXISTS tech_tree_in_progress  TEXT DEFAULT '[]'`
+  await sql`ALTER TABLE player_saves ADD COLUMN IF NOT EXISTS evolution_tree         TEXT DEFAULT '[]'`
+  await sql`ALTER TABLE player_saves ADD COLUMN IF NOT EXISTS known_recipes          TEXT DEFAULT '[]'`
+  await sql`ALTER TABLE player_saves ADD COLUMN IF NOT EXISTS journal_entries        TEXT DEFAULT '[]'`
+  await sql`ALTER TABLE player_saves ADD COLUMN IF NOT EXISTS buildings              TEXT DEFAULT '[]'`
+
   await sql`
     INSERT INTO player_saves (
       user_id, username, pos_x, pos_y, pos_z,

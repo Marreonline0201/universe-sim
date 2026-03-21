@@ -7,6 +7,7 @@ import { useGameStore } from './gameStore'
 import { inventory, techTree, evolutionTree, journal, buildingSystem } from '../game/GameSingletons'
 import { Health, Metabolism, Position } from '../ecs/world'
 import { rapierWorld } from '../physics/RapierWorld'
+import { PLANET_RADIUS } from '../world/SpherePlanet'
 
 const GOD_MODE_KEY = 'universe_god_mode'
 
@@ -84,7 +85,8 @@ export async function loadSave(getToken: () => Promise<string | null>) {
     Metabolism.fatigue[entityId]     = data.fatigue ?? 0
 
     const sx = data.x ?? 0, sy = data.y ?? 0, sz = data.z ?? 0
-    const hasSavedPos = Math.abs(sx) > 0.5 || Math.abs(sy) > 0.5 || Math.abs(sz) > 0.5
+    const savedR = Math.sqrt(sx * sx + sy * sy + sz * sz)
+    const hasSavedPos = savedR > PLANET_RADIUS / 2
     if (hasSavedPos) {
       Position.x[entityId] = sx
       Position.y[entityId] = sy

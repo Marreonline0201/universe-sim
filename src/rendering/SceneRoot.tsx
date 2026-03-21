@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
-import { PerspectiveCamera, Sky, Stars } from '@react-three/drei'
+import { PerspectiveCamera, Stars } from '@react-three/drei'
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import type { RefObject } from 'react'
 import { SimulationEngine } from '../engine/SimulationEngine'
@@ -27,6 +27,7 @@ import { PlanetTerrain } from './PlanetTerrain'
 import { surfaceRadiusAt, terrainHeightAt, getSpawnPosition, PLANET_RADIUS, SEA_LEVEL } from '../world/SpherePlanet'
 import { LocalSimManager } from '../engine/LocalSimManager'
 import { FireRenderer } from './FireRenderer'
+import { DayNightCycle } from './DayNightCycle'
 
 // ── Resource node definitions ─────────────────────────────────────────────────
 
@@ -235,10 +236,10 @@ export function SceneRoot() {
       if (savedPs.fatigue > 0)   Metabolism.fatigue[eid]       = savedPs.fatigue
 
       // Restore saved position. playerStore initialises to (0, 0, 0) — the planet
-      // centre, an impossible in-game position. Any non-trivial offset means a real save.
-      const hasSavedPos = Math.abs(savedPs.x) > 0.5 ||
-                          Math.abs(savedPs.y) > 0.5 ||
-                          Math.abs(savedPs.z) > 0.5
+      // centre. Valid surface positions are ~PLANET_RADIUS (~4000 m) from origin.
+      // Use a radius threshold to reject the default and legacy DB default (0, 0.9, 0).
+      const savedR = Math.sqrt(savedPs.x ** 2 + savedPs.y ** 2 + savedPs.z ** 2)
+      const hasSavedPos = savedR > PLANET_RADIUS / 2
       if (hasSavedPos) {
         Position.x[eid] = savedPs.x
         Position.y[eid] = savedPs.y
@@ -253,9 +254,13 @@ export function SceneRoot() {
 
       setEngineReady(true)
 
-      // Initialize local simulation grid from terrain
+      // Initialize local simulation grid from terrain (now with biome temperatures)
       const simMgr = new LocalSimManager(engine)
       simMgr.initFromSpawn(spawnX, spawnY, spawnZ)
+
+      // Pre-place ambient fires so the simulation is visibly active on load
+      simMgr.placeAmbientFires(spawnX, spawnY, spawnZ)
+
       simManagerRef.current = simMgr
       setSimManager(simMgr)
     })
@@ -357,22 +362,8 @@ export function SceneRoot() {
     >
       <PerspectiveCamera makeDefault fov={70} near={0.5} far={20000} position={[0, PLANET_RADIUS + 200, 0]} />
       <fogExp2 attach="fog" args={['#c0d8f4', 0.010]} />
-      <ambientLight intensity={0.45} />
-      <hemisphereLight args={['#87ceeb', '#3a4a1a', 0.7]} />
-      <directionalLight
-        position={[4000, 6000, 3000]}
-        intensity={2.2}
-        castShadow
-        shadow-mapSize={[2048, 2048]}
-        shadow-camera-near={1}
-        shadow-camera-far={10000}
-        shadow-camera-left={-600}
-        shadow-camera-right={600}
-        shadow-camera-top={600}
-        shadow-camera-bottom={-600}
-      />
-      {/* Sun — a simple point in the sky far from the planet */}
-      <Sky sunPosition={[4000, 6000, 3000]} turbidity={4} rayleigh={0.4} />
+      {/* DayNightCycle owns all sky/sun/ambient/hemisphere lighting — replaces static lights */}
+      <DayNightCycle />
       <Stars radius={10000} depth={200} count={6000} factor={5} />
       <Suspense fallback={null}>
         <PlanetTerrain />

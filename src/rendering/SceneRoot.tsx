@@ -55,7 +55,7 @@ import { RiverHUD } from '../ui/RiverHUD'
 import { useSettlementStore } from '../store/settlementStore'
 import { useOutlawStore } from '../store/outlawStore'
 import { PlanetTerrain } from './PlanetTerrain'
-import { surfaceRadiusAt, terrainHeightAt, getSpawnPosition, PLANET_RADIUS, SEA_LEVEL } from '../world/SpherePlanet'
+import { surfaceRadiusAt, terrainHeightAt, getSpawnPosition, PLANET_RADIUS, SEA_LEVEL, setTerrainSeed } from '../world/SpherePlanet'
 import { LocalSimManager } from '../engine/LocalSimManager'
 import { FireRenderer } from './FireRenderer'
 import { DayNightCycle } from './DayNightCycle'
@@ -66,7 +66,7 @@ import { WeatherRenderer } from './WeatherRenderer'
 import { useWeatherStore } from '../store/weatherStore'
 import { RiverRenderer } from './RiverRenderer'
 import { useRiverStore } from '../store/riverStore'
-import { queryNearestRiver, getRiverClayPositions } from '../world/RiverSystem'
+import { queryNearestRiver, getRiverClayPositions, rebuildRivers } from '../world/RiverSystem'
 import { registerRiverCarveDepth } from '../world/SpherePlanet'
 import { getRiverCarveDepth } from '../world/RiverSystem'
 
@@ -234,8 +234,8 @@ const GEOLOGY_RULES: Partial<Record<string, GeologyRule>> = {
 
 // Resource nodes placed on the sphere surface near the actual land spawn point.
 // Ores use geology height-band rules (P2-4). Non-ore types use pure random scatter.
-function generateResourceNodes(): ResourceNode[] {
-  const rand = seededRand(99991)
+function generateResourceNodes(seed: number): ResourceNode[] {
+  const rand = seededRand((seed ^ 99991) >>> 0)
   const nodes: ResourceNode[] = []
   let id = 0
 
@@ -292,17 +292,25 @@ function generateResourceNodes(): ResourceNode[] {
   return nodes
 }
 
-// Module-level constants so they survive across renders
-const RESOURCE_NODES: ResourceNode[] = generateResourceNodes()
+// Module-level mutable arrays so systems can rebuild them when the authoritative
+// server world seed changes without changing all call sites.
+const RESOURCE_NODES: ResourceNode[] = []
 
-// M9: Add additional clay deposits along river banks.
-// River clay is geologically accurate: alluvial deposits form where rivers slow
-// and drop sediment load (lower half of river, t > 0.3).
-;(function addRiverClayNodes() {
+// Pre-compute surface-normal quaternions for each node once.
+// Rotates local Y (tree up) → outward surface normal at that point on the sphere.
+const _worldUp = new THREE.Vector3(0, 1, 0)
+const RESOURCE_NODE_QUATS: THREE.Quaternion[] = []
+
+function rebuildResourceNodes(seed: number): void {
+  gatheredNodeIds.clear()
+  NODE_RESPAWN_AT.clear()
+  NODE_HITS_TAKEN.clear()
+
+  const next = generateResourceNodes(seed)
   const clayPositions = getRiverClayPositions()
-  let id = RESOURCE_NODES.length
+  let id = next.length
   for (const [cx, cy, cz] of clayPositions) {
-    RESOURCE_NODES.push({
+    next.push({
       id: id++,
       type: 'clay',
       label: 'River Clay',
@@ -311,17 +319,20 @@ const RESOURCE_NODES: ResourceNode[] = generateResourceNodes()
       x: cx, y: cy, z: cz,
     })
   }
-})()
 
-// Pre-compute surface-normal quaternions for each node once.
-// Rotates local Y (tree up) → outward surface normal at that point on the sphere.
-const _worldUp = new THREE.Vector3(0, 1, 0)
-const RESOURCE_NODE_QUATS: THREE.Quaternion[] = RESOURCE_NODES.map(n =>
-  new THREE.Quaternion().setFromUnitVectors(
-    _worldUp,
-    new THREE.Vector3(n.x, n.y, n.z).normalize(),
-  )
-)
+  RESOURCE_NODES.length = 0
+  RESOURCE_NODES.push(...next)
+
+  RESOURCE_NODE_QUATS.length = 0
+  for (const node of RESOURCE_NODES) {
+    RESOURCE_NODE_QUATS.push(
+      new THREE.Quaternion().setFromUnitVectors(
+        _worldUp,
+        new THREE.Vector3(node.x, node.y, node.z).normalize(),
+      )
+    )
+  }
+}
 
 const gatheredNodeIds = new Set<number>()
 const NODE_RESPAWN_AT = new Map<number, number>()
@@ -492,6 +503,9 @@ export function SceneRoot() {
   const engineRef = useRef<SimulationEngine | null>(null)
   const controllerRef = useRef<PlayerController | null>(null)
   const simManagerRef = useRef<LocalSimManager | null>(null)
+  const serverWorldSeed = useMultiplayerStore(s => s.serverWorldSeed)
+  const serverWorldReady = useMultiplayerStore(s => s.serverWorldReady)
+  const [appliedWorldSeed, setAppliedWorldSeed] = useState<number | null>(null)
   const [pointerLocked, setPointerLocked] = useState(false)
   const [simManager, setSimManager] = useState<LocalSimManager | null>(null)
   // M11: day angle forwarded from DayNightCycle to NightSkyRenderer + TelescopeView
@@ -569,6 +583,19 @@ export function SceneRoot() {
     return () => document.removeEventListener('pointerlockchange', check)
   }, [])
 
+  useEffect(() => {
+    if (!serverWorldReady) {
+      setAppliedWorldSeed(null)
+      return
+    }
+    setTerrainSeed(serverWorldSeed)
+    rebuildRivers(serverWorldSeed)
+    rebuildResourceNodes(serverWorldSeed)
+    setAppliedWorldSeed(serverWorldSeed)
+  }, [serverWorldReady, serverWorldSeed])
+
+  const worldInitialized = serverWorldReady && appliedWorldSeed === serverWorldSeed
+
   const setEngineReady = useGameStore(s => s.setEngineReady)
   const timeScale = useGameStore(s => s.timeScale)
   const paused = useGameStore(s => s.paused)
@@ -616,7 +643,8 @@ export function SceneRoot() {
 
   // Engine lifecycle: init, spawn player, start
   useEffect(() => {
-    const engine = new SimulationEngine({ gridX: 64, gridY: 32, gridZ: 64, seed: 42 })
+    if (!worldInitialized) return
+    const engine = new SimulationEngine({ gridX: 64, gridY: 32, gridZ: 64, seed: serverWorldSeed })
     engineRef.current = engine
 
     engine.init().then(async () => {
@@ -693,7 +721,7 @@ export function SceneRoot() {
       setSimManager(null)
       setSimManagerForSocket(null)
     }
-  }, [setEngineReady, setEntityId])
+  }, [worldInitialized, serverWorldSeed, setEngineReady, setEntityId])
 
   return (
     <>
@@ -778,43 +806,47 @@ export function SceneRoot() {
       {/* M11 Track D: Photorealistic night sky — 2000 stars with stellar color classification */}
       <NightSkyRenderer dayAngle={dayAngle} />
       <Suspense fallback={null}>
-        {/* M14/M15: Show destination planet when player has arrived via transit */}
-        {transitPhase === 'arrived' ? <DestinationPlanetSelector /> : <PlanetTerrain />}
-        <DigHolesRenderer />
-        <ResourceNodes />
-        <NodeHealthBars />
-        <PlacedBuildingsRenderer />
-        <CreatureRenderer />
-        <RemotePlayersRenderer />
-        <ServerNpcsRenderer />
-        <LocalNpcsRenderer />
-        <FireRenderer simManager={simManager} />
-        <SimGridVisualizer simManager={simManager} />
-        <DeathLootDropsRenderer />
-        <BedrollMeshRenderer />
-        <SettlementRenderer />
-        {/* M11 Track B: Castle walls + watchtowers around civLevel 4+ settlements */}
-        <CastleRenderer />
-        {/* M11 Track A: Musket smoke + muzzle flash VFX */}
-        <MusketVFXRenderer />
-        {/* M12 Track A: Rocket exhaust + heat shimmer + scorch */}
-        <RocketVFXRenderer />
-        {/* M12 Track B: Radio tower EM pulse rings */}
-        <RadioTowerVFXRenderer />
-        {/* M12 Track B: Tungsten electric lights on civLevel 6 settlements */}
-        <ElectricLightPass dayAngle={dayAngle} />
-        {/* M14 Track B: Velar Gateway portal structure */}
-        <VelarGatewayRenderer />
-        {/* M8: Weather particle system — follows player position */}
-        <WeatherRendererWrapper />
-        {/* M9: River ribbon meshes — generated from flow-field paths */}
-        <RiverRenderer />
-        {/* M9: Animal renderer — instanced deer/wolf/boar meshes */}
-        <AnimalRenderer />
-        {/* M14 Track A: Destination planet — shown when transit phase === 'arrived' */}
-        <DestinationPlanetMeshWrapper />
+        {worldInitialized && (
+          <>
+            {/* M14/M15: Show destination planet when player has arrived via transit */}
+            {transitPhase === 'arrived' ? <DestinationPlanetSelector /> : <PlanetTerrain key={serverWorldSeed} seed={serverWorldSeed} />}
+            <DigHolesRenderer />
+            <ResourceNodes key={serverWorldSeed} />
+            <NodeHealthBars />
+            <PlacedBuildingsRenderer />
+            <CreatureRenderer />
+            <RemotePlayersRenderer />
+            <ServerNpcsRenderer />
+            <LocalNpcsRenderer />
+            <FireRenderer simManager={simManager} />
+            <SimGridVisualizer simManager={simManager} />
+            <DeathLootDropsRenderer />
+            <BedrollMeshRenderer />
+            <SettlementRenderer />
+            {/* M11 Track B: Castle walls + watchtowers around civLevel 4+ settlements */}
+            <CastleRenderer />
+            {/* M11 Track A: Musket smoke + muzzle flash VFX */}
+            <MusketVFXRenderer />
+            {/* M12 Track A: Rocket exhaust + heat shimmer + scorch */}
+            <RocketVFXRenderer />
+            {/* M12 Track B: Radio tower EM pulse rings */}
+            <RadioTowerVFXRenderer />
+            {/* M12 Track B: Tungsten electric lights on civLevel 6 settlements */}
+            <ElectricLightPass dayAngle={dayAngle} />
+            {/* M14 Track B: Velar Gateway portal structure */}
+            <VelarGatewayRenderer />
+            {/* M8: Weather particle system — follows player position */}
+            <WeatherRendererWrapper />
+            {/* M9: River ribbon meshes — generated from flow-field paths */}
+            <RiverRenderer key={serverWorldSeed} seed={serverWorldSeed} />
+            {/* M9: Animal renderer — instanced deer/wolf/boar meshes */}
+            <AnimalRenderer />
+            {/* M14 Track A: Destination planet — shown when transit phase === 'arrived' */}
+            <DestinationPlanetMeshWrapper />
+          </>
+        )}
       </Suspense>
-      {entityId !== null && (
+      {worldInitialized && entityId !== null && (
         <>
           <GameLoop controllerRef={controllerRef} simManagerRef={simManagerRef} entityId={entityId} />
           <PlayerMesh entityId={entityId} />
@@ -860,7 +892,7 @@ export function SceneRoot() {
     {/* M14 Track B: Velar response decode panel — opens after VELAR_RESPONSE received */}
     {velarRespOpen && velarResponseReceived && (
       <VelarResponsePanel
-        worldSeed={42}
+        worldSeed={serverWorldSeed}
         onClose={() => setVelarRespOpen(false)}
         onDecoded={() => setVelarRespOpen(false)}
       />

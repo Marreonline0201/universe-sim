@@ -148,10 +148,18 @@ export class WorldSocket {
             }
           }
         }
+        const rawWorldSeed = msg.worldSeed
+        const worldSeed = typeof rawWorldSeed === 'number' && Number.isFinite(rawWorldSeed)
+          ? (Math.floor(rawWorldSeed) >>> 0)
+          : 42
+        if (rawWorldSeed === undefined) {
+          console.warn('[WorldSocket] WORLD_SNAPSHOT missing worldSeed, using fallback 42')
+        }
         mp.setServerWorld(
           msg.simTime as number,
           msg.timeScale as number,
           msg.paused as boolean,
+          worldSeed,
         )
         mp.setBootstrapState(
           !!(msg.bootstrapPhase),

@@ -14,50 +14,15 @@
 //   Scale by (PLANET_RADIUS + terrainHeight). Done.
 
 import * as THREE from 'three'
-import type { GeneratedWorld } from './WorldGenPipeline'
 
-// ── World-gen state (populated by initFromWorld) ──────────────────────────────
+let _terrainSeed = 42
 
-/** Live 512×512 equirectangular heightmap from the terrain WASM crate (metres). */
-let _heightmap: Float32Array | null = null
-/** Live 512×512 biome-ID map from the terrain WASM crate. */
-let _biomeMap: Uint8Array | null = null
-/** Size of the square heightmap / biome map (one side). */
-let _mapSize = 512
-
-/**
- * Prime SpherePlanet with the results of WorldGenPipeline.generate().
- * After this call, terrainHeightAt and biomeColor read from the pre-computed
- * WASM maps rather than evaluating noise on every vertex.
- * Call this once before constructing the planet geometry.
- */
-export function initFromWorld(world: GeneratedWorld): void {
-  const { terrain } = world
-  if (!terrain.heightmap) {
-    console.warn('[SpherePlanet] initFromWorld: terrain.heightmap missing — noise fallback active')
-    return
-  }
-  _heightmap = terrain.heightmap
-  _biomeMap  = new Uint8Array(terrain.biome_map)
-  _mapSize   = terrain.size
+export function setTerrainSeed(seed: number): void {
+  _terrainSeed = seed >>> 0
 }
 
-/** Bilinear sample of a flat square equirectangular map given a unit direction. */
-function sampleEquirectMap(
-  map: Float32Array | Uint8Array,
-  size: number,
-  dir: THREE.Vector3,
-): number {
-  const lat = Math.asin(Math.max(-1, Math.min(1, dir.y)))
-  const lon = Math.atan2(dir.z, dir.x)
-  const u = ((lon + Math.PI) / (2 * Math.PI)) * (size - 1)
-  const v = ((Math.PI / 2 - lat) / Math.PI)   * (size - 1)
-  const u0 = Math.floor(u), u1 = (u0 + 1) % size
-  const v0 = Math.floor(v), v1 = Math.min(v0 + 1, size - 1)
-  const fu = u - u0, fv = v - v0
-  const a = map[v0 * size + u0], b = map[v0 * size + u1]
-  const c = map[v1 * size + u0], d = map[v1 * size + u1]
-  return a*(1-fu)*(1-fv) + b*fu*(1-fv) + c*(1-fu)*fv + d*fu*fv
+export function getTerrainSeed(): number {
+  return _terrainSeed
 }
 
 // M9: River valley carving — imported lazily to avoid circular dependency.
@@ -78,7 +43,7 @@ export const SEA_LEVEL = 0
 // ── Noise functions (3D, no seams) ───────────────────────────────────────────
 
 function hash3(ix: number, iy: number, iz: number): number {
-  let h = (Math.imul(ix, 1664525) ^ Math.imul(iy, 22695477) ^ Math.imul(iz, 2891336453) ^ 0x9e3779b9) >>> 0
+  let h = (Math.imul(ix, 1664525) ^ Math.imul(iy, 22695477) ^ Math.imul(iz, 2891336453) ^ _terrainSeed ^ 0x9e3779b9) >>> 0
   h ^= h >>> 16
   h = Math.imul(h, 0x45d9f3b) >>> 0
   h ^= h >>> 16
@@ -159,17 +124,6 @@ function ridgeNoise(x: number, y: number, z: number, octaves: number): number {
  * with no seams or polar distortion.
  */
 export function terrainHeightAt(dir: THREE.Vector3): number {
-  // ── WASM path: sample the pre-computed heightmap ──────────────────────────
-  if (_heightmap) {
-    let h = sampleEquirectMap(_heightmap, _mapSize, dir)
-    if (_getRiverCarveDepth) {
-      const carve = _getRiverCarveDepth(dir.x, dir.y, dir.z)
-      if (carve > 0) h -= carve
-    }
-    return h
-  }
-
-  // ── Noise fallback ────────────────────────────────────────────────────────
   // Scale: frequency 3 → features ~600m wide (1/3 of planet radius)
   const scale = 3.0
   const nx = dir.x * scale
@@ -206,37 +160,9 @@ export function terrainHeightAt(dir: THREE.Vector3): number {
 
 // ── Biome colors ──────────────────────────────────────────────────────────────
 
-// Biome IDs must match universe_terrain crate constants (types.rs biome module):
-//  0=DEEP_OCEAN  1=SHALLOW_OCEAN  2=BEACH   3=DESERT     4=GRASSLAND
-//  5=FOREST      6=TROPICAL       7=SAVANNA  8=TUNDRA    9=ARCTIC
-// 10=MOUNTAIN   11=ALPINE        12=SWAMP  13=SALT_FLAT
-const BIOME_COLORS: THREE.Color[] = [
-  new THREE.Color(0.03, 0.08, 0.28), // 0  deep ocean
-  new THREE.Color(0.07, 0.22, 0.52), // 1  shallow ocean
-  new THREE.Color(0.82, 0.76, 0.52), // 2  beach
-  new THREE.Color(0.80, 0.65, 0.36), // 3  desert
-  new THREE.Color(0.42, 0.60, 0.24), // 4  grassland
-  new THREE.Color(0.22, 0.44, 0.16), // 5  forest
-  new THREE.Color(0.14, 0.38, 0.10), // 6  tropical forest
-  new THREE.Color(0.55, 0.58, 0.25), // 7  savanna
-  new THREE.Color(0.56, 0.58, 0.44), // 8  tundra
-  new THREE.Color(0.92, 0.96, 1.00), // 9  arctic / ice
-  new THREE.Color(0.45, 0.42, 0.38), // 10 mountain
-  new THREE.Color(0.58, 0.54, 0.50), // 11 alpine rock/snow
-  new THREE.Color(0.20, 0.35, 0.18), // 12 swamp / taiga
-  new THREE.Color(0.88, 0.84, 0.72), // 13 salt flat
-]
-
 // A simple lookup color for the planet mesh vertex colors.
 // Real biomes based on: height, latitude (approximated by |dir.y|), and some noise.
 export function biomeColor(dir: THREE.Vector3, height: number): THREE.Color {
-  // ── WASM biome map path ───────────────────────────────────────────────────
-  if (_biomeMap) {
-    const id = Math.round(sampleEquirectMap(_biomeMap, _mapSize, dir))
-    return BIOME_COLORS[id] ?? BIOME_COLORS[4]
-  }
-
-  // ── Noise fallback ────────────────────────────────────────────────────────
   const lat = Math.abs(dir.y)  // 0 = equator, 1 = pole
 
   // Deep ocean

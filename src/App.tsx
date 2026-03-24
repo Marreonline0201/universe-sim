@@ -7,18 +7,20 @@ import { loadSave, saveGame } from './store/saveStore'
 import { useWorldSocket } from './net/useWorldSocket'
 import { useBootstrapStatus } from './hooks/useBootstrapStatus'
 import { WorldBootstrapScreen } from './ui/WorldBootstrapScreen'
-import { useWorldGen } from './hooks/useWorldGen'
-import { WorldGenScreen } from './ui/WorldGenScreen'
 
 // Dev bypass: set VITE_DEV_BYPASS_AUTH=true in .env.local to skip Clerk login
 const DEV_BYPASS = import.meta.env.DEV && import.meta.env.VITE_DEV_BYPASS_AUTH === 'true'
-const HOME_WORLD_SEED = 42
 
 export default function App() {
   // Bootstrap check must run before any conditional returns (rules of hooks)
   const bootstrap = useBootstrapStatus()
 
-  if (DEV_BYPASS) return <DevGame />
+  if (DEV_BYPASS) {
+    if (bootstrap.resolved && bootstrap.bootstrapping) {
+      return <WorldBootstrapScreen status={bootstrap} />
+    }
+    return <DevGame />
+  }
 
   // Show timelapse screen while world is forming — blocks all players
   if (bootstrap.resolved && bootstrap.bootstrapping) {
@@ -44,11 +46,6 @@ function AuthedApp() {
 
 function DevGame() {
   useWorldSocket()
-  const worldGen = useWorldGen(HOME_WORLD_SEED)
-
-  if (worldGen.status === 'idle' || worldGen.status === 'loading') {
-    return <WorldGenScreen state={worldGen} />
-  }
 
   return (
     <>
@@ -86,7 +83,6 @@ function GameWithSave() {
   const { getToken } = useAuth()
   const { user } = useUser()
   const loaded = useRef(false)
-  const worldGen = useWorldGen(HOME_WORLD_SEED)
 
   // Connect to the persistent Railway WebSocket server
   useWorldSocket()
@@ -109,10 +105,6 @@ function GameWithSave() {
       saveGame(getToken, username)
     }
   }, [getToken, user])
-
-  if (worldGen.status === 'idle' || worldGen.status === 'loading') {
-    return <WorldGenScreen state={worldGen} />
-  }
 
   return (
     <>

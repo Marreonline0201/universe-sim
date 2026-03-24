@@ -146,9 +146,9 @@ function makeHazeMaterial(): THREE.MeshBasicMaterial {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export function PlanetTerrain() {
+export function PlanetTerrain({ seed }: { seed: number }) {
   // Generate geometry once — no reactive dependencies
-  const terrainGeo = useMemo(() => generatePlanetGeometry(160), [])
+  const terrainGeo = useMemo(() => generatePlanetGeometry(160), [seed])
   const oceanGeo   = useMemo(() => generateOceanGeometry(48), [])
   // Outer atmosphere glow halo (large, thin ring seen from space)
   const atmosphereGeo = useMemo(() => new THREE.SphereGeometry(PLANET_RADIUS * 1.05, 32, 32), [])

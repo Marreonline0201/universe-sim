@@ -30,6 +30,7 @@ export const SERVER_MSG = /** @type {const} */ ({
  *   epoch: string;
  *   timeScale: number;
  *   paused: boolean;
+ *   worldSeed: number;
  *   players: RemotePlayer[];
  *   npcs: RemoteNpc[];
  * }} WorldSnapshotMsg

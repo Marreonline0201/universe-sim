@@ -20,7 +20,7 @@
 // It uses a flat pre-built influence grid for O(1) per-point lookup after a one-time bake.
 
 import * as THREE from 'three'
-import { PLANET_RADIUS, SEA_LEVEL } from './SpherePlanet'
+import { PLANET_RADIUS, SEA_LEVEL, getTerrainSeed } from './SpherePlanet'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -51,7 +51,7 @@ const SOURCE_MIN_H     = 100    // metres — only start rivers on hills/mountai
 const MARCH_STEP_RAD   = 0.008  // arc-distance per step (≈32m at R=4000m)
 const MAX_MARCH_STEPS  = 600    // prevent infinite loop; 600 × 32m = ~19km
 const SEA_STOP_H       = 4      // stop when terrain h drops to this (just above sea)
-const RIVER_SEED       = 31337  // deterministic seed independent of resource nodes
+let _riverSeed        = 42
 
 // Width / depth ramp along the river (t=0 source → t=1 mouth)
 const WIDTH_SOURCE  = 2   // metres at source
@@ -66,7 +66,7 @@ const SPEED_MOUTH   = 2.0  // m/s
 // ── Noise helpers (reuse same hash as SpherePlanet, independent of import) ───
 
 function _hash3(ix: number, iy: number, iz: number): number {
-  let h = (Math.imul(ix, 1664525) ^ Math.imul(iy, 22695477) ^ Math.imul(iz, 2891336453) ^ 0x9e3779b9) >>> 0
+  let h = (Math.imul(ix, 1664525) ^ Math.imul(iy, 22695477) ^ Math.imul(iz, 2891336453) ^ getTerrainSeed() ^ 0x9e3779b9) >>> 0
   h ^= h >>> 16
   h  = Math.imul(h, 0x45d9f3b) >>> 0
   h ^= h >>> 16
@@ -140,7 +140,7 @@ function seededRand(seed: number): () => number {
 
 const _GD_EPS = 0.003  // arc-length epsilon for finite-difference gradient
 
-function steepestDescentDir(dir: THREE.Vector3, up: THREE.Vector3): THREE.Vector3 {
+function steepestDescentDir(dir: THREE.Vector3, up: THREE.Vector3, rand: () => number): THREE.Vector3 {
   // Sample terrain height at 4 neighbours in the tangent plane
   // Build two arbitrary tangent axes from the surface normal (up = dir)
   const worldUp = Math.abs(up.y) < 0.9 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0)
@@ -159,8 +159,8 @@ function steepestDescentDir(dir: THREE.Vector3, up: THREE.Vector3): THREE.Vector
 
   if (Math.abs(gx) < 1e-6 && Math.abs(gz) < 1e-6) {
     // Flat plateau — add slight random perturbation so rivers don't stall
-    return t1.clone().multiplyScalar((Math.random() - 0.5) * 2)
-      .addScaledVector(t2, (Math.random() - 0.5) * 2).normalize()
+    return t1.clone().multiplyScalar((rand() - 0.5) * 2)
+      .addScaledVector(t2, (rand() - 0.5) * 2).normalize()
   }
 
   // Descend: negative gradient
@@ -173,6 +173,7 @@ function steepestDescentDir(dir: THREE.Vector3, up: THREE.Vector3): THREE.Vector
 function generateRiverPath(
   sourceDir: THREE.Vector3,
   riverId: number,
+  rand: () => number,
 ): RiverPoint[] | null {
   const points: RiverPoint[] = []
   const curDir = sourceDir.clone().normalize()
@@ -194,7 +195,7 @@ function generateRiverPath(
     })
 
     // March downhill: take steepest descent step in the tangent plane
-    const descent = steepestDescentDir(curDir, curDir)
+    const descent = steepestDescentDir(curDir, curDir, rand)
     // Move curDir along sphere by MARCH_STEP_RAD
     const newDir = curDir.clone().addScaledVector(descent, MARCH_STEP_RAD).normalize()
 
@@ -203,7 +204,7 @@ function generateRiverPath(
     if (step > 5 && _terrainH(newDir) > h + 2) {
       // Rotate 30° from descent direction to escape local minima
       const jitterAxis = curDir.clone()
-      const jittered = newDir.clone().applyAxisAngle(jitterAxis, (Math.random() - 0.5) * 0.5)
+      const jittered = newDir.clone().applyAxisAngle(jitterAxis, (rand() - 0.5) * 0.5)
       curDir.copy(jittered.normalize())
     } else {
       curDir.copy(newDir)
@@ -226,8 +227,8 @@ function generateRiverPath(
 
 // ── Generate all rivers ───────────────────────────────────────────────────────
 
-function buildRivers(): River[] {
-  const rand = seededRand(RIVER_SEED)
+function buildRivers(seed: number): River[] {
+  const rand = seededRand(seed)
   const rivers: River[] = []
   const dir = new THREE.Vector3()
 
@@ -245,7 +246,7 @@ function buildRivers(): River[] {
     // Only start rivers at high ground
     if (h < SOURCE_MIN_H) continue
 
-    const pts = generateRiverPath(dir.clone(), rivers.length)
+    const pts = generateRiverPath(dir.clone(), rivers.length, rand)
     if (!pts) continue
 
     const lastPt = pts[pts.length - 1]
@@ -261,7 +262,7 @@ function buildRivers(): River[] {
 
 // ── Module-level singleton (built once on import) ─────────────────────────────
 
-export const RIVERS: River[] = buildRivers()
+export const RIVERS: River[] = []
 
 // ── Valley carve influence bake ───────────────────────────────────────────────
 //
@@ -305,7 +306,13 @@ function bakeCarveEntries(): void {
   }
 }
 
-bakeCarveEntries()
+export function rebuildRivers(seed: number): void {
+  _riverSeed = seed >>> 0
+  const rebuilt = buildRivers(_riverSeed)
+  RIVERS.length = 0
+  RIVERS.push(...rebuilt)
+  bakeCarveEntries()
+}
 
 /**
  * Returns the amount (metres) to depress the terrain at direction `dir` due to
@@ -403,7 +410,7 @@ export function queryNearestRiver(
  * Places 2-3 clay spots per river, biased toward the lower half (t > 0.4).
  */
 export function getRiverClayPositions(): Array<[number, number, number]> {
-  const rand = seededRand(RIVER_SEED ^ 0xdeadbeef)
+  const rand = seededRand(_riverSeed ^ 0xdeadbeef)
   const result: Array<[number, number, number]> = []
 
   for (const river of RIVERS) {

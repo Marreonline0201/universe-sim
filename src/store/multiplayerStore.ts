@@ -37,7 +37,9 @@ interface MultiplayerState {
   serverSimTime: number
   serverTimeScale: number
   serverPaused: boolean
-  setServerWorld: (simTime: number, timeScale: number, paused: boolean) => void
+  serverWorldSeed: number
+  serverWorldReady: boolean
+  setServerWorld: (simTime: number, timeScale: number, paused: boolean, worldSeed?: number) => void
 
   // Bootstrap phase — world is still forming, players cannot yet join
   bootstrapPhase: boolean
@@ -80,8 +82,16 @@ export const useMultiplayerStore = create<MultiplayerState>((set) => ({
   serverSimTime: 0,
   serverTimeScale: 1,
   serverPaused: false,
-  setServerWorld: (simTime, timeScale, paused) =>
-    set({ serverSimTime: simTime, serverTimeScale: timeScale, serverPaused: paused }),
+  serverWorldSeed: 42,
+  serverWorldReady: false,
+  setServerWorld: (simTime, timeScale, paused, worldSeed) =>
+    set({
+      serverSimTime: simTime,
+      serverTimeScale: timeScale,
+      serverPaused: paused,
+      serverWorldReady: true,
+      ...(worldSeed !== undefined ? { serverWorldSeed: worldSeed } : {}),
+    }),
 
   bootstrapPhase: false,
   bootstrapProgress: 0,

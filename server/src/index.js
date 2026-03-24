@@ -27,6 +27,7 @@ const PERSIST_INTERVAL_MS = 30_000 // save simTime to DB every 30 s
 // Admin secret — must match VITE_ADMIN_SECRET on the client.
 // Set in Railway env; unset = admin commands disabled.
 const ADMIN_SECRET = process.env.ADMIN_SECRET ?? null
+const HOME_WORLD_SEED = parseInt(process.env.HOME_WORLD_SEED ?? '42', 10)
 
 // ── Bootstrap ──────────────────────────────────────────────────────────────────
 
@@ -233,6 +234,7 @@ async function main() {
         bootstrapProgress: clock.bootstrapProgress,
         epoch:             clock.epoch,
         simTime:           clock.simTimeSec,
+        worldSeed:         HOME_WORLD_SEED,
         players:           players.count,
       }))
       return
@@ -297,6 +299,7 @@ function handleMessage(ws, msg) {
         epoch:             clock.epoch,
         timeScale:         clock.timeScale,
         paused:            clock.paused,
+        worldSeed:         HOME_WORLD_SEED,
         bootstrapPhase:    clock.bootstrapPhase,
         bootstrapProgress: clock.bootstrapProgress,
         players: players.getAll(),

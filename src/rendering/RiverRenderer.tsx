@@ -171,8 +171,8 @@ function buildRibbonGeometry(): THREE.BufferGeometry | null {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export function RiverRenderer() {
-  const geo = useMemo(() => buildRibbonGeometry(), [])
+export function RiverRenderer({ seed }: { seed: number }) {
+  const geo = useMemo(() => buildRibbonGeometry(), [seed])
   const mat = useMemo(() => makeRiverMaterial(),   [])
   const meshRef = useRef<THREE.Mesh>(null)
 

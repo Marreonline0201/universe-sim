@@ -682,7 +682,9 @@ export function SceneRoot() {
       // createPlayerEntity always resets ECS to defaults, so we pull saved values in here.
       // (The other ordering — entity created first, save loads after — is handled in saveStore.)
       const savedPs = usePlayerStore.getState()
-      if (savedPs.health < 1)    Health.current[eid]          = savedPs.health * Health.max[eid]
+      // Guard against invalid "alive with 0 HP" restore state.
+      // If the saved health is <= 0, keep freshly spawned defaults instead.
+      if (savedPs.health > 0 && savedPs.health < 1) Health.current[eid] = savedPs.health * Health.max[eid]
       if (savedPs.hunger > 0)    Metabolism.hunger[eid]        = savedPs.hunger
       if (savedPs.thirst > 0)    Metabolism.thirst[eid]        = savedPs.thirst
       if (savedPs.energy < 1)    Metabolism.energy[eid]        = savedPs.energy

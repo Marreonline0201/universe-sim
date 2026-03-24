@@ -215,13 +215,16 @@ export function FireRenderer({ simManager }: Props) {
           c.wz + Math.cos(puffIdx * 1.61 + t * 0.2) * drift,
         )
 
-        // Scale: starts small, expands as it rises (expanding plume)
-        const puffScale = 0.3 + life * 0.9
-
         // Opacity: fade in quickly, fade out slowly
         const opacity = life < 0.2
           ? life / 0.2
           : 1 - ((life - 0.2) / 0.8)
+
+        // Scale: starts small, expands as it rises; multiplied by opacity so
+        // puffs shrink to zero at birth/death (achieves per-puff fade without
+        // a custom shader — THREE.Color has no alpha, so scale-fade is the
+        // only way to vary apparent transparency per-instance).
+        const puffScale = (0.3 + life * 0.9) * opacity
 
         // Billboard
         _euler.current.setFromRotationMatrix(state.camera.matrix)
@@ -232,10 +235,9 @@ export function FireRenderer({ simManager }: Props) {
         _mat.current.setPosition(_pos.current)
         smoke.setMatrixAt(smokeCount, _mat.current)
 
-        // Smoke color: near-white with slight gray tinge; more opaque = darker
-        const gray = 0.7 + opacity * 0.2
+        // Smoke color: near-white when visible, darker gray as it ages
+        const gray = 0.72 + (1 - life) * 0.18
         _col.current.setRGB(gray, gray, gray)
-        // Encode opacity in alpha via vertex color alpha channel
         smoke.setColorAt(smokeCount, _col.current)
 
         smokeCount++

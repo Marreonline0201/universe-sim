@@ -22,7 +22,7 @@ import { TECH_NODES } from '../civilization/TechTree'
 import { DISCOVERIES } from '../player/DiscoveryJournal'
 import { TECH_TO_DISCOVERY } from '../civilization/TechDiscoveries'
 import { MAT, ITEM } from '../player/Inventory'
-import { BUILDING_TYPES } from '../civilization/BuildingSystem'
+import { BUILDING_TYPES, setReactorCallbacks } from '../civilization/BuildingSystem'
 import { getItemStats, canHarvest } from '../player/EquipSystem'
 import {
   tickFoodCooking,
@@ -132,6 +132,9 @@ import { ElectricLightPass, registerElectricSettlements } from './ElectricLightP
 
 // M13 Track C: Nuclear reactor tick
 import { tickNuclearReactor, activateReactor, deactivateReactor } from '../game/NuclearReactorSystem'
+// Wire reactor callbacks into BuildingSystem to break the circular dep:
+// BuildingSystem ← NuclearReactorSystem ← GameSingletons ← BuildingSystem
+setReactorCallbacks(activateReactor, deactivateReactor)
 
 // M14: Interplanetary travel + Velar gateway + Multiverse
 import { VelarGatewayRenderer } from './VelarGatewayRenderer'
@@ -1646,17 +1649,23 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
       if (!hitCreature) {
         const animalHit = attackNearestAnimal(px, py, pz, stats.damage, stats.range)
         if (animalHit) {
-          hitCreature = true
+          hitCreature = true  // animal was in range — block resource harvesting regardless of kill
           const { killed, loot } = animalHit
-          const speciesName = killed.species.charAt(0).toUpperCase() + killed.species.slice(1)
-          for (const drop of loot) {
-            inventory.addItem({ itemId: 0, materialId: drop.materialId, quantity: drop.quantity, quality: 0.8 })
+          if (killed) {
+            const speciesName = killed.species.charAt(0).toUpperCase() + killed.species.slice(1)
+            for (const drop of loot) {
+              inventory.addItem({ itemId: 0, materialId: drop.materialId, quantity: drop.quantity, quality: 0.8 })
+            }
+            addEvolutionPoints(3)
+            const lootSummary = loot.map(l => `${l.quantity}x ${l.label}`).join(', ')
+            useUiStore.getState().addNotification(
+              `${speciesName} killed — ${lootSummary} collected!`, 'discovery'
+            )
+          } else {
+            useUiStore.getState().addNotification(
+              `Hit animal for ${stats.damage} dmg!`, 'warning'
+            )
           }
-          addEvolutionPoints(3)
-          const lootSummary = loot.map(l => `${l.quantity}x ${l.label}`).join(', ')
-          useUiStore.getState().addNotification(
-            `${speciesName} killed — ${lootSummary} collected!`, 'discovery'
-          )
         }
       }
 

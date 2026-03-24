@@ -8,7 +8,12 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "wasm:physics":   "wasm-pack build rust/physics   --target web --out-dir ../../public/wasm/physics   --release",
+    "wasm:terrain":   "wasm-pack build rust/terrain   --target web --out-dir ../../public/wasm/terrain   --release",
+    "wasm:chemistry": "wasm-pack build rust/chemistry --target web --out-dir ../../public/wasm/chemistry --release",
+    "wasm": "npm run wasm:physics && npm run wasm:terrain && npm run wasm:chemistry",
+    "wasm:dev": "wasm-pack build rust/physics --target web --out-dir ../../public/wasm/physics --dev && wasm-pack build rust/terrain --target web --out-dir ../../public/wasm/terrain --dev && wasm-pack build rust/chemistry --target web --out-dir ../../public/wasm/chemistry --dev"
   },
   "dependencies": {
     "@clerk/backend": "^3.2.1",
@@ -29,6 +34,7 @@
     "zustand": "^5.0.1"
   },
   "devDependencies": {
+    "@gltf-transform/core": "^4.3.0",
     "@playwright/test": "^1.58.2",
     "@types/react": "^18.3.11",
     "@types/react-dom": "^18.3.1",

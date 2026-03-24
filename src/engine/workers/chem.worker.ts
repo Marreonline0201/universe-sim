@@ -133,7 +133,7 @@ function tickChem(dt: number): void {
         const o2Consumed  = Math.min(o2Moles, o2Required)
         const o2Scale     = o2Required > 0 ? o2Consumed / o2Required : 0
         const actualBurned = burnedFraction * o2Scale
-        const heatJ       = actualBurned * density0 * combustionJ_kg * o2Scale
+        const heatJ       = actualBurned * density0 * combustionJ_kg
 
         data[b + 3] = Math.max(0, density - actualBurned * density0)
         data[o2Slot] = Math.max(0, o2Moles - o2Consumed)

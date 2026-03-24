@@ -718,12 +718,16 @@ export class WorldSocket {
 
       case 'REACTOR_MELTDOWN': {
         // Server confirms reactor meltdown — radiation zone active.
+        // Guard: local player already triggered meltdown in NuclearReactorSystem._triggerMeltdown()
         const { pos, launcherName } = msg
-        useVelarStore.getState().triggerMeltdown(pos as [number, number, number])
-        useUiStore.getState().addNotification(
-          `REACTOR MELTDOWN${launcherName ? ` at ${launcherName as string}'s settlement` : ''}! Radiation zone active — 20m radius, 2 HP/s drain. Deliver Clay + Stone to contain.`,
-          'error'
-        )
+        const vs = useVelarStore.getState()
+        if (!vs.reactorMeltdown) {
+          vs.triggerMeltdown(pos as [number, number, number])
+          useUiStore.getState().addNotification(
+            `REACTOR MELTDOWN${launcherName ? ` at ${launcherName as string}'s settlement` : ''}! Radiation zone active — 20m radius, 2 HP/s drain. Deliver Clay + Stone to contain.`,
+            'error'
+          )
+        }
         break
       }
 

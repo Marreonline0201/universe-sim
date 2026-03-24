@@ -29,11 +29,9 @@ class RootErrorBoundary extends Component<{ children: ReactNode }, { error: Erro
 }
 
 createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <RootErrorBoundary>
-      <ClerkProvider publishableKey={PUBLISHABLE_KEY}>
-        <App />
-      </ClerkProvider>
-    </RootErrorBoundary>
-  </StrictMode>,
+  <RootErrorBoundary>
+    <ClerkProvider publishableKey={PUBLISHABLE_KEY}>
+      <App />
+    </ClerkProvider>
+  </RootErrorBoundary>,
 )

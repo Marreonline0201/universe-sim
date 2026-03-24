@@ -77,6 +77,13 @@ export function WeatherRenderer({ playerX, playerY, playerZ }: WeatherRendererPr
   const rainMatrix       = useMemo(() => new THREE.Matrix4(), [])
   const rainQuat         = useMemo(() => new THREE.Quaternion(), [])
 
+  // Pre-allocated scratch objects — zero per-frame heap allocation in inner loops
+  const _playerUp   = useMemo(() => new THREE.Vector3(), [])
+  const _velNorm    = useMemo(() => new THREE.Vector3(), [])
+  const _upRef      = useMemo(() => new THREE.Vector3(0, 1, 0), [])
+  const _posVec     = useMemo(() => new THREE.Vector3(), [])
+  const _scaleVec   = useMemo(() => new THREE.Vector3(), [])
+
   // ── Snow ──────────────────────────────────────────────────────────────────
   const snowMeshRef      = useRef<THREE.InstancedMesh | null>(null)
   const snowPositions    = useMemo(() => new Float32Array(SNOW_COUNT * 3), [])
@@ -114,13 +121,24 @@ export function WeatherRenderer({ playerX, playerY, playerZ }: WeatherRendererPr
     const windX   = windVec.x * windSpeed
     const windZ   = windVec.z * windSpeed
 
-    // Player's "up" direction on the sphere surface — used to compute local vertical
-    const playerUp = new THREE.Vector3(playerX, playerY, playerZ).normalize()
+    // Player's "up" direction on the sphere surface — reuse pre-allocated scratch
+    _playerUp.set(playerX, playerY, playerZ).normalize()
+    const upX = _playerUp.x, upY = _playerUp.y, upZ = _playerUp.z
+
+    // Rain fall velocity (shared across all drops — same direction)
+    const gravity = RAIN_SPEED
+    const velX = windX - upX * gravity
+    const velY =        - upY * gravity
+    const velZ = windZ  - upZ * gravity
+    const velLen = Math.sqrt(velX * velX + velY * velY + velZ * velZ) || 1
+    _velNorm.set(velX / velLen, velY / velLen, velZ / velLen)
+    rainQuat.setFromUnitVectors(_upRef, _velNorm)
+    const streakLen = 0.3 + rainIntensity * 0.4
+    _scaleVec.set(0.02, streakLen, 0.02)
 
     // ── Rain update ────────────────────────────────────────────────────────
     if (rainMeshRef.current && isRain && !isSnow) {
       const mesh = rainMeshRef.current
-      const gravity = RAIN_SPEED
 
       for (let i = 0; i < RAIN_COUNT; i++) {
         // Move down (along planet up direction) and with wind
@@ -128,12 +146,11 @@ export function WeatherRenderer({ playerX, playerY, playerZ }: WeatherRendererPr
         let ry = rainPositions[i * 3 + 1]
         let rz = rainPositions[i * 3 + 2]
 
-        // Local descent: subtract player-up scaled by gravity
-        rx += windX * dt - playerUp.x * gravity * dt
-        ry += -gravity * dt * playerUp.y
-        rz += windZ * dt - playerUp.z * gravity * dt
+        rx += windX * dt - upX * gravity * dt
+        ry += -gravity * dt * upY
+        rz += windZ * dt - upZ * gravity * dt
 
-        // Reset when drop falls below player's feet (y < 0 in local frame)
+        // Reset when drop falls below player level (local-y component)
         if (ry < -5) {
           rx = (Math.random() - 0.5) * RAIN_SPREAD * 2
           ry = RAIN_HEIGHT + Math.random() * 10
@@ -144,26 +161,9 @@ export function WeatherRenderer({ playerX, playerY, playerZ }: WeatherRendererPr
         rainPositions[i * 3 + 1] = ry
         rainPositions[i * 3 + 2] = rz
 
-        // World-space position = player + local offset
-        const wx = playerX + rx
-        const wy = playerY + ry
-        const wz = playerZ + rz
-
-        // Orient raindrop along fall velocity vector for realistic streak appearance
-        const velX = windX - playerUp.x * gravity
-        const velY = -gravity * playerUp.y
-        const velZ = windZ - playerUp.z * gravity
-        const velLen = Math.sqrt(velX * velX + velY * velY + velZ * velZ) || 1
-        const velNorm = new THREE.Vector3(velX / velLen, velY / velLen, velZ / velLen)
-        const dropQuat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), velNorm)
-
-        // Scale: thin streak proportional to intensity and speed
-        const streakLen = 0.3 + rainIntensity * 0.4
-        rainMatrix.compose(
-          new THREE.Vector3(wx, wy, wz),
-          dropQuat,
-          new THREE.Vector3(0.02, streakLen, 0.02),
-        )
+        // Compose matrix from pre-allocated scratch objects — no per-loop allocation
+        _posVec.set(playerX + rx, playerY + ry, playerZ + rz)
+        rainMatrix.compose(_posVec, rainQuat, _scaleVec)
         mesh.setMatrixAt(i, rainMatrix)
       }
 

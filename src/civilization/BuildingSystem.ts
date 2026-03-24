@@ -1,3 +1,17 @@
+// Reactor callbacks are registered at startup by SceneRoot to avoid a circular
+// dependency: BuildingSystem ← NuclearReactorSystem ← GameSingletons ← BuildingSystem
+let _activateReactor: ((pos: { x: number; y: number; z: number }) => void) | null = null
+let _deactivateReactor: (() => void) | null = null
+export function setReactorCallbacks(
+  activate: (pos: { x: number; y: number; z: number }) => void,
+  deactivate: () => void,
+): void {
+  _activateReactor  = activate
+  _deactivateReactor = deactivate
+}
+
+const REACTOR_TYPE_IDS = new Set(['nuclear_reactor', 'nuclear_reactor_small'])
+
 export interface BuildingType {
   id: string
   name: string
@@ -50,6 +64,8 @@ export class BuildingSystem {
   }
 
   demolish(buildingId: number): void {
+    const b = this.buildings.get(buildingId)
+    if (b && REACTOR_TYPE_IDS.has(b.typeId)) _deactivateReactor?.()
     this.buildings.delete(buildingId)
   }
 
@@ -59,6 +75,7 @@ export class BuildingSystem {
     b.health = Math.max(0, b.health - amount)
     if (b.health <= 0) {
       // Collapse — eject occupants
+      if (REACTOR_TYPE_IDS.has(b.typeId)) _deactivateReactor?.()
       b.occupants = []
       this.buildings.delete(buildingId)
     }
@@ -125,6 +142,7 @@ export class BuildingSystem {
       if (!type) continue
       b.health = Math.max(0, b.health - type.maintenanceRate * dtSimDays)
       if (b.health <= 0) {
+        if (REACTOR_TYPE_IDS.has(b.typeId)) _deactivateReactor?.()
         b.occupants = []
         this.buildings.delete(b.id)
       }
@@ -154,6 +172,9 @@ export class BuildingSystem {
   loadBuildings(buildings: PlacedBuilding[]): void {
     this.buildings = new Map(buildings.map(b => [b.id, { ...b }]))
     this.nextId = buildings.reduce((max, b) => Math.max(max, b.id + 1), 1)
+    // Re-activate any nuclear reactor that was in place when the game was saved
+    const reactor = buildings.find(b => REACTOR_TYPE_IDS.has(b.typeId))
+    if (reactor) _activateReactor?.(reactor.position)
   }
 }
 

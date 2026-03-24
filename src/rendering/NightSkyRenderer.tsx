@@ -183,13 +183,15 @@ export function NightSkyRenderer({ dayAngle, onPlanetHover }: Props) {
     vertexColors: false,
   }), [])
 
-  // Moon material — self-illuminated grey sphere
+  // Moon material — self-illuminated grey sphere (transparent so useFrame can fade it)
   const moonMaterial = useMemo(() => new THREE.MeshStandardMaterial({
     color: '#d8d0c0',
     roughness: 0.95,
     metalness: 0.0,
     emissive: '#504840',
     emissiveIntensity: 0.3,
+    transparent: true,
+    opacity: 1,
   }), [])
 
   useFrame((state, delta) => {
@@ -234,18 +236,9 @@ export function NightSkyRenderer({ dayAngle, onPlanetHover }: Props) {
       {/* Stars */}
       <points ref={pointsRef} geometry={geometry} material={starMaterial} frustumCulled={false} />
 
-      {/* Moon — a sphere, lit from the sun direction */}
-      <mesh ref={moonRef} frustumCulled={false}>
+      {/* Moon — a sphere, lit from the sun direction; material ref shared with useFrame */}
+      <mesh ref={moonRef} material={moonMaterial} frustumCulled={false}>
         <sphereGeometry args={[28, 16, 16]} />
-        <meshStandardMaterial
-          color="#d8d0c0"
-          roughness={0.95}
-          metalness={0.0}
-          emissive="#504840"
-          emissiveIntensity={0.3}
-          transparent
-          opacity={1}
-        />
       </mesh>
 
       {/* Planets — bright coloured points (L6 teaser) */}

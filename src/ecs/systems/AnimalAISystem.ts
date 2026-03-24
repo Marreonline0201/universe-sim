@@ -617,13 +617,15 @@ const ANIMAL_LOOT: Record<AnimalSpecies, AnimalKillLoot[]> = {
 
 /**
  * Deal damage to the nearest animal within range.
- * Returns the killed animal's loot if the animal died, or null.
+ * Returns { killed, loot } if an animal was in range and hit.
+ * `killed` is the animal entity if it died, null if it survived.
+ * Returns null only if no animal was in range.
  */
 export function attackNearestAnimal(
   px: number, py: number, pz: number,
   damage: number,
   range: number,
-): { killed: AnimalEntity; loot: AnimalKillLoot[] } | null {
+): { killed: AnimalEntity | null; loot: AnimalKillLoot[] } | null {
   let nearest: AnimalEntity | null = null
   let nearestDist = range
 
@@ -637,7 +639,7 @@ export function attackNearestAnimal(
   if (!nearest) return null
 
   nearest.health -= damage
-  if (nearest.health > 0) return null
+  if (nearest.health > 0) return { killed: null, loot: [] }  // hit but survived
 
   // Animal died
   nearest.behavior = 'DEAD'

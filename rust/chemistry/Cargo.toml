@@ -1,0 +1,22 @@
+[package]
+name = "universe-chemistry"
+version = "0.1.0"
+edition = "2021"
+description = "Atmospheric evolution and prebiotic chemistry for Universe Sim"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+wasm-bindgen      = { workspace = true }
+serde             = { workspace = true }
+serde_json        = { workspace = true }
+js-sys            = { workspace = true }
+console_error_panic_hook = { workspace = true }
+
+[dev-dependencies]
+wasm-bindgen-test = "0.3"
+
+[profile.release]
+opt-level = 3
+lto       = true

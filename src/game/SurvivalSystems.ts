@@ -181,8 +181,10 @@ export function tickWoundSystem(dt: number, entityId: number): void {
     Health.current[entityId] = Math.max(0, Health.current[entityId] - healthDrain * Health.max[entityId])
   }
 
-  // Remove healed wounds (bacteria < 0.5)
-  ps.clearHealedWounds()
+  // Remove healed wounds (bacteria < 0.5) — only when needed to avoid spurious re-renders
+  if (ps.wounds.some(w => w.bacteriaCount <= 0.5)) {
+    ps.clearHealedWounds()
+  }
 }
 
 // Apply herb to first active wound
@@ -701,7 +703,9 @@ export function tickQuenching(
   if (!hotSlot) return
 
   // If timer has expired → convert to soft_steel
-  if (ps.quenchSecondsRemaining !== null && ps.quenchSecondsRemaining <= 0) {
+  // tickQuenchTimer sets quenchSecondsRemaining to null when it reaches 0,
+  // so a null value here means the window closed without quenching.
+  if (ps.quenchSecondsRemaining === null) {
     const softenedQuality = hotSlot.quality * 0.50
     inv.removeItem(hotSlotIdx, hotSlot.quantity)
     inv.addItem({ itemId: 0, materialId: MAT.SOFT_STEEL, quantity: hotSlot.quantity, quality: softenedQuality })

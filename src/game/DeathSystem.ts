@@ -78,21 +78,32 @@ export function checkAndTriggerDeath(
   const deathLen = Math.sqrt(deathDir.x ** 2 + deathDir.y ** 2 + deathDir.z ** 2) || 1
   deathDir.x /= deathLen; deathDir.y /= deathLen; deathDir.z /= deathLen
 
-  // Build two tangent vectors perpendicular to the surface normal (deathDir)
-  const tx = deathDir.y !== 0 || deathDir.z !== 0 ? 1 : 0
-  const ty = deathDir.x !== 0 || deathDir.z !== 0 ? 0 : 1
-  const tz = 0
-  const tLen = Math.sqrt(tx * tx + ty * ty + tz * tz) || 1
-  const t1x = tx / tLen, t1y = ty / tLen, t1z = tz / tLen
+  // Build two orthonormal tangent vectors perpendicular to the surface normal (deathDir).
+  // Pick a reference axis not collinear with deathDir, then use cross-products.
+  const absX = Math.abs(deathDir.x), absY = Math.abs(deathDir.y), absZ = Math.abs(deathDir.z)
+  let refX: number, refY: number, refZ: number
+  if (absY <= absX && absY <= absZ) { refX = 0; refY = 1; refZ = 0 }   // deathDir mostly in XZ
+  else if (absX <= absY && absX <= absZ) { refX = 1; refY = 0; refZ = 0 }  // deathDir mostly in YZ
+  else { refX = 0; refY = 0; refZ = 1 }                                 // deathDir mostly in XY
+  // t1 = cross(deathDir, ref)
+  let t1x = deathDir.y * refZ - deathDir.z * refY
+  let t1y = deathDir.z * refX - deathDir.x * refZ
+  let t1z = deathDir.x * refY - deathDir.y * refX
+  const t1Len = Math.sqrt(t1x*t1x + t1y*t1y + t1z*t1z) || 1
+  t1x /= t1Len; t1y /= t1Len; t1z /= t1Len
+  // t2 = cross(deathDir, t1) — second tangent, already unit length since both inputs are unit+perpendicular
+  const t2x = deathDir.y * t1z - deathDir.z * t1y
+  const t2y = deathDir.z * t1x - deathDir.x * t1z
+  const t2z = deathDir.x * t1y - deathDir.y * t1x
 
   // Drop all inventory items as world pickups scattered around death position
   for (const { slot } of inv.listItems()) {
     const angle = Math.random() * Math.PI * 2
     const radius = 0.8 + Math.random() * 1.2
-    // Scatter in the tangent plane then project back to sphere surface
-    const ox = Math.cos(angle) * radius * t1x
-    const oy = Math.cos(angle) * radius * t1y
-    const oz = Math.sin(angle) * radius
+    // Scatter in the tangent plane (spanned by t1 and t2) then project back to sphere surface
+    const ox = (Math.cos(angle) * t1x + Math.sin(angle) * t2x) * radius
+    const oy = (Math.cos(angle) * t1y + Math.sin(angle) * t2y) * radius
+    const oz = (Math.cos(angle) * t1z + Math.sin(angle) * t2z) * radius
     const nx = dpx + ox, ny = dpy + oy, nz = dpz + oz
     const sr = surfaceRadiusAt(nx, ny, nz)
     const nDir = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1

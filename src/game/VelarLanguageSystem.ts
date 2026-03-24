@@ -96,10 +96,14 @@ function generateStarGlyph(rand: () => number): string {
 
 function generatePathGlyph(rand: () => number): string {
   // Flowing S-curve with directional terminus
-  let d = `M 10 ${20 + rand() * 8}`
-  d += ` C ${20 + rand() * 5} ${10 + rand() * 5} ${35 + rand() * 5} ${45 + rand() * 5} ${54} ${32 + rand() * 6}`
-  // Arrow head
-  const ex = 54, ey = 32 + rand() * 6
+  const startY = 20 + rand() * 8
+  const c1x = 20 + rand() * 5, c1y = 10 + rand() * 5
+  const c2x = 35 + rand() * 5, c2y = 45 + rand() * 5
+  const ey = 32 + rand() * 6   // curve endpoint y — reused for arrowhead
+  let d = `M 10 ${startY}`
+  d += ` C ${c1x} ${c1y} ${c2x} ${c2y} 54 ${ey}`
+  // Arrow head aligned to curve endpoint
+  const ex = 54
   d += ` M ${ex - 6} ${ey - 5} L ${ex} ${ey} L ${ex - 6} ${ey + 5}`
   // Tick marks along path
   for (let i = 0; i < 3; i++) {

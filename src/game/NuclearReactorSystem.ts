@@ -55,6 +55,7 @@ let _cleanupActive:       boolean = false
 let _radiationDrainAcc:   number = 0
 let _power:               boolean = false   // is a reactor building placed + fueled?
 let _electrolysisAcc:     number = 0        // seconds accumulator for H2 production
+let _lastWarnedThreshold: number = 0        // last °C threshold for which we showed a warning
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
@@ -74,9 +75,12 @@ export function activateReactor(pos: [number, number, number]): void {
 export function deactivateReactor(): void {
   _reactorPos = null
   _power      = false
-  _overThresholdSecs = 0
-  _electrolysisAcc   = 0
+  _overThresholdSecs   = 0
+  _electrolysisAcc     = 0
+  _lastWarnedThreshold = 0
   useVelarStore.getState().setReactorActive(false)
+  // Reset temperature so a replacement reactor starts from ambient, not the old hot value
+  useVelarStore.setState({ reactorTemp: 20 })
 }
 
 /** Returns true if the settlement has nuclear power (enables electric utilities). */
@@ -208,15 +212,18 @@ export function tickNuclearReactor(
 
   const temp = vs.reactorTemp
 
-  // Warning at safe threshold
+  // Warning at safe threshold — fire once per 100°C bracket to avoid spam
   if (temp > SAFE_TEMP_CELSIUS && temp <= MELT_THRESHOLD_C) {
-    // Warn every 10s
-    if (Math.floor(temp / 10) % 10 === 0) {
+    const bracket = Math.floor(temp / 100) * 100
+    if (bracket > _lastWarnedThreshold) {
+      _lastWarnedThreshold = bracket
       useUiStore.getState().addNotification(
         `Reactor temperature: ${temp.toFixed(0)}°C — add water cooling before reaching 800°C!`,
         'warning'
       )
     }
+  } else if (temp <= SAFE_TEMP_CELSIUS) {
+    _lastWarnedThreshold = 0
   }
 
   // Track time above melt threshold

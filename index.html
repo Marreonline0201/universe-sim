@@ -12,6 +12,19 @@
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      // Diagnostic: surface any unhandled errors before React mounts
+      window.addEventListener('unhandledrejection', function(e) {
+        var r = e.reason;
+        var msg = r ? (r.stack || String(r)) : 'Unknown rejection';
+        document.getElementById('root').innerHTML =
+          '<pre style="color:#f55;background:#111;padding:24px;font:13px monospace;position:fixed;inset:0;z-index:9999;overflow:auto;white-space:pre-wrap"><b>UNHANDLED REJECTION — UNIVERSE SIM</b>\n\n' + msg + '</pre>';
+      });
+      window.onerror = function(msg, src, line, col, err) {
+        document.getElementById('root').innerHTML =
+          '<pre style="color:#f55;background:#111;padding:24px;font:13px monospace;position:fixed;inset:0;z-index:9999;overflow:auto;white-space:pre-wrap"><b>UNCAUGHT ERROR — UNIVERSE SIM</b>\n\n' + (err ? (err.stack || String(err)) : msg) + '</pre>';
+      };
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

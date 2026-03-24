@@ -697,7 +697,7 @@ export const CRAFTING_RECIPES: CraftingRecipe[] = [
   },
   {
     id: 63, name: 'Cooked Meat', tier: 0, time: 30,
-    inputs: [{ materialId: MAT.BONE, quantity: 2 }, { materialId: MAT.WOOD, quantity: 1 }],
+    inputs: [{ materialId: MAT.RAW_MEAT, quantity: 2 }],
     output: { itemId: MAT.COOKED_MEAT, quantity: 2, isMaterial: true },
     knowledgeRequired: ['fire_making'],
   },
@@ -1231,7 +1231,7 @@ export const CRAFTING_RECIPES: CraftingRecipe[] = [
       { materialId: MAT.HYDROGEN,     quantity: 5 },
       { materialId: MAT.GOLD,         quantity: 2 },
     ],
-    output: { itemId: MAT.VELAR_CRYSTAL, quantity: 1, isMaterial: true } as any,
+    output: { itemId: MAT.VELAR_CRYSTAL, quantity: 1, isMaterial: true },
     knowledgeRequired: ['nuclear_physics', 'velar_decoded'],
   },
 
@@ -1287,7 +1287,7 @@ export const CRAFTING_RECIPES: CraftingRecipe[] = [
       { materialId: MAT.GOLD,          quantity: 1 },
       { materialId: MAT.NUCLEAR_FUEL,  quantity: 2 },
     ],
-    output: { itemId: 0, materialId: MAT.QUANTUM_CORE, quantity: 1, isMaterial: true } as any,
+    output: { itemId: MAT.QUANTUM_CORE, quantity: 1, isMaterial: true },
     knowledgeRequired: ['velar_fabrication'],
   },
   {
@@ -1298,7 +1298,7 @@ export const CRAFTING_RECIPES: CraftingRecipe[] = [
       { materialId: MAT.STEEL_INGOT,   quantity: 5 },
       { materialId: MAT.VELAR_CRYSTAL, quantity: 1 },
     ],
-    output: { itemId: 0, materialId: MAT.VELAR_ALLOY, quantity: 1, isMaterial: true } as any,
+    output: { itemId: MAT.VELAR_ALLOY, quantity: 1, isMaterial: true },
     knowledgeRequired: ['velar_fabrication'],
   },
   {

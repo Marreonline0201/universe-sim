@@ -1132,6 +1132,13 @@ function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }: GameLo
     setMetabolismDt(dt)
     MetabolismSystem(world)
 
+    // B-16 fix: God Mode bypasses starvation/dehydration damage
+    if (inventory.isGodMode()) {
+      // Reset hunger/thirst when god mode is on
+      Metabolism.hunger[entityId] = 0
+      Metabolism.thirst[entityId] = 0
+    }
+
     // 3. Push ECS vitals → playerStore so HUD bars update
     const maxHp = Health.max[entityId] || 100
     updateVitals({
@@ -2108,7 +2115,8 @@ function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }: GameLo
         // Hypothermia damage: if ambient temp < 0°C player loses health.
         // STORM cold: 1.5 HP/s; RAIN cold: 0.5 HP/s.
         // This satisfies pass criterion: "player in storm loses body heat faster."
-        if (newTemp < 0) {
+        // B-16 fix: God Mode bypasses cold damage.
+        if (newTemp < 0 && !inventory.isGodMode()) {
           const coldDps = wState === 'STORM' ? 1.5 : 0.5
           Health.current[entityId] = Math.max(0, Health.current[entityId] - coldDps * dt)
           markColdDamage()  // mark so death attributes to hypothermia

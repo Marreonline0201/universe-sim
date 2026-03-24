@@ -5,7 +5,10 @@
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
-    "dev": "node --watch src/index.js"
+    "dev": "node --watch src/index.js",
+    "playtest:pipeline": "node playtest_pipeline.mjs --episodes 12 --headless false",
+    "playtest:closed-loop": "node playtest_pipeline.mjs --episodes 12 --cycles 3 --headless false",
+    "playtest:continuous": "node playtest_pipeline.mjs --episodes 12 --continuous true --headless false"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.0.2",

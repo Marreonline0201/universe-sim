@@ -508,7 +508,6 @@ export function SceneRoot() {
   const [appliedWorldSeed, setAppliedWorldSeed] = useState<number | null>(null)
   const [pointerLocked, setPointerLocked] = useState(false)
   const [bypassPointerLock, setBypassPointerLock] = useState(false)
-  const [hasStarted, setHasStarted] = useState(false)
   const [simManager, setSimManager] = useState<LocalSimManager | null>(null)
   // M11: day angle forwarded from DayNightCycle to NightSkyRenderer + TelescopeView
   const [dayAngle, setDayAngle] = useState(Math.PI * 0.6)
@@ -742,10 +741,9 @@ export function SceneRoot() {
   return (
     <>
     {/* Click-to-play overlay */}
-    {!hasStarted && !pointerLocked && !bypassPointerLock && (
+    {!pointerLocked && !bypassPointerLock && (
       <div
         onClick={async () => {
-          setHasStarted(true)
           try {
             controllerRef.current?.requestPointerLock()
           } catch (err) {

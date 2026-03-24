@@ -7,7 +7,8 @@ import { useState, useEffect, useRef } from 'react'
 const WS_URL = import.meta.env.VITE_WS_URL as string | undefined
 
 function wsToHttp(wsUrl: string): string {
-  return wsUrl.replace(/^wss:\/\//, 'https://').replace(/^ws:\/\//, 'http://')
+  const http = wsUrl.replace(/^wss:\/\//, 'https://').replace(/^ws:\/\//, 'http://')
+  return http.replace(/\/+$/, '')
 }
 
 export interface BootstrapStatus {

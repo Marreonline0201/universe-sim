@@ -508,6 +508,7 @@ export function SceneRoot() {
   const [appliedWorldSeed, setAppliedWorldSeed] = useState<number | null>(null)
   const [pointerLocked, setPointerLocked] = useState(false)
   const [bypassPointerLock, setBypassPointerLock] = useState(false)
+  const [hasStarted, setHasStarted] = useState(false)
   const [simManager, setSimManager] = useState<LocalSimManager | null>(null)
   // M11: day angle forwarded from DayNightCycle to NightSkyRenderer + TelescopeView
   const [dayAngle, setDayAngle] = useState(Math.PI * 0.6)
@@ -617,6 +618,7 @@ export function SceneRoot() {
 
   const setEntityId = usePlayerStore(s => s.setEntityId)
   const entityId = usePlayerStore(s => s.entityId)
+  const activePanel = useUiStore(s => s.activePanel)
 
   // M5: Respawn handler — called by DeathScreen RESPAWN button
   const handleRespawn = useCallback(() => {
@@ -738,9 +740,10 @@ export function SceneRoot() {
   return (
     <>
     {/* Click-to-play overlay */}
-    {!pointerLocked && !bypassPointerLock && (
+    {!hasStarted && !pointerLocked && !bypassPointerLock && (
       <div
         onClick={async () => {
+          setHasStarted(true)
           try {
             controllerRef.current?.requestPointerLock()
           } catch (err) {
@@ -823,7 +826,7 @@ export function SceneRoot() {
     {/* Crosshair rendered by HUD.tsx — removed duplicate here */}
     <Canvas
       gl={{ antialias: true, powerPreference: 'high-performance' }}
-      style={{ position: 'fixed', inset: 0 }}
+      style={{ position: 'fixed', inset: 0, pointerEvents: activePanel ? 'none' : 'auto' }}
       shadows
     >
       <PerspectiveCamera makeDefault fov={70} near={0.5} far={20000} position={[0, PLANET_RADIUS + 200, 0]} />

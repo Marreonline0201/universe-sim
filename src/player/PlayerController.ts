@@ -180,7 +180,19 @@ export class PlayerController {
     return false
   }
 
-  requestPointerLock(): void { document.body.requestPointerLock() }
+  requestPointerLock(): void {
+    try {
+      // Try canvas first (most reliable), fallback to body
+      const canvas = document.querySelector('canvas')
+      if (canvas) {
+        canvas.requestPointerLock()
+      } else {
+        document.body.requestPointerLock()
+      }
+    } catch (err) {
+      console.warn('[PlayerController] Failed to request pointer lock:', err)
+    }
+  }
 
   dispose(): void {
     document.removeEventListener('keydown',   this.boundKeyDown)

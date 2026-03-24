@@ -74,7 +74,18 @@ export function BuildPanel() {
     setPlacementMode(bt.id)
     closePanel()
     // Re-acquire pointer lock so F key works immediately (panel exit releases it)
-    setTimeout(() => document.body.requestPointerLock(), 150)
+    setTimeout(() => {
+      try {
+        const canvas = document.querySelector('canvas')
+        if (canvas) {
+          canvas.requestPointerLock()
+        } else {
+          document.body.requestPointerLock()
+        }
+      } catch (err) {
+        console.warn('[BuildPanel] Failed to request pointer lock:', err)
+      }
+    }, 150)
   }
 
   function handleCancel() {

@@ -1587,6 +1587,12 @@ function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }: GameLo
     const equippedSlot2 = ps2.equippedSlot ?? null
     const equippedItem2 = equippedSlot2 !== null ? inventory.getSlot(equippedSlot2) : null
     const hasFlint = equippedItem2?.materialId === MAT.FLINT
+    const hasFireItem = equippedItem2?.itemId === ITEM.FIRE
+
+    // ── B-10 fix: Show fire-item usage prompt when ITEM.FIRE is equipped ─────
+    if (hasFireItem && !gs.inputBlocked && gs.gatherPrompt === null) {
+      gs.setGatherPrompt('[Left-click] Place fire from item')
+    }
 
     // ── Fire prompt: show when flint equipped + can start fire ───────────
     if (hasFlint && !gs.inputBlocked) {
@@ -1657,6 +1663,17 @@ function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }: GameLo
       const itemId       = equippedItem?.itemId ?? 0
       const stats        = getItemStats(itemId)
 
+      // ── B-10 fix: ITEM.FIRE equipped → place + ignite fire at player's feet ─
+      const _isFireItem = itemId === ITEM.FIRE
+      if (_isFireItem && simManagerRef.current) {
+        simManagerRef.current.placeWood(px, py - 1, pz)
+        simManagerRef.current.ignite(px, py - 1, pz)
+        getWorldSocket()?.send({ type: 'FIRE_STARTED', x: px, y: py - 1, z: pz })
+        if (equippedSlot2 !== null) inventory.removeItem(equippedSlot2, 1)
+        gs.setGatherPrompt(null)
+        useUiStore.getState().addNotification('Fire placed!', 'info')
+      }
+
       // ── M11: Musket firing — requires ammo, enforces reload time ────────────
       const _isMusket = itemId === ITEM.MUSKET
       if (_isMusket) {
@@ -1696,8 +1713,8 @@ function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }: GameLo
         }
       }
 
-      // ── Check creatures / harvest (skip for musket — ranged only) ────────────
-      if (!_isMusket) {
+      // ── Check creatures / harvest (skip for musket/fire-item — ranged/placed only) ─
+      if (!_isMusket && !_isFireItem) {
       let hitCreature = false
       let nearestCreatureEid = -1
       let nearestCreatureDist = Infinity
@@ -1878,7 +1895,7 @@ function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }: GameLo
           )
         }
       }
-      } // end if (!_isMusket)
+      } // end if (!_isMusket && !_isFireItem)
     }
 
     // ── Eat (E key when cooked food in inventory) ─────────────────────────────

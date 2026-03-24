@@ -2083,6 +2083,14 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
           Health.current[entityId] = Math.max(0, Health.current[entityId] - coldDps * dt)
           markColdDamage()  // mark so death attributes to hypothermia
         }
+      } else {
+        // Clear/cloudy: ambient temperature recovers toward weather temperature at 0.4°C/s.
+        // This prevents ambientTemp from staying stuck at storm-cold values after the storm passes.
+        const storedTemp = usePlayerStore.getState().ambientTemp
+        if (Math.abs(storedTemp - wTemp) > 0.1) {
+          const newTemp = storedTemp + (wTemp - storedTemp) * Math.min(1, 0.4 * dt)
+          usePlayerStore.getState().setAmbientTemp(newTemp)
+        }
       }
     }
 

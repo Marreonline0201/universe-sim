@@ -879,7 +879,7 @@ export function SceneRoot() {
       {worldInitialized && entityId !== null && (
         <>
           <GameLoop controllerRef={controllerRef} simManagerRef={simManagerRef} entityId={entityId} />
-          <PlayerMesh entityId={entityId} />
+          <PlayerMesh entityId={entityId} controllerRef={controllerRef} />
           <EquippedItemMesh entityId={entityId} />
           <BuildingGhost entityId={entityId} />
           {/* M10 Track B: Sailing vessel mesh (only visible when sailing) */}
@@ -2651,7 +2651,13 @@ function HumanoidFigure({
   )
 }
 
-function PlayerMesh({ entityId }: { entityId: number }) {
+function PlayerMesh({
+  entityId,
+  controllerRef,
+}: {
+  entityId: number
+  controllerRef: RefObject<PlayerController | null>
+}) {
   const rootRef  = useRef<THREE.Group>(null)
   const walkTime = useRef(0)
   const lastPos  = useRef({ x: 0, y: 0, z: 0 })
@@ -2663,6 +2669,9 @@ function PlayerMesh({ entityId }: { entityId: number }) {
 
   useFrame((_, delta) => {
     if (!rootRef.current) return
+
+    // Prevent first-person self-occlusion (camera inside local body mesh).
+    rootRef.current.visible = controllerRef.current?.cameraMode !== 'first_person'
 
     const px = Position.x[entityId]
     const py = Position.y[entityId]

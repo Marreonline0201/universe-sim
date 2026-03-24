@@ -58,13 +58,17 @@ export function checkAndTriggerDeath(
   playerPos: { x: number; y: number; z: number },
   inv: Inventory,
 ): boolean {
+  const DEATH_HP_EPSILON = 0.5
   const ps = usePlayerStore.getState()
 
   // Already dead — stay halted
   if (ps.isDead) return true
 
   // Health still above floor — alive
-  if (entityHealthRef.current > 0) return false
+  if (entityHealthRef.current > DEATH_HP_EPSILON) return false
+
+  // Snap tiny residual health to zero so HUD/state cannot show "0 but alive".
+  entityHealthRef.current = 0
 
   // === DEATH ===
   const dpx = playerPos.x

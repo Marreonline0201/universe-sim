@@ -51,6 +51,9 @@ function RustVitalBar({ value, color, icon, label }: RustVitalBarProps) {
   const clamped = Math.max(0, Math.min(1, value))
   const isLow   = clamped < 0.25
   const barColor = isLow ? '#e74c3c' : color
+  const displayValue = clamped > 0 && clamped < 0.01
+    ? (clamped * 100).toFixed(1)
+    : String(Math.round(clamped * 100))
 
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
@@ -90,7 +93,7 @@ function RustVitalBar({ value, color, icon, label }: RustVitalBarProps) {
         textAlign: 'right',
         flexShrink: 0,
       }}>
-        {Math.round(clamped * 100)}
+        {displayValue}
       </span>
     </div>
   )

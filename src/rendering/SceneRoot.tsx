@@ -1268,8 +1268,12 @@ function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }: GameLo
               for (let i = 0; i < inventory.slotCount && remaining > 0; i++) {
                 const slot = inventory.getSlot(i)
                 if (slot && slot.itemId === 0 && slot.materialId === req.materialId) {
+                  const before = slot.quantity
                   const take = Math.min(slot.quantity, remaining)
+                  console.log(`[Building] Before: materialId=${req.materialId} qty=${before}, taking=${take}`)
                   inventory.removeItemForce(i, take)
+                  const after = inventory.getSlot(i)?.quantity ?? 0
+                  console.log(`[Building] After: materialId=${req.materialId} qty=${after}`)
                   remaining -= take
                 }
               }

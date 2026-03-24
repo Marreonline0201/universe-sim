@@ -651,6 +651,8 @@ export function SceneRoot() {
       },
       [sx, sy, sz],
     )
+    // B-NEW-3 fix: give starter rations so player can eat after respawn
+    inventory.addItem({ itemId: 0, materialId: MAT.COOKED_MEAT, quantity: 3, quality: 1.0 })
   }, [entityId])
 
   // Sync time scale buttons → simulation clock

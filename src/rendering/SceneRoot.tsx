@@ -890,7 +890,7 @@ export function SceneRoot() {
       </Suspense>
       {worldInitialized && entityId !== null && (
         <>
-          <GameLoop controllerRef={controllerRef} simManagerRef={simManagerRef} entityId={entityId} />
+          <GameLoop controllerRef={controllerRef} simManagerRef={simManagerRef} entityId={entityId} gameActive={pointerLocked || bypassPointerLock || activePanel !== null} />
           <PlayerMesh entityId={entityId} controllerRef={controllerRef} />
           <EquippedItemMesh entityId={entityId} />
           <BuildingGhost entityId={entityId} />
@@ -987,9 +987,10 @@ interface GameLoopProps {
   controllerRef: RefObject<PlayerController | null>
   simManagerRef: RefObject<LocalSimManager | null>
   entityId: number
+  gameActive: boolean
 }
 
-function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
+function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }: GameLoopProps) {
   const { camera } = useThree()
   const updateVitals        = usePlayerStore(s => s.updateVitals)
   const setPosition         = usePlayerStore(s => s.setPosition)
@@ -1121,6 +1122,8 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
     }
 
     // 3. Metabolism (hunger, thirst, fatigue, health regen)
+    // Skip vitals drain when the CLICK TO PLAY overlay is visible (B-NEW-2 fix)
+    if (!gameActive) return
     setMetabolismDt(dt)
     MetabolismSystem(world)
 

@@ -133,6 +133,15 @@ export class Inventory {
     return true
   }
 
+  /** Remove items for building/crafting — bypasses god mode so resources are always consumed. */
+  removeItemForce(slotIndex: number, quantity: number): boolean {
+    const s = this.slots[slotIndex]
+    if (!s || s.quantity < quantity) return false
+    s.quantity -= quantity
+    if (s.quantity <= 0) this.slots[slotIndex] = null
+    return true
+  }
+
   discoverRecipe(recipeId: number): void {
     this.knownRecipes.add(recipeId)
   }

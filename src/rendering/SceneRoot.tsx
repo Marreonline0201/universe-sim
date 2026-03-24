@@ -1262,14 +1262,14 @@ function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }: GameLo
           )
           const addNotification = useUiStore.getState().addNotification
           if (canBuild) {
-            // Consume materials
+            // Consume materials (bypasses god mode for buildings)
             for (const req of btype.materialsRequired) {
               let remaining = req.quantity
               for (let i = 0; i < inventory.slotCount && remaining > 0; i++) {
                 const slot = inventory.getSlot(i)
                 if (slot && slot.itemId === 0 && slot.materialId === req.materialId) {
                   const take = Math.min(slot.quantity, remaining)
-                  inventory.removeItem(i, take)
+                  inventory.removeItemForce(i, take)
                   remaining -= take
                 }
               }

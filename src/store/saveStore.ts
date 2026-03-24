@@ -92,8 +92,11 @@ export async function loadSave(getToken: () => Promise<string | null>) {
     ps.addSmithingXp(data.smithingXp)
   }
 
-  // Slice 5: Wounds — restore active infections so logout doesn't reset them
-  if (Array.isArray(data.wounds) && data.wounds.length > 0) {
+  // Slice 5: Wounds — restore active infections so logout doesn't reset them.
+  // Skip restoring wounds when the save had 0 HP (player died before saving); those
+  // wounds caused the death and should not persist into the fresh load.
+  const savedHealthWasValid = typeof data.health === 'number' && data.health > 0
+  if (savedHealthWasValid && Array.isArray(data.wounds) && data.wounds.length > 0) {
     usePlayerStore.setState({ wounds: data.wounds })
   }
 

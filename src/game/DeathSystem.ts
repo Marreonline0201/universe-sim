@@ -168,6 +168,9 @@ export function executeRespawn(
   // Clear ECS dead flag so MetabolismSystem stops treating this entity as dead
   removeComponent(world, IsDead, entityId)
 
+  // Clear wounds on respawn — active infections don't carry over (fresh start)
+  usePlayerStore.setState({ wounds: [] })
+
   // Clear death overlay
   ps.clearDeath()
 

@@ -58,13 +58,15 @@ export function checkAndTriggerDeath(
   playerPos: { x: number; y: number; z: number },
   inv: Inventory,
 ): boolean {
-  const DEATH_HP_EPSILON = 0.5
+  // Treat <=0.5% HP as fatal so HUD never shows "1" while dead.
+  const DEATH_HP_EPSILON = 0.005
   const ps = usePlayerStore.getState()
 
   // Already dead — stay halted
   if (ps.isDead) return true
 
   // Health still above floor — alive
+  entityHealthRef.current = Math.max(0, entityHealthRef.current)
   if (entityHealthRef.current > DEATH_HP_EPSILON) return false
 
   // Snap tiny residual health to zero so HUD/state cannot show "0 but alive".
@@ -130,8 +132,8 @@ export function checkAndTriggerDeath(
     if (s) inv.dropItem(i, s.quantity)
   }
 
-  // Pin health at a tiny non-zero so this block doesn't re-fire next frame
-  entityHealthRef.current = 0.001
+  // Keep health at zero in dead state; isDead prevents re-triggering.
+  entityHealthRef.current = 0
 
   // Transition to death state — DeathScreen component reads isDead
   ps.triggerDeath(cause, { x: dpx, y: dpy, z: dpz })

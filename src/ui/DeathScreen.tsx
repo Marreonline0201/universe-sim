@@ -31,6 +31,10 @@ const CAUSE_LABELS: Record<string, { headline: string; detail: string }> = {
     headline: 'DROWNED',
     detail:   'The depths claimed you. Avoid deep water without preparation.',
   },
+  hypothermia: {
+    headline: 'FROZEN TO DEATH',
+    detail:   'Extreme cold drained your body heat. Seek shelter, light a fire, or find warmer ground.',
+  },
 }
 
 interface DeathScreenProps {

@@ -21,19 +21,24 @@ import { Metabolism, Health } from '../ecs/world'
 // ── M5: Death System ──────────────────────────────────────────────────────────
 //
 // Death cause priority (highest → lowest):
-//   combat   — killed by creature or player attack (health dropped by external damage)
-//   infection — septic wound (bacteriaCount > SEPSIS_THRESHOLD drove health to 0)
-//   starvation — hunger reached 1.0 or thirst reached 1.0 and drained health to 0
-//   drowning — reserved for future water damage system (health 0 while submerged)
+//   combat      — killed by creature or player attack (health dropped by external damage)
+//   infection   — septic wound (bacteriaCount > SEPSIS_THRESHOLD drove health to 0)
+//   hypothermia — ambient temperature below 0°C drained health to 0
+//   starvation  — hunger reached 1.0 or thirst reached 1.0 and drained health to 0
+//   drowning    — reserved for future water damage system (health 0 while submerged)
 //
 // The last-damage-source tracker lets us attribute cause correctly.
 
-export type DeathCause = 'starvation' | 'infection' | 'combat' | 'drowning'
+export type DeathCause = 'starvation' | 'infection' | 'combat' | 'drowning' | 'hypothermia'
 
 // Set by external damage sources (creature bite, player attack) each frame they deal damage.
 // Cleared at the start of each death check. Used to determine combat kills.
 let _lastDamageSourceWasCombat = false
 let _lastDamageWasInfection    = false
+// Cold damage flag persists across frames (not reset each tick) so death check
+// can see it even though hypothermia ticks happen after the death check in the game loop.
+// Cleared only on respawn via resetColdDamageFlag().
+let _coldDamageThisLife = false
 
 export function markCombatDamage(): void {
   _lastDamageSourceWasCombat = true
@@ -43,20 +48,31 @@ export function markInfectionDamage(): void {
   _lastDamageWasInfection = true
 }
 
+export function markColdDamage(): void {
+  _coldDamageThisLife = true
+}
+
+/** Call on respawn to clear the cross-frame cold damage flag. */
+export function resetColdDamageFlag(): void {
+  _coldDamageThisLife = false
+}
+
 /** Determine death cause from current player state. Call just before clearing health. */
 export function determinDeathCause(
   ps: { hunger: number; thirst: number; wounds: Array<{ bacteriaCount: number }> }
 ): DeathCause {
   if (_lastDamageSourceWasCombat) return 'combat'
   if (_lastDamageWasInfection || ps.wounds.some(w => w.bacteriaCount > 80)) return 'infection'
+  if (_coldDamageThisLife) return 'hypothermia'
   if (ps.hunger >= 0.99 || ps.thirst >= 0.99) return 'starvation'
   return 'starvation'  // fallback
 }
 
-/** Reset damage-source flags each frame (call at start of GameLoop tick). */
+/** Reset per-frame damage-source flags (call at start of GameLoop tick). */
 export function resetDamageFlags(): void {
   _lastDamageSourceWasCombat = false
   _lastDamageWasInfection    = false
+  // NOTE: _coldDamageThisLife is NOT reset here — it persists until respawn.
 }
 
 // ── Slice 4: Food Cooking System ─────────────────────────────────────────────

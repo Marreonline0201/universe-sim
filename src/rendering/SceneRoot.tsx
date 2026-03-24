@@ -38,6 +38,8 @@ import {
   inflictWound,
   cookingProgress,
   markCombatDamage,
+  markColdDamage,
+  resetColdDamageFlag,
   resetDamageFlags,
 } from '../game/SurvivalSystems'
 import {
@@ -596,6 +598,15 @@ export function SceneRoot() {
   }, [])
 
   useEffect(() => {
+    const onPointerLockError = () => {
+      console.warn('[SceneRoot] pointerlockerror fired, bypassing click-to-play gate')
+      setBypassPointerLock(true)
+    }
+    document.addEventListener('pointerlockerror', onPointerLockError)
+    return () => document.removeEventListener('pointerlockerror', onPointerLockError)
+  }, [])
+
+  useEffect(() => {
     if (!serverWorldReady) {
       setAppliedWorldSeed(null)
       return
@@ -622,6 +633,7 @@ export function SceneRoot() {
   // M5: Respawn handler — called by DeathScreen RESPAWN button
   const handleRespawn = useCallback(() => {
     if (entityId === null) return
+    resetColdDamageFlag()  // clear cross-frame cold flag so next death is attributed correctly
     const [sx, sy, sz] = getSpawnPosition()
     executeRespawn(
       entityId,
@@ -741,7 +753,7 @@ export function SceneRoot() {
   return (
     <>
     {/* Click-to-play overlay */}
-    {!pointerLocked && !bypassPointerLock && (
+    {!pointerLocked && !bypassPointerLock && !activePanel && (
       <div
         onClick={async () => {
           try {
@@ -751,13 +763,13 @@ export function SceneRoot() {
             setBypassPointerLock(true)
             return
           }
-          // If pointer lock fails (e.g., in automated contexts), allow bypass after 1 second
+          // If pointer lock fails (e.g., browser/embed limitations), bypass quickly.
           setTimeout(() => {
             if (!document.pointerLockElement) {
               console.warn('[SceneRoot] Pointer lock failed, bypassing requirement')
               setBypassPointerLock(true)
             }
-          }, 1000)
+          }, 250)
         }}
         style={{
           position: 'fixed', inset: 0, zIndex: 50,
@@ -2069,7 +2081,7 @@ function GameLoop({ controllerRef, simManagerRef, entityId }: GameLoopProps) {
         if (newTemp < 0) {
           const coldDps = wState === 'STORM' ? 1.5 : 0.5
           Health.current[entityId] = Math.max(0, Health.current[entityId] - coldDps * dt)
-          markCombatDamage()  // mark so death attributes to environmental cause (combat)
+          markColdDamage()  // mark so death attributes to hypothermia
         }
       }
     }

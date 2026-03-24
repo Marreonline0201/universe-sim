@@ -84,11 +84,11 @@ interface PlayerState {
 
   // Death + Respawn system (M5)
   isDead: boolean
-  deathCause: 'starvation' | 'infection' | 'combat' | 'drowning' | null
+  deathCause: 'starvation' | 'infection' | 'combat' | 'drowning' | 'hypothermia' | null
   deathPos: { x: number; y: number; z: number } | null
   bedrollPos: { x: number; y: number; z: number } | null
   murderCount: number
-  triggerDeath: (cause: 'starvation' | 'infection' | 'combat' | 'drowning', pos: { x: number; y: number; z: number }) => void
+  triggerDeath: (cause: 'starvation' | 'infection' | 'combat' | 'drowning' | 'hypothermia', pos: { x: number; y: number; z: number }) => void
   clearDeath: () => void
   setBedrollPos: (pos: { x: number; y: number; z: number } | null) => void
   incrementMurderCount: () => void

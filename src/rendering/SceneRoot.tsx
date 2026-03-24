@@ -1019,6 +1019,11 @@ function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }: GameLo
     // M5: Reset damage-source flags at frame start so this frame's damage is tracked fresh
     resetDamageFlags()
 
+    // Pause all game logic when the CLICK TO PLAY overlay is visible (B-08 fix).
+    // Prevents creatures, metabolism, and death from running while the player
+    // has not yet pointer-locked into the game.
+    if (!gameActive) return
+
     // Admin spectate overrides player camera
     if (spectateTarget) {
       camera.position.set(spectateTarget.x, spectateTarget.y + 20, spectateTarget.z + 15)
@@ -1124,8 +1129,6 @@ function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }: GameLo
     }
 
     // 3. Metabolism (hunger, thirst, fatigue, health regen)
-    // Skip vitals drain when the CLICK TO PLAY overlay is visible (B-NEW-2 fix)
-    if (!gameActive) return
     setMetabolismDt(dt)
     MetabolismSystem(world)
 

@@ -702,6 +702,11 @@ export function tickQuenching(
   px: number, py: number, pz: number,
   inRiver = false,
 ): void {
+  // God mode: skip all quench mechanics — removeItem is a no-op in god mode,
+  // so hot_steel_ingot would never be consumed and the missed-quench notification
+  // would fire every frame (B-15).
+  if (inv.isGodMode()) return
+
   const ps = usePlayerStore.getState()
 
   // Find hot_steel_ingot in inventory

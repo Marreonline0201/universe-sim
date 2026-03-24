@@ -23,11 +23,14 @@ export async function loadSave(getToken: () => Promise<string | null>) {
   const data = await res.json()
   if (!data.exists) return false
 
+  // Avoid restoring an invalid "alive with 0 HP" state from stale saves.
+  const loadedHealth = typeof data.health === 'number' && data.health > 0 ? data.health : 1
+
   const ps = usePlayerStore.getState()
   const gs = useGameStore.getState()
 
   // Vitals & stats
-  ps.updateVitals({ health: data.health, hunger: data.hunger, thirst: data.thirst, energy: data.energy, fatigue: data.fatigue })
+  ps.updateVitals({ health: loadedHealth, hunger: data.hunger, thirst: data.thirst, energy: data.energy, fatigue: data.fatigue })
   ps.setCivTier(data.civTier)
   ps.setCurrentGoal(data.currentGoal)
   data.discoveries.forEach((d: string) => ps.addDiscovery(d))
@@ -99,7 +102,7 @@ export async function loadSave(getToken: () => Promise<string | null>) {
   const entityId = usePlayerStore.getState().entityId
   if (entityId !== null) {
     const maxHp = Health.max[entityId] || 100
-    Health.current[entityId]         = (data.health ?? 1) * maxHp
+    Health.current[entityId]         = loadedHealth * maxHp
     Metabolism.hunger[entityId]      = data.hunger  ?? 0
     Metabolism.thirst[entityId]      = data.thirst  ?? 0
     Metabolism.energy[entityId]      = data.energy  ?? 1

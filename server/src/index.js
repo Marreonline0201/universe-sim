@@ -34,7 +34,7 @@ const HOME_WORLD_SEED = parseInt(process.env.HOME_WORLD_SEED ?? '42', 10)
 const clock    = new WorldClock()
 const players  = new PlayerRegistry()
 const npcs     = new NpcManager()
-const scheduler = new BroadcastScheduler(clock, players, npcs)
+const scheduler = new BroadcastScheduler(clock, players, npcs, HOME_WORLD_SEED)
 const slack       = new SlackAgent(clock, players, npcs)
 const nodeSync    = new NodeStateSync()
 const npcMemory   = new NpcMemory()
@@ -223,11 +223,25 @@ async function main() {
   // ── HTTP + WebSocket Server ───────────────────────────────────────────────────
 
   const httpServer = createServer((req, res) => {
+    // Always expose CORS headers for browser clients polling this endpoint.
+    res.setHeader('Access-Control-Allow-Origin', '*')
+    res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS')
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
+
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204)
+      res.end()
+      return
+    }
+
+    // Normalize path so both /status and //status are treated identically.
+    const rawPath = (req.url ?? '/').split('?')[0]
+    const normalizedPath = rawPath.replace(/\/{2,}/g, '/')
+
     // Bootstrap status endpoint (CORS-open so client can poll pre-auth)
-    if (req.url === '/status') {
+    if (normalizedPath === '/status') {
       res.writeHead(200, {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
       })
       res.end(JSON.stringify({
         bootstrapPhase:    clock.bootstrapPhase,

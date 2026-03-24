@@ -22,10 +22,11 @@ export class BroadcastScheduler {
    * @param {import('./PlayerRegistry.js').PlayerRegistry} players
    * @param {import('./NpcManager.js').NpcManager} npcs
    */
-  constructor(clock, players, npcs) {
+  constructor(clock, players, npcs, worldSeed = 42) {
     this._clock = clock
     this._players = players
     this._npcs = npcs
+    this._worldSeed = worldSeed
     this._interval = null
     // Pending batch queue — filled by enqueueBatch(), drained each tick
     this._batchQueue = []
@@ -71,6 +72,7 @@ export class BroadcastScheduler {
       epoch: this._clock.epoch,
       timeScale: this._clock.timeScale,
       paused: this._clock.paused,
+      worldSeed: this._worldSeed,
       bootstrapPhase: this._clock.bootstrapPhase,
       bootstrapProgress: this._clock.bootstrapProgress,
       players: this._players.getAll(),

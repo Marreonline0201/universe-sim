@@ -1510,11 +1510,16 @@ function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }: GameLo
       }
     }
 
-    // ── Ambient temperature update ────────────────────────────────────────────
+    // ── Ambient temperature update (fire warmth only) ────────────────────────
+    // Only let the sim grid override ambient temp UPWARD (fire/heat source nearby).
+    // Letting the cold sim-grid cells overwrite ambient every frame negates the
+    // weather-recovery code below (B-11 fix).
     if (simManagerRef.current) {
-      const ps = usePlayerStore.getState()
-      const tempC = simManagerRef.current.getTemperatureAt(ps.x, ps.y, ps.z)
-      usePlayerStore.getState().setAmbientTemp(tempC)
+      const simTemp = simManagerRef.current.getTemperatureAt(px, py, pz)
+      const curAmbient = usePlayerStore.getState().ambientTemp
+      if (simTemp > curAmbient + 2) {
+        usePlayerStore.getState().setAmbientTemp(simTemp)
+      }
     }
 
     // ── Slice 4: Food cooking thermodynamics ──────────────────────────────────

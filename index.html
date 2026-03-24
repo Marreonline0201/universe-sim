@@ -17,6 +17,16 @@
       window.addEventListener('unhandledrejection', function(e) {
         var r = e.reason;
         var msg = r ? (r.stack || String(r)) : 'Unknown rejection';
+        
+        // Ignore pointer lock errors (expected in automated/restricted contexts)
+        if (msg.includes('pointer lock') || msg.includes('WrongDocumentError')) {
+          console.warn('[Universe Sim] Pointer lock error (ignoring):', msg);
+          e.preventDefault();
+          // Signal to React that pointer lock failed - set a global flag
+          window.__POINTER_LOCK_FAILED__ = true;
+          return;
+        }
+        
         document.getElementById('root').innerHTML =
           '<pre style="color:#f55;background:#111;padding:24px;font:13px monospace;position:fixed;inset:0;z-index:9999;overflow:auto;white-space:pre-wrap"><b>UNHANDLED REJECTION — UNIVERSE SIM</b>\n\n' + msg + '</pre>';
       });

@@ -507,6 +507,7 @@ export function SceneRoot() {
   const serverWorldReady = useMultiplayerStore(s => s.serverWorldReady)
   const [appliedWorldSeed, setAppliedWorldSeed] = useState<number | null>(null)
   const [pointerLocked, setPointerLocked] = useState(false)
+  const [bypassPointerLock, setBypassPointerLock] = useState(false)
   const [simManager, setSimManager] = useState<LocalSimManager | null>(null)
   // M11: day angle forwarded from DayNightCycle to NightSkyRenderer + TelescopeView
   const [dayAngle, setDayAngle] = useState(Math.PI * 0.6)
@@ -514,6 +515,17 @@ export function SceneRoot() {
   const [telescopeOpen, setTelescopeOpen] = useState(false)
   // M12: Velar anomaly signal state — populated when ANOMALY_SIGNAL received
   const [anomalySignal, setAnomalySignal] = useState<AnomalySignalData | null>(null)
+
+  // Check for global pointer lock failure flag
+  useEffect(() => {
+    const checkInterval = setInterval(() => {
+      if ((window as any).__POINTER_LOCK_FAILED__) {
+        setBypassPointerLock(true)
+        clearInterval(checkInterval)
+      }
+    }, 100)
+    return () => clearInterval(checkInterval)
+  }, [])
 
   // M14: Transit state
   const transitPhase    = useTransitStore(s => s.phase)
@@ -726,9 +738,24 @@ export function SceneRoot() {
   return (
     <>
     {/* Click-to-play overlay */}
-    {!pointerLocked && (
+    {!pointerLocked && !bypassPointerLock && (
       <div
-        onClick={() => controllerRef.current?.requestPointerLock()}
+        onClick={async () => {
+          try {
+            controllerRef.current?.requestPointerLock()
+          } catch (err) {
+            console.warn('[SceneRoot] Pointer lock request failed:', err)
+            setBypassPointerLock(true)
+            return
+          }
+          // If pointer lock fails (e.g., in automated contexts), allow bypass after 1 second
+          setTimeout(() => {
+            if (!document.pointerLockElement) {
+              console.warn('[SceneRoot] Pointer lock failed, bypassing requirement')
+              setBypassPointerLock(true)
+            }
+          }, 1000)
+        }}
         style={{
           position: 'fixed', inset: 0, zIndex: 50,
           display: 'flex', alignItems: 'center', justifyContent: 'center',

@@ -160,6 +160,7 @@ export function tickFoodCooking(
       addNotification(`🔥 Cooking... ${pct}%`, 'info')
     }
   }
+}
 
 // Eat cooked meat from inventory → restore hunger bar
 export function tryEatFood(inv: Inventory, entityId: number): boolean {

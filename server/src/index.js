@@ -20,6 +20,7 @@ import { SeasonSystem } from './SeasonSystem.js'
 import { TradeEconomy } from './TradeEconomy.js'
 import { migrateSchema as migrateDiscoverySchema, recordDecode, recordProbe } from './DiscoveryDb.js'
 import { UniverseRegistry } from './UniverseRegistry.js'
+import * as AgentBus from './AgentBus.js'
 
 const PORT = parseInt(process.env.PORT ?? '8080', 10)
 const PERSIST_INTERVAL_MS = 30_000 // save simTime to DB every 30 s
@@ -225,7 +226,7 @@ async function main() {
   const httpServer = createServer((req, res) => {
     // Always expose CORS headers for browser clients polling this endpoint.
     res.setHeader('Access-Control-Allow-Origin', '*')
-    res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS')
+    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS')
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
 
     if (req.method === 'OPTIONS') {
@@ -237,6 +238,29 @@ async function main() {
     // Normalize path so both /status and //status are treated identically.
     const rawPath = (req.url ?? '/').split('?')[0]
     const normalizedPath = rawPath.replace(/\/{2,}/g, '/')
+
+    // Agent status update from Claude subagents
+    if (req.method === 'POST' && normalizedPath === '/agent') {
+      let body = ''
+      req.on('data', chunk => body += chunk)
+      req.on('end', () => {
+        try {
+          const data = JSON.parse(body)
+          const state = AgentBus.updateAgent(data.agentId, data.status, data.task, data.message, data.to)
+          wss.clients.forEach(client => {
+            if (client.readyState === WebSocket.OPEN) {
+              client.send(JSON.stringify({ type: 'AGENT_UPDATE', ...state }))
+            }
+          })
+          res.writeHead(200, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ ok: true }))
+        } catch (e) {
+          res.writeHead(400, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ ok: false, error: String(e) }))
+        }
+      })
+      return
+    }
 
     // Bootstrap status endpoint (CORS-open so client can poll pre-auth)
     if (normalizedPath === '/status') {

@@ -12,6 +12,7 @@
 // they continue to broadcast immediately via broadcastAll() / broadcast().
 
 import { WebSocket } from 'ws'
+import * as AgentBus from './AgentBus.js'
 
 const BROADCAST_HZ = 10
 const BROADCAST_MS = 1000 / BROADCAST_HZ
@@ -77,6 +78,7 @@ export class BroadcastScheduler {
       bootstrapProgress: this._clock.bootstrapProgress,
       players: this._players.getAll(),
       npcs: this._npcs.getAll(),
+      agentState: AgentBus.getState(),
     })
 
     this._players.forEachSocket((ws) => {

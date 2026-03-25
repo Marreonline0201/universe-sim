@@ -18,6 +18,24 @@ export interface StatusNpc {
   hunger: number
 }
 
+export interface AgentEntry {
+  status: 'active' | 'idle' | 'blocked' | 'done' | string
+  task: string
+  lastSeen: number
+}
+
+export interface AgentMessage {
+  from: string
+  to: string | null
+  text: string
+  ts: number
+}
+
+export interface AgentState {
+  agents: Record<string, AgentEntry>
+  messages: AgentMessage[]
+}
+
 export interface WorldStatus {
   connected: boolean
   epoch: string
@@ -28,12 +46,19 @@ export interface WorldStatus {
   bootstrapProgress: number
   players: StatusPlayer[]
   npcs: StatusNpc[]
+  agentState: AgentState
 }
 
 const VIEWER_ID   = '__status_viewer__'
 const VIEWER_NAME = '~observer'
 
 const WS_URL = (import.meta as any).env?.VITE_WS_URL as string | undefined
+
+const AGENT_IDS = ['chemistry', 'biology', 'physics', 'civilization', 'ai', 'world']
+const EMPTY_AGENTS: AgentState = {
+  agents: Object.fromEntries(AGENT_IDS.map(id => [id, { status: 'idle', task: '', lastSeen: 0 }])),
+  messages: [],
+}
 
 const INITIAL: WorldStatus = {
   connected:         false,
@@ -45,6 +70,7 @@ const INITIAL: WorldStatus = {
   bootstrapProgress: 1,
   players:           [],
   npcs:              [],
+  agentState:        EMPTY_AGENTS,
 }
 
 export function useStatusSocket(): WorldStatus {
@@ -78,7 +104,7 @@ export function useStatusSocket(): WorldStatus {
 
           if (msg.type === 'WORLD_SNAPSHOT') {
             const allPlayers = (msg.players ?? []) as StatusPlayer[]
-            setState({
+            setState(s => ({
               connected:         true,
               epoch:             (msg.epoch as string)            ?? 'stellar',
               simTime:           (msg.simTime as number)          ?? 0,
@@ -88,7 +114,18 @@ export function useStatusSocket(): WorldStatus {
               bootstrapProgress: (msg.bootstrapProgress as number) ?? 1,
               players:           allPlayers.filter(p => p.userId !== VIEWER_ID),
               npcs:              (msg.npcs as StatusNpc[])        ?? [],
-            })
+              agentState:        (msg.agentState as AgentState)   ?? s.agentState,
+            }))
+          }
+
+          if (msg.type === 'AGENT_UPDATE') {
+            setState(s => ({
+              ...s,
+              agentState: {
+                agents:   (msg.agents   as AgentState['agents'])   ?? s.agentState.agents,
+                messages: (msg.messages as AgentState['messages']) ?? s.agentState.messages,
+              },
+            }))
           }
         }
 

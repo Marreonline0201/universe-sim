@@ -5,6 +5,7 @@ import { SatelliteMap }  from './components/SatelliteMap'
 import { ServerStats }   from './components/ServerStats'
 import { PlayerRoster }  from './components/PlayerRoster'
 import { PlayerDetail }  from './components/PlayerDetail'
+import { AgentControlCenter } from './components/AgentControlCenter'
 
 // ── Global CSS (injected as style tag) ────────────────────────────────────────
 const GLOBAL_CSS = `
@@ -151,6 +152,24 @@ export function StatusApp() {
           }}>
             <ServerStats world={world} />
           </div>
+        </div>
+
+        {/* ── Agent Control Center ──────────────────────────────────────── */}
+        <div style={{
+          height: 190,
+          flexShrink: 0,
+          background: 'rgba(4,8,18,0.88)',
+          borderTop: '1px solid rgba(0,180,255,0.1)',
+          position: 'relative',
+          zIndex: 8,
+          backdropFilter: 'blur(6px)',
+          overflow: 'hidden',
+        }}>
+          <div style={{
+            position: 'absolute', top: 0, left: 0, right: 0, height: 1,
+            background: 'linear-gradient(90deg, transparent 0%, rgba(0,200,255,0.15) 20%, rgba(0,200,255,0.15) 80%, transparent 100%)',
+          }} />
+          <AgentControlCenter agentState={world.agentState} />
         </div>
 
         {/* ── Player roster (bottom strip) ──────────────────────────────── */}

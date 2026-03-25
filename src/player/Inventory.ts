@@ -34,6 +34,31 @@ export class Inventory {
   isGodMode() { return this._godMode }
 
   /**
+   * Check if an item can be added to the inventory WITHOUT actually adding it.
+   * Used by craft() to validate output can fit before consuming inputs (B-19 fix).
+   */
+  canAddItem(slot: InventorySlot): boolean {
+    // Try to stack onto existing matching slot
+    for (let i = 0; i < this.slots.length; i++) {
+      const s = this.slots[i]
+      if (s && s.itemId === slot.itemId && s.materialId === slot.materialId && Math.abs(s.quality - slot.quality) < 0.01) {
+        return true  // Can stack
+      }
+    }
+    // Find empty slot within current size
+    for (let i = 0; i < this.slots.length; i++) {
+      if (!this.slots[i]) {
+        return true  // Empty slot available
+      }
+    }
+    // God mode: expand slots beyond the normal 40-slot limit
+    if (this._godMode) {
+      return true
+    }
+    return false  // No space available
+  }
+
+  /**
    * Add an item to the first available slot, or stack onto an existing slot
    * with the same itemId + materialId + quality.
    * Returns true if the item was accepted, false if inventory is full.
@@ -79,6 +104,7 @@ export class Inventory {
    * Attempt to craft a recipe.
    * Checks: recipe known, all inputs present in sufficient quantity, tier met.
    * Consumes inputs and adds output.
+   * FIXED (B-19): Validates output can fit BEFORE consuming inputs to prevent resource loss.
    */
   craft(recipeId: number, currentTier = 0): boolean {
     const recipe = CRAFTING_RECIPES.find(r => r.id === recipeId)
@@ -91,6 +117,18 @@ export class Inventory {
       for (const input of recipe.inputs) {
         if (this.countMaterial(input.materialId) < input.quantity) return false
       }
+    }
+
+    // B-19 FIX: Validate output can fit BEFORE consuming inputs
+    const isMaterialOutput = recipe.output.isMaterial === true
+    const outputSlot: InventorySlot = {
+      itemId:     isMaterialOutput ? 0 : recipe.output.itemId,
+      materialId: isMaterialOutput ? recipe.output.itemId : 0,
+      quantity:   recipe.output.quantity,
+      quality:    0.7,
+    }
+    if (!this.canAddItem(outputSlot)) {
+      return false  // Output won't fit; abort without consuming inputs
     }
 
     // Consume inputs (skipped in god mode — materials never depleted)
@@ -110,18 +148,8 @@ export class Inventory {
       }
     }
 
-    // Add output.
-    // Recipes that produce raw materials set isMaterial: true on their output —
-    // store them as raw-material slots (itemId: 0) so subsequent recipes can consume them.
-    // All other outputs are manufactured items — store with materialId: 0 to avoid
-    // being mistakenly found by material searches.
-    const isMaterialOutput = recipe.output.isMaterial === true
-    return this.addItem({
-      itemId:     isMaterialOutput ? 0 : recipe.output.itemId,
-      materialId: isMaterialOutput ? recipe.output.itemId : 0,
-      quantity:   recipe.output.quantity,
-      quality:    0.7,
-    })
+    // Add output (now guaranteed to succeed because we validated above)
+    return this.addItem(outputSlot)
   }
 
   /** Remove items unconditionally — used for Drop (bypasses god mode protection). */

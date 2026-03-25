@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 
-export type PanelId = 'inventory' | 'crafting' | 'tech' | 'evolution' | 'journal' | 'character' | 'map' | 'settings' | 'build' | 'science'
+export type PanelId = 'inventory' | 'crafting' | 'journal' | 'character' | 'map' | 'settings' | 'build' | 'science'
 
 export interface Notification {
   id: number

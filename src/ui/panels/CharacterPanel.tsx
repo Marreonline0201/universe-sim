@@ -3,7 +3,7 @@
 
 import { usePlayerStore } from '../../store/playerStore'
 import { useGameStore } from '../../store/gameStore'
-import { evolutionTree, civTracker } from '../../game/GameSingletons'
+import { civTracker } from '../../game/GameSingletons'
 
 const TIER_NAMES = [
   'Stone Age', 'Bronze Age', 'Iron Age', 'Classical', 'Medieval',
@@ -60,10 +60,9 @@ function GenomeHeatmap({ mods }: { mods: Array<{ startBit: number; count: number
 }
 
 export function CharacterPanel() {
-  const { health, hunger, thirst, energy, fatigue, evolutionPoints, currentGoal, civTier, x, y, z } = usePlayerStore()
+  const { health, hunger, thirst, energy, fatigue, currentGoal, civTier, x, y, z } = usePlayerStore()
   const { epoch } = useGameStore()
-  const unlockedCount = evolutionTree.getUnlocked().length
-  const genomeMods = evolutionTree.getGenomeModifications()
+  const genomeMods: Array<{ startBit: number; count: number; targetValue: number }> = []
   const civs = civTracker.getAllCivilizations()
   const playerCiv = civs[0] ?? null
 
@@ -84,10 +83,6 @@ export function CharacterPanel() {
         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
           <span style={{ fontSize: 11, color: '#aaa' }}>Civilization Tier</span>
           <span style={{ fontSize: 11, color: '#f1c40f' }}>{TIER_NAMES[civTier] ?? civTier}</span>
-        </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-          <span style={{ fontSize: 11, color: '#aaa' }}>Evolutions</span>
-          <span style={{ fontSize: 11, color: '#9b59b6' }}>{unlockedCount} unlocked</span>
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
           <span style={{ fontSize: 11, color: '#aaa' }}>Position</span>
@@ -117,12 +112,6 @@ export function CharacterPanel() {
         <StatBar label="Hydration" value={thirst}     color="#3498db" invert />
         <StatBar label="Energy"   value={energy}      color="#2ecc71" />
         <StatBar label="Stamina"  value={fatigue}     color="#9b59b6" invert />
-        <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span style={{ fontSize: 10, color: '#555' }}>EP</span>
-          <span style={{ fontSize: 13, color: '#f1c40f', fontWeight: 700 }}>
-            {evolutionPoints.toLocaleString()}
-          </span>
-        </div>
       </div>
 
       {/* Civilization membership */}

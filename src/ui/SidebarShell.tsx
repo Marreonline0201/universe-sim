@@ -12,8 +12,6 @@ import { tryEatFood } from '../game/SurvivalSystems'
 import { inventory } from '../game/GameSingletons'
 import { InventoryPanel } from './panels/InventoryPanel'
 import { CraftingPanel } from './panels/CraftingPanel'
-import { TechTreePanel } from './panels/TechTreePanel'
-import { EvolutionPanel } from './panels/EvolutionPanel'
 import { JournalPanel } from './panels/JournalPanel'
 import { CharacterPanel } from './panels/CharacterPanel'
 import { MapPanel } from './panels/MapPanel'
@@ -25,8 +23,6 @@ const PANEL_LABEL: Record<PanelId, string> = {
   inventory: 'INVENTORY',
   crafting:  'CRAFTING',
   build:     'BUILD',
-  tech:      'TECH TREE',
-  evolution: 'EVOLUTION',
   journal:   'JOURNAL',
   character: 'CHARACTER',
   map:       'MAP',
@@ -41,8 +37,6 @@ const ICON_BUTTONS: Array<{ id: PanelId; icon: string; hint: string }> = [
   { id: 'inventory',  icon: 'INV',  hint: 'Inventory (I)' },
   { id: 'crafting',   icon: 'CRF',  hint: 'Crafting (C)' },
   { id: 'build',      icon: 'BLD',  hint: 'Build (B)' },
-  { id: 'tech',       icon: 'TEC',  hint: 'Tech Tree (T)' },
-  { id: 'evolution',  icon: 'EVO',  hint: 'Evolution (E)' },
   { id: 'journal',    icon: 'JRN',  hint: 'Journal (J)' },
   { id: 'character',  icon: 'CHR',  hint: 'Character (Tab)' },
   { id: 'map',        icon: 'MAP',  hint: 'Map (M)' },
@@ -54,8 +48,6 @@ const PANEL_COMPONENTS: Record<PanelId, React.ComponentType> = {
   inventory:  InventoryPanel,
   crafting:   CraftingPanel,
   build:      BuildPanel,
-  tech:       TechTreePanel,
-  evolution:  EvolutionPanel,
   journal:    JournalPanel,
   character:  CharacterPanel,
   map:        MapPanel,
@@ -89,18 +81,13 @@ export function SidebarShell() {
         case 'i': case 'I':   e.preventDefault(); togglePanel('inventory');  break
         case 'c': case 'C':   e.preventDefault(); togglePanel('crafting');   break
         case 'b': case 'B':   e.preventDefault(); togglePanel('build');      break
-        case 't': case 'T':   e.preventDefault(); togglePanel('tech');       break
         case 'e': case 'E':
-          // Try to eat first (works even without pointer lock for browser testing)
-          // If pointer is locked, let PlayerController handle it
+          // Try to eat (works even without pointer lock for browser testing)
           if (!document.pointerLockElement) {
             e.preventDefault()
             const ps = usePlayerStore.getState()
             const eid = ps.entityId
-            if (eid && !tryEatFood(inventory, eid)) {
-              // No food eaten, open Evolution panel as fallback
-              togglePanel('evolution')
-            }
+            if (eid) tryEatFood(inventory, eid)
           }
           break
         case 'j': case 'J':   e.preventDefault(); togglePanel('journal');    break

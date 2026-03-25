@@ -4,7 +4,7 @@
  */
 import { usePlayerStore } from './playerStore'
 import { useGameStore } from './gameStore'
-import { inventory, techTree, evolutionTree, journal, buildingSystem } from '../game/GameSingletons'
+import { inventory, journal, buildingSystem } from '../game/GameSingletons'
 import { Health, Metabolism, Position } from '../ecs/world'
 import { rapierWorld } from '../physics/RapierWorld'
 import { PLANET_RADIUS } from '../world/SpherePlanet'
@@ -36,7 +36,6 @@ export async function loadSave(getToken: () => Promise<string | null>) {
   if (Array.isArray(data.discoveries)) {
     usePlayerStore.setState({ discoveries: new Set<string>(data.discoveries) })
   }
-  ps.addEvolutionPoints(data.evolutionPoints)
   gs.setSimSeconds(data.simSeconds)
 
   // Position (was saved but never restored — fixed)
@@ -46,21 +45,6 @@ export async function loadSave(getToken: () => Promise<string | null>) {
   if (Array.isArray(data.inventory) && data.inventory.length > 0) {
     inventory.loadSlots(data.inventory)
   }
-
-  // Tech tree: researched nodes + in-progress research
-  if (Array.isArray(data.techTree) && data.techTree.length > 0) {
-    techTree.loadResearched(data.techTree)
-  }
-  if (Array.isArray(data.techTreeInProgress) && data.techTreeInProgress.length > 0) {
-    techTree.loadInProgress(data.techTreeInProgress)
-  }
-
-  // Evolution tree: unlocked nodes + sync points to class instance
-  if (Array.isArray(data.evolutionTree) && data.evolutionTree.length > 0) {
-    evolutionTree.loadUnlocked(data.evolutionTree)
-  }
-  // Sync EP to the EvolutionTree class (separate from playerStore)
-  evolutionTree.addPoints(data.evolutionPoints ?? 0)
 
   // Known crafting recipes
   if (Array.isArray(data.knownRecipes) && data.knownRecipes.length > 0) {
@@ -128,8 +112,6 @@ export async function loadSave(getToken: () => Promise<string | null>) {
   const savedGodMode = localStorage.getItem(GOD_MODE_KEY) === 'true'
   if (savedGodMode) {
     inventory.setGodMode(true)
-    evolutionTree.setGodMode(true)
-    techTree.setGodMode(true)
   }
 
   return true
@@ -147,15 +129,11 @@ export async function saveGame(getToken: () => Promise<string | null>, username:
       x: ps.x, y: ps.y, z: ps.z,
       health: ps.health, hunger: ps.hunger, thirst: ps.thirst,
       energy: ps.energy, fatigue: ps.fatigue,
-      evolutionPoints: ps.evolutionPoints,
       civTier: ps.civTier,
       discoveries: Array.from(ps.discoveries),
       currentGoal: ps.currentGoal,
       simSeconds: gs.simSeconds,
       inventory: inventory.listItems(),
-      techTree: techTree.getResearchedIds(),
-      techTreeInProgress: techTree.getInProgressData(),
-      evolutionTree: evolutionTree.getUnlockedIds(),
       knownRecipes: inventory.getKnownRecipes(),
       journalEntries: journal.getAll(),
       buildings: buildingSystem.getAllBuildings(),

@@ -544,7 +544,7 @@ function ReactorWidget() {
 
 export function HUD() {
   const { paused, simTime, epoch } = useGameStore()
-  const { health, hunger, thirst, energy, fatigue, ambientTemp, evolutionPoints, equippedSlot, equippedArmorSlot, equipArmor, unequipArmor, wounds, isSleeping, quenchSecondsRemaining } = usePlayerStore()
+  const { health, hunger, thirst, energy, fatigue, ambientTemp, equippedSlot, equippedArmorSlot, equipArmor, unequipArmor, wounds, isSleeping, quenchSecondsRemaining } = usePlayerStore()
   const { connectionStatus, remotePlayers } = useMultiplayerStore()
   const weatherSectors = useWeatherStore(s => s.sectors)
   const weatherPlayerSectorId = useWeatherStore(s => s.playerSectorId)
@@ -673,9 +673,6 @@ export function HUD() {
                 ? `${remotePlayers.size}P`
                 : connectionStatus === 'connecting' ? '...' : 'OFF'}
             </span>
-          </div>
-          <div style={{ fontSize: 9, color: 'rgba(241,196,15,0.7)', letterSpacing: 1 }}>
-            EP {evolutionPoints.toLocaleString()}
           </div>
           {/* ── M8: Weather widget ── */}
           <WeatherWidget state={weatherState} tempC={weatherTemp} />

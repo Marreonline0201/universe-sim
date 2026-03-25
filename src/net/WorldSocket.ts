@@ -14,7 +14,7 @@ import { useSeasonStore } from '../store/seasonStore'
 import type { SeasonState } from '../store/seasonStore'
 import { useShopStore } from '../store/shopStore'
 import type { ShopCatalogItem } from '../store/shopStore'
-import { inventory, techTree } from '../game/GameSingletons'
+import { inventory } from '../game/GameSingletons'
 import type { LocalSimManager } from '../engine/LocalSimManager'
 import { useDiplomacyStore } from '../store/diplomacyStore'
 import { receiveRadioBroadcast, registerTower } from '../game/RadioSystem'
@@ -456,7 +456,6 @@ export class WorldSocket {
           `Iron Age dawns! ${name} has mastered iron smelting. Open Build panel to place a Blast Furnace (8x Stone + 4x Iron Ore + 2x Clay).`,
           'discovery'
         )
-        techTree.markResearched('iron_smelting')
         break
       }
 
@@ -471,7 +470,6 @@ export class WorldSocket {
           `Steel Age dawns! ${steelName} has mastered carburization (Fe + C → steel). Heat iron ingot + charcoal to 1200°C in blast furnace, then QUENCH in water within 30s!`,
           'discovery'
         )
-        techTree.markResearched('steel_making')
         // Pre-discover steel recipes
         inventory.discoverRecipe(71)  // steel sword
         inventory.discoverRecipe(72)  // steel chestplate
@@ -555,9 +553,6 @@ export class WorldSocket {
           `Civilization Age! ${msg.settlementName as string} has elected mayor ${msg.mayorName as string}. City walls and diplomacy are now possible.`,
           'discovery'
         )
-        // Unlock gunpowder + telescope knowledge when first mayor is appointed
-        techTree.markResearched('industrial_chemistry')  // 'chemistry' key → 'industrial_chemistry' node
-        techTree.markResearched('optics_basic')          // 'optics' key → 'optics_basic' node
         inventory.discoverRecipe(88)   // gunpowder
         inventory.discoverRecipe(89)   // musket
         inventory.discoverRecipe(90)   // musket balls
@@ -612,10 +607,6 @@ export class WorldSocket {
           `Space Age! ${sName} has reached Civilization Level 6. Generators, radio towers, and rocket launches are now possible!`,
           'discovery'
         )
-        techTree.markResearched('transistor')           // 'electronics' key → 'transistor' node
-        techTree.markResearched('integrated_circuit')   // 'electronics' key also → 'integrated_circuit'
-        techTree.markResearched('rocketry')             // 'aerospace' key → 'rocketry' node ✓
-        techTree.markResearched('nuclear_fission')      // 'nuclear_physics' key → 'nuclear_fission' node
         inventory.discoverRecipe(93)   // circuit board
         inventory.discoverRecipe(94)   // generator (building)
         inventory.discoverRecipe(95)   // radio tower (building)
@@ -685,8 +676,7 @@ export class WorldSocket {
           `First Contact! ${decoderName} has decoded the Velar signal. The universe is not empty.`,
           'discovery'
         )
-        // Unlock M14 Velar Crystal + Velar Key recipes (gate: velar_decoded knowledge)
-        techTree.markResearched('velar_decoded')
+        // Unlock M14 Velar Crystal + Velar Key recipes
         inventory.discoverRecipe(104)  // Velar Crystal
         inventory.discoverRecipe(105)  // Velar Key
         // Dispatch event so HUD can show FirstContactOverlay

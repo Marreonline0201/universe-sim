@@ -17,10 +17,8 @@ import { world, createPlayerEntity, createCreatureEntity, Metabolism, Health, Po
 import { removeComponent, removeEntity } from 'bitecs'
 import { PlayerController } from '../player/PlayerController'
 import { MetabolismSystem, setMetabolismDt } from '../ecs/systems/MetabolismSystem'
-import { inventory, buildingSystem, techTree, evolutionTree, journal } from '../game/GameSingletons'
-import { TECH_NODES } from '../civilization/TechTree'
+import { inventory, buildingSystem, journal } from '../game/GameSingletons'
 import { DISCOVERIES } from '../player/DiscoveryJournal'
-import { TECH_TO_DISCOVERY } from '../civilization/TechDiscoveries'
 import { MAT, ITEM } from '../player/Inventory'
 import { BUILDING_TYPES, setReactorCallbacks } from '../civilization/BuildingSystem'
 import { getItemStats, canHarvest } from '../player/EquipSystem'
@@ -975,35 +973,17 @@ function DeathScreenWrapper({ onRespawn }: { onRespawn: () => void }) {
 // ── Per-frame game loop (runs inside Canvas so useFrame works) ────────────────
 
 // Apply cumulative ECS stat bonuses from all unlocked evolution nodes.
-// Called whenever the unlocked node set changes. Always recalculates from
-// base values so repeated calls are idempotent (no double-counting).
+// Primitive organism base stats — fixed values, no upgrade gates.
+// Evolution emerges from the mutation engine and chemistry, not from menus.
 function applyEvolutionEffects(eid: number): void {
   const BASE_HP    = 100
   const BASE_REGEN = 0.1   // HP/s
-  const BASE_RATE  = 0.07  // metabolicRate (≈ 70 kg × 0.001)
+  const BASE_RATE  = 0.07  // metabolicRate
 
-  let maxHp   = BASE_HP
-  let regen   = BASE_REGEN
-  let metRate = BASE_RATE
-
-  for (const node of evolutionTree.getUnlocked()) {
-    switch (node.id) {
-      case 'thick_hide':          maxHp += 20; regen += 0.03; break
-      case 'armor_plating':       maxHp += 40; regen += 0.05; break
-      case 'size_increase_1':     maxHp += 25; break
-      case 'size_increase_2':     maxHp += 50; break
-      case 'endothermy':          maxHp += 15; metRate *= 1.15; break
-      case 'fat_reserves':        metRate *= 0.70; break
-      case 'efficient_digestion': regen  += 0.04; metRate *= 0.85; break
-      case 'four_limbs':          maxHp += 10; break
-      case 'upright_posture':     maxHp += 10; break
-    }
-  }
-
-  Health.max[eid]                = maxHp
-  if (Health.current[eid] > maxHp) Health.current[eid] = maxHp
-  Health.regenRate[eid]          = regen
-  Metabolism.metabolicRate[eid]  = metRate
+  Health.max[eid]               = BASE_HP
+  if (Health.current[eid] > BASE_HP) Health.current[eid] = BASE_HP
+  Health.regenRate[eid]         = BASE_REGEN
+  Metabolism.metabolicRate[eid] = BASE_RATE
 }
 
 interface GameLoopProps {
@@ -1017,7 +997,6 @@ function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }: GameLo
   const { camera } = useThree()
   const updateVitals        = usePlayerStore(s => s.updateVitals)
   const setPosition         = usePlayerStore(s => s.setPosition)
-  const addEvolutionPoints  = usePlayerStore(s => s.addEvolutionPoints)
   const setCivTier          = usePlayerStore(s => s.setCivTier)
   const spectateTarget      = useGameStore(s => s.spectateTarget)
   const placementMode       = useGameStore(s => s.placementMode)
@@ -1025,9 +1004,7 @@ function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }: GameLo
   const bumpBuildVersion    = useGameStore(s => s.bumpBuildVersion)
   // Survival system refs
   const _sleepKeyRef            = useRef(false)
-  const epAccumRef              = useRef(0)
-  const tierRef                 = useRef(0)
-  const evoUnlockedRef          = useRef(-1)  // -1 forces apply on first frame
+  const evoUnlockedRef          = useRef(-1)  // -1 triggers base stats on first frame
   const fwdVec                  = useRef(new THREE.Vector3())
   const settlementCheckTimerRef = useRef(0)   // M6: seconds since last proximity check
   const ecosystemTimerRef       = useRef(0)   // M9: seconds since last ecosystem respawn check
@@ -1186,38 +1163,9 @@ function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }: GameLo
       if (_died) return
     }
 
-    // 4a. EP trickle — 1 EP per 30 real seconds of survival
-    epAccumRef.current += dt
-    if (epAccumRef.current >= 30) {
-      epAccumRef.current -= 30
-      addEvolutionPoints(1)
-    }
-
-    // 4b-tech. Tick in-progress research (runs every frame regardless of which panel is open)
-    const simSecs = useGameStore.getState().simSeconds
-    const newlyDone = techTree.tickResearch(simSecs)
-    if (newlyDone.length > 0) {
-      for (const id of newlyDone) {
-        const node = TECH_NODES.find(n => n.id === id)
-        useUiStore.getState().addNotification(`Research complete: ${node?.name ?? id}`, 'discovery')
-        addEvolutionPoints(5 + (node?.tier ?? 0) * 3)
-        const discoveryKey = TECH_TO_DISCOVERY[id]
-        if (discoveryKey && DISCOVERIES[discoveryKey]) {
-          journal.record(DISCOVERIES[discoveryKey], simSecs)
-        }
-      }
-    }
-    // Sync civTier whenever researched tier changes (covers both normal and god-mode research)
-    const currentTier = techTree.getCurrentTier()
-    if (currentTier !== tierRef.current) {
-      tierRef.current = currentTier
-      setCivTier(currentTier)
-    }
-
-    // 4c. Evolution effects — reapply whenever new nodes are unlocked
-    const evoCount = evolutionTree.getUnlockedIds().length
-    if (evoCount !== evoUnlockedRef.current) {
-      evoUnlockedRef.current = evoCount
+    // 4b. Apply base creature stats once on first frame
+    if (evoUnlockedRef.current === -1) {
+      evoUnlockedRef.current = 0
       applyEvolutionEffects(entityId)
     }
 
@@ -1418,7 +1366,7 @@ function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }: GameLo
         }
         // Award EP for discovery gathers (ores)
         if (isOre) {
-          addEvolutionPoints(2)
+
         }
         } // end else (final hit)
       }
@@ -1736,7 +1684,7 @@ function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }: GameLo
                 inventory.addItem({ itemId: 0, materialId: MAT.HIDE, quantity: 1, quality: 0.7 })
                 creatureWander.delete(targetEid)
                 removeEntity(world, targetEid)
-                addEvolutionPoints(3)
+      
                 useUiStore.getState().addNotification('Creature killed by musket shot!', 'discovery')
               } else {
                 useUiStore.getState().addNotification(`Musket hit — ${shotResult.damage} dmg! Reloading (8s)...`, 'warning')
@@ -1774,7 +1722,7 @@ function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }: GameLo
           inventory.addItem({ itemId: 0, materialId: MAT.HIDE,     quantity: 1, quality: 0.7 })
           creatureWander.delete(nearestCreatureEid)
           removeEntity(world, nearestCreatureEid)
-          addEvolutionPoints(3)
+
           useUiStore.getState().addNotification('Creature killed — raw meat + hide collected!', 'discovery')
         } else {
           useUiStore.getState().addNotification(
@@ -1795,7 +1743,7 @@ function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }: GameLo
             for (const drop of loot) {
               inventory.addItem({ itemId: 0, materialId: drop.materialId, quantity: drop.quantity, quality: 0.8 })
             }
-            addEvolutionPoints(3)
+  
             const lootSummary = loot.map(l => `${l.quantity}x ${l.label}`).join(', ')
             useUiStore.getState().addNotification(
               `${speciesName} killed — ${lootSummary} collected!`, 'discovery'

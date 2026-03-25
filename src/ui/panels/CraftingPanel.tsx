@@ -2,75 +2,10 @@
 // Recipe browser. Filters by available materials. Crafts on button click.
 
 import { useState, useEffect } from 'react'
-import { inventory, techTree } from '../../game/GameSingletons'
+import { inventory } from '../../game/GameSingletons'
 import { CRAFTING_RECIPES, MAT, ITEM, type CraftingRecipe } from '../../player/Inventory'
-import { TECH_NODES } from '../../civilization/TechTree'
 import { usePlayerStore } from '../../store/playerStore'
 import { useUiStore } from '../../store/uiStore'
-
-/** Map each knowledge string to the tech node IDs that unlock it */
-const KNOWLEDGE_TO_TECH: Record<string, string[]> = (() => {
-  const map: Record<string, string[]> = {}
-  // Hand-coded mapping from recipe knowledgeRequired strings → tech node IDs
-  const entries: [string, string[]][] = [
-    // Tier 0 — Stone Age
-    ['tool_use',            ['stone_tools']],           // stone_tools = "Stone Knapping"
-    ['fire_making',         ['fire']],
-    ['ranged_weapons',      ['bow_arrow', 'hunting']],
-    ['agriculture',         ['agriculture']],
-    ['navigation',          ['sailing']],
-    ['carpentry',           ['wheel']],
-    ['writing',             ['writing']],
-    // Tier 1-2 — Bronze / Iron Age
-    ['pottery',             ['pottery']],
-    ['metallurgy',          ['metallurgy_copper']],
-    ['smelting',            ['metallurgy_copper']],
-    ['weapon_smithing',     ['bronze', 'iron_smelting', 'steel_making']],
-    ['armor_smithing',      ['bronze', 'iron_smelting']],
-    ['iron_smelting',       ['iron_smelting']],
-    ['steel_making',        ['steel_making']],
-    ['glassblowing',        ['glassblowing']],
-    ['materials_science',   ['steel_making', 'iron_smelting']],
-    // Tier 3-4 — Classical / Medieval
-    ['mechanics',           ['engineering_classical']],
-    ['wind_power',          ['wind_power']],
-    ['hydraulics',          ['water_power']],
-    ['optics',              ['optics_basic']],
-    ['engineering',         ['engineering_classical']],
-    // Tier 5 — Industrial
-    ['thermodynamics',      ['thermodynamics_classical']],
-    ['steam_power',         ['steam_engine']],
-    ['chemistry',           ['industrial_chemistry']],
-    ['electromagnetism',    ['electromagnetism_classical']],
-    // Tier 6-7 — Modern
-    ['nuclear_physics',     ['nuclear_fission']],
-    ['semiconductor_physics',['transistor']],
-    ['electronics',         ['transistor', 'integrated_circuit']],
-    ['logic',               ['integrated_circuit']],
-    ['aerospace',           ['rocketry']],
-    ['AI',                  ['artificial_intelligence']],
-    // Tier 8-9 — Post-Human / Transcendent
-    ['plasma_physics',      ['nuclear_fusion']],
-    ['fusion_power',        ['nuclear_fusion']],
-    ['nanotechnology',      ['nanotechnology']],
-    ['megastructure_engineering', ['megastructure']],
-    ['dyson_sphere',        ['dyson_sphere_tech']],
-    ['superintelligence',   ['agi']],
-    ['matrioshka_brain',    ['matrioshka_brain_tech']],
-    ['simulation_hypothesis',['universe_simulation_tech']],
-    ['reality_engineering', ['physical_constants_control']],
-    ['quantum_mechanics',   ['quantum_physics']],
-    ['general_relativity',  ['relativity']],
-  ]
-  for (const [k, nodes] of entries) map[k] = nodes
-  return map
-})()
-
-function hasKnowledge(key: string): boolean {
-  const techIds = KNOWLEDGE_TO_TECH[key]
-  if (!techIds) return true  // unknown key — don't gate it
-  return techIds.some(id => techTree.isResearched(id))
-}
 
 const MAT_NAMES: Record<number, string> = Object.fromEntries(
   Object.entries(MAT).map(([k, v]) => [v, k.toLowerCase().replace(/_/g, ' ')])
@@ -79,29 +14,22 @@ const ITEM_NAMES: Record<number, string> = Object.fromEntries(
   Object.entries(ITEM).map(([k, v]) => [v, k.toLowerCase().replace(/_/g, ' ')])
 )
 
-function hasAllKnowledge(recipe: CraftingRecipe): boolean {
-  return recipe.knowledgeRequired.every(k => hasKnowledge(k))
-}
-
-function canCraft(recipe: CraftingRecipe, civTier: number): boolean {
-  // God mode: all recipes craftable regardless of tier, knowledge, or materials
+function canCraft(recipe: CraftingRecipe): boolean {
   if (inventory.isGodMode()) return true
-  if (civTier < recipe.tier) return false
-  if (!hasAllKnowledge(recipe)) return false
   for (const input of recipe.inputs) {
     if (inventory.countMaterial(input.materialId) < input.quantity) return false
   }
   return true
 }
 
-function isUnlocked(recipe: CraftingRecipe, civTier: number): boolean {
-  if (inventory.isGodMode()) return true
-  return civTier >= recipe.tier && hasAllKnowledge(recipe)
+function isUnlocked(_recipe: CraftingRecipe): boolean {
+  return true
 }
 
 export function CraftingPanel() {
   const civTier = usePlayerStore(s => s.civTier)
   const addNotification = useUiStore(s => s.addNotification)
+  void civTier  // civTier kept for inventory.craft() compatibility
   const [, forceRefresh] = useState(0)
   const [filter, setFilter] = useState<'all' | 'available'>('available')
   const godMode = inventory.isGodMode()
@@ -116,7 +44,7 @@ export function CraftingPanel() {
   const [selectedRecipe, setSelectedRecipe] = useState<CraftingRecipe | null>(null)
 
   const recipes = CRAFTING_RECIPES.filter(r => {
-    if (effectiveFilter === 'available') return canCraft(r, civTier)
+    if (effectiveFilter === 'available') return canCraft(r)
     return true
   })
 
@@ -124,9 +52,7 @@ export function CraftingPanel() {
 
   function handleCraft(andEquip = false) {
     if (!selectedRecipe) return
-    // Sync the panel's tech-tree check with inventory's recipe discovery system.
-    // If the panel shows this recipe as craftable, the player has the knowledge — mark it discovered.
-    if (hasAllKnowledge(selectedRecipe)) inventory.discoverRecipe(selectedRecipe.id)
+    inventory.discoverRecipe(selectedRecipe.id)
     const prevCount = inventory.slotCount
     const prevItems = inventory.listItems().map(e => e.index)
     const ok = inventory.craft(selectedRecipe.id, civTier)
@@ -181,8 +107,8 @@ export function CraftingPanel() {
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           {recipes.map(r => {
-            const craftable = canCraft(r, civTier)
-            const unlocked  = isUnlocked(r, civTier)
+            const craftable = canCraft(r)
+            const unlocked  = isUnlocked(r)
             const active = selectedRecipe?.id === r.id
             return (
               <div
@@ -278,15 +204,15 @@ export function CraftingPanel() {
 
           <button
             onClick={() => handleCraft(false)}
-            disabled={!canCraft(selectedRecipe, civTier)}
+            disabled={!canCraft(selectedRecipe)}
             style={{
               marginTop: 8,
-              background: canCraft(selectedRecipe, civTier)
+              background: canCraft(selectedRecipe)
                 ? 'rgba(46,204,113,0.2)' : 'rgba(255,255,255,0.05)',
-              border: `1px solid ${canCraft(selectedRecipe, civTier) ? '#2ecc71' : '#444'}`,
+              border: `1px solid ${canCraft(selectedRecipe) ? '#2ecc71' : '#444'}`,
               borderRadius: 4,
-              color: canCraft(selectedRecipe, civTier) ? '#2ecc71' : '#555',
-              cursor: canCraft(selectedRecipe, civTier) ? 'pointer' : 'not-allowed',
+              color: canCraft(selectedRecipe) ? '#2ecc71' : '#555',
+              cursor: canCraft(selectedRecipe) ? 'pointer' : 'not-allowed',
               padding: '6px 0',
               fontSize: 12,
               fontFamily: 'monospace',
@@ -298,14 +224,14 @@ export function CraftingPanel() {
           {!selectedRecipe.output.isMaterial && (
             <button
               onClick={() => handleCraft(true)}
-              disabled={!canCraft(selectedRecipe, civTier)}
+              disabled={!canCraft(selectedRecipe)}
               style={{
-                background: canCraft(selectedRecipe, civTier)
+                background: canCraft(selectedRecipe)
                   ? 'rgba(52,152,219,0.25)' : 'rgba(255,255,255,0.05)',
-                border: `1px solid ${canCraft(selectedRecipe, civTier) ? '#3498db' : '#444'}`,
+                border: `1px solid ${canCraft(selectedRecipe) ? '#3498db' : '#444'}`,
                 borderRadius: 4,
-                color: canCraft(selectedRecipe, civTier) ? '#3498db' : '#555',
-                cursor: canCraft(selectedRecipe, civTier) ? 'pointer' : 'not-allowed',
+                color: canCraft(selectedRecipe) ? '#3498db' : '#555',
+                cursor: canCraft(selectedRecipe) ? 'pointer' : 'not-allowed',
                 padding: '6px 0',
                 fontSize: 11,
                 fontFamily: 'monospace',

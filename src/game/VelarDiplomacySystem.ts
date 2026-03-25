@@ -9,7 +9,7 @@
 // Trade is server-authoritative: client sends VELAR_TRADE_REQUEST, server
 // validates inventory, sends VELAR_TRADE_COMPLETED back with result.
 
-import { inventory, techTree, journal } from './GameSingletons'
+import { inventory, journal } from './GameSingletons'
 import { MAT, ITEM } from '../player/Inventory'
 import { useUiStore } from '../store/uiStore'
 import { getWorldSocket } from '../net/useWorldSocket'
@@ -63,7 +63,7 @@ export const VELAR_TRADES: VelarTrade[] = [
 let _fabricationLearned = false
 
 export function attemptLearnVelarFabrication(): boolean {
-  if (_fabricationLearned || techTree.isResearched('velar_fabrication')) {
+  if (_fabricationLearned) {
     useUiStore.getState().addNotification(
       'You have already learned Velar Fabrication techniques.',
       'info'
@@ -71,7 +71,6 @@ export function attemptLearnVelarFabrication(): boolean {
     return false
   }
 
-  techTree.markResearched('velar_fabrication')
   // Discover all Velar-tier recipes
   for (const recipeId of [106, 107, 108, 109, 110]) {
     inventory.discoverRecipe(recipeId)

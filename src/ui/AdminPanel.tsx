@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '@clerk/react'
 import { useGameStore } from '../store/gameStore'
-import { inventory, evolutionTree, techTree } from '../game/GameSingletons'
+import { inventory } from '../game/GameSingletons'
 import { MAT } from '../player/Inventory'
 import { saveGodMode } from '../store/saveStore'
 
@@ -99,8 +99,6 @@ export function AdminPanel() {
                     const next = !godMode
                     setGodMode(next)
                     inventory.setGodMode(next)
-                    evolutionTree.setGodMode(next)
-                    techTree.setGodMode(next)
                     saveGodMode(next)
                   }}
                   style={{ background: godMode ? '#16a34a' : '#374151', color: '#fff', border: `1px solid ${godMode ? '#4ade80' : '#555'}`, padding: '4px 12px', borderRadius: 4, cursor: 'pointer' }}

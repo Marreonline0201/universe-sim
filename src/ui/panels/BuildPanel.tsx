@@ -5,7 +5,7 @@
 
 import { useState, useEffect } from 'react'
 import { BUILDING_TYPES, type BuildingType } from '../../civilization/BuildingSystem'
-import { inventory, techTree, buildingSystem } from '../../game/GameSingletons'
+import { inventory, buildingSystem } from '../../game/GameSingletons'
 import { useGameStore } from '../../store/gameStore'
 import { useUiStore } from '../../store/uiStore'
 import { usePlayerStore } from '../../store/playerStore'
@@ -15,24 +15,8 @@ const MAT_NAMES: Record<number, string> = Object.fromEntries(
   Object.entries(MAT).map(([k, v]) => [v, k.toLowerCase().replace(/_/g, ' ')])
 )
 
-// Tech nodes that unlock each building tier (IDs must match TechTree TECH_NODES)
-const TIER_UNLOCK_TECHS: Record<number, string[]> = {
-  0: [],  // Stone Age — always available
-  1: ['pottery', 'sailing', 'agriculture'],
-  2: ['iron_smelting'],
-  3: ['writing', 'engineering_classical'],
-  4: ['wind_power', 'optics_basic'],
-  5: ['steam_engine', 'engineering_classical'],
-  6: ['electromagnetism_classical', 'integrated_circuit'],
-  7: ['rocketry', 'nanotechnology'],
-  8: ['nuclear_fusion', 'nanotechnology'],
-  9: ['universe_simulation_tech'],
-}
-
-function isTierUnlocked(tier: number): boolean {
-  if (tier === 0) return true
-  const techs = TIER_UNLOCK_TECHS[tier] ?? []
-  return techs.some(id => techTree.isResearched(id))
+function isTierUnlocked(_tier: number): boolean {
+  return true
 }
 
 function canAfford(bt: BuildingType): boolean {

@@ -13,8 +13,7 @@ const LABELS      = ['0.1×', '0.5×', '1×', '10×', '100×', '1k×', '10k×', 
 const HOTKEYS = [
   { key: 'I', action: 'Open Inventory' },
   { key: 'C', action: 'Open Crafting' },
-  { key: 'T', action: 'Open Tech Tree' },
-  { key: 'E', action: 'Open Evolution' },
+  { key: 'E', action: 'Eat food' },
   { key: 'J', action: 'Open Journal' },
   { key: 'Tab', action: 'Open Character' },
   { key: 'M', action: 'Open Map' },
@@ -30,7 +29,7 @@ export function SettingsPanel() {
   const { signOut } = useClerk()
   const { userId, getToken } = useAuth()
   const { paused, togglePause, timeScale, setTimeScale, flyMode, setFlyMode, adminSpeedMult, setAdminSpeedMult } = useGameStore()
-  const { health, hunger, thirst, energy, fatigue, evolutionPoints, civTier, updateVitals, addEvolutionPoints, setCivTier } = usePlayerStore()
+  const { health, hunger, thirst, energy, fatigue, civTier, updateVitals, setCivTier } = usePlayerStore()
   const addNotification = useUiStore(s => s.addNotification)
   const closePanel = useUiStore(s => s.closePanel)
   const DEV_BYPASS = import.meta.env.DEV && import.meta.env.VITE_DEV_BYPASS_AUTH === 'true'
@@ -183,19 +182,6 @@ export function SettingsPanel() {
               <span style={{ fontSize: 10, color, width: 32, textAlign: 'right' }}>{(value * 100).toFixed(0)}%</span>
             </div>
           ))}
-          {/* Evolution Points */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, marginTop: 6 }}>
-            <span style={{ fontSize: 11, color: '#888', width: 56 }}>Evo Pts</span>
-            <input
-              type="number" min={0} step={10}
-              value={evolutionPoints}
-              onChange={e => {
-                const delta = parseInt(e.target.value) - evolutionPoints
-                if (!isNaN(delta)) addEvolutionPoints(delta)
-              }}
-              style={{ width: 80, background: '#111', border: '1px solid #333', color: '#fff', borderRadius: 3, padding: '2px 6px', fontSize: 11 }}
-            />
-          </div>
           {/* Civ Tier */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
             <span style={{ fontSize: 11, color: '#888', width: 56 }}>Civ Tier</span>

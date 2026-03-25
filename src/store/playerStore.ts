@@ -14,9 +14,6 @@ interface PlayerState {
   entityId: number | null
   setEntityId: (id: number) => void
 
-  evolutionPoints: number
-  addEvolutionPoints: (ep: number) => void
-
   // Vitals (0-1 normalised)
   hunger: number
   thirst: number
@@ -98,9 +95,6 @@ interface PlayerState {
 export const usePlayerStore = create<PlayerState>((set, get) => ({
   entityId: null,
   setEntityId: (id) => set({ entityId: id }),
-
-  evolutionPoints: 0,
-  addEvolutionPoints: (ep) => set((s) => ({ evolutionPoints: Math.max(0, s.evolutionPoints + ep) })),
 
   hunger: 0,
   thirst: 0,

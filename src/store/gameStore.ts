@@ -104,8 +104,27 @@ export const useGameStore = create<GameState>((set) => ({
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
+// Absolute sim-seconds at which bootstrap completes (9.3 Gyr since Big Bang = Earth formation).
+// Server counts from this origin at 1× real-time after bootstrap.
+// Client subtracts this so the HUD shows "0" the moment Earth forms.
+const EARTH_EPOCH_SECS = 9.3e9 * 31_557_600  // ≈ 2.935e17 s
+
 /** Format simulation seconds into a human-readable string */
 function formatSimTime(secs: number): string {
+  // ── Post-bootstrap: show time since Earth formed ─────────────────────────
+  if (secs >= EARTH_EPOCH_SECS) {
+    const t = secs - EARTH_EPOCH_SECS
+    if (t < 60)         return `${t.toFixed(1)} s`
+    if (t < 3600)       return `${(t / 60).toFixed(1)} min`
+    if (t < 86400)      return `${(t / 3600).toFixed(1)} hr`
+    if (t < 31_557_600) return `Day ${Math.floor(t / 86400) + 1}`
+    const years = t / 31_557_600
+    if (years < 1000)   return `Yr ${years.toFixed(1)}`
+    if (years < 1e6)    return `${(years / 1000).toFixed(2)} kyr`
+    if (years < 1e9)    return `${(years / 1e6).toFixed(2)} Myr`
+    return `${(years / 1e9).toFixed(3)} Gyr`
+  }
+  // ── Bootstrap phase: show cosmological time ──────────────────────────────
   if (secs < 60)          return `${secs.toFixed(1)} s`
   if (secs < 3600)        return `${(secs / 60).toFixed(1)} min`
   if (secs < 86400)       return `${(secs / 3600).toFixed(1)} hr`
@@ -118,10 +137,20 @@ function formatSimTime(secs: number): string {
 }
 
 /**
- * Map sim time to a cosmological epoch name.
- * Based on real Big Bang cosmology timeline.
+ * Map sim time to an epoch label.
+ * - Before bootstrap (secs < EARTH_EPOCH_SECS): Big Bang cosmological epoch.
+ * - After bootstrap (secs >= EARTH_EPOCH_SECS): Earth geological eon.
  */
 function epochFromSeconds(secs: number): string {
+  // ── Post-bootstrap: Earth geological eons ────────────────────────────────
+  if (secs >= EARTH_EPOCH_SECS) {
+    const earthYears = (secs - EARTH_EPOCH_SECS) / 31_557_600
+    if (earthYears < 600e6)  return 'hadean'        //   0 – 600 Myr: molten, heavy bombardment
+    if (earthYears < 2500e6) return 'archaean'      // 600 Myr – 2.5 Gyr: first life, prokaryotes
+    if (earthYears < 4000e6) return 'proterozoic'   // 2.5 Gyr – 4 Gyr: eukaryotes, oxygen
+    return 'contemporary'                            // 4 Gyr+: complex life, present day
+  }
+  // ── Bootstrap phase: Big Bang cosmology ─────────────────────────────────
   const years = secs / 31_557_600
   if (years < 1e-10)    return 'planck'
   if (years < 1e-6)     return 'grand_unification'

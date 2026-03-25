@@ -477,7 +477,8 @@ export function surfaceRadiusAt(px: number, py: number, pz: number): number {
  *   Pass 2 — find any land if pass 1 produced nothing  (polar fallback)
  */
 export function getSpawnPosition(): [number, number, number] {
-  const v = new THREE.Vector3()
+  const v  = new THREE.Vector3()
+  const v2 = new THREE.Vector3()
 
   // Scan the full sphere at 5° resolution (36×72 = 2592 points).
   // Score each land point to pick the BEST spawn, not the first one found.
@@ -489,6 +490,8 @@ export function getSpawnPosition(): [number, number, number] {
   //
   // Target: |dir.y| < 0.68 (temperate/tropical latitude) AND 25 ≤ h ≤ 120
   // This lands the player in temperate forest, savanna, or desert — never snow.
+  // Flatness bonus: prefer areas where all 4 grid-neighbours are also inland —
+  // this prevents spawning on cliff edges or narrow ridgelines.
   const LAT_STEPS = 36
   const LON_STEPS = 72
 
@@ -517,7 +520,33 @@ export function getSpawnPosition(): [number, number, number] {
       // Bonus for being clearly inland (h in 30–100 is the sweet spot)
       const inlandBonus = h >= 30 && h <= 100 ? 3.0 : (h >= 10 ? 1.0 : 0)
 
-      const score = inlandBonus - polarPenalty - altPenalty
+      // Flatness bonus: sample 4 grid neighbours and check height range.
+      // Cliff edges (any neighbour < 5m or steep range > 50m) score 0.
+      // Flat meadows (range < 15m, all neighbours inland) score +3.
+      let minNH = h, maxNH = h
+      let neighborEdge = false
+      for (let d = 0; d < 4; d++) {
+        const la2 = la + (d === 0 ? -1 : d === 1 ? 1 : 0)
+        const lo2 = (lo + (d === 2 ? -1 : d === 3 ? 1 : 0) + LON_STEPS) % LON_STEPS
+        if (la2 < 0 || la2 > LAT_STEPS) continue
+        const lat2 = (la2 / LAT_STEPS) * Math.PI
+        const lon2 = (lo2 / LON_STEPS) * Math.PI * 2
+        v2.set(
+          Math.sin(lat2) * Math.cos(lon2),
+          Math.cos(lat2),
+          Math.sin(lat2) * Math.sin(lon2),
+        )
+        const nh = terrainHeightAt(v2)
+        if (nh < 5) { neighborEdge = true; break }
+        if (nh < minNH) minNH = nh
+        if (nh > maxNH) maxNH = nh
+      }
+      if (neighborEdge) continue  // cliff edge — skip entirely
+
+      const slopeRange    = maxNH - minNH
+      const flatnessBonus = slopeRange < 15 ? 3.0 : slopeRange < 40 ? 1.0 : 0
+
+      const score = inlandBonus + flatnessBonus - polarPenalty - altPenalty
       if (score > bestScore) {
         bestScore = score
         bestDir   = [v.x, v.y, v.z]

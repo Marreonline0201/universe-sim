@@ -261,6 +261,8 @@ function generateResourceNodes(seed: number): ResourceNode[] {
       const maxTries = geoRule ? 60 : 40
       let placed = false
 
+      // Scratch vectors for slope check — reused per attempt to avoid GC pressure
+      const _nb = new THREE.Vector3()
       for (let attempt = 0; attempt < maxTries; attempt++) {
         const angle   = rand() * Math.PI * 2
         const arcDist = (15 + rand() * (maxDist - 15)) / PLANET_RADIUS
@@ -276,7 +278,22 @@ function generateResourceNodes(seed: number): ResourceNode[] {
           if (attempt < 40) continue
         }
 
-        const r = PLANET_RADIUS + h - 0.8
+        // Slope / cliff-edge check: all 4 compass neighbours (~8 m away) must
+        // also be land (h > 5).  Nodes placed on cliff faces appear to float in
+        // the air because the terrain falls away beneath them.
+        const SLOPE_D = 0.002  // ≈ 8 m on a 4 000 m sphere
+        let onCliff = false
+        for (let axis2 = 0; axis2 < 4; axis2++) {
+          _nb.set(
+            dir.x + (axis2 === 0 ? SLOPE_D : axis2 === 1 ? -SLOPE_D : 0),
+            dir.y + (axis2 === 2 ? SLOPE_D : axis2 === 3 ? -SLOPE_D : 0),
+            dir.z,
+          ).normalize()
+          if (terrainHeightAt(_nb) < 5) { onCliff = true; break }
+        }
+        if (onCliff) continue
+
+        const r = PLANET_RADIUS + h - 0.4
         nodes.push({
           id: id++, type: nt.type, label: nt.label, matId: nt.matId, color: nt.color,
           x: dir.x * r, y: dir.y * r, z: dir.z * r,
@@ -287,7 +304,7 @@ function generateResourceNodes(seed: number): ResourceNode[] {
 
       if (!placed) {
         const h = terrainHeightAt(spawnDir)
-        const r = PLANET_RADIUS + Math.max(h, 0) - 2.0
+        const r = PLANET_RADIUS + Math.max(h, 0) - 0.4
         nodes.push({
           id: id++, type: nt.type, label: nt.label, matId: nt.matId, color: nt.color,
           x: spawnDir.x * r, y: spawnDir.y * r, z: spawnDir.z * r,
@@ -3636,14 +3653,14 @@ function BarkMesh({ id }: { id: number }) {
 }
 
 function RockMesh({ id, color }: { id: number; color: string }) {
-  const scale = 0.5 + nodeRand(id, 3) * 0.6
+  const scale = 0.8 + nodeRand(id, 3) * 1.0
   const rot   = nodeRand(id, 4) * Math.PI * 2
   const tilt  = (nodeRand(id, 5) - 0.5) * 0.4
   // Specular face variation: upward faces shinier (rain-polished), sides rougher.
   // useMemo [] — rock color is stable for its lifetime.
   const mat = useMemo(() => makeRockMaterial(color), []) // eslint-disable-line react-hooks/exhaustive-deps
   return (
-    <group position={[0, 0.3 * scale, 0]} rotation={[tilt, rot, 0]} scale={[scale, scale * 0.7, scale]}>
+    <group position={[0, 0.4 * scale, 0]} rotation={[tilt, rot, 0]} scale={[scale, scale * 0.7, scale]}>
       <mesh castShadow material={mat}>
         <dodecahedronGeometry args={[0.55, 0]} />
       </mesh>

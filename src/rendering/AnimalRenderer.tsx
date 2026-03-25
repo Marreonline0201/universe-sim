@@ -72,6 +72,8 @@ function mergeGeometries(geometries: THREE.BufferGeometry[]): THREE.BufferGeomet
   merged.setAttribute('position', new THREE.BufferAttribute(positions, 3))
   merged.setAttribute('normal',   new THREE.BufferAttribute(normals, 3))
   merged.setIndex(new THREE.BufferAttribute(indices, 1))
+  // Recalculate normals after merging (transformations invalidated original normals)
+  merged.computeVertexNormals()
   return merged
 }
 

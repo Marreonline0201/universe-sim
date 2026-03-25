@@ -1138,9 +1138,9 @@ function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }: GameLo
       }
     }
 
-    // 2d. M9 Ecosystem balance — respawn animals every 30s if below 50% cap
+    // 2d. M9 Ecosystem balance — respawn animals every 10s if below 50% cap (frequent respawn for liveliness)
     ecosystemTimerRef.current += dt
-    if (ecosystemTimerRef.current >= 30) {
+    if (ecosystemTimerRef.current >= 10) {
       ecosystemTimerRef.current = 0
       tickEcosystemBalance(
         Position.x[entityId],

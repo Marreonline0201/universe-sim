@@ -524,6 +524,7 @@ export function getSpawnPosition(): [number, number, number] {
       // Cliff edges (any neighbour < 5m or steep range > 50m) score 0.
       // Flat meadows (range < 15m, all neighbours inland) score +3.
       let minNH = h, maxNH = h
+      let minNeighH = Infinity
       let neighborEdge = false
       for (let d = 0; d < 4; d++) {
         const la2 = la + (d === 0 ? -1 : d === 1 ? 1 : 0)
@@ -540,13 +541,17 @@ export function getSpawnPosition(): [number, number, number] {
         if (nh < 5) { neighborEdge = true; break }
         if (nh < minNH) minNH = nh
         if (nh > maxNH) maxNH = nh
+        if (nh < minNeighH) minNeighH = nh
       }
       if (neighborEdge) continue  // cliff edge — skip entirely
+
+      // Depression penalty: all neighbours are >12m above center → enclosed bowl/valley
+      const depressionPenalty = (minNeighH !== Infinity && minNeighH > h + 12) ? 4.0 : 0
 
       const slopeRange    = maxNH - minNH
       const flatnessBonus = slopeRange < 15 ? 3.0 : slopeRange < 40 ? 1.0 : 0
 
-      const score = inlandBonus + flatnessBonus - polarPenalty - altPenalty
+      const score = inlandBonus + flatnessBonus - polarPenalty - altPenalty - depressionPenalty
       if (score > bestScore) {
         bestScore = score
         bestDir   = [v.x, v.y, v.z]

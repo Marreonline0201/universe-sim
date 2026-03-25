@@ -18,6 +18,7 @@ import { useFrame } from '@react-three/fiber'
 import { Sky } from '@react-three/drei'
 import * as THREE from 'three'
 import { usePlayerStore } from '../store/playerStore'
+import { useWeatherStore } from '../store/weatherStore'
 
 // One full day = 1200 real seconds (20 minutes)
 const DAY_DURATION_S = 1200
@@ -100,9 +101,13 @@ export function DayNightCycle({ onDayAngleChange }: Props) {
 
     // ── Ambient light ────────────────────────────────────────────────────────
     if (ambLightRef.current) {
-      ambLightRef.current.intensity = sunAboveHorizon
-        ? 0.08 + 0.37 * sinA
-        : 0.06  // moonlight
+      const wState = useWeatherStore.getState().getPlayerWeather()?.state
+      // Cloudy/rain/storm: raise floor so dark valleys stay visible
+      const ambFloor = (wState === 'CLOUDY' || wState === 'RAIN' || wState === 'STORM')
+        ? 0.28
+        : 0.06
+      const baseAmb = sunAboveHorizon ? 0.08 + 0.37 * sinA : 0.06
+      ambLightRef.current.intensity = Math.max(baseAmb, ambFloor)
     }
 
     // ── Hemisphere light ─────────────────────────────────────────────────────

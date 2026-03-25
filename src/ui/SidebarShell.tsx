@@ -6,7 +6,9 @@ import React, { useEffect } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useUiStore, type PanelId } from '../store/uiStore'
 import { useGameStore } from '../store/gameStore'
+import { usePlayerStore } from '../store/playerStore'
 import { cancelFishing, isFishingActive } from '../world/SailingSystem'
+import { tryEatFood } from '../game/SurvivalSystems'
 import { InventoryPanel } from './panels/InventoryPanel'
 import { CraftingPanel } from './panels/CraftingPanel'
 import { TechTreePanel } from './panels/TechTreePanel'
@@ -88,8 +90,17 @@ export function SidebarShell() {
         case 'b': case 'B':   e.preventDefault(); togglePanel('build');      break
         case 't': case 'T':   e.preventDefault(); togglePanel('tech');       break
         case 'e': case 'E':
-          // Don't intercept E while pointer is locked — PlayerController uses it for eat/interact
-          if (!document.pointerLockElement) { e.preventDefault(); togglePanel('evolution') }
+          // Try to eat first (works even without pointer lock for browser testing)
+          // If pointer is locked, let PlayerController handle it
+          if (!document.pointerLockElement) {
+            e.preventDefault()
+            const ps = usePlayerStore.getState()
+            const eid = ps.entityId
+            if (eid && !tryEatFood(ps.inventory, eid)) {
+              // No food eaten, open Evolution panel as fallback
+              togglePanel('evolution')
+            }
+          }
           break
         case 'j': case 'J':   e.preventDefault(); togglePanel('journal');    break
         case 'Tab':           e.preventDefault(); togglePanel('character');  break

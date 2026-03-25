@@ -14,7 +14,7 @@ const TICK_MS = 100 // 10 Hz
 const BOOTSTRAP_TARGET_YEARS = 9.3e9
 const BOOTSTRAP_TARGET_SECS  = BOOTSTRAP_TARGET_YEARS * 31_557_600  // ~2.935e17 s
 const BOOTSTRAP_TIMESCALE    = 1e18   // at 10Hz ticks: reaches target in ~0.3 sec (instant)
-const NORMAL_TIMESCALE       = 1e13  // 1 real sec = 317k sim-years → Gyr display ticks every ~3 sec
+const NORMAL_TIMESCALE       = 1e6   // 1 real sec = ~31.7 sim-years → Gyr display frozen during play
 
 // Real cosmological epoch thresholds (in sim-seconds → years)
 function epochFromSeconds(secs) {

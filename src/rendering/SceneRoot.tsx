@@ -57,7 +57,7 @@ import { RiverHUD } from '../ui/RiverHUD'
 import { useSettlementStore } from '../store/settlementStore'
 import { useOutlawStore } from '../store/outlawStore'
 import { PlanetTerrain } from './PlanetTerrain'
-import { surfaceRadiusAt, terrainHeightAt, getSpawnPosition, PLANET_RADIUS, SEA_LEVEL, setTerrainSeed } from '../world/SpherePlanet'
+import { surfaceRadiusAt, terrainHeightAt, getSpawnPosition, PLANET_RADIUS, SEA_LEVEL, setTerrainSeed, getSurfaceDigMaterials } from '../world/SpherePlanet'
 import { LocalSimManager } from '../engine/LocalSimManager'
 import { FireRenderer } from './FireRenderer'
 import { DayNightCycle } from './DayNightCycle'
@@ -2036,13 +2036,17 @@ function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }: GameLo
       // Record hole (cap array to avoid unbounded growth)
       if (DIG_HOLES.length >= MAX_DIG_HOLES) DIG_HOLES.shift()
       DIG_HOLES.push({ x: gx, y: gy, z: gz, r: DIG_RADIUS })
-      // Award materials from digging
-      const digMats = [MAT.STONE, MAT.CLAY, MAT.SAND]
+      // Award materials matching the surface biome/geology at this location
+      const digDir = new THREE.Vector3(ux, uy, uz)  // unit-direction already computed above
+      const surfH   = terrainHeightAt(digDir)
+      const digMats = getSurfaceDigMaterials(digDir, surfH)
       const mat = digMats[Math.floor(Math.random() * digMats.length)]
       const qty = Math.floor(Math.random() * 3) + 1
       inventory.addItem({ itemId: 0, materialId: mat, quantity: qty, quality: 0.7 })
       const addNotification = useUiStore.getState().addNotification
-      addNotification(`Dug up ${qty}× ${mat === MAT.STONE ? 'Stone' : mat === MAT.CLAY ? 'Clay' : 'Sand'}`, 'info')
+      const matLabel = (Object.entries(MAT).find(([, v]) => v === mat)?.[0] ?? 'Material')
+        .replace(/_/g, ' ').toLowerCase().replace(/^./, (c) => c.toUpperCase())
+      addNotification(`Dug up ${qty}× ${matLabel}`, 'info')
     }
 
     // ── M6: Settlement proximity check ────────────────────────────────────────

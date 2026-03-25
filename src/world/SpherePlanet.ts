@@ -14,6 +14,7 @@
 //   Scale by (PLANET_RADIUS + terrainHeight). Done.
 
 import * as THREE from 'three'
+import { MAT } from '../player/Inventory'
 
 let _terrainSeed = 42
 
@@ -195,6 +196,147 @@ export function biomeColor(dir: THREE.Vector3, height: number): THREE.Color {
   if (lat < 0.55) return new THREE.Color(0.22, 0.44, 0.16)
   // Taiga (high latitudes)
   return new THREE.Color(0.20, 0.35, 0.18)
+}
+
+// ── Real Earth-like Geological Layers ────────────────────────────────────────
+//
+// Earth radius = 6,371 km.  PLANET_RADIUS = 4000 m.
+// Scale factor: 4000 / 6,371,000 ≈ 0.000628
+// All radii below are from the PLANET CENTER in game meters.
+//
+//  Layer         Earth radius range   Game radius range   Key minerals
+//  Inner Core    0 – 1,221 km         0 – 766 m           solid Fe-Ni
+//  Outer Core    1,221 – 3,480 km     766 – 2,185 m       liquid Fe-Ni
+//  Lower Mantle  3,480 – 5,160 km     2,185 – 3,238 m     bridgmanite (MgSiO₃)
+//  Upper Mantle  5,160 – 5,954 km     3,238 – 3,737 m     olivine, pyroxene
+//  Crust         5,954 – 6,371 km     3,737 – 4,000 m     granite, basalt, sediment
+
+export interface GeologicalLayer {
+  /** Human-readable name */
+  name: string
+  /** Primary mineralogy / composition */
+  composition: string
+  /** Physical state */
+  state: 'solid' | 'liquid' | 'plastic'
+  /** Temperature at the top of the layer (°C) */
+  tempC_min: number
+  /** Temperature at the bottom of the layer (°C) */
+  tempC_max: number
+  /** Pressure at top of layer (GPa) */
+  pressureGPa_min: number
+  /** Pressure at bottom of layer (GPa) */
+  pressureGPa_max: number
+  /** Average density (kg/m³) */
+  densityKgm3: number
+  /** MAT IDs that can be dug/mined from this layer */
+  digMaterials: ReadonlyArray<number>
+  /** Representative hex color for cross-section display */
+  colorHex: string
+  /** Inner boundary radius from planet center (game meters) */
+  innerRadiusM: number
+  /** Outer boundary radius from planet center (game meters) */
+  outerRadiusM: number
+}
+
+/**
+ * All geological layers ordered from centre → surface.
+ * Values are Earth-accurate, radii proportionally scaled to PLANET_RADIUS = 4000 m.
+ */
+export const GEOLOGICAL_LAYERS: ReadonlyArray<GeologicalLayer> = [
+  {
+    name: 'Inner Core',
+    composition: 'Solid iron-nickel alloy (Fe ~85 %, Ni ~5 %, trace Si/S)',
+    state: 'solid',
+    tempC_min: 5_400, tempC_max: 5_700,
+    pressureGPa_min: 330, pressureGPa_max: 360,
+    densityKgm3: 13_000,
+    digMaterials: [MAT.IRON, MAT.IRON_ORE],
+    colorHex: '#e8c060',   // glowing gold-yellow
+    innerRadiusM: 0, outerRadiusM: 766,
+  },
+  {
+    name: 'Outer Core',
+    composition: 'Liquid iron-nickel alloy (Fe ~80 %, Ni ~5 %, O/S/Si traces) — drives the geodynamo',
+    state: 'liquid',
+    tempC_min: 4_000, tempC_max: 5_400,
+    pressureGPa_min: 135, pressureGPa_max: 330,
+    densityKgm3: 11_000,
+    digMaterials: [MAT.IRON_ORE, MAT.IRON],
+    colorHex: '#d95f02',   // molten orange-red
+    innerRadiusM: 766, outerRadiusM: 2_185,
+  },
+  {
+    name: 'Lower Mantle',
+    composition: 'Bridgmanite (MgSiO₃ perovskite), ferropericlase, post-perovskite near CMB',
+    state: 'solid',
+    tempC_min: 2_000, tempC_max: 4_000,
+    pressureGPa_min: 24, pressureGPa_max: 135,
+    densityKgm3: 5_000,
+    digMaterials: [MAT.STONE, MAT.IRON_ORE, MAT.SILICON],
+    colorHex: '#8b4513',   // dark rust-brown
+    innerRadiusM: 2_185, outerRadiusM: 3_238,
+  },
+  {
+    name: 'Upper Mantle',
+    composition: 'Olivine (Mg,Fe)₂SiO₄, orthopyroxene, clinopyroxene, garnet — bulk peridotite',
+    state: 'plastic',
+    tempC_min: 500, tempC_max: 2_000,
+    pressureGPa_min: 1.5, pressureGPa_max: 24,
+    densityKgm3: 3_300,
+    digMaterials: [MAT.STONE, MAT.IRON_ORE],
+    colorHex: '#6b7a3a',   // olive-green (olivine)
+    innerRadiusM: 3_238, outerRadiusM: 3_737,
+  },
+  {
+    name: 'Crust',
+    composition: 'Oceanic: basalt/gabbro (dense, thin 5–10 km);  Continental: granite/granodiorite + sedimentary cover (light, 30–70 km)',
+    state: 'solid',
+    tempC_min: 0, tempC_max: 500,
+    pressureGPa_min: 0, pressureGPa_max: 1.5,
+    densityKgm3: 2_800,
+    digMaterials: [MAT.STONE, MAT.CLAY, MAT.SAND, MAT.FLINT, MAT.IRON_ORE, MAT.COAL],
+    colorHex: '#a49a8a',   // grey-brown rock
+    innerRadiusM: 3_737, outerRadiusM: 4_000,
+  },
+]
+
+/**
+ * Returns the geological layer for a given radius from the planet centre (game metres).
+ * Example: getLayerAtRadius(PLANET_RADIUS - 50) → Crust layer (50 m below surface).
+ */
+export function getLayerAtRadius(radiusFromCenter: number): GeologicalLayer {
+  for (const layer of GEOLOGICAL_LAYERS) {
+    if (radiusFromCenter >= layer.innerRadiusM && radiusFromCenter < layer.outerRadiusM) {
+      return layer
+    }
+  }
+  return GEOLOGICAL_LAYERS[GEOLOGICAL_LAYERS.length - 1]  // default: crust
+}
+
+/**
+ * Returns the geological layer at a given depth below the terrain surface (metres).
+ * depth = 0 → crust surface;  depth = 300 → deeper crust / upper mantle boundary.
+ */
+export function getLayerAtDepth(depthBelowSurface: number): GeologicalLayer {
+  return getLayerAtRadius(PLANET_RADIUS - Math.max(0, depthBelowSurface))
+}
+
+/**
+ * Returns biome-appropriate surface dig materials based on terrain type.
+ * Reflects what you'd find in the top ~2 m: topsoil in forests, sand on beaches,
+ * rock on mountain peaks — geologically accurate for surficial deposits.
+ */
+export function getSurfaceDigMaterials(dir: THREE.Vector3, height: number): ReadonlyArray<number> {
+  const lat = Math.abs(dir.y)
+
+  if (height < -80)                                    return [MAT.STONE, MAT.CLAY]            // deep-ocean sediment
+  if (height < 0)                                      return [MAT.CLAY, MAT.SAND]             // shallow ocean floor
+  if (height < 6)                                      return [MAT.SAND, MAT.CLAY]             // beach / tidal flat
+  if (height > 180 || lat > 0.82)                      return [MAT.STONE, MAT.FLINT]           // bare rock / polar bedrock
+  if (height > 100)                                    return [MAT.STONE, MAT.FLINT, MAT.IRON_ORE]  // highland / mountain
+  if (lat > 0.25 && lat < 0.40 && height < 80)        return [MAT.SAND, MAT.CLAY]             // desert dunes
+  if (lat < 0.20 && height < 60)                       return [MAT.CLAY, MAT.STONE]            // tropical forest floor
+  return [MAT.CLAY, MAT.STONE]                                                                  // temperate soil
 }
 
 // ── Cube-sphere geometry ──────────────────────────────────────────────────────

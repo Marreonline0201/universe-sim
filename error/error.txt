@@ -1,0 +1,5 @@
+1. The time is keep going too fast even after 9.xxxGyr
+
+2. Earth is made in layers not just core and ground. The game is not made in real physics even though I asked for it like 1000 times.
+
+3. The player character can go through ground, but not the camera. But the camera is not a problem. The player going into ground and showing the world invisibly is the problem. This states that there are problem in maps and character interactions, not the vitals.

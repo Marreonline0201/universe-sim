@@ -55,7 +55,7 @@ export const useGameStore = create<GameState>((set) => ({
   paused: false,
   togglePause: () => set((s) => ({ paused: !s.paused })),
 
-  timeScale: 1e12,
+  timeScale: 1,   // server overrides this on first WORLD_SNAPSHOT
   setTimeScale: (ts) => set({ timeScale: ts }),
 
   epoch: 'planck',

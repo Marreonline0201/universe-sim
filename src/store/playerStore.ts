@@ -35,7 +35,7 @@ interface PlayerState {
   clearHealedWounds: () => void
 
   // Discoveries made
-  discoveries: string[]
+  discoveries: Set<string>
   addDiscovery: (id: string) => void
   hasDiscovery: (id: string) => boolean
 
@@ -117,12 +117,14 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   })),
   setAmbientTemp: (t) => set({ ambientTemp: t }),
 
-  discoveries: [],
+  discoveries: new Set<string>(),
   addDiscovery: (id) => set((s) => {
-    if (s.discoveries.includes(id)) return s
-    return { discoveries: [...s.discoveries, id] }
+    if (s.discoveries.has(id)) return s
+    const next = new Set(s.discoveries)
+    next.add(id)
+    return { discoveries: next }
   }),
-  hasDiscovery: (id) => get().discoveries.includes(id),
+  hasDiscovery: (id) => get().discoveries.has(id),
 
   currentGoal: 'survive',
   setCurrentGoal: (g) => set({ currentGoal: g }),

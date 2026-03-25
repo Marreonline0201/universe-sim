@@ -17,6 +17,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { DecoderPanel } from './DecoderPanel'
 import { useVelarStore } from '../store/velarStore'
+import { getLocalUserId, getLocalUsername } from '../net/useWorldSocket'
 
 export interface AnomalySignalData {
   launcherId:   string
@@ -250,10 +251,7 @@ export function VelarSignalView({ signal }: Props) {
         <div style={{ pointerEvents: 'all' }}>
           <DecoderPanel
             onSuccess={() => {
-              // userId from window — companion site doesn't have auth, use 'player'
-              const uid  = (window as any).__userId  ?? 'player'
-              const uname = (window as any).__username ?? 'Unknown'
-              markDecoded(uid, uname)
+              markDecoded(getLocalUserId(), getLocalUsername())
             }}
           />
         </div>

@@ -18,8 +18,16 @@ export function setMetabolismDt(dt: number): void {
   _dt = dt
 }
 
+const HUNGER_RATE  = 0.00037
+const THIRST_RATE  = 0.00056
+const FATIGUE_RATE = 0.00001
+
 export const MetabolismSystem = defineSystem((w) => {
   const entities = metabolismQuery(w)
+  // Collect entities to mark dead after the loop — mutating components
+  // (addComponent) inside a bitecs query loop can invalidate the iterator.
+  const dying: number[] = []
+
   for (let i = 0; i < entities.length; i++) {
     const eid = entities[i]
     const rate = Metabolism.metabolicRate[eid]  // J/s
@@ -30,15 +38,13 @@ export const MetabolismSystem = defineSystem((w) => {
     Metabolism.energy[eid] = Math.max(0, Metabolism.energy[eid] - dtEnergy * 0.001)
 
     // Hunger: complete starvation in ~45 minutes real time at 1× speed
-    // 1 / (0.00037 * 60) = ~45 minutes
-    Metabolism.hunger[eid] = Math.min(1, Metabolism.hunger[eid] + _dt * 0.00037)
+    Metabolism.hunger[eid] = Math.min(1, Metabolism.hunger[eid] + _dt * HUNGER_RATE)
 
     // Thirst: dehydration in ~30 minutes real time at 1× speed
-    // 1 / (0.00056 * 60) = ~29.8 minutes
-    Metabolism.thirst[eid] = Math.min(1, Metabolism.thirst[eid] + _dt * 0.00056)
+    Metabolism.thirst[eid] = Math.min(1, Metabolism.thirst[eid] + _dt * THIRST_RATE)
 
     // Fatigue: max tiredness in ~27.8 hours without rest
-    Metabolism.fatigue[eid] = Math.min(1, Metabolism.fatigue[eid] + _dt * 0.00001)
+    Metabolism.fatigue[eid] = Math.min(1, Metabolism.fatigue[eid] + _dt * FATIGUE_RATE)
 
     // Starvation damage: >95% hungry → 2 HP/s
     if (Metabolism.hunger[eid] > 0.95) {
@@ -56,11 +62,16 @@ export const MetabolismSystem = defineSystem((w) => {
       Health.current[eid] = Math.min(Health.max[eid], Health.current[eid] + regen * _dt)
     }
 
-    // Mark dead
     if (Health.current[eid] <= 0) {
       Health.current[eid] = 0
-      addComponent(w, IsDead, eid)
+      dying.push(eid)
     }
   }
+
+  // Apply structural changes (addComponent) after the iteration is complete
+  for (let i = 0; i < dying.length; i++) {
+    addComponent(w, IsDead, dying[i])
+  }
+
   return w
 })

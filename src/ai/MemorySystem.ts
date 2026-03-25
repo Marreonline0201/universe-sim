@@ -76,8 +76,9 @@ export class MemorySystem {
    * If at capacity, the least significant old event is evicted first.
    */
   addEpisodic(event: EpisodicEvent): void {
-    // Assign a fresh ID if not already set.
-    if (!event.id) {
+    // Assign a fresh ID if not already set. Use explicit null/undefined check
+    // to avoid treating id=0 as falsy.
+    if (event.id === undefined || event.id === null) {
       event.id = this.nextEventId++
     }
 
@@ -127,11 +128,21 @@ export class MemorySystem {
    */
   summarizeForLLM(maxTokens: number): string {
     const budget = maxTokens * 4 // characters
+    if (this.episodic.length === 0) return 'No significant memories.'
+
+    // Compute recency score: normalize timestamps between 0 and 1
+    const maxTs = this.episodic.reduce((m, e) => Math.max(m, e.timestamp), 0)
+    const minTs = this.episodic.reduce((m, e) => Math.min(m, e.timestamp), maxTs)
+    const tsRange = maxTs - minTs || 1
+
     const candidates = [...this.episodic]
       .sort((a, b) => {
         // Score = significance * 0.7 + recency * 0.3
-        // (recency is implicit via comparing timestamps)
-        return b.significance - a.significance
+        const recencyA = (a.timestamp - minTs) / tsRange
+        const recencyB = (b.timestamp - minTs) / tsRange
+        const scoreA   = a.significance * 0.7 + recencyA * 0.3
+        const scoreB   = b.significance * 0.7 + recencyB * 0.3
+        return scoreB - scoreA
       })
 
     const lines: string[] = []

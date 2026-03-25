@@ -28,6 +28,15 @@ export class TechTree {
   private inProgress: Map<string, { startTime: number; endTime: number }> = new Map()
   private _godMode = false
 
+  /** Lazy-initialized index for O(1) node lookups by ID. */
+  private static _nodeMap: Map<string, TechNode> | null = null
+  private static nodeMap(): Map<string, TechNode> {
+    if (!TechTree._nodeMap) {
+      TechTree._nodeMap = new Map(TECH_NODES.map(n => [n.id, n]))
+    }
+    return TechTree._nodeMap
+  }
+
   setGodMode(on: boolean) { this._godMode = on }
   isGodMode() { return this._godMode }
 
@@ -36,7 +45,7 @@ export class TechTree {
    * In god mode: bypasses prerequisites and completes instantly.
    */
   startResearch(nodeId: string, simTime: number): boolean {
-    const node = TECH_NODES.find(n => n.id === nodeId)
+    const node = TechTree.nodeMap().get(nodeId)
     if (!node) return false
     if (this.researched.has(nodeId)) return false
     if (this.inProgress.has(nodeId)) return false
@@ -88,7 +97,7 @@ export class TechTree {
   getProgress(nodeId: string, simTime: number): number {
     const p = this.inProgress.get(nodeId)
     if (!p) return 0
-    const node = TECH_NODES.find(n => n.id === nodeId)
+    const node = TechTree.nodeMap().get(nodeId)
     if (!node || node.researchTime === 0) return 1
     return Math.min(1, (simTime - p.startTime) / node.researchTime)
   }
@@ -96,8 +105,9 @@ export class TechTree {
   /** Returns the highest fully-researched tier. */
   getCurrentTier(): number {
     let tier = 0
+    const map = TechTree.nodeMap()
     for (const nodeId of this.researched) {
-      const node = TECH_NODES.find(n => n.id === nodeId)
+      const node = map.get(nodeId)
       if (node && node.tier > tier) tier = node.tier
     }
     return tier
@@ -144,7 +154,19 @@ export class TechTree {
   }
 
   getInProgress(): Array<TechNode & { progress: number }> {
-    return []  // populated by caller with getProgress()
+    const now = Date.now() / 1000 // approximate; callers should pass simTime
+    const map = TechTree.nodeMap()
+    const result: Array<TechNode & { progress: number }> = []
+    for (const [nodeId, prog] of this.inProgress) {
+      const node = map.get(nodeId)
+      if (node) {
+        const progress = node.researchTime > 0
+          ? Math.min(1, (now - prog.startTime) / node.researchTime)
+          : 1
+        result.push({ ...node, progress })
+      }
+    }
+    return result
   }
 }
 

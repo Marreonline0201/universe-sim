@@ -33,7 +33,9 @@ export async function loadSave(getToken: () => Promise<string | null>) {
   ps.updateVitals({ health: loadedHealth, hunger: data.hunger, thirst: data.thirst, energy: data.energy, fatigue: data.fatigue })
   ps.setCivTier(data.civTier)
   ps.setCurrentGoal(data.currentGoal)
-  data.discoveries.forEach((d: string) => ps.addDiscovery(d))
+  if (Array.isArray(data.discoveries)) {
+    usePlayerStore.setState({ discoveries: new Set<string>(data.discoveries) })
+  }
   ps.addEvolutionPoints(data.evolutionPoints)
   gs.setSimSeconds(data.simSeconds)
 
@@ -147,7 +149,7 @@ export async function saveGame(getToken: () => Promise<string | null>, username:
       energy: ps.energy, fatigue: ps.fatigue,
       evolutionPoints: ps.evolutionPoints,
       civTier: ps.civTier,
-      discoveries: ps.discoveries,
+      discoveries: Array.from(ps.discoveries),
       currentGoal: ps.currentGoal,
       simSeconds: gs.simSeconds,
       inventory: inventory.listItems(),

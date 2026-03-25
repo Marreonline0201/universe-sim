@@ -587,15 +587,6 @@ export function HUD() {
     return () => window.removeEventListener('velar-first-contact', handler)
   }, [])
 
-  // Expose player userId/name to VelarSignalView for the VELAR_DECODED broadcast
-  useEffect(() => {
-    const userId = (window as any).__userId
-    if (userId) {
-      ;(window as any).__userId   = userId
-      ;(window as any).__username = (window as any).__username ?? 'Explorer'
-    }
-  }, [])
-
   return (
     <>
       {/* ── M13: First Contact cinematic overlay ────────────────────────────── */}

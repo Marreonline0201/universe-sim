@@ -39,13 +39,35 @@ export interface Goal {
 
 interface AStarNode {
   state:    WorldState
-  actions:  Action[]   // path of actions taken to reach this state
+  /** Parent pointer for path reconstruction — avoids O(depth²) array copies. */
+  parent:   AStarNode | null
+  action:   Action | null   // action taken to reach this node (null for start)
   g:        number     // cost so far
   h:        number     // heuristic
   f:        number     // g + h
 }
 
+/** Reconstruct the action sequence by walking parent pointers. */
+function reconstructPath(node: AStarNode): Action[] {
+  const path: Action[] = []
+  let cur: AStarNode | null = node
+  while (cur !== null && cur.action !== null) {
+    path.push(cur.action)
+    cur = cur.parent
+  }
+  path.reverse()
+  return path
+}
+
 // ─── GOAPPlanner ──────────────────────────────────────────────────────────────
+
+/** Walk parent pointers to count the depth of a node in the search tree. */
+function _nodeDepth(node: AStarNode): number {
+  let depth = 0
+  let cur: AStarNode | null = node.parent
+  while (cur !== null) { depth++; cur = cur.parent }
+  return depth
+}
 
 export class GOAPPlanner {
   /** Maximum search depth to prevent infinite loops. */
@@ -66,8 +88,9 @@ export class GOAPPlanner {
     const closed: Set<string> = new Set()
 
     const startNode: AStarNode = {
-      state:   { ...currentState },
-      actions: [],
+      state:  { ...currentState },
+      parent: null,
+      action: null,
       g: 0,
       h: this.heuristic(currentState, goal),
       f: this.heuristic(currentState, goal),
@@ -75,15 +98,20 @@ export class GOAPPlanner {
     open.push(startNode)
 
     while (open.length > 0) {
-      // Pop node with lowest f (simple linear scan — small action sets).
-      open.sort((a, b) => a.f - b.f)
-      const current = open.shift()!
+      // Pop node with lowest f using a linear scan (open list stays small for
+      // typical action counts of 8-20; a full heap would add complexity overhead).
+      let bestIdx = 0
+      for (let i = 1; i < open.length; i++) {
+        if (open[i].f < open[bestIdx].f) bestIdx = i
+      }
+      const current = open[bestIdx]
+      open.splice(bestIdx, 1)
 
       // Check goal.
-      if (goal.isAchieved(current.state)) return current.actions
+      if (goal.isAchieved(current.state)) return reconstructPath(current)
 
       // Depth limit.
-      if (current.actions.length >= this.MAX_DEPTH) continue
+      if (_nodeDepth(current) >= this.MAX_DEPTH) continue
 
       // Mark visited.
       const stateKey = this._stateKey(current.state)
@@ -94,15 +122,16 @@ export class GOAPPlanner {
       for (const action of availableActions) {
         if (!this.stateMatches(current.state, action.preconditions)) continue
 
-        const nextState   = this.applyEffects(current.state, action.effects)
+        const nextState    = this.applyEffects(current.state, action.effects)
         const nextStateKey = this._stateKey(nextState)
         if (closed.has(nextStateKey)) continue
 
         const g = current.g + action.cost
         const h = this.heuristic(nextState, goal)
         open.push({
-          state:   nextState,
-          actions: [...current.actions, action],
+          state:  nextState,
+          parent: current,
+          action,
           g,
           h,
           f: g + h,

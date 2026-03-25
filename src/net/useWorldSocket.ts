@@ -16,6 +16,15 @@ const UPDATE_MS = 1000 / UPDATE_HZ
 
 const DEV_BYPASS = import.meta.env.DEV && import.meta.env.VITE_DEV_BYPASS_AUTH === 'true'
 
+// Module-level identity cache — avoids window global exposure
+let _localUserId = 'player'
+let _localUsername = 'Unknown'
+
+/** Returns the authenticated user ID for the current session. */
+export function getLocalUserId(): string { return _localUserId }
+/** Returns the display username for the current session. */
+export function getLocalUsername(): string { return _localUsername }
+
 export function useWorldSocket(): void {
   const { userId: clerkUserId } = useAuth()
   const { user } = useUser()
@@ -35,10 +44,9 @@ export function useWorldSocket(): void {
     _adminSocket = socket
     socket.connect()
 
-    // Expose identity for DecoderPanel and other UI components that need to
-    // send authenticated WS messages (e.g. VELAR_DECODED).
-    ;(window as any).__userId   = userId
-    ;(window as any).__username = username
+    // Cache identity in module-level variables for other components
+    _localUserId   = userId
+    _localUsername = username
 
     // Send player position updates at 10 Hz via rAF throttle
     let rafId: number

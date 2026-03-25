@@ -75,6 +75,8 @@ interface QueueItem {
 export class LLMBridge {
   private queue:      QueueItem[] = []
   private processing  = false
+  /** Maximum pending requests. Oldest stale request is dropped when exceeded. */
+  private readonly MAX_QUEUE = 10
 
   constructor(private config: LLMConfig) {}
 
@@ -90,6 +92,11 @@ export class LLMBridge {
     npcContext:  NPCContext,
   ): Promise<LLMResponse> {
     return new Promise<LLMResponse>((resolve, reject) => {
+      // Drop the oldest pending request if the queue is full to prevent unbounded growth.
+      if (this.queue.length >= this.MAX_QUEUE) {
+        const dropped = this.queue.shift()!
+        dropped.reject(new Error('NPC dialogue queue full — request dropped'))
+      }
       this.queue.push({
         playerInput,
         context:    npcContext,

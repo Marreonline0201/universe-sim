@@ -136,7 +136,11 @@ import { ElectricLightPass, registerElectricSettlements } from './ElectricLightP
 import { tickNuclearReactor, activateReactor, deactivateReactor } from '../game/NuclearReactorSystem'
 // Wire reactor callbacks into BuildingSystem to break the circular dep:
 // BuildingSystem ← NuclearReactorSystem ← GameSingletons ← BuildingSystem
-setReactorCallbacks(activateReactor, deactivateReactor)
+// Wrapper converts object pos to tuple for activateReactor signature
+setReactorCallbacks(
+  (pos: { x: number; y: number; z: number }) => activateReactor([pos.x, pos.y, pos.z]),
+  deactivateReactor
+)
 
 // M14: Interplanetary travel + Velar gateway + Multiverse
 import { VelarGatewayRenderer } from './VelarGatewayRenderer'
@@ -1349,7 +1353,7 @@ function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }: GameLo
 
       const label = canGather
         ? maxHits > 1
-          ? `[F] Gather ${nearNode.label} (${hitsSoFar}/${maxHits} hits)`
+          ? `[F] Gather ${nearNode.label}  ·  Hit ${hitsSoFar + 1}/${maxHits}`
           : `[F] Gather ${nearNode.label}`
         : isIronOre
           ? `[Need Iron Pickaxe] ${nearNode.label}`
@@ -1361,7 +1365,11 @@ function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }: GameLo
         if (newHits < maxHits) {
           // Not fully harvested yet — record the hit, give feedback, skip gather
           NODE_HITS_TAKEN.set(nearNode.id, newHits)
-          useUiStore.getState().addNotification(`Hit ${nearNode.label} (${newHits}/${maxHits})`, 'info')
+          const hitsLeft = maxHits - newHits
+          useUiStore.getState().addNotification(
+            `⚒ ${nearNode.label} — ${hitsLeft} hit${hitsLeft !== 1 ? 's' : ''} remaining`,
+            'info'
+          )
         } else {
         // Final hit — fully gather the node
         NODE_HITS_TAKEN.delete(nearNode.id)
@@ -1382,7 +1390,10 @@ function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }: GameLo
           inventory.discoverRecipe(1)
         }
         const addNotification = useUiStore.getState().addNotification
-        addNotification(`Gathered ${qty > 1 ? qty + '× ' : ''}${nearNode.label} — press [I] to inspect`, 'info')
+        addNotification(
+          `✓ Gathered ${qty > 1 ? qty + '× ' : ''}${nearNode.label} — [I] to view items`,
+          'discovery'
+        )
         // Auto-open inventory on first gather so the player immediately sees their items
         if (!_firstGatherDone) {
           _firstGatherDone = true

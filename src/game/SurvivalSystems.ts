@@ -93,6 +93,9 @@ const HUNGER_RESTORE    = 0.35  // fraction of hunger bar restored per cooked me
 // Map from inventory slot index → accumulated cook time (seconds)
 export const cookingProgress = new Map<number, number>()
 
+// Cached cooking slot indices for faster iteration (regenerated each frame)
+let _cookingSlotsCache: number[] = []
+
 export function tickFoodCooking(
   dt: number,
   inv: Inventory,
@@ -101,50 +104,62 @@ export function tickFoodCooking(
 ): void {
   if (!simMgr) return
 
-  // Find all raw meat and fish slots in inventory
+  // Rebuild cooking slot cache from current inventory state
+  _cookingSlotsCache.length = 0
   for (let i = 0; i < inv.slotCount; i++) {
     const slot = inv.getSlot(i)
-    const isCookable = slot && slot.itemId === 0 && (slot.materialId === MAT.RAW_MEAT || slot.materialId === MAT.FISH)
-    if (!isCookable) {
-      // Remove stale cooking progress if slot no longer holds cookable food
-      cookingProgress.delete(i)
+    if (slot && slot.itemId === 0 && (slot.materialId === MAT.RAW_MEAT || slot.materialId === MAT.FISH)) {
+      _cookingSlotsCache.push(i)
+    }
+  }
+
+  // Sample temperature once per frame (optimization: single sim lookup)
+  const nearTemp = simMgr.getTemperatureAt(px, py, pz)
+  const isHotEnough = nearTemp >= COOK_TEMP_C
+  const addNotification = useUiStore.getState().addNotification
+
+  // Clear progress for slots that are no longer cooking
+  for (const [slotIdx] of cookingProgress) {
+    const slot = inv.getSlot(slotIdx)
+    if (!slot || slot.itemId !== 0 || (slot.materialId !== MAT.RAW_MEAT && slot.materialId !== MAT.FISH)) {
+      cookingProgress.delete(slotIdx)
+    }
+  }
+
+  // Process cooking slots
+  for (const i of _cookingSlotsCache) {
+    const slot = inv.getSlot(i)!
+    if (!isHotEnough) {
+      if (cookingProgress.has(i)) cookingProgress.delete(i)
       continue
     }
 
-    // Sample temperature near player position (player holding food)
-    const nearTemp = simMgr.getTemperatureAt(px, py, pz)
+    const prev = cookingProgress.get(i) ?? 0
+    const next = prev + dt
+    cookingProgress.set(i, next)
 
-    if (nearTemp >= COOK_TEMP_C) {
-      const prev = cookingProgress.get(i) ?? 0
-      const next = prev + dt
-      cookingProgress.set(i, next)
-
-      if (next >= COOK_DURATION_S) {
-        // Food is cooked — convert raw food to cooked meat
-        cookingProgress.delete(i)
-        const qty = slot!.quantity
-        const isRawMeat = slot!.materialId === MAT.RAW_MEAT
-        // Remove raw food from this slot
-        inv.removeItem(i, qty)
-        // Add cooked meat (fish also becomes cooked meat for simplicity)
-        inv.addItem({ itemId: 0, materialId: MAT.COOKED_MEAT, quantity: qty, quality: 0.9 })
-        useUiStore.getState().addNotification(
-          `${qty > 1 ? qty + 'x ' : ''}${isRawMeat ? 'Meat' : 'Fish'} cooked! Press [E] to eat.`,
-          'discovery'
-        )
-        // Auto-unlock cooking knowledge
-        usePlayerStore.getState().addDiscovery('fire_making')
-      } else if (Math.floor(prev) < Math.floor(next)) {
-        // Tick notification once per second
-        const pct = Math.round((next / COOK_DURATION_S) * 100)
-        useUiStore.getState().addNotification(`Cooking... ${pct}%`, 'info')
-      }
-    } else {
-      // Not hot enough — reset progress (food cools down)
-      if (cookingProgress.has(i)) cookingProgress.delete(i)
+    if (next >= COOK_DURATION_S) {
+      // Food is cooked — convert raw food to cooked meat
+      cookingProgress.delete(i)
+      const qty = slot.quantity
+      const isRawMeat = slot.materialId === MAT.RAW_MEAT
+      
+      // Remove raw food from this slot
+      inv.removeItem(i, qty)
+      // Add cooked meat (fish also becomes cooked meat for simplicity)
+      inv.addItem({ itemId: 0, materialId: MAT.COOKED_MEAT, quantity: qty, quality: 0.9 })
+      addNotification(
+        `✓ ${qty > 1 ? qty + '× ' : ''}${isRawMeat ? 'Meat' : 'Fish'} cooked! [E] to eat`,
+        'discovery'
+      )
+      // Auto-unlock cooking knowledge
+      usePlayerStore.getState().addDiscovery('fire_making')
+    } else if (Math.floor(prev) < Math.floor(next)) {
+      // Tick notification once per second to reduce spam
+      const pct = Math.round((next / COOK_DURATION_S) * 100)
+      addNotification(`🔥 Cooking... ${pct}%`, 'info')
     }
   }
-}
 
 // Eat cooked meat from inventory → restore hunger bar
 export function tryEatFood(inv: Inventory, entityId: number): boolean {
@@ -159,8 +174,9 @@ export function tryEatFood(inv: Inventory, entityId: number): boolean {
   const newHunger = Math.max(0, ps.hunger - HUNGER_RESTORE)
   ps.updateVitals({ hunger: newHunger })
   Metabolism.hunger[entityId] = newHunger
+  const hungerPct = Math.round(newHunger * 100)
   useUiStore.getState().addNotification(
-    `Ate cooked meat — hunger reduced to ${Math.round(newHunger * 100)}%`,
+    hungerPct > 50 ? `✓ Ate cooked meat` : hungerPct > 25 ? `✓ Ate! Still hungry...` : `✓ Ate, but very hungry`,
     'info'
   )
   return true

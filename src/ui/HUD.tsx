@@ -742,13 +742,39 @@ export function HUD() {
           )}
 
           {/* Cooking progress (Slice 4) — show when food is cooking (survivalTick forces re-read) */}
-          {survivalTick >= 0 && cookingProgress.size > 0 && (
+          {survivalTick >= 0 && cookingProgress.size > 0 && (() => {
+            const progVals = Array.from(cookingProgress.values())
+            const avgProg = progVals.reduce((a, b) => a + b, 0) / progVals.length
+            return (
+              <div style={{
+                marginTop: 4, fontSize: 8, color: '#f39c12', letterSpacing: 1,
+              }}>
+                🔥 COOKING {cookingProgress.size}x {Math.round(avgProg / 8 * 100)}%
+              </div>
+            )
+          })()}
+
+          {/* Gathering hint — show when player should gather */}
+          {(() => {
+            const anyStoneNearby = true // This would ideally check proximity, but we keep it simple
+            const hasAnyTool = inventory.hasItemById(ITEM.STONE_TOOL) || inventory.hasItemById(ITEM.AXE)
+            return !hasAnyTool ? (
+              <div style={{
+                marginTop: 4, fontSize: 8, color: '#f1b90a', letterSpacing: 1,
+              }}>
+                💡 [F] gather stone/wood to start crafting
+              </div>
+            ) : null
+          })()}
+
+          {/* Thirst hint — show when thirsty */}
+          {(1 - thirst) < 0.3 ? (
             <div style={{
-              marginTop: 4, fontSize: 8, color: '#f39c12', letterSpacing: 1,
+              marginTop: 4, fontSize: 8, color: '#6699cc', letterSpacing: 1,
             }}>
-              COOKING {Math.round(Math.min(...Array.from(cookingProgress.values())) / 8 * 100)}%
+              💧 Find water to drink!
             </div>
-          )}
+          ) : null}
 
           {/* Sleep indicator (Slice 6) */}
           {isSleeping && (
@@ -756,7 +782,7 @@ export function HUD() {
               marginTop: 4, fontSize: 8, color: '#8e44ad', letterSpacing: 1,
               animation: 'none',
             }}>
-              SLEEPING... [Z]=wake
+              💤 SLEEPING... [Z]=wake
             </div>
           )}
 

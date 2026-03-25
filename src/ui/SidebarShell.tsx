@@ -9,6 +9,7 @@ import { useGameStore } from '../store/gameStore'
 import { usePlayerStore } from '../store/playerStore'
 import { cancelFishing, isFishingActive } from '../world/SailingSystem'
 import { tryEatFood } from '../game/SurvivalSystems'
+import { inventory } from '../game/GameSingletons'
 import { InventoryPanel } from './panels/InventoryPanel'
 import { CraftingPanel } from './panels/CraftingPanel'
 import { TechTreePanel } from './panels/TechTreePanel'
@@ -96,7 +97,7 @@ export function SidebarShell() {
             e.preventDefault()
             const ps = usePlayerStore.getState()
             const eid = ps.entityId
-            if (eid && !tryEatFood(ps.inventory, eid)) {
+            if (eid && !tryEatFood(inventory, eid)) {
               // No food eaten, open Evolution panel as fallback
               togglePanel('evolution')
             }

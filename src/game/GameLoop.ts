@@ -100,6 +100,11 @@ import type { PlayerController } from '../player/PlayerController'
 import type { LocalSimManager } from '../engine/LocalSimManager'
 import { tickChemistryGameplay } from './ChemistryGameplay'
 import { CreatureBody } from '../ecs/world'
+import { skillSystem } from './SkillSystem'
+import { saveOffline, registerSkillSystem } from './OfflineSaveManager'
+
+// Register skill system with offline save manager for serialization
+registerSkillSystem(skillSystem)
 
 // ── Dig holes ─────────────────────────────────────────────────────────────────
 export interface DigHole { x: number; y: number; z: number; r: number }
@@ -147,6 +152,8 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
   const settlementCheckTimerRef = useRef(0)   // M6: seconds since last proximity check
   const ecosystemTimerRef       = useRef(0)   // M9: seconds since last ecosystem respawn check
   const fishingStateRef         = useRef<'idle'|'waiting'|'bite'>('idle')  // M10 Track B
+  const offlineSaveTimerRef     = useRef(0)    // M22: auto-save every 60s
+  const survivalXpTimerRef      = useRef(0)    // M22: passive survival XP every 60s
 
   useFrame((_, delta) => {
     // Cap dt to avoid spiral-of-death on slow frames
@@ -349,6 +356,8 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
           if (nearNode.matId === MAT.STONE || nearNode.matId === MAT.FLINT) {
             inventory.discoverRecipe(1)
           }
+          // M22: Gathering XP (10-30 based on ore vs basic)
+          skillSystem.addXp('gathering', isOre ? 25 : 15)
           const addNotification = useUiStore.getState().addNotification
           addNotification(
             `✓ Gathered ${qty > 1 ? qty + '× ' : ''}${nearNode.label} — [I] to view items`,
@@ -356,6 +365,7 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
           )
           if (!_firstGatherDone) {
             _firstGatherDone = true
+            skillSystem.addXp('exploration', 50) // M22: Exploration XP on first gather
             useUiStore.getState().openPanel('inventory')
           }
           if (isOre) {
@@ -714,6 +724,7 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
                 inventory.addItem({ itemId: 0, materialId: MAT.HIDE, quantity: 1, quality: 0.7 })
                 creatureWander.delete(targetEid)
                 removeEntity(world, targetEid)
+                skillSystem.addXp('combat', 60) // M22: Combat XP on musket kill
                 useUiStore.getState().addNotification('Creature killed by musket shot!', 'discovery')
               } else {
                 useUiStore.getState().addNotification(`Musket hit — ${shotResult.damage} dmg! Reloading (8s)...`, 'warning')
@@ -750,6 +761,7 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
             inventory.addItem({ itemId: 0, materialId: MAT.HIDE,     quantity: 1, quality: 0.7 })
             creatureWander.delete(nearestCreatureEid)
             removeEntity(world, nearestCreatureEid)
+            skillSystem.addXp('combat', 40) // M22: Combat XP on creature kill
             useUiStore.getState().addNotification('Creature killed — raw meat + hide collected!', 'discovery')
           } else {
             useUiStore.getState().addNotification(
@@ -770,6 +782,7 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
               for (const drop of loot) {
                 inventory.addItem({ itemId: 0, materialId: drop.materialId, quantity: drop.quantity, quality: 0.8 })
               }
+              skillSystem.addXp('combat', 50) // M22: Combat XP on animal kill
               const lootSummary = loot.map(l => `${l.quantity}x ${l.label}`).join(', ')
               useUiStore.getState().addNotification(
                 `${speciesName} killed — ${lootSummary} collected!`, 'discovery'
@@ -879,6 +892,8 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
               nodeType: nearest.type,
               x: nearest.x, y: nearest.y, z: nearest.z,
             })
+            // M22: Gathering XP on left-click harvest
+            skillSystem.addXp('gathering', 20)
             const verb = nearest.type === 'wood' ? 'Felled' : 'Harvested'
             useUiStore.getState().addNotification(`${verb} ${qty}× ${nearest.label}`, 'info')
           } else {
@@ -1005,6 +1020,7 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
       const addNotification = useUiStore.getState().addNotification
       const matLabel = (Object.entries(MAT).find(([, v]) => v === mat)?.[0] ?? 'Material')
         .replace(/_/g, ' ').toLowerCase().replace(/^./, (c) => c.toUpperCase())
+      skillSystem.addXp('gathering', 10) // M22: Gathering XP on dig
       addNotification(`Dug up ${qty}× ${matLabel}`, 'info')
     }
 
@@ -1254,6 +1270,20 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
         const gs10b = useGameStore.getState()
         if (gs10b.inputBlocked) useShopStore.getState().closeShop()
       }
+    }
+
+    // ── M22: Auto-save offline every 60s ────────────────────────────────────
+    offlineSaveTimerRef.current += dt
+    if (offlineSaveTimerRef.current >= 60) {
+      offlineSaveTimerRef.current = 0
+      saveOffline().catch(() => {})
+    }
+
+    // ── M22: Passive survival XP every 60s alive ────────────────────────────
+    survivalXpTimerRef.current += dt
+    if (survivalXpTimerRef.current >= 60) {
+      survivalXpTimerRef.current = 0
+      skillSystem.addXp('survival', 5)
     }
 
     // ── M7 T2: NPC guard aggro ────────────────────────────────────────────────

@@ -418,6 +418,58 @@ function SeasonWidget({ season, progress }: { season: SeasonName; progress: numb
   )
 }
 
+// ── M22: Time-of-Day Widget ────────────────────────────────────────────────────
+
+function TimeOfDayWidget() {
+  const dayAngle = useGameStore(s => s.dayAngle)
+  const dayCount = useGameStore(s => s.dayCount)
+
+  const sinA = Math.sin(dayAngle)
+  const sunAboveHorizon = sinA > 0
+  const horizonProximity = 1 - Math.abs(sinA)
+
+  // Determine time-of-day label
+  let period: string
+  let periodColor: string
+  if (!sunAboveHorizon) {
+    period = 'Night'
+    periodColor = '#6688cc'
+  } else if (horizonProximity > 0.7 && dayAngle < Math.PI) {
+    period = 'Dawn'
+    periodColor = '#ffaa66'
+  } else if (horizonProximity > 0.7 && dayAngle >= Math.PI) {
+    period = 'Dusk'
+    periodColor = '#ff8844'
+  } else if (sinA > 0.85) {
+    period = 'Noon'
+    periodColor = '#ffdd44'
+  } else if (dayAngle < Math.PI / 2) {
+    period = 'Morning'
+    periodColor = '#aaddff'
+  } else {
+    period = 'Afternoon'
+    periodColor = '#ffcc88'
+  }
+
+  const isSun = sunAboveHorizon
+  const icon = isSun ? '*' : 'C'  // sun vs crescent moon
+
+  return (
+    <div style={{
+      display: 'flex',
+      alignItems: 'center',
+      gap: 5,
+      marginTop: 3,
+      fontSize: 10,
+      color: 'rgba(255,255,255,0.45)',
+    }}>
+      <span style={{ color: periodColor, fontSize: 12, fontWeight: 700 }}>{icon}</span>
+      <span style={{ color: periodColor, letterSpacing: 1 }}>{period}</span>
+      <span style={{ color: 'rgba(255,255,255,0.25)', fontSize: 9 }}>Day {dayCount}</span>
+    </div>
+  )
+}
+
 // ── Crosshair ─────────────────────────────────────────────────────────────────
 
 function Crosshair() {
@@ -652,6 +704,8 @@ export function HUD() {
               PAUSED
             </div>
           )}
+          {/* M22: Time-of-day widget */}
+          <TimeOfDayWidget />
         </div>
 
         {/* ── Top-right: connection + EP ── */}

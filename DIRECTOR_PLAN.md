@@ -1,7 +1,7 @@
 # Director Plan -- Universe Sim
 
 **Date**: 2026-03-26
-**Sprint**: M21
+**Sprint**: M22
 **Status**: SHIPPED -- All 3 Tracks Complete
 
 ---
@@ -347,7 +347,121 @@
 
 ---
 
-## Immediate Next Actions
+## M22 Sprint Plan -- 3 Parallel Tracks
 
-1. M21 shipped -- all quality gates met
-2. Next sprint: M22 -- Tree LOD, LLM dialogue integration, volumetric fog
+### Track A (P0): Offline Save/Load (localStorage + IndexedDB)
+**Assigned to**: `director` (self-execute)
+**Duration**: Full sprint
+**Goal**: Allow players to save and load game state without authentication. Currently save/load requires Clerk auth + Neon DB. Most players never sign in, so they lose all progress on refresh. Add a localStorage/IndexedDB offline save that auto-saves every 60s and loads on boot.
+
+| Task | Description | Technical Spec |
+|------|-------------|---------------|
+| A1 | Create `OfflineSaveManager.ts` | Singleton at `src/game/OfflineSaveManager.ts`. Uses localStorage for small state (vitals, position, civTier, simSeconds, settings) and IndexedDB for large state (inventory slots, buildings, journal entries, known recipes). Two methods: `saveOffline()` and `loadOffline()`. Both return promises. Key prefix: `universe_save_`. |
+| A2 | Auto-save timer | In GameLoop.ts, call `offlineSaveManager.saveOffline()` every 60 seconds (same cadence as cloud save). Use a simple timer ref. Only save when player is alive and not in transit. |
+| A3 | Load-on-boot logic | In `App.tsx` or the world bootstrap flow: if user is NOT authenticated (no Clerk session), attempt `loadOffline()` before spawning. If save exists, restore all state. If no save, start fresh. Show a brief "Save loaded" notification via NotificationSystem. |
+| A4 | Manual save/load in SettingsPanel | Add "Save Game" and "Load Game" buttons to SettingsPanel.tsx. Save button triggers immediate `saveOffline()` with confirmation toast. Load button triggers `loadOffline()` with a confirm dialog ("This will overwrite current progress"). |
+| A5 | Save slot display | Show last-save timestamp and basic stats (civTier, play time) in SettingsPanel below the save/load buttons. Read from localStorage metadata key `universe_save_meta`. |
+| A6 | Cloud save preference | When user IS authenticated, still auto-save to localStorage as backup. Cloud save remains primary. On load, prefer cloud save if newer than local save (compare timestamps). |
+
+**Quality gate**: (a) Refresh browser without auth -> game state persists, (b) auto-save fires every 60s, (c) manual save/load buttons work, (d) save metadata displayed, (e) cloud save takes priority when auth'd and newer, (f) build passes, (g) IndexedDB handles inventory/buildings correctly.
+
+---
+
+### Track B (P0): Player Skill Tree + Progression System
+**Assigned to**: `director` (self-execute)
+**Duration**: Full sprint
+**Goal**: Add a visible skill progression system. Players earn XP from gathering, crafting, combat, and exploration. Skills unlock passive bonuses (faster gathering, more HP, better craft quality, etc.). Displayed in a new SkillTreePanel.
+
+| Task | Description | Technical Spec |
+|------|-------------|---------------|
+| B1 | Create `SkillSystem.ts` | New file at `src/game/SkillSystem.ts`. Defines 6 skill categories: `gathering` (harvest speed, yield bonus), `crafting` (quality bonus, recipe unlock), `combat` (damage bonus, HP bonus), `survival` (hunger/thirst drain reduction), `exploration` (movement speed, fog reveal radius), `smithing` (merge existing smithingXp, quality curve). Each skill: level 0-10, XP thresholds = [0, 100, 250, 500, 1000, 2000, 4000, 7000, 11000, 16000, 22000]. Singleton class with `addXp(skill, amount)`, `getLevel(skill)`, `getBonus(skill)`, `serialize()`, `deserialize()`. |
+| B2 | XP award hooks | In GameLoop.ts: award gathering XP on resource harvest (+10-30 per node, scaled by node tier). Award crafting XP on successful craft (+15-50 per recipe tier). Award combat XP on creature kill (+20-60). Award exploration XP on new discovery (+50). Award survival XP passively every 60s alive (+5). |
+| B3 | Passive bonus application | Wire skill bonuses into existing systems: `gathering` level reduces harvest time by 5% per level. `crafting` adds +0.02 quality per level. `combat` adds +5% damage per level. `survival` reduces hunger/thirst drain by 3% per level. `exploration` increases fog reveal radius by 5% per level. `smithing` replaces raw smithingXp curve with skill level curve. |
+| B4 | Create `SkillTreePanel.tsx` | New panel at `src/ui/panels/SkillTreePanel.tsx`. Shows 6 skill cards in a 2x3 grid. Each card: skill name, current level, XP bar (progress to next level), current bonus description, icon (text-based: pickaxe for gathering, hammer for crafting, sword for combat, heart for survival, compass for exploration, anvil for smithing). Styled matching existing dark-translucent UI. |
+| B5 | Register panel | Add `'skills'` as PanelId in uiStore. Register in SidebarShell with 'K' hotkey. Add icon to sidebar strip. Lazy-load the panel. |
+| B6 | Persist skills | Add skill data to both cloud save (saveStore.ts) and offline save (OfflineSaveManager). Serialize as `{gathering: {xp, level}, crafting: {xp, level}, ...}`. |
+
+**Quality gate**: (a) XP awards visible in skill panel after gathering/crafting/combat, (b) level-up triggers notification, (c) passive bonuses measurably affect gameplay (e.g., harvest time visibly shorter at level 5+), (d) K key opens skill panel, (e) skills persist across save/load, (f) build passes.
+
+---
+
+### Track C (P1): Day/Night Visual Polish + Sun Arc
+**Assigned to**: `director` (self-execute)
+**Duration**: Full sprint
+**Goal**: Enhance the day/night cycle with a visible sun disc, improved twilight color grading, moonlight shadows, and a time-of-day HUD indicator. Make sunrise/sunset a cinematic moment.
+
+| Task | Description | Technical Spec |
+|------|-------------|---------------|
+| C1 | Sun disc mesh | Add a bright emissive sphere (radius 40, color temperature 5778K = #fff5e0) at the sun position in DayNightCycle.tsx. Billboard-face the camera. Intensity modulated by sin(angle): full brightness at noon, fade to 0 at horizon. Add a subtle glow halo using a second transparent sphere (radius 120, additive blend, opacity 0.15). |
+| C2 | Improved twilight color grading | In PostProcessing.tsx, add a time-of-day color grade pass: during golden hour (sun angle 0-15 degrees above horizon), shift color balance warm (lift shadows +0.02 orange, gamma mids +0.01 gold). During blue hour (sun 0-10 degrees below horizon), shift cool (gain highlights -0.02 blue). Read sun angle from DayNightCycle via a shared ref or store value. |
+| C3 | Moonlight enhancement | When sun is below horizon, set a secondary directional light (dim, blue-white #b0c4de, intensity 0.15) positioned opposite the sun. This simulates moonlight. Cast soft shadows (shadow map 1024, bias -0.002). Intensity modulated by moon phase (already computed in NightSkyRenderer). |
+| C4 | Time-of-day HUD widget | Small widget in HUD.tsx top-center: shows a circular clock icon with sun/moon position indicator (small arc). Text displays: "Dawn", "Morning", "Noon", "Afternoon", "Dusk", "Night" based on sun angle. Also shows "Day X" counter (simSeconds / DAY_DURATION_S). Compact: 80x30px. |
+| C5 | Horizon fog color | Modulate FogExp2 color by time of day. Dawn/dusk: warm peach (#ffd4a3). Night: deep blue (#0a1428). Noon: light grey-blue (#c8d8e8). Smooth lerp between states keyed to sun angle. Currently fog density changes but color stays constant. |
+| C6 | Star twinkle animation | In NightSkyRenderer, add per-star brightness oscillation: each star's point size multiplied by `0.85 + 0.15 * sin(time * star.twinkleFreq + star.twinklePhase)`. twinkleFreq = 1.5-4.0 Hz (randomized per star). Adds life to the night sky without performance cost (just a uniform update). |
+
+**Quality gate**: (a) Sun disc visible in sky, scales correctly with distance, (b) golden hour warm tint visible on terrain, (c) moonlight casts soft shadows at night, (d) time-of-day widget shows correct period, (e) fog color matches time of day, (f) stars twinkle at night, (g) build passes, (h) no framerate regression >5%.
+
+---
+
+## Architecture Decisions (M22)
+
+| Decision | Rationale |
+|----------|-----------|
+| localStorage for small state, IndexedDB for large | localStorage has 5MB limit, inventory+buildings can exceed that; IndexedDB handles structured data well |
+| 6 skill categories, max level 10 | Matches the 6 core gameplay loops; level 10 is achievable in ~4 hours of focused play |
+| XP thresholds exponential curve | Early levels fast (engagement), later levels slow (long-term goals) |
+| Sun disc as emissive sphere, not post-process lens flare | Consistent with R3F scene graph; no post-processing dependency; works with existing atmosphere shader |
+| Moonlight as secondary directional light | Simple, effective, minimal perf cost; shadow map 1024 is half sun resolution |
+| Time-of-day fog color | Cheap per-frame operation that dramatically improves atmosphere |
+
+---
+
+## Risk Register (M22)
+
+| Risk | Likelihood | Impact | Mitigation |
+|------|-----------|--------|------------|
+| IndexedDB blocked in private browsing mode | Medium | Medium | Fallback to localStorage-only (truncate buildings array if >4MB) |
+| Skill bonuses feel imperceptible at low levels | Medium | Medium | Show bonus % in tooltip; first level grants a noticeable 10% bonus |
+| Sun disc z-fights with Sky dome | Medium | Low | Render sun disc at depth 0.999 (near far plane); disable depth test on glow halo |
+| Moonlight shadows double shadow draw calls | Low | Medium | Moonlight shadow map only 1024 (vs 2048 for sun); disable when FPS < 30 |
+| Save data corruption on browser crash during write | Low | High | Write to temp key first, then rename (atomic swap pattern) |
+| Fog color transitions cause visible banding | Low | Low | Use smoothstep interpolation with 3-point color ramp |
+
+---
+
+## Agent Dispatch Plan (M22)
+
+| Agent | Track | First Task | Report To |
+|-------|-------|-----------|-----------|
+| `director` | Track A | A1: Create OfflineSaveManager.ts | self |
+| `director` | Track B | B1: Create SkillSystem.ts | self |
+| `director` | Track C | C1: Add sun disc mesh to DayNightCycle | self |
+
+---
+
+## M22 Completion Summary (2026-03-26)
+
+**All 3 Tracks SHIPPED:**
+
+- **Track A -- Offline Save/Load: DONE** -- OfflineSaveManager.ts (230 lines): localStorage for small state (vitals, position, civTier, simSeconds, discoveries, wounds, skills) + IndexedDB for large state (inventory, buildings, journal, known recipes, bedroll). Auto-save every 60s from GameLoop. Manual Save/Load buttons in SettingsPanel with save metadata display (timestamp, civTier, play time). Atomic swap pattern for crash safety. IndexedDB fallback to localStorage for private browsing.
+- **Track B -- Player Skill Tree + Progression: DONE** -- SkillSystem.ts (200 lines): 6 skills (gathering, crafting, combat, survival, exploration, smithing), max level 10, exponential XP curve (100 to 22,000). Passive bonuses: harvest time -5%/lvl, craft quality +2%/lvl, combat damage +5%/lvl, survival drain -3%/lvl, exploration range +5%/lvl, smithing quality +2.5%/lvl. XP hooks in GameLoop (gather +15-25, craft +15-50, combat +40-60, exploration +50, survival +5/60s, dig +10). SkillTreePanel.tsx (140 lines): 2x3 grid, XP bars, level-up notifications, K hotkey. Skills persist in both cloud and offline saves.
+- **Track C -- Day/Night Visual Polish: DONE** -- Sun disc mesh (emissive circle + additive glow halo, billboard-facing, horizon fade). Moonlight (secondary directional light, blue-white #b0c4de, intensity 0.18 max, 1024 shadow map). Fog color modulation (noon grey-blue, golden hour warm peach, night deep blue, smoothstep lerp). Star twinkle (per-star hash-based frequency 1.5-4Hz via uTime shader uniform). Time-of-day HUD widget (Dawn/Morning/Noon/Afternoon/Dusk/Night + Day counter). dayAngle/dayCount broadcast to gameStore at 2Hz.
+
+**Build**: Passes (0 errors). Main chunk: 3041 kB (from 3022 kB, +19 kB for all 3 features). SkillTreePanel lazy chunk: 3.15 kB. SettingsPanel chunk: 29.57 kB (includes OfflineSaveManager).
+
+---
+
+## Priority Queue (After M22)
+
+| Priority | Item | Status |
+|----------|------|--------|
+| P1 | Tree LOD (instanced low-poly at distance) | Queued for M23 |
+| P1 | LLM integration for dialogue (connect DialoguePanel to real LLMBridge) | Queued for M23 |
+| P1 | Mobile/touch controls | Queued for M23 |
+| P2 | Species divergence notifications in journal | Queued |
+| P2 | Subsurface scattering for creature skin | Queued |
+| P2 | Volumetric fog (ray-marched, density from weather system) | Queued |
+| P2 | Shadow cascade tuning (3 cascades, bias correction) | Queued |
+| P2 | Drag-drop inventory reordering | Queued |
+| P2 | Combat system improvements (blocking, dodge) | Queued |
+| P2 | Multiplayer improvements (player names, positions visible) | Queued |

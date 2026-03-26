@@ -41,6 +41,12 @@ interface GameState {
   buildVersion: number
   bumpBuildVersion: () => void
 
+  // M22: Day/night cycle state (set by DayNightCycle.tsx for HUD widget)
+  dayAngle: number
+  dayCount: number
+  setDayAngle: (a: number) => void
+  setDayCount: (c: number) => void
+
   // Admin/dev controls
   flyMode: boolean
   setFlyMode: (v: boolean) => void
@@ -95,6 +101,11 @@ export const useGameStore = create<GameState>((set) => ({
 
   buildVersion: 0,
   bumpBuildVersion: () => set((s) => ({ buildVersion: s.buildVersion + 1 })),
+
+  dayAngle: Math.PI * 0.6,
+  dayCount: 1,
+  setDayAngle: (a) => set({ dayAngle: a }),
+  setDayCount: (c) => set({ dayCount: c }),
 
   flyMode: false,
   setFlyMode: (v) => set({ flyMode: v }),

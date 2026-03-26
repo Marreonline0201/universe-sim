@@ -106,6 +106,13 @@ export function CraftingPanel() {
       setTimeout(() => setCraftFlash(false), 400)
       setTimeout(() => setFloatingText(null), 1200)
 
+      // M22: Crafting XP — 15-50 based on recipe tier
+      import('../../game/SkillSystem').then(m => {
+        m.skillSystem.addXp('crafting', 15 + selectedRecipe.tier * 7)
+        if (selectedRecipe.name.toLowerCase().includes('iron') || selectedRecipe.name.toLowerCase().includes('steel')) {
+          m.skillSystem.addXp('smithing', 20 + selectedRecipe.tier * 5)
+        }
+      })
       addNotification(`Crafted: ${selectedRecipe.name}`, 'info')
       if (andEquip && !selectedRecipe.output.isMaterial) {
         for (let i = 0; i < inventory.slotCount; i++) {

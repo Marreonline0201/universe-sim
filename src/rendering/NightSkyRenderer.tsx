@@ -145,20 +145,28 @@ export function NightSkyRenderer({ dayAngle, onPlanetHover }: Props) {
   }, [])
 
   // Star shader material — vertex size from attribute, faded by uniform
+  // M22: Added uTime uniform for per-star twinkle animation
   const starMaterial = useMemo(() => new THREE.ShaderMaterial({
     uniforms: {
       uFade:     { value: 0.0 },
       uPixelRatio: { value: typeof window !== 'undefined' ? window.devicePixelRatio : 1 },
+      uTime:     { value: 0.0 },
     },
     vertexShader: /* glsl */`
       attribute float size;
       attribute vec3 color;
       varying vec3 vColor;
       uniform float uPixelRatio;
+      uniform float uTime;
       void main() {
         vColor = color;
+        // M22: Per-star twinkle — hash position to get unique frequency and phase
+        float hash = fract(sin(dot(position.xy, vec2(12.9898, 78.233))) * 43758.5453);
+        float twinkleFreq = 1.5 + hash * 2.5;  // 1.5-4.0 Hz
+        float twinklePhase = hash * 6.2832;
+        float twinkle = 0.85 + 0.15 * sin(uTime * twinkleFreq + twinklePhase);
         vec4 mvPos = modelViewMatrix * vec4(position, 1.0);
-        gl_PointSize = size * uPixelRatio * (300.0 / -mvPos.z);
+        gl_PointSize = size * twinkle * uPixelRatio * (300.0 / -mvPos.z);
         gl_PointSize = clamp(gl_PointSize, 0.5, 4.0);
         gl_Position = projectionMatrix * mvPos;
       }
@@ -203,9 +211,11 @@ export function NightSkyRenderer({ dayAngle, onPlanetHover }: Props) {
 
     const fade = fadeRef.current
 
-    // Update star shader uniform
+    // Update star shader uniforms
     if (pointsRef.current) {
-      ;(pointsRef.current.material as THREE.ShaderMaterial).uniforms.uFade.value = fade
+      const mat = pointsRef.current.material as THREE.ShaderMaterial
+      mat.uniforms.uFade.value = fade
+      mat.uniforms.uTime.value = state.clock.elapsedTime  // M22: drive twinkle animation
       pointsRef.current.visible = fade > 0.01
     }
 

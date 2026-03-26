@@ -8,6 +8,7 @@ import { usePlayerStore } from '../../store/playerStore'
 import { useUiStore } from '../../store/uiStore'
 import { Health, Metabolism } from '../../ecs/world'
 import { ambientAudio } from '../../audio/AmbientAudioEngine'
+import { saveOffline, loadOffline, getSaveMeta } from '../../game/OfflineSaveManager'
 
 const TIME_SCALES = [0.1, 0.5, 1, 10, 100, 1000, 10000, 100000, 1000000, 1e8, 1e9, 1e10, 1e12]
 const LABELS      = ['0.1×', '0.5×', '1×', '10×', '100×', '1k×', '10k×', '100k×', '1M×', '100M×', '1B×', '10B×', '1T×']
@@ -19,6 +20,7 @@ const HOTKEYS = [
   { key: 'J', action: 'Open Journal' },
   { key: 'Tab', action: 'Open Character' },
   { key: 'M', action: 'Open Map' },
+  { key: 'K', action: 'Open Skills' },
   { key: 'Esc', action: 'Settings / Close panel' },
   { key: 'V', action: 'Cycle camera mode' },
   { key: 'W/A/S/D', action: 'Move' },
@@ -197,6 +199,56 @@ export function SettingsPanel() {
           </div>
         </section>
       )}
+
+      {/* M22: Save/Load */}
+      <section>
+        <div style={{ fontSize: 10, color: '#555', letterSpacing: 2, marginBottom: 10 }}>
+          SAVE / LOAD
+        </div>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+          <button
+            onClick={async () => {
+              const ok = await saveOffline()
+              addNotification(ok ? 'Game saved locally!' : 'Save failed', ok ? 'info' : 'error')
+            }}
+            style={{
+              flex: 1, padding: '8px 0',
+              background: 'rgba(46,204,113,0.12)', border: '1px solid rgba(46,204,113,0.4)',
+              borderRadius: 6, color: '#2ecc71', cursor: 'pointer', fontSize: 11,
+              fontFamily: 'monospace', letterSpacing: 1,
+            }}
+          >
+            SAVE GAME
+          </button>
+          <button
+            onClick={async () => {
+              if (!confirm('Load saved game? This will overwrite current progress.')) return
+              const ok = await loadOffline()
+              addNotification(ok ? 'Game loaded!' : 'No save found', ok ? 'info' : 'warning')
+            }}
+            style={{
+              flex: 1, padding: '8px 0',
+              background: 'rgba(52,152,219,0.12)', border: '1px solid rgba(52,152,219,0.4)',
+              borderRadius: 6, color: '#3498db', cursor: 'pointer', fontSize: 11,
+              fontFamily: 'monospace', letterSpacing: 1,
+            }}
+          >
+            LOAD GAME
+          </button>
+        </div>
+        {(() => {
+          const meta = getSaveMeta()
+          if (!meta) return <div style={{ fontSize: 10, color: '#555' }}>No local save found</div>
+          const date = new Date(meta.timestamp)
+          const playMins = Math.floor(meta.playTime / 60)
+          return (
+            <div style={{ fontSize: 10, color: '#666', lineHeight: 1.6 }}>
+              Last save: {date.toLocaleDateString()} {date.toLocaleTimeString()}<br />
+              Civ Tier: {meta.civTier} | Play time: {playMins} min
+            </div>
+          )
+        })()}
+      </section>
 
       {/* M21: Audio Volume */}
       <section>

@@ -13,12 +13,13 @@
 //   to simulate the longer atmospheric path at low sun angles (Rayleigh
 //   scattering ∝ 1/λ⁴ — responsible for orange/red sunrises).
 
-import { useRef, useState } from 'react'
+import { useRef, useState, useMemo } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { Sky } from '@react-three/drei'
 import * as THREE from 'three'
 import { usePlayerStore } from '../store/playerStore'
 import { useWeatherStore } from '../store/weatherStore'
+import { useGameStore } from '../store/gameStore'
 
 // One full day = 1200 real seconds (20 minutes)
 const DAY_DURATION_S = 1200
@@ -66,6 +67,26 @@ export function DayNightCycle({ onDayAngleChange }: Props) {
   const _dayGroundColor = useRef(new THREE.Color('#3a4a1a'))
   const _nightGroundColor = useRef(new THREE.Color('#0a0a08'))
   const _tmpColor       = useRef(new THREE.Color())
+
+  // M22: Moonlight ref
+  const moonLightRef = useRef<THREE.DirectionalLight>(null)
+
+  // M22: Sun disc mesh refs
+  const sunDiscRef = useRef<THREE.Mesh>(null)
+  const sunGlowRef = useRef<THREE.Mesh>(null)
+
+  // M22: Day counter
+  const totalRevolutions = useRef(0)
+  const prevAngleRef = useRef(START_ANGLE)
+
+  // M22: Fog color targets (pre-allocated)
+  const _fogNoon   = useRef(new THREE.Color('#c8d8e8'))
+  const _fogDusk   = useRef(new THREE.Color('#ffd4a3'))
+  const _fogNight  = useRef(new THREE.Color('#0a1428'))
+  const _fogTarget = useRef(new THREE.Color())
+
+  // M22: Throttle gameStore updates to ~2Hz
+  const storeUpdateTimer = useRef(0)
 
   useFrame((state, delta) => {
     // Advance day angle
@@ -130,6 +151,81 @@ export function DayNightCycle({ onDayAngleChange }: Props) {
         : 0.016 + 0.002 * Math.abs(sinA) // night: 0.016–0.018 (densest at midnight)
     }
 
+    // ── M22: Fog color modulation by time of day ────────────────────────────
+    if (state.scene.fog instanceof THREE.FogExp2) {
+      const horizPfog = Math.max(0, 1 - Math.abs(sinA))
+      const isDawnDuskFog = sunAboveHorizon && horizPfog > 0.6
+      if (isDawnDuskFog) {
+        // Golden hour: warm peach fog
+        const t2 = (horizPfog - 0.6) / 0.4 // 0-1 in the dawn/dusk band
+        _fogTarget.current.copy(_fogNoon.current).lerp(_fogDusk.current, t2)
+      } else if (sunAboveHorizon) {
+        // Daytime: cool grey-blue fog
+        _fogTarget.current.copy(_fogNoon.current)
+      } else {
+        // Night: deep blue fog
+        const nightT = Math.min(1, Math.abs(sinA) * 2)
+        _fogTarget.current.copy(_fogDusk.current).lerp(_fogNight.current, nightT)
+      }
+      state.scene.fog.color.lerp(_fogTarget.current, Math.min(1, delta * 2))
+    }
+
+    // ── M22: Moonlight (secondary directional, blue-white, opposite sun) ───
+    if (moonLightRef.current) {
+      const ps2 = usePlayerStore.getState()
+      if (!sunAboveHorizon) {
+        // Moon positioned opposite the sun
+        moonLightRef.current.position.set(ps2.x - sx * 0.5, ps2.y - sy * 0.5, ps2.z + 2000)
+        moonLightRef.current.target.position.set(ps2.x, ps2.y, ps2.z)
+        moonLightRef.current.target.updateMatrixWorld()
+        // Intensity modulated: stronger when sun is well below horizon
+        moonLightRef.current.intensity = Math.min(0.18, Math.abs(sinA) * 0.25)
+        moonLightRef.current.visible = true
+      } else {
+        moonLightRef.current.intensity = 0
+        moonLightRef.current.visible = false
+      }
+    }
+
+    // ── M22: Sun disc mesh follows sun position ────────────────────────────
+    if (sunDiscRef.current) {
+      const ps3 = usePlayerStore.getState()
+      // Place sun disc at a visible distance (closer than orbit radius)
+      const discDist = 4000
+      const discX = ps3.x + discDist * Math.cos(angle)
+      const discY = ps3.y + discDist * Math.sin(angle)
+      const discZ = ps3.z + 1500
+      sunDiscRef.current.position.set(discX, discY, discZ)
+      sunDiscRef.current.lookAt(ps3.x, ps3.y, ps3.z)
+      // Fade out below horizon
+      const sunOpacity = sunAboveHorizon ? Math.min(1, sinA * 3) : 0
+      const mat = sunDiscRef.current.material as THREE.MeshBasicMaterial
+      mat.opacity = sunOpacity
+      sunDiscRef.current.visible = sunOpacity > 0.01
+
+      if (sunGlowRef.current) {
+        sunGlowRef.current.position.copy(sunDiscRef.current.position)
+        sunGlowRef.current.lookAt(ps3.x, ps3.y, ps3.z)
+        const glowMat = sunGlowRef.current.material as THREE.MeshBasicMaterial
+        glowMat.opacity = sunOpacity * 0.12
+        sunGlowRef.current.visible = sunOpacity > 0.01
+      }
+    }
+
+    // ── M22: Track day count (detect angle wrap past 0) ────────────────────
+    if (angle < prevAngleRef.current && prevAngleRef.current > Math.PI) {
+      totalRevolutions.current++
+    }
+    prevAngleRef.current = angle
+
+    // ── M22: Broadcast day angle + count to gameStore (throttled ~2Hz) ──────
+    storeUpdateTimer.current += delta
+    if (storeUpdateTimer.current >= 0.5) {
+      storeUpdateTimer.current = 0
+      useGameStore.getState().setDayAngle(angle)
+      useGameStore.getState().setDayCount(totalRevolutions.current + 1)
+    }
+
     // ── Sky params (throttled at ~4Hz — Sky re-render is expensive) ──────────
     skyUpdateTimer.current += delta
     if (skyUpdateTimer.current >= 0.25) {
@@ -182,6 +278,47 @@ export function DayNightCycle({ onDayAngleChange }: Props) {
         rayleigh={skyParams.rayleigh}
         mieCoefficient={0.005}
         mieDirectionalG={0.8}
+      />
+
+      {/* M22: Sun disc — bright emissive billboard */}
+      <mesh ref={sunDiscRef} renderOrder={999}>
+        <circleGeometry args={[40, 32]} />
+        <meshBasicMaterial
+          color="#fff5e0"
+          transparent
+          opacity={1}
+          depthWrite={false}
+          side={THREE.DoubleSide}
+        />
+      </mesh>
+
+      {/* M22: Sun glow halo — larger, fainter */}
+      <mesh ref={sunGlowRef} renderOrder={998}>
+        <circleGeometry args={[120, 32]} />
+        <meshBasicMaterial
+          color="#ffeecc"
+          transparent
+          opacity={0.12}
+          depthWrite={false}
+          side={THREE.DoubleSide}
+          blending={THREE.AdditiveBlending}
+        />
+      </mesh>
+
+      {/* M22: Moonlight — soft blue-white secondary directional */}
+      <directionalLight
+        ref={moonLightRef}
+        color="#b0c4de"
+        intensity={0}
+        castShadow
+        shadow-mapSize={[1024, 1024]}
+        shadow-camera-near={1}
+        shadow-camera-far={8000}
+        shadow-camera-left={-400}
+        shadow-camera-right={400}
+        shadow-camera-top={400}
+        shadow-camera-bottom={-400}
+        shadow-bias={-0.002}
       />
     </>
   )

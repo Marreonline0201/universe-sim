@@ -149,7 +149,7 @@ export function addReputation(factionId: string, amount: number, reason?: string
   faction.tier = computeFactionTier(faction.standing)
 
   window.dispatchEvent(new CustomEvent('faction-standing-changed', {
-    detail: { factionId, standing: faction.standing, tier: faction.tier, reason },
+    detail: { factionId, factionName: faction.name, standing: faction.standing, tier: faction.tier, reason, change: amount },
   }))
 }
 

@@ -4,6 +4,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react'
 import { getMilestones, claimMilestone, type ShowcaseMilestone } from '../../game/AchievementShowcaseSystem'
+import { usePlayerStatsStore } from '../../store/playerStatsStore'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -327,6 +328,7 @@ export function AchievementTrophyPanel() {
   const [milestones, setMilestones] = useState<ShowcaseMilestone[]>(() => getMilestones())
   const [filter, setFilter] = useState<FilterTab>('ALL')
   const [flashingId, setFlashingId] = useState<string | null>(null)
+  const stats = usePlayerStatsStore(s => s.stats)
 
   // Inject CSS animation once
   useEffect(() => {
@@ -339,12 +341,10 @@ export function AchievementTrophyPanel() {
 
   useEffect(() => {
     const iv = setInterval(refresh, 5_000)
-    window.addEventListener('achievement-milestone-unlocked', refresh)
     window.addEventListener('milestone-unlocked', refresh)
     window.addEventListener('milestone-claimed', refresh)
     return () => {
       clearInterval(iv)
-      window.removeEventListener('achievement-milestone-unlocked', refresh)
       window.removeEventListener('milestone-unlocked', refresh)
       window.removeEventListener('milestone-claimed', refresh)
     }
@@ -383,8 +383,7 @@ export function AchievementTrophyPanel() {
   // For a cleaner progress display we derive from the unlocked flag.
   function getStatValue(m: ShowcaseMilestone): number {
     if (m.unlocked) return m.requirement.value
-    // Approximate — show partial progress at 0 for locked (no stat access here)
-    return 0
+    return (stats as Record<string, number>)[m.requirement.stat] ?? 0
   }
 
   return (

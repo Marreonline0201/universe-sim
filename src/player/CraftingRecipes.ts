@@ -37,7 +37,9 @@ export const CRAFTING_RECIPES: CraftingRecipe[] = [
     knowledgeRequired: [],
   },
   {
-    id: 6, name: 'Fire', tier: 0, time: 20,
+    // B-10 fix: renamed from "Fire" to "Campfire Kit" — the crafted item is a
+    // placeable fire you equip and left-click to ignite, not an instant effect.
+    id: 6, name: 'Campfire Kit', tier: 0, time: 20,
     inputs: [{ materialId: MAT.FLINT, quantity: 1 }, { materialId: MAT.WOOD, quantity: 3 }],
     output: { itemId: ITEM.FIRE, quantity: 1 },
     knowledgeRequired: ['fire_making'],

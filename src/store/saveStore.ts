@@ -133,32 +133,46 @@ export async function saveGame(getToken: () => Promise<string | null>, username:
   const ps = usePlayerStore.getState()
   const gs = useGameStore.getState()
 
-  await fetch('/api/save', {
-    method: 'POST',
-    headers: await authHeaders(getToken),
-    body: JSON.stringify({
-      username,
-      x: ps.x, y: ps.y, z: ps.z,
-      health: ps.health, hunger: ps.hunger, thirst: ps.thirst,
-      energy: ps.energy, fatigue: ps.fatigue,
-      civTier: ps.civTier,
-      discoveries: Array.from(ps.discoveries),
-      currentGoal: ps.currentGoal,
-      simSeconds: gs.simSeconds,
-      inventory: inventory.listItems(),
-      knownRecipes: inventory.getKnownRecipes(),
-      journalEntries: journal.getAll(),
-      buildings: buildingSystem.getAllBuildings(),
-      bedrollX: ps.bedrollPos?.x ?? null,
-      bedrollY: ps.bedrollPos?.y ?? null,
-      bedrollZ: ps.bedrollPos?.z ?? null,
-      murderCount: ps.murderCount,
-      smithingXp:  ps.smithingXp,
-      wounds:      ps.wounds,
-      skills:      skillSystem.serialize(),
-      skillTree:   useSkillStore.getState().serialize(),
-    }),
-  })
+  try {
+    const res = await fetch('/api/save', {
+      method: 'POST',
+      headers: await authHeaders(getToken),
+      body: JSON.stringify({
+        username,
+        x: ps.x, y: ps.y, z: ps.z,
+        health: ps.health, hunger: ps.hunger, thirst: ps.thirst,
+        energy: ps.energy, fatigue: ps.fatigue,
+        civTier: ps.civTier,
+        discoveries: Array.from(ps.discoveries),
+        currentGoal: ps.currentGoal,
+        simSeconds: gs.simSeconds,
+        inventory: inventory.listItems(),
+        knownRecipes: inventory.getKnownRecipes(),
+        journalEntries: journal.getAll(),
+        buildings: buildingSystem.getAllBuildings(),
+        bedrollX: ps.bedrollPos?.x ?? null,
+        bedrollY: ps.bedrollPos?.y ?? null,
+        bedrollZ: ps.bedrollPos?.z ?? null,
+        murderCount: ps.murderCount,
+        smithingXp:  ps.smithingXp,
+        wounds:      ps.wounds,
+        skills:      skillSystem.serialize(),
+        skillTree:   useSkillStore.getState().serialize(),
+      }),
+    })
+    if (!res.ok) {
+      console.warn('[saveStore] Auto-save failed: HTTP', res.status)
+      // M69 Track C (B-02): Toast notification on save failure
+      const { useUiStore } = await import('./uiStore')
+      useUiStore.getState().addNotification('Auto-save failed — will retry in 60s', 'warning')
+    }
+  } catch (err) {
+    console.warn('[saveStore] Auto-save error:', err)
+    try {
+      const { useUiStore } = await import('./uiStore')
+      useUiStore.getState().addNotification('Auto-save failed — offline?', 'warning')
+    } catch { /* uiStore not available during teardown */ }
+  }
 }
 
 /** Persist god mode to localStorage. Call when toggling in AdminPanel. */

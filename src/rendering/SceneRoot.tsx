@@ -154,6 +154,38 @@ function CombatCameraSync() {
   return null
 }
 
+// ── M69 Track B: FPS Counter — DOM overlay showing real-time frame rate ──
+function FpsCounter() {
+  const ref = useRef<HTMLDivElement>(null)
+  const frames = useRef(0)
+  const last = useRef(performance.now())
+  useEffect(() => {
+    let raf: number
+    const tick = () => {
+      frames.current++
+      const now = performance.now()
+      if (now - last.current >= 1000) {
+        if (ref.current) ref.current.textContent = `${frames.current} FPS`
+        frames.current = 0
+        last.current = now
+      }
+      raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [])
+  return (
+    <div ref={ref} style={{
+      position: 'fixed', top: 6, left: '50%', transform: 'translateX(-50%)',
+      color: '#0f0', fontSize: 11, fontFamily: 'monospace', zIndex: 9999,
+      background: 'rgba(0,0,0,0.5)', padding: '2px 8px', borderRadius: 3,
+      pointerEvents: 'none',
+    }}>
+      -- FPS
+    </div>
+  )
+}
+
 export function SceneRoot() {
   const engineRef = useRef<SimulationEngine | null>(null)
   const controllerRef = useRef<PlayerController | null>(null)
@@ -278,6 +310,9 @@ export function SceneRoot() {
   const gatherPrompt = useGameStore(s => s.gatherPrompt)
   const placementMode = useGameStore(s => s.placementMode)
   const setPlacementMode = useGameStore(s => s.setPlacementMode)
+  const shadowsEnabled = useGameStore(s => s.shadowsEnabled)
+  const renderScale = useGameStore(s => s.renderScale)
+  const showFps = useGameStore(s => s.showFps)
 
   const setEntityId = usePlayerStore(s => s.setEntityId)
   const entityId = usePlayerStore(s => s.entityId)
@@ -522,7 +557,8 @@ export function SceneRoot() {
     <Canvas
       gl={{ antialias: true, powerPreference: 'high-performance' }}
       style={{ position: 'fixed', inset: 0, pointerEvents: activePanel ? 'none' : 'auto' }}
-      shadows
+      shadows={shadowsEnabled}
+      dpr={Math.max(0.25, Math.min(2.0, renderScale * window.devicePixelRatio))}
     >
       <PerspectiveCamera makeDefault fov={70} near={0.5} far={20000} position={[0, PLANET_RADIUS + 200, 0]} />
       <CombatCameraSync />
@@ -617,6 +653,8 @@ export function SceneRoot() {
       {/* Post-processing — bloom on bright emitters + vignette framing */}
       <PostProcessing />
     </Canvas>
+    {/* M69 Track B: FPS counter — toggleable from Settings > Graphics */}
+    {showFps && <FpsCounter />}
     {/* M5: Death screen — shown above everything when player is dead */}
     <DeathScreenWrapper onRespawn={handleRespawn} />
     {/* M6: Settlement HUD — trade offers and gates-closed banner */}

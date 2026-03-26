@@ -6,47 +6,6 @@ import { loadSave, saveGame } from './store/saveStore'
 import { useWorldSocket } from './net/useWorldSocket'
 import { useBootstrapStatus } from './hooks/useBootstrapStatus'
 import { WorldBootstrapScreen } from './ui/WorldBootstrapScreen'
-import { initWorldEventLogger } from './game/WorldEventLogger'
-import { initCaveFeatures } from './game/CaveFeatureSystem'
-import { initJournalSystem } from './game/JournalSystem'
-import { initNPCRelationshipSystem } from './game/NPCRelationshipSystem'
-import { initRecipeDiscovery } from './game/RecipeDiscoverySystem'
-import { initBountyBoard } from './game/BountyBoardSystem'
-import { initMerchantGuildSystem, refreshContracts } from './game/MerchantGuildSystem'
-import { initResourceDepletion } from './game/ResourceDepletionSystem'
-import { initWorldThreatSystem } from './game/WorldThreatSystem'
-import { initTradeRouteSystem } from './game/TradeRouteSystem'
-import { initAchievementShowcase, checkAndUpdateMilestones } from './game/AchievementShowcaseSystem'
-import { initWeatherEffectsSystem } from './game/WeatherEffectsSystem'
-import { initWeatherEventSystem } from './game/WeatherEventSystem'
-import { initLoreSystem } from './game/LoreSystem'
-import { initHousingUpgrades } from './game/HousingUpgradeSystem'
-import { initPetAdvancement } from './game/PetAdvancementSystem'
-import { initTitleProgressionSystem } from './game/TitleProgressionSystem'
-import { initMarketPriceSystem } from './game/MarketPriceSystem'
-import { initCraftingMastery } from './game/CraftingMasterySystem'
-import { initWorldBossSystem } from './game/WorldBossSystem'
-import { initSettlementEconomy } from './game/SettlementEconomySystem'
-import { initSkillComboSystem } from './game/SkillComboSystem'
-import { initDungeonDelveSystem } from './game/DungeonDelveSystem'
-import { initFactionReputationSystem } from './game/FactionReputationSystem'
-import { initBlueprintSystem } from './game/BlueprintUnlockSystem'
-import { initNPCMemorySystem } from './game/NPCMemorySystem'
-import { initWorldChronicle } from './game/WorldChronicleSystem'
-import { initSeasonalEventSystem } from './game/SeasonalEventSystem'
-import { initPlayerHousing } from './game/PlayerHousingSystem'
-import { initTalentTree } from './game/TalentTreeSystem'
-import { initDynamicQuestBoard } from './game/DynamicQuestBoardSystem'
-import { initNPCEmotionSystem } from './game/NPCEmotionSystem'
-import { initPlayerTitleSystem } from './game/PlayerTitleSystem'
-import { initWorldEventScheduler } from './game/WorldEventSchedulerSystem'
-import { initResourceTradingNetwork } from './game/ResourceTradingNetwork'
-import { initWorldHistoryCodex } from './game/WorldHistoryCodexSystem'
-import { initPlayerAchievementJournal } from './game/PlayerAchievementJournalSystem'
-import { initSettlementRelations } from './game/SettlementRelationsSystem'
-import { initRecipeBook } from './game/RecipeBookSystem'
-import { initExpeditionSystem } from './game/ExpeditionSystem'
-import { initNPCScheduleSystem } from './game/NPCScheduleSystem'
 
 // ── M20: Lazy-load AdminPanel (dev/admin only) ──────────────────────────────
 const AdminPanel = lazy(() => import('./ui/AdminPanel').then(m => ({ default: m.AdminPanel })))
@@ -85,56 +44,25 @@ function AuthedApp() {
   return isSignedIn ? <GameWithSave /> : <LoginScreen />
 }
 
+// ── M69 Track A: Dynamic import of all game systems ─────────────────────────
+// Consolidates 40+ init* imports into a single lazy chunk so the main bundle
+// ships only the rendering shell. Systems load asynchronously after mount.
+function useGameSystemsBootstrap(civTier: number = 0) {
+  const initialized = useRef(false)
+  useEffect(() => {
+    if (initialized.current) return
+    initialized.current = true
+    import('./game/GameSystemsBootstrap').then(({ bootstrapGameSystems }) => {
+      bootstrapGameSystems(civTier)
+    })
+  }, [civTier])
+}
+
 // ── Dev mode game (no auth, no save) ─────────────────────────────────────────
 
 function DevGame() {
   useWorldSocket()
-
-  useEffect(() => {
-    initWorldEventLogger()
-    initCaveFeatures()
-    initJournalSystem()
-    initNPCRelationshipSystem()
-    initRecipeDiscovery()
-    initBountyBoard(0)
-    initMerchantGuildSystem()
-    refreshContracts(0)
-    initResourceDepletion()
-    initWorldThreatSystem()
-    initTradeRouteSystem()
-    initAchievementShowcase()
-    checkAndUpdateMilestones()
-    initWeatherEffectsSystem()
-    initWeatherEventSystem()
-    initLoreSystem()
-    initHousingUpgrades()
-    initPetAdvancement()
-    initTitleProgressionSystem()
-    initMarketPriceSystem()
-    initCraftingMastery()
-    initWorldBossSystem()
-    initSkillComboSystem()
-    initDungeonDelveSystem()
-    initSettlementEconomy()
-    initFactionReputationSystem()
-    initBlueprintSystem()
-    initNPCMemorySystem()
-    initWorldChronicle()
-    initPlayerHousing()
-    initSeasonalEventSystem()
-    initTalentTree()
-    initDynamicQuestBoard(0)
-    initNPCEmotionSystem()
-    initPlayerTitleSystem()
-    initWorldEventScheduler()
-    initResourceTradingNetwork()
-    initWorldHistoryCodex()
-    initPlayerAchievementJournal()
-    initSettlementRelations()
-    initRecipeBook()
-    initExpeditionSystem()
-    initNPCScheduleSystem()
-  }, [])
+  useGameSystemsBootstrap(0)
 
   return (
     <>
@@ -176,57 +104,8 @@ function GameWithSave() {
   // Connect to the persistent Railway WebSocket server
   useWorldSocket()
 
-  // M48 Track C: Initialize world event logger once on mount
-  // M50 Track C: Initialize cave features
-  // M51 Track A: Initialize player journal system
-  // M51 Track B: Initialize NPC relationship system
-  // M52 Track B: Initialize recipe discovery
-  // M54 Track A: Initialize merchant guild system
-  useEffect(() => {
-    initWorldEventLogger()
-    initCaveFeatures()
-    initJournalSystem()
-    initNPCRelationshipSystem()
-    initRecipeDiscovery()
-    initBountyBoard(0)
-    initMerchantGuildSystem()
-    refreshContracts(0)
-    initResourceDepletion()
-    initWorldThreatSystem()
-    initTradeRouteSystem()
-    initWeatherEffectsSystem()
-    initWeatherEventSystem()
-    initAchievementShowcase()
-    checkAndUpdateMilestones()
-    initLoreSystem()
-    initHousingUpgrades()
-    initPetAdvancement()
-    initTitleProgressionSystem()
-    initMarketPriceSystem()
-    initCraftingMastery()
-    initWorldBossSystem()
-    initSkillComboSystem()
-    initDungeonDelveSystem()
-    initSettlementEconomy()
-    initFactionReputationSystem()
-    initBlueprintSystem()
-    initNPCMemorySystem()
-    initWorldChronicle()
-    initSeasonalEventSystem()
-    initPlayerHousing()
-    initTalentTree()
-    initDynamicQuestBoard(0)
-    initNPCEmotionSystem()
-    initPlayerTitleSystem()
-    initWorldEventScheduler()
-    initResourceTradingNetwork()
-    initWorldHistoryCodex()
-    initPlayerAchievementJournal()
-    initSettlementRelations()
-    initRecipeBook()
-    initExpeditionSystem()
-    initNPCScheduleSystem()
-  }, [])
+  // M69 Track A: Lazy-load all game systems after mount
+  useGameSystemsBootstrap(0)
 
   // Load save on first sign-in
   useEffect(() => {

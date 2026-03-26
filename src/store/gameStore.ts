@@ -56,6 +56,20 @@ interface GameState {
   setFlyMode: (v: boolean) => void
   adminSpeedMult: number
   setAdminSpeedMult: (v: number) => void
+
+  // M69 Track B: Graphics quality settings
+  graphicsQuality: 'low' | 'medium' | 'high' | 'ultra'
+  setGraphicsQuality: (q: 'low' | 'medium' | 'high' | 'ultra') => void
+  showFps: boolean
+  setShowFps: (v: boolean) => void
+  renderScale: number
+  setRenderScale: (v: number) => void
+  shadowsEnabled: boolean
+  setShadowsEnabled: (v: boolean) => void
+  bloomEnabled: boolean
+  setBloomEnabled: (v: boolean) => void
+  vignetteEnabled: boolean
+  setVignetteEnabled: (v: boolean) => void
 }
 
 export const useGameStore = create<GameState>((set) => ({
@@ -118,6 +132,28 @@ export const useGameStore = create<GameState>((set) => ({
   setFlyMode: (v) => set({ flyMode: v }),
   adminSpeedMult: 1,
   setAdminSpeedMult: (v) => set({ adminSpeedMult: v }),
+
+  // M69 Track B: Graphics quality settings — defaults to high
+  graphicsQuality: 'high',
+  setGraphicsQuality: (q) => {
+    const presets: Record<string, { renderScale: number; shadowsEnabled: boolean; bloomEnabled: boolean; vignetteEnabled: boolean }> = {
+      low:    { renderScale: 0.5,  shadowsEnabled: false, bloomEnabled: false, vignetteEnabled: false },
+      medium: { renderScale: 0.75, shadowsEnabled: true,  bloomEnabled: false, vignetteEnabled: true },
+      high:   { renderScale: 1.0,  shadowsEnabled: true,  bloomEnabled: true,  vignetteEnabled: true },
+      ultra:  { renderScale: 1.5,  shadowsEnabled: true,  bloomEnabled: true,  vignetteEnabled: true },
+    }
+    set({ graphicsQuality: q, ...presets[q] })
+  },
+  showFps: false,
+  setShowFps: (v) => set({ showFps: v }),
+  renderScale: 1.0,
+  setRenderScale: (v) => set({ renderScale: v }),
+  shadowsEnabled: true,
+  setShadowsEnabled: (v) => set({ shadowsEnabled: v }),
+  bloomEnabled: true,
+  setBloomEnabled: (v) => set({ bloomEnabled: v }),
+  vignetteEnabled: true,
+  setVignetteEnabled: (v) => set({ vignetteEnabled: v }),
 }))
 
 // ── Helpers ────────────────────────────────────────────────────────────────

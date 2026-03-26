@@ -36,6 +36,14 @@ export function SettingsPanel() {
   const { health, hunger, thirst, energy, fatigue, civTier, updateVitals, setCivTier } = usePlayerStore()
   const addNotification = useUiStore(s => s.addNotification)
   const closePanel = useUiStore(s => s.closePanel)
+  const graphicsSettings = useGameStore(s => ({
+    graphicsQuality: s.graphicsQuality, setGraphicsQuality: s.setGraphicsQuality,
+    showFps: s.showFps, setShowFps: s.setShowFps,
+    renderScale: s.renderScale, setRenderScale: s.setRenderScale,
+    shadowsEnabled: s.shadowsEnabled, setShadowsEnabled: s.setShadowsEnabled,
+    bloomEnabled: s.bloomEnabled, setBloomEnabled: s.setBloomEnabled,
+    vignetteEnabled: s.vignetteEnabled, setVignetteEnabled: s.setVignetteEnabled,
+  }))
   const DEV_BYPASS = import.meta.env.DEV && import.meta.env.VITE_DEV_BYPASS_AUTH === 'true'
   const isAdmin = DEV_BYPASS || userId === import.meta.env.VITE_ADMIN_USER_ID
 
@@ -271,6 +279,73 @@ export function SettingsPanel() {
         </div>
         <div style={{ fontSize: 9, color: '#555', marginTop: 4 }}>
           Wind, rain, thunder, footsteps, fire, ocean waves
+        </div>
+      </section>
+
+      {/* M69 Track B: Graphics Quality */}
+      <section>
+        <div style={{ fontSize: 10, color: '#555', letterSpacing: 2, marginBottom: 10 }}>
+          GRAPHICS
+        </div>
+        {/* Quality presets */}
+        <div style={{ display: 'flex', gap: 5, marginBottom: 10 }}>
+          {(['low', 'medium', 'high', 'ultra'] as const).map(q => (
+            <button
+              key={q}
+              onClick={() => graphicsSettings.setGraphicsQuality(q)}
+              style={{
+                flex: 1, padding: '5px 0', fontSize: 10, fontFamily: 'monospace',
+                textTransform: 'uppercase', letterSpacing: 1, cursor: 'pointer',
+                color: graphicsSettings.graphicsQuality === q ? '#f1c40f' : '#888',
+                background: graphicsSettings.graphicsQuality === q ? 'rgba(241,196,15,0.12)' : 'none',
+                border: `1px solid ${graphicsSettings.graphicsQuality === q ? '#f1c40f' : '#333'}`,
+                borderRadius: 4,
+              }}
+            >
+              {q}
+            </button>
+          ))}
+        </div>
+        {/* Individual toggles */}
+        {([
+          { label: 'Shadows',  value: graphicsSettings.shadowsEnabled,  toggle: graphicsSettings.setShadowsEnabled },
+          { label: 'Bloom',    value: graphicsSettings.bloomEnabled,    toggle: graphicsSettings.setBloomEnabled },
+          { label: 'Vignette', value: graphicsSettings.vignetteEnabled, toggle: graphicsSettings.setVignetteEnabled },
+          { label: 'FPS Counter', value: graphicsSettings.showFps,     toggle: graphicsSettings.setShowFps },
+        ] as Array<{label: string; value: boolean; toggle: (v: boolean) => void}>).map(({ label, value, toggle }) => (
+          <div key={label} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+            <span style={{ fontSize: 11, color: '#888' }}>{label}</span>
+            <button
+              onClick={() => toggle(!value)}
+              style={{
+                width: 36, height: 18, borderRadius: 9, cursor: 'pointer',
+                background: value ? 'rgba(46,204,113,0.4)' : 'rgba(255,255,255,0.08)',
+                border: `1px solid ${value ? 'rgba(46,204,113,0.6)' : 'rgba(255,255,255,0.15)'}`,
+                position: 'relative', transition: 'all 0.15s',
+              }}
+            >
+              <div style={{
+                width: 12, height: 12, borderRadius: 6,
+                background: value ? '#2ecc71' : '#555',
+                position: 'absolute', top: 2,
+                left: value ? 20 : 2,
+                transition: 'all 0.15s',
+              }} />
+            </button>
+          </div>
+        ))}
+        {/* Render scale slider */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
+          <span style={{ fontSize: 11, color: '#888', width: 80 }}>Render Scale</span>
+          <input
+            type="range" min={0.25} max={2.0} step={0.25}
+            value={graphicsSettings.renderScale}
+            onChange={e => graphicsSettings.setRenderScale(parseFloat(e.target.value))}
+            style={{ flex: 1, accentColor: '#e67e22' }}
+          />
+          <span style={{ fontSize: 10, color: '#e67e22', width: 32, textAlign: 'right' }}>
+            {graphicsSettings.renderScale.toFixed(2)}x
+          </span>
         </div>
       </section>
 

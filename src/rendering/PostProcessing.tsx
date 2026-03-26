@@ -23,6 +23,7 @@
 import { useEffect, useRef } from 'react'
 import { useThree, useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
+import { useGameStore } from '../store/gameStore'
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js'
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js'
@@ -306,6 +307,21 @@ export function PostProcessing() {
   useFrame((_state, _delta) => {
     const composer = composerRef.current
     if (!composer) return
+
+    // M69 Track B: Respect graphics settings — toggle bloom + vignette passes
+    const { bloomEnabled, vignetteEnabled } = useGameStore.getState()
+    const passes = composer.passes
+    for (const p of passes) {
+      // Identify by constructor name — bloom is UnrealBloomPass, vignette is last ShaderPass
+      const name = (p as any).constructor?.name ?? ''
+      if (name === 'UnrealBloomPass') (p as any).enabled = bloomEnabled
+    }
+    // Vignette is always the last pass
+    if (passes.length > 0) {
+      const lastPass = passes[passes.length - 1] as any
+      if (lastPass.uniforms?.darkness) lastPass.enabled = vignetteEnabled
+    }
+
     // Refresh depth texture for SSAO each frame
     const drt = depthRTRef.current
     if (drt) {

@@ -20,14 +20,18 @@ export default async function handler(req: any, res: any) {
     res.status(403).send('Forbidden'); return
   }
 
-  const sql = neon(process.env.DATABASE_URL!)
-  const rows = await sql`
-    SELECT user_id, username, pos_x, pos_y, pos_z,
-           health, hunger, thirst, energy, fatigue,
-           ev_points, civ_tier, current_goal, sim_seconds, updated_at
-    FROM player_saves
-    ORDER BY updated_at DESC
-  `
-
-  res.json({ players: rows })
+  try {
+    const sql = neon(process.env.DATABASE_URL!)
+    const rows = await sql`
+      SELECT user_id, username, pos_x, pos_y, pos_z,
+             health, hunger, thirst, energy, fatigue,
+             ev_points, civ_tier, current_goal, sim_seconds, updated_at
+      FROM player_saves
+      ORDER BY updated_at DESC
+    `
+    res.json({ players: rows })
+  } catch (err: any) {
+    console.error('[admin] DB query failed:', err?.message ?? err)
+    res.status(500).json({ error: 'Database query failed', detail: err?.message ?? 'unknown' })
+  }
 }

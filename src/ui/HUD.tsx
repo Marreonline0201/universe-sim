@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, Suspense, lazy } from 'react'
+import React, { useState, useEffect, useRef, useMemo, Suspense, lazy } from 'react'
 import { useGameStore } from '../store/gameStore'
 import { usePlayerStore } from '../store/playerStore'
 import { useMultiplayerStore } from '../store/multiplayerStore'
@@ -1995,7 +1995,13 @@ function QuestTrackerWidget() {
     return () => clearInterval(id)
   }, [])
 
-  const activeQuests = useSettlementQuestStore(s => s.getActiveQuests())
+  // Select stable quests object — do NOT call getActiveQuests() inside selector
+  // (it returns a new array every call → Zustand treats it as always-changed → infinite loop)
+  const quests = useSettlementQuestStore(s => s.quests)
+  const activeQuests = useMemo(
+    () => Object.values(quests).filter(q => q.accepted && !q.completed),
+    [quests],
+  )
   if (activeQuests.length === 0) return null
 
   const shown = activeQuests.slice(0, 3)

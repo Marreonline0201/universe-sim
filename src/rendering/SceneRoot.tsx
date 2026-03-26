@@ -70,6 +70,11 @@ import { SailingRenderer } from './SailingRenderer'
 import { PlacedRaftsRenderer } from './RaftRenderer'
 import { SailingHUD } from '../ui/SailingHUD'
 
+// M29 Track A: Underground cave system
+import { CaveEntrances } from './CaveEntrances'
+import { CaveTunnelRenderer } from './CaveTunnelRenderer'
+import { UndergroundAtmosphere } from './UndergroundAtmosphere'
+
 // M10 Track C: Shop UI
 import { ShopHUD } from '../ui/ShopHUD'
 
@@ -544,6 +549,10 @@ export function SceneRoot() {
             <AnimalRenderer />
             {/* M14 Track A: Destination planet — shown when transit phase === 'arrived' */}
             <DestinationPlanetMeshWrapper />
+            {/* M29 Track A: Underground cave system — entrances, tunnels, ore, bioluminescent lighting */}
+            <CaveEntrances />
+            <CaveTunnelRenderer />
+            <UndergroundAtmosphere />
           </>
         )}
       </Suspense>

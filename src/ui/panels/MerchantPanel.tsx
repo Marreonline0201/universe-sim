@@ -16,9 +16,10 @@ import { marketSystem } from '../../game/MarketSystem'
 import { usePlayerStore } from '../../store/playerStore'
 import { useUiStore } from '../../store/uiStore'
 import { useDialogueStore } from '../../store/dialogueStore'
-import { MAT, ITEM } from '../../player/Inventory'
+import { MAT, ITEM, RARITY_COLORS, type RarityTier } from '../../player/Inventory'
 import { getReputationBonus } from '../../store/reputationStore'
 import { NegotiateOverlay, type NegotiateItem } from './NegotiateOverlay'
+import { rarityFromLevel, rarityBadgeStyle, RARITY_LABEL, RARITY_GLOW } from '../RarityStyles'
 
 // ── Name lookup maps ──────────────────────────────────────────────────────────
 
@@ -310,6 +311,11 @@ function SellTab({ archetype, settlementId }: { archetype: MerchantArchetype; se
           ? marketSystem.getTrend(settlementId, slot.materialId, slot.itemId)
           : 'flat' as const
         const interested = livePrice > 0
+        // M51: Rarity visuals for sell tab
+        const slotRarity = (slot.rarity ?? 0) as RarityTier
+        const rarityKey = rarityFromLevel(slotRarity)
+        const slotRarityColor = slotRarity > 0 ? RARITY_COLORS[slotRarity] : null
+        const slotRarityGlow  = slotRarity > 0 ? RARITY_GLOW[rarityKey] : undefined
 
         return (
           <div
@@ -321,15 +327,25 @@ function SellTab({ archetype, settlementId }: { archetype: MerchantArchetype; se
               padding: '7px 10px',
               marginBottom: 4,
               background: 'rgba(255,255,255,0.04)',
-              border: '1px solid rgba(255,255,255,0.08)',
+              border: slotRarityColor
+                ? `1px solid ${slotRarityColor}60`
+                : '1px solid rgba(255,255,255,0.08)',
               borderRadius: 5,
               opacity: interested ? 1 : 0.4,
+              boxShadow: slotRarityGlow !== 'none' ? slotRarityGlow : undefined,
             }}
           >
-            <span style={{ fontSize: 12, fontFamily: 'monospace', color: '#ddd', flex: 1 }}>
-              {name}
+            <span style={{ fontSize: 12, fontFamily: 'monospace', flex: 1, display: 'flex', alignItems: 'center', gap: 5 }}>
+              <span style={{ color: slotRarityColor ?? '#ddd' }}>
+                {name}
+              </span>
+              {slotRarity > 0 && (
+                <span style={rarityBadgeStyle(rarityKey)}>
+                  {RARITY_LABEL[rarityKey]}
+                </span>
+              )}
               {slot.quantity > 1 && (
-                <span style={{ color: GOLD_COLOR, marginLeft: 6 }}>×{slot.quantity}</span>
+                <span style={{ color: GOLD_COLOR, marginLeft: 2 }}>×{slot.quantity}</span>
               )}
             </span>
             <span style={{

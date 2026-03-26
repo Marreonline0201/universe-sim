@@ -7,7 +7,8 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { inventory, questSystem, achievementSystem } from '../../game/GameSingletons'
 import { skillSystem } from '../../game/SkillSystem'
 import { isRecipeUnlocked, getUnlockDescription } from '../../game/RecipeUnlockSystem'
-import { MAT, ITEM, rollCraftRarity, RARITY_NAMES, type CraftingRecipe, type RarityTier } from '../../player/Inventory'
+import { MAT, ITEM, rollCraftRarity, RARITY_NAMES, RARITY_COLORS, type CraftingRecipe, type RarityTier } from '../../player/Inventory'
+import { rarityFromLevel, rarityBadgeStyle, RARITY_LABEL, RARITY_GLOW, RARITY_COLOR } from '../RarityStyles'
 import { CRAFTING_RECIPES } from '../../player/CraftingRecipes'
 import { usePlayerStore } from '../../store/playerStore'
 import { useUiStore } from '../../store/uiStore'
@@ -81,6 +82,7 @@ export function CraftingPanel() {
   const [craftFlash, setCraftFlash] = useState(false)
   const [floatingText, setFloatingText] = useState<string | null>(null)
   const [enchantNotice, setEnchantNotice] = useState<string | null>(null)
+  const [lastCraftedRarity, setLastCraftedRarity] = useState<RarityTier>(0)
   const godMode = inventory.isGodMode()
   const effectiveFilter = godMode ? 'available' : filter
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -143,6 +145,7 @@ export function CraftingPanel() {
       // M23: Roll rarity for the crafted item based on recipe tier + crafting skill
       const craftLevel = skillSystem.getLevel('crafting')
       const rarity = rollCraftRarity(selectedRecipe.tier, craftLevel) as RarityTier
+      setLastCraftedRarity(rarity)
       achievementSystem.onCraft(selectedRecipe.id ?? 0, rarity, selectedRecipe.requiresAlchemyTable ? 'chemical' : 'tool')
       // Find the newly crafted slot (not in prevItems) and assign rarity
       if (rarity > 0) {
@@ -485,10 +488,27 @@ export function CraftingPanel() {
           })}
 
           <div style={{ fontSize: 11, color: '#ccc', marginTop: 4 }}>Produces:</div>
-          <div style={{ fontSize: 11, color: '#f1c40f' }}>
+          {/* M51: Rarity glow on craft output — reflects last crafted rarity */}
+          <div style={{
+            fontSize: 11,
+            color: lastCraftedRarity > 0 ? RARITY_COLORS[lastCraftedRarity] : '#f1c40f',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 5,
+            padding: '3px 6px',
+            borderRadius: 4,
+            border: lastCraftedRarity > 0 ? `1px solid ${RARITY_COLORS[lastCraftedRarity]}60` : '1px solid transparent',
+            boxShadow: lastCraftedRarity > 0 ? RARITY_GLOW[rarityFromLevel(lastCraftedRarity)] : undefined,
+            transition: 'all 0.3s',
+          }}>
             {selectedRecipe.output.quantity}x {selectedRecipe.output.isMaterial
               ? (MAT_NAMES[selectedRecipe.output.itemId] ?? `mat:${selectedRecipe.output.itemId}`)
               : (ITEM_NAMES[selectedRecipe.output.itemId] ?? `item:${selectedRecipe.output.itemId}`)}
+            {lastCraftedRarity > 0 && (
+              <span style={rarityBadgeStyle(rarityFromLevel(lastCraftedRarity))}>
+                {RARITY_LABEL[rarityFromLevel(lastCraftedRarity)]}
+              </span>
+            )}
           </div>
 
           {/* M8: Steel carburization hints */}

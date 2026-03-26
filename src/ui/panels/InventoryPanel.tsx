@@ -8,6 +8,7 @@ import { usePlayerStore } from '../../store/playerStore'
 import { getItemStats, getFoodStats } from '../../player/EquipSystem'
 import { Metabolism } from '../../ecs/world'
 import { useItemTooltip, getItemCategory, CATEGORY_COLORS, CATEGORY_LABELS } from './ItemTooltip'
+import { rarityFromLevel, rarityBadgeStyle, RARITY_LABEL, RARITY_GLOW } from '../RarityStyles'
 
 // Reverse lookup maps for display names
 const MAT_NAMES: Record<number, string> = Object.fromEntries(
@@ -31,6 +32,8 @@ function SlotCell({ slot, index, selected, equipped, onSelect, onHoverEnter, onH
   const categoryLabel = category ? CATEGORY_LABELS[category] : ''
   const rarity = (slot?.rarity ?? 0) as RarityTier
   const rarityColor = rarity > 0 ? RARITY_COLORS[rarity] : null
+  const rarityKey = rarityFromLevel(rarity)
+  const rarityGlow = rarity > 0 ? RARITY_GLOW[rarityKey] : undefined
 
   return (
     <div
@@ -60,7 +63,7 @@ function SlotCell({ slot, index, selected, equipped, onSelect, onHoverEnter, onH
         justifyContent: 'center',
         position: 'relative',
         transition: 'all 0.1s',
-        boxShadow: rarityColor ? `0 0 6px ${rarityColor}40` : undefined,
+        boxShadow: rarity === 4 ? undefined : (rarityGlow !== 'none' ? rarityGlow : undefined),
         animation: rarity === 4 ? 'legendary-pulse 2s ease-in-out infinite' : undefined,
       }}
     >
@@ -77,11 +80,24 @@ function SlotCell({ slot, index, selected, equipped, onSelect, onHoverEnter, onH
             {categoryLabel}
           </div>
 
-          <div style={{ fontSize: 10, color: '#ccc', textAlign: 'center', lineHeight: 1.2, padding: '0 2px', wordBreak: 'break-word', marginTop: 4 }}>
+          <div style={{ fontSize: 10, color: rarityColor ?? '#ccc', textAlign: 'center', lineHeight: 1.2, padding: '0 2px', wordBreak: 'break-word', marginTop: 4 }}>
             {slot.itemId === 0
               ? (MAT_NAMES[slot.materialId] ?? '?')
               : (ITEM_NAMES[slot.itemId] ?? MAT_NAMES[slot.itemId] ?? '?')}
           </div>
+          {/* M51: Rarity badge — only show for non-common items */}
+          {rarity > 0 && (
+            <div style={{
+              position: 'absolute', bottom: 4, left: 2,
+              fontSize: 7, fontWeight: 700,
+              color: rarityColor ?? '#ccc',
+              letterSpacing: 0.5,
+              lineHeight: 1,
+              opacity: 0.9,
+            }}>
+              {RARITY_LABEL[rarityKey].toUpperCase().slice(0, 3)}
+            </div>
+          )}
           {slot.quantity > 1 && (
             <div style={{
               fontSize: 9, color: '#aaa', position: 'absolute', bottom: 2, right: 3, fontFamily: 'monospace',
@@ -167,6 +183,8 @@ export function InventoryPanel() {
   const isEquippable = selectedSlot !== null && selectedSlot.itemId > 0
   const isEquipped   = selected !== null && equippedSlot === selected
   const foodStats    = selectedSlot ? getFoodStats(selectedSlot.materialId) : null
+  const selectedRarityTier = (selectedSlot?.rarity ?? 0) as RarityTier
+  const selectedRarityKey  = rarityFromLevel(selectedRarityTier)
 
   return (
     <div style={{ color: '#fff', fontFamily: 'monospace' }}>
@@ -281,10 +299,17 @@ export function InventoryPanel() {
           borderRadius: 8,
           border: '1px solid rgba(255,255,255,0.1)',
         }}>
-          <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>
-            {selectedSlot.itemId === 0
-              ? (MAT_NAMES[selectedSlot.materialId] ?? `material #${selectedSlot.materialId}`)
-              : (ITEM_NAMES[selectedSlot.itemId] ?? `item #${selectedSlot.itemId}`)}
+          <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ color: selectedRarityTier > 0 ? RARITY_COLORS[selectedRarityTier] : '#fff' }}>
+              {selectedSlot.itemId === 0
+                ? (MAT_NAMES[selectedSlot.materialId] ?? `material #${selectedSlot.materialId}`)
+                : (ITEM_NAMES[selectedSlot.itemId] ?? `item #${selectedSlot.itemId}`)}
+            </span>
+            {selectedRarityTier > 0 && (
+              <span style={rarityBadgeStyle(selectedRarityKey)}>
+                {RARITY_LABEL[selectedRarityKey]}
+              </span>
+            )}
           </div>
           <div style={{ fontSize: 11, color: '#aaa', marginBottom: 2 }}>
             Material: {selectedSlot.materialId === 0 ? '--' : (MAT_NAMES[selectedSlot.materialId] ?? selectedSlot.materialId)}

@@ -36,6 +36,7 @@ export interface JournalSaveData {
 
 let _initialized = false
 let _entries: AchievementJournalEntry[] = []
+let _goldUnsub: (() => void) | null = null
 
 // Tracking sets to deduplicate entries
 const _craftedItems = new Set<string>()
@@ -105,6 +106,7 @@ export function deserializeAchievementJournal(data: JournalSaveData): void {
     if (Array.isArray(data.bondedNpcs))         data.bondedNpcs.forEach(v => _bondedNpcs.add(v))
     if (Array.isArray(data.goldMilestonesHit))  data.goldMilestonesHit.forEach(v => _goldMilestonesHit.add(v))
     if (Array.isArray(data.levelMilestonesHit)) data.levelMilestonesHit.forEach(v => _levelMilestonesHit.add(v))
+    _initialized = true
   } catch {
     // Corrupted data — silently ignore
   }
@@ -228,22 +230,24 @@ export function initPlayerAchievementJournal(): void {
   })
 
   // ── player-gold-changed (subscribe to playerStore) ─────────────────────────
-  usePlayerStore.subscribe((state) => {
-    const gold = state.gold
-    for (const milestone of GOLD_MILESTONES) {
-      if (gold >= milestone && !_goldMilestonesHit.has(milestone)) {
-        _goldMilestonesHit.add(milestone)
-        addEntry({
-          type: 'milestone',
-          title: `${milestone.toLocaleString()} Gold Accumulated`,
-          description: `Your coffers hold ${milestone.toLocaleString()} gold. Wealth beyond measure.`,
-          icon: '💰',
-          value: milestone,
-          highlight: milestone >= 10000,
-        })
+  if (!_goldUnsub) {
+    _goldUnsub = usePlayerStore.subscribe((state) => {
+      const gold = state.gold
+      for (const milestone of GOLD_MILESTONES) {
+        if (gold >= milestone && !_goldMilestonesHit.has(milestone)) {
+          _goldMilestonesHit.add(milestone)
+          addEntry({
+            type: 'milestone',
+            title: `${milestone.toLocaleString()} Gold Accumulated`,
+            description: `Your coffers hold ${milestone.toLocaleString()} gold. Wealth beyond measure.`,
+            icon: '💰',
+            value: milestone,
+            highlight: milestone >= 10000,
+          })
+        }
       }
-    }
-  })
+    })
+  }
 }
 
 // ── Utility: format simSeconds as "Day X" for display ─────────────────────────

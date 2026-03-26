@@ -193,6 +193,7 @@ export function deserializeCodex(data: CodexSaveData): void {
   if (Array.isArray(data.playerLevelMilestones)) {
     _playerLevelMilestones = new Set(data.playerLevelMilestones)
   }
+  _initialized = true
 }
 
 // ── Event handlers ────────────────────────────────────────────────────────────

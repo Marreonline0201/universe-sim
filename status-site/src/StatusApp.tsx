@@ -50,6 +50,11 @@ const GLOBAL_CSS = `
     to   { opacity: 1; transform: translateY(0); }
   }
 
+  @keyframes blockedPulse {
+    0%,100% { opacity: 1; }
+    50%      { opacity: 0.4; }
+  }
+
   .status-root {
     display: flex;
     flex-direction: column;
@@ -96,11 +101,20 @@ const GLOBAL_CSS = `
   }
 `
 
+type View = 'map' | 'agents'
+
+const VIEWS: { id: View; label: string }[] = [
+  { id: 'map',    label: 'WORLD MAP' },
+  { id: 'agents', label: 'AGENT CONTROL' },
+]
+
 export function StatusApp() {
   const world = useStatusSocket()
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [view, setView] = useState<View>('map')
 
   const selectedPlayer = world.players.find(p => p.userId === selectedId) ?? null
+  const hasBlocked = Object.values(world.agentState.agents).some(a => a.status === 'blocked')
 
   function handleSelect(id: string) {
     setSelectedId(prev => prev === id ? null : id)
@@ -117,60 +131,105 @@ export function StatusApp() {
           <EpochBar world={world} />
         </div>
 
-        {/* ── Main content (map + stats sidebar) ────────────────────────── */}
+        {/* ── View tab bar ──────────────────────────────────────────────── */}
         <div style={{
-          flex: 1,
           display: 'flex',
-          overflow: 'hidden',
+          alignItems: 'center',
+          gap: 4,
+          padding: '0 12px',
+          height: 32,
+          flexShrink: 0,
+          background: 'rgba(4,6,16,0.95)',
+          borderBottom: '1px solid rgba(0,180,255,0.1)',
           position: 'relative',
-          zIndex: 5,
-          minHeight: 0,
+          zIndex: 10,
         }}>
+          {VIEWS.map(v => {
+            const isActive = view === v.id
+            const showAlert = v.id === 'agents' && hasBlocked
+            return (
+              <button
+                key={v.id}
+                onClick={() => setView(v.id)}
+                style={{
+                  background: isActive ? 'rgba(0,180,255,0.1)' : 'none',
+                  border: `1px solid ${isActive ? 'rgba(0,180,255,0.4)' : 'rgba(0,180,255,0.1)'}`,
+                  borderRadius: 3,
+                  color: isActive ? '#00d4ff' : 'rgba(100,150,200,0.45)',
+                  fontSize: 9,
+                  letterSpacing: 2,
+                  padding: '3px 14px',
+                  cursor: 'pointer',
+                  fontFamily: 'inherit',
+                  transition: 'all 0.15s',
+                  position: 'relative',
+                }}
+              >
+                {v.label}
+                {showAlert && (
+                  <span style={{
+                    position: 'absolute',
+                    top: -4, right: -4,
+                    width: 8, height: 8,
+                    borderRadius: '50%',
+                    background: '#ffb830',
+                    boxShadow: '0 0 6px #ffb830',
+                    animation: 'blockedPulse 1.2s ease-in-out infinite',
+                  }} />
+                )}
+              </button>
+            )
+          })}
+        </div>
 
-          {/* Satellite map */}
+        {/* ── Map view ──────────────────────────────────────────────────── */}
+        {view === 'map' && (
           <div style={{
             flex: 1,
-            minWidth: 0,
+            display: 'flex',
+            overflow: 'hidden',
             position: 'relative',
-            borderRight: '1px solid rgba(0,180,255,0.1)',
+            zIndex: 5,
+            minHeight: 0,
           }}>
-            <SatelliteMap
-              players={world.players}
-              npcs={world.npcs}
-              onPlayerClick={handleSelect}
-            />
+            <div style={{
+              flex: 1,
+              minWidth: 0,
+              position: 'relative',
+              borderRight: '1px solid rgba(0,180,255,0.1)',
+            }}>
+              <SatelliteMap
+                players={world.players}
+                npcs={world.npcs}
+                onPlayerClick={handleSelect}
+              />
+            </div>
+            <div style={{
+              width: 240,
+              flexShrink: 0,
+              background: 'rgba(6,10,20,0.82)',
+              backdropFilter: 'blur(8px)',
+              overflowY: 'auto',
+              borderLeft: '1px solid rgba(0,180,255,0.1)',
+            }}>
+              <ServerStats world={world} />
+            </div>
           </div>
+        )}
 
-          {/* Stats sidebar */}
+        {/* ── Agent Control view ────────────────────────────────────────── */}
+        {view === 'agents' && (
           <div style={{
-            width: 240,
-            flexShrink: 0,
-            background: 'rgba(6,10,20,0.82)',
-            backdropFilter: 'blur(8px)',
-            overflowY: 'auto',
-            borderLeft: '1px solid rgba(0,180,255,0.1)',
+            flex: 1,
+            minHeight: 0,
+            position: 'relative',
+            zIndex: 5,
+            overflow: 'hidden',
+            background: 'rgba(4,8,18,0.88)',
           }}>
-            <ServerStats world={world} />
+            <AgentControlCenter agentState={world.agentState} />
           </div>
-        </div>
-
-        {/* ── Agent Control Center ──────────────────────────────────────── */}
-        <div style={{
-          height: 300,
-          flexShrink: 0,
-          background: 'rgba(4,8,18,0.88)',
-          borderTop: '1px solid rgba(0,180,255,0.1)',
-          position: 'relative',
-          zIndex: 8,
-          backdropFilter: 'blur(6px)',
-          overflow: 'hidden',
-        }}>
-          <div style={{
-            position: 'absolute', top: 0, left: 0, right: 0, height: 1,
-            background: 'linear-gradient(90deg, transparent 0%, rgba(0,200,255,0.15) 20%, rgba(0,200,255,0.15) 80%, transparent 100%)',
-          }} />
-          <AgentControlCenter agentState={world.agentState} />
-        </div>
+        )}
 
         {/* ── Player roster (bottom strip) ──────────────────────────────── */}
         <div style={{
@@ -182,7 +241,6 @@ export function StatusApp() {
           zIndex: 10,
           backdropFilter: 'blur(6px)',
         }}>
-          {/* Top glow line */}
           <div style={{
             position: 'absolute', top: 0, left: 0, right: 0, height: 1,
             background: 'linear-gradient(90deg, transparent 0%, rgba(0,200,255,0.25) 20%, rgba(0,200,255,0.25) 80%, transparent 100%)',

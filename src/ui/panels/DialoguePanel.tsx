@@ -1,6 +1,7 @@
 // ── DialoguePanel ─────────────────────────────────────────────────────────────
 // M20 Track B: NPC conversation UI.
 // M30 Track A: Role-aware NPC dialogue — distinct pools per role.
+// M38 Track A: NPC memory, daily schedule awareness, seeded names.
 //
 // Renders a dialogue history with player messages right-aligned and NPC
 // messages left-aligned. Text input at bottom. Shows NPC name, role,
@@ -19,6 +20,10 @@ import { BUILDING_DEFS, ALL_BUILDING_TYPES } from '../../game/BuildingSystem'
 import { usePlayerStore } from '../../store/playerStore'
 import { inventory } from '../../game/GameSingletons'
 import { skillSystem } from '../../game/SkillSystem'
+// M38 Track A: NPC memory + schedule
+import { useNPCMemoryStore } from '../../store/npcMemoryStore'
+import { getCurrentActivity, getActivityDescription, isNighttime } from '../../game/NPCScheduleSystem'
+import { useGameStore } from '../../store/gameStore'
 
 // ── Procedural fallback dialogue (no LLM key) ──────────────────────────────
 
@@ -260,6 +265,16 @@ export function DialoguePanel() {
   const [showBuildingMenu, setShowBuildingMenu] = useState(false)
   const [buildingFeedback, setBuildingFeedback] = useState<string | null>(null)
 
+  // M38 Track A: NPC memory + schedule
+  const dayAngle = useGameStore(s => s.dayAngle)
+  const npcMemoryStore = useNPCMemoryStore()
+  const npcId = useDialogueStore(s => s.targetNpcId) ?? 0
+  const npcMemory = npcMemoryStore.getMemory(npcId)
+  const currentActivity = getCurrentActivity(targetNpcRole, dayAngle)
+  const isSleeping = currentActivity.activity === 'sleeping'
+  const [knockDelay, setKnockDelay] = useState(false)
+  const [showKnockPrompt, setShowKnockPrompt] = useState(isSleeping)
+
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
     if (scrollRef.current) {
@@ -349,20 +364,65 @@ export function DialoguePanel() {
   useEffect(() => {
     if (!hasGreeted.current && targetNpcName) {
       hasGreeted.current = true
+
+      // M38: If sleeping, show knock prompt rather than immediate greeting
+      if (isSleeping) {
+        setShowKnockPrompt(true)
+        return
+      }
+
+      // M38: Record greeting in memory
+      npcMemoryStore.recordGreeting(npcId)
+
       // M35: Faction-aware greeting override
       const factionGreeting = getFactionGreeting()
       if (factionGreeting) {
         addMessage('npc', factionGreeting)
         return
       }
+
+      // M38: Memory-aware greeting
+      const mem = npcMemoryStore.getMemory(npcId)
       const roleKey = normaliseRole(targetNpcRole)
+
+      // Activity-context prefix
+      const actDesc = getActivityDescription(currentActivity.activity, targetNpcName, targetNpcRole)
       let greeting: string
-      if (roleKey) {
-        greeting = pickRandom(ROLE_DIALOGUE[roleKey].greetings)
+
+      if (mem.timesSpokenTo > 1) {
+        // Returning player
+        if (currentActivity.activity === 'eating') {
+          greeting = `(Eating) "I'm on break, but I suppose I can spare a moment... Good to see you again, traveler."`
+        } else if (currentActivity.activity === 'patrolling') {
+          greeting = `"Good to see you again, traveler. Keep it brief — I'm on patrol."`
+        } else if (mem.reputationScore > 50) {
+          greeting = `"Ah, good to see you again, my friend. I have a tip for you..."`
+        } else if (mem.reputationScore < -20) {
+          greeting = `"You again. Make it quick."`
+        } else {
+          greeting = `"Good to see you again, traveler. What brings you here?"`
+        }
+      } else if (mem.timesSpokenTo === 1) {
+        // Second meeting
+        if (roleKey) {
+          greeting = pickRandom(ROLE_DIALOGUE[roleKey].greetings)
+        } else {
+          greeting = pickRandom(FALLBACK_GREETINGS['neutral'])
+        }
       } else {
-        const trust = getTrustLevel(0)
-        greeting = pickRandom(FALLBACK_GREETINGS[trust])
+        // First meeting — introduce by name
+        if (currentActivity.activity === 'eating') {
+          greeting = `(Eating) "I'm on break, but I suppose I can spare a moment. I'm ${targetNpcName}."`
+        } else if (roleKey) {
+          greeting = pickRandom(ROLE_DIALOGUE[roleKey].greetings)
+        } else {
+          const trust = getTrustLevel(0)
+          greeting = pickRandom(FALLBACK_GREETINGS[trust])
+        }
+        // Show activity status on first meeting
+        addMessage('npc', actDesc)
       }
+
       addMessage('npc', greeting)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -370,29 +430,47 @@ export function DialoguePanel() {
 
   function handleSend() {
     const text = input.trim()
-    if (!text || isWaiting) return
+    if (!text || isWaiting || knockDelay) return
 
     addMessage('player', text)
     setInput('')
     setWaiting(true)
 
+    // M38: Record player message in NPC memory
+    npcMemoryStore.recordMessage(npcId, text.slice(0, 60))
+    // Slight reputation boost for engaging in conversation
+    if (messages.length > 2) {
+      npcMemoryStore.adjustReputation(npcId, 1)
+    }
+
     // Snapshot the last NPC line before the new player message is added
     const lastNpcLine = [...messages].reverse().find((m) => m.sender === 'npc')?.text ?? ''
+
+    // M38: Response delay is longer if NPC is sleeping (woken up)
+    const baseDelay = isSleeping ? 2000 : 600
+    const jitter = Math.random() * 800
 
     // Fallback procedural response (no LLM — generates after a brief delay)
     setTimeout(() => {
       const roleKey = normaliseRole(targetNpcRole)
+      const mem = npcMemoryStore.getMemory(npcId)
       let response: string
-      if (roleKey) {
+
+      // M38: High reputation → special dialogue
+      if (mem.reputationScore > 50 && Math.random() < 0.3) {
+        response = `"I have a tip for you, friend. Watch the roads north of here — there's been unusual activity."`
+      } else if (mem.reputationScore < -20) {
+        response = `"..."`
+      } else if (roleKey) {
         response = pickAvoidingRepeat(ROLE_DIALOGUE[roleKey].responses, lastNpcLine)
       } else {
-        const trust = getTrustLevel(0) // In full implementation, read from NPC data
+        const trust = getTrustLevel(0)
         const pool = FALLBACK_RESPONSES[trust]
         response = pickAvoidingRepeat(pool, lastNpcLine)
       }
       addMessage('npc', response)
       setWaiting(false)
-    }, 600 + Math.random() * 800)
+    }, baseDelay + jitter)
   }
 
   /** Show a role-appropriate farewell then close the panel after a beat. */
@@ -421,6 +499,22 @@ export function DialoguePanel() {
 
   const emotionLabel = getEmotionIcon(emotionState)
 
+  // M38: Handle knock prompt for sleeping NPCs
+  function handleKnock() {
+    setShowKnockPrompt(false)
+    setKnockDelay(true)
+    npcMemoryStore.recordGreeting(npcId)
+    addMessage('npc', `*knock knock* ... *muffled grumbling* ... *door creaks open*`)
+    setTimeout(() => {
+      setKnockDelay(false)
+      const isCurt = npcMemory.reputationScore < -20
+      const greeting = isCurt
+        ? `"What?! Do you know what hour this is? Make it quick."`
+        : `"...Who's there? This had better be important. I was sleeping."`
+      addMessage('npc', greeting)
+    }, 3000)
+  }
+
   return (
     <div style={{ color: '#fff', fontFamily: 'monospace', display: 'flex', flexDirection: 'column', height: '100%' }}>
       {/* NPC header */}
@@ -435,12 +529,72 @@ export function DialoguePanel() {
         <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>
           {targetNpcRole} {targetSettlement ? `- ${targetSettlement}` : ''}
         </div>
+        {/* M38: Activity status */}
+        <div style={{ fontSize: 10, color: '#556b8a', marginTop: 2, fontStyle: 'italic' }}>
+          {getActivityDescription(currentActivity.activity, targetNpcName, targetNpcRole)}
+        </div>
+        {/* M38: Memory indicator */}
+        {npcMemory.timesSpokenTo > 0 && (
+          <div style={{ fontSize: 9, color: '#444', marginTop: 1 }}>
+            Spoken {npcMemory.timesSpokenTo}x · rep: {npcMemory.reputationScore}
+          </div>
+        )}
         {emotionState && (
           <div style={{ fontSize: 10, color: '#666', marginTop: 4 }}>
             Mood: {emotionLabel}
           </div>
         )}
       </div>
+
+      {/* M38: Knock on door prompt for sleeping NPCs */}
+      {showKnockPrompt && (
+        <div style={{
+          flex: 1,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: 12,
+          padding: 16,
+        }}>
+          <div style={{ fontSize: 12, color: '#888', textAlign: 'center', fontStyle: 'italic' }}>
+            {targetNpcName} is asleep.
+          </div>
+          <button
+            onClick={handleKnock}
+            style={{
+              padding: '8px 20px',
+              fontSize: 12,
+              fontFamily: 'monospace',
+              background: 'rgba(205,68,32,0.2)',
+              border: '1px solid rgba(205,68,32,0.4)',
+              borderRadius: 6,
+              color: '#cd4420',
+              cursor: 'pointer',
+            }}
+          >
+            [Knock on door]
+          </button>
+          <button
+            onClick={closeDialogue}
+            style={{
+              padding: '4px 12px',
+              fontSize: 10,
+              fontFamily: 'monospace',
+              background: 'rgba(255,255,255,0.04)',
+              border: '1px solid rgba(255,255,255,0.1)',
+              borderRadius: 4,
+              color: '#555',
+              cursor: 'pointer',
+            }}
+          >
+            Leave them to sleep
+          </button>
+        </div>
+      )}
+
+      {/* Regular dialogue content — only shown when not in knock prompt mode */}
+      {!showKnockPrompt && (<>
 
       {/* Message history */}
       <div
@@ -753,8 +907,8 @@ export function DialoguePanel() {
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder={isWaiting ? 'Waiting...' : 'Say something...'}
-          disabled={isWaiting}
+          placeholder={knockDelay ? 'Waiting for answer...' : isWaiting ? 'Waiting...' : 'Say something...'}
+          disabled={isWaiting || knockDelay}
           style={{
             flex: 1,
             padding: '8px 12px',
@@ -769,24 +923,25 @@ export function DialoguePanel() {
         />
         <button
           onClick={handleSend}
-          disabled={isWaiting || !input.trim()}
+          disabled={isWaiting || knockDelay || !input.trim()}
           style={{
             padding: '8px 16px',
             fontSize: 12,
             fontFamily: 'monospace',
             fontWeight: 700,
-            background: isWaiting || !input.trim()
+            background: isWaiting || knockDelay || !input.trim()
               ? 'rgba(255,255,255,0.05)'
               : 'rgba(205,68,32,0.25)',
-            border: `1px solid ${isWaiting || !input.trim() ? 'rgba(255,255,255,0.1)' : 'rgba(205,68,32,0.5)'}`,
+            border: `1px solid ${isWaiting || knockDelay || !input.trim() ? 'rgba(255,255,255,0.1)' : 'rgba(205,68,32,0.5)'}`,
             borderRadius: 6,
-            color: isWaiting || !input.trim() ? '#555' : '#cd4420',
-            cursor: isWaiting || !input.trim() ? 'not-allowed' : 'pointer',
+            color: isWaiting || knockDelay || !input.trim() ? '#555' : '#cd4420',
+            cursor: isWaiting || knockDelay || !input.trim() ? 'not-allowed' : 'pointer',
           }}
         >
           Send
         </button>
       </div>
+      </>)}
     </div>
   )
 }

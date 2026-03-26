@@ -31,6 +31,9 @@ import { usePlayerStore } from '../store/playerStore'
 // M36 Track C: Building meshes
 import { useBuildingStore } from '../store/buildingStore'
 import type { BuildingType } from '../game/BuildingSystem'
+// M38 Track A: NPC schedules
+import { useGameStore } from '../store/gameStore'
+import { SCHEDULES, getCurrentActivity } from '../game/NPCScheduleSystem'
 
 const TERRITORY_RADIUS = 150
 
@@ -185,68 +188,106 @@ function SmokeParticles({ chimneyX, chimneyY, chimneyZ }: { chimneyX: number; ch
 }
 
 // ── NPC activity dots (animated spheres moving within settlement) ──────────────
+// M38 Track A: Schedule-aware NPC positions.
+// Each NPC role has a target position from its schedule entry.
+// Positions lerp smoothly over ~10 seconds when activity changes.
+// Sleeping NPCs are lowered and hidden. Patrolling guards orbit their patrol point.
+// Socializing NPCs sway gently.
 
-const NPC_DOT_SPEED = 0.3
-const NPC_DOT_RADIUS = 5
+const NPC_DOT_SPEED = 0.15  // m/s — slow walk speed for schedule positions
 const NPC_DOT_SIZE = 0.15
 
-function NpcActivityDots({ npcCount, settlementX, settlementY, settlementZ }: {
-  npcCount: number; settlementX: number; settlementY: number; settlementZ: number
+// NPC roles assigned per npcCount index (matches GameLoop assignment)
+const NPC_ROLES_RENDERER = ['villager', 'guard', 'elder', 'trader', 'artisan', 'scout'] as const
+
+function NpcActivityDots({ npcCount, settlementX, settlementY, settlementZ, settlementId }: {
+  npcCount: number
+  settlementX: number
+  settlementY: number
+  settlementZ: number
+  settlementId: number
 }) {
   const count = Math.min(npcCount, 12)
   const meshRef = useRef<THREE.InstancedMesh>(null)
-  const _dotScale = useMemo(() => new THREE.Vector3(NPC_DOT_SIZE, NPC_DOT_SIZE, NPC_DOT_SIZE), [])
-  const dotState = useMemo(() => {
-    const arr = new Float32Array(count * 5)
-    for (let i = 0; i < count; i++) {
-      const angle = Math.random() * Math.PI * 2
-      const r = Math.random() * NPC_DOT_RADIUS
-      arr[i * 5 + 0] = Math.cos(angle) * r
-      arr[i * 5 + 1] = Math.sin(angle) * r
-      const tAngle = Math.random() * Math.PI * 2
-      const tR = Math.random() * NPC_DOT_RADIUS
-      arr[i * 5 + 2] = Math.cos(tAngle) * tR
-      arr[i * 5 + 3] = Math.sin(tAngle) * tR
-      arr[i * 5 + 4] = 2 + Math.random() * 2
-    }
-    return arr
-  }, [count])
-  const mat4 = useMemo(() => new THREE.Matrix4(), [])
 
-  useFrame((_, delta) => {
+  // Current X,Z position per NPC (lerping toward target)
+  const dotPos = useMemo(() => new Float32Array(count * 3), [count])  // x, y, z current
+  const timeAcc = useMemo(() => new Float32Array(count), [count])     // time accumulator for patrol/sway
+
+  // Initialize positions from default schedule
+  useMemo(() => {
+    for (let i = 0; i < count; i++) {
+      const role = NPC_ROLES_RENDERER[i % NPC_ROLES_RENDERER.length]
+      const sched = SCHEDULES[role]?.[0]
+      dotPos[i * 3 + 0] = sched ? sched.position[0] : 0
+      dotPos[i * 3 + 1] = 0
+      dotPos[i * 3 + 2] = sched ? sched.position[2] : 0
+      timeAcc[i] = i * 1.3  // stagger animations
+    }
+  }, [count, dotPos, timeAcc])
+
+  const mat4 = useMemo(() => new THREE.Matrix4(), [])
+  const _scaleVec = useMemo(() => new THREE.Vector3(), [])
+
+  useFrame((state, delta) => {
     const mesh = meshRef.current
     if (!mesh) return
     const dt = Math.min(delta, 0.1)
+    const dayAngle = useGameStore.getState().dayAngle
 
     for (let i = 0; i < count; i++) {
-      let dx = dotState[i * 5 + 0]
-      let dz = dotState[i * 5 + 1]
-      const tx = dotState[i * 5 + 2]
-      const tz = dotState[i * 5 + 3]
-      let timer = dotState[i * 5 + 4]
+      const role = NPC_ROLES_RENDERER[i % NPC_ROLES_RENDERER.length]
+      const entry = getCurrentActivity(role, dayAngle)
+      timeAcc[i] += dt
 
-      const toX = tx - dx, toZ = tz - dz
-      const dist = Math.sqrt(toX * toX + toZ * toZ)
-      if (dist > 0.2) {
-        dx += (toX / dist) * NPC_DOT_SPEED * dt
-        dz += (toZ / dist) * NPC_DOT_SPEED * dt
+      // Target position from schedule (seeded offset per NPC index)
+      const seed = settlementId * 7 + i * 3
+      const baseX = entry.position[0] + Math.sin(seed) * 1.5
+      const baseZ = entry.position[2] + Math.cos(seed) * 1.5
+
+      let tx = baseX
+      let tz = baseZ
+      let ty = 0
+
+      if (entry.activity === 'patrolling') {
+        // Guards orbit their patrol point in a small loop
+        const orbitR = 2.5
+        const orbitSpeed = 0.4
+        tx = baseX + Math.cos(timeAcc[i] * orbitSpeed + i) * orbitR
+        tz = baseZ + Math.sin(timeAcc[i] * orbitSpeed + i) * orbitR
+      } else if (entry.activity === 'socializing') {
+        // Gentle sway in place
+        tx = baseX + Math.sin(timeAcc[i] * 0.6 + i * 1.3) * 0.3
+        tz = baseZ + Math.cos(timeAcc[i] * 0.4 + i * 0.9) * 0.3
+      } else if (entry.activity === 'sleeping') {
+        // Sleeping: slightly below ground (crouched), hide
+        ty = -0.1
       }
 
-      timer -= dt
-      if (timer <= 0 || dist < 0.2) {
-        const angle = Math.random() * Math.PI * 2
-        const r = Math.random() * NPC_DOT_RADIUS
-        dotState[i * 5 + 2] = Math.cos(angle) * r
-        dotState[i * 5 + 3] = Math.sin(angle) * r
-        timer = 2 + Math.random() * 2
-      }
+      // Lerp current position toward target
+      let cx = dotPos[i * 3 + 0]
+      let cy = dotPos[i * 3 + 1]
+      let cz = dotPos[i * 3 + 2]
 
-      dotState[i * 5 + 0] = dx
-      dotState[i * 5 + 1] = dz
-      dotState[i * 5 + 4] = timer
+      const lerpRate = entry.activity === 'sleeping' ? 0.03 : 0.02
+      cx += (tx - cx) * Math.min(1, lerpRate * 60 * dt)
+      cy += (ty - cy) * Math.min(1, 0.05 * 60 * dt)
+      cz += (tz - cz) * Math.min(1, lerpRate * 60 * dt)
 
-      mat4.makeTranslation(settlementX + dx, settlementY + 0.3, settlementZ + dz)
-      mat4.scale(_dotScale)
+      dotPos[i * 3 + 0] = cx
+      dotPos[i * 3 + 1] = cy
+      dotPos[i * 3 + 2] = cz
+
+      // Scale: sleeping NPCs are small (crouched)
+      const scale = entry.activity === 'sleeping' ? NPC_DOT_SIZE * 0.5 : NPC_DOT_SIZE
+      _scaleVec.set(scale, scale, scale)
+
+      mat4.makeTranslation(
+        settlementX + cx,
+        settlementY + 0.3 + cy,
+        settlementZ + cz,
+      )
+      mat4.scale(_scaleVec)
       mesh.setMatrixAt(i, mat4)
     }
     mesh.instanceMatrix.needsUpdate = true
@@ -754,7 +795,7 @@ function SettlementMesh({ settlement }: { settlement: any }) {
 
       {/* NPC activity dots (only when player is within 100m) */}
       {playerNear && npcCount > 0 && (
-        <NpcActivityDots npcCount={npcCount} settlementX={0} settlementY={0.3} settlementZ={0} />
+        <NpcActivityDots npcCount={npcCount} settlementX={0} settlementY={0.3} settlementZ={0} settlementId={id} />
       )}
 
       {/* Central fire glow — emissive, drives Bloom postprocessing */}

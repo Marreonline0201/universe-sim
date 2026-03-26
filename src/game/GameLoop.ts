@@ -236,6 +236,8 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
   const worldEventCompletedRef  = useRef<string | null>(null)  // eventId that was completed this session
   // M37 Track C: Distance tracking for stats
   const lastStatsPos            = useRef<{ x: number; z: number } | null>(null)
+  // M38 Track B: Track which faction abilities have been registered
+  const registeredFactionAbilityRef = useRef<string | null>(null)
 
   useFrame((_, delta) => {
     // Cap dt to avoid spiral-of-death on slow frames
@@ -310,6 +312,30 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
 
     // M24: Combat system tick (cooldowns, damage numbers, health bar pruning)
     combatSystem.tick(dt)
+
+    // M38 Track B: Faction ability lazy registration
+    {
+      const pf = useFactionStore.getState().playerFaction
+      if (pf && registeredFactionAbilityRef.current !== pf) {
+        registeredFactionAbilityRef.current = pf
+        const abilityDefs: Record<string, { name: string; description: string; cooldownMs: number }> = {
+          rangers:   { name: "Hunter's Mark",  description: '+30% dmg to marked enemy for 10s', cooldownMs: 30_000 },
+          merchants: { name: 'Golden Bribe',   description: 'Confuse non-boss enemy for 5s',   cooldownMs: 45_000 },
+          scholars:  { name: 'Mind Blast',     description: 'Stun all enemies within 10m for 3s', cooldownMs: 60_000 },
+          outlaws:   { name: 'Berserk',        description: 'Next 3 attacks deal 2x dmg for 5s',  cooldownMs: 40_000 },
+        }
+        const def = abilityDefs[pf]
+        if (def) {
+          combatSystem.registerFactionAbility(pf, {
+            name: def.name,
+            description: def.description,
+            cooldownMs: def.cooldownMs,
+            lastUsedMs: 0,
+            applyEffect: () => {},
+          })
+        }
+      }
+    }
 
     // M38 Track B: Stamina regeneration — 10/s when not sprinting or dodging
     {

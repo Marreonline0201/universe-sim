@@ -4,8 +4,12 @@
 // 25 achievements across 6 categories. Progress tracked via a single tick()
 // call from GameLoop that reads game state. Unlock triggers a notification
 // via useUiStore.
+//
+// M47 Track A: Added PlayerStats type, getPlayerStats(), and checkAchievements()
+// module-level helpers so GameLoop can perform a periodic (30 s) bulk check.
 
 import { useUiStore } from '../store/uiStore'
+import { usePlayerStatsStore } from '../store/playerStatsStore'
 
 export interface Achievement {
   id: string
@@ -322,3 +326,85 @@ export class AchievementSystem {
     }
   }
 }
+
+// ── M47 Track A: Module-level helpers ─────────────────────────────────────────
+// These wrap the existing class-based system so GameLoop can call a simple
+// checkAchievements(getPlayerStats()) every 30 seconds without duplicating logic.
+
+/** Subset of PlayerStats fields used for achievement condition checks. */
+export interface AchievementPlayerStats {
+  kills: number
+  fishCaught: number
+  itemsCrafted: number
+  distanceTraveled: number
+  goldEarned: number
+  questsCompleted: number
+  settlements: number
+}
+
+/** Read live stats from playerStatsStore and map to AchievementPlayerStats. */
+export function getPlayerStats(): AchievementPlayerStats {
+  const s = usePlayerStatsStore.getState().stats
+  return {
+    kills:            s.killCount,
+    fishCaught:       s.goldenFishCaught,   // golden fish is the trackable fishing stat
+    itemsCrafted:     s.itemsCrafted,
+    distanceTraveled: s.distanceTraveled,
+    goldEarned:       s.totalGoldEarned,
+    questsCompleted:  0,                    // quest completions not yet in playerStatsStore
+    settlements:      s.settlementsDiscovered,
+  }
+}
+
+/**
+ * Bulk achievement check against the provided stats snapshot.
+ * Unlocks any threshold-based achievements not yet unlocked and fires
+ * an 'achievement-unlocked' CustomEvent for each new unlock.
+ * Returns the names of newly unlocked achievements.
+ *
+ * NOTE: The class-based AchievementSystem already handles frame-level tracking
+ * (kills, dodges, etc.) via event hooks called directly from GameLoop. This
+ * function provides a complementary 30-second interval scan for stat-threshold
+ * achievements that are easier to express as a one-off check than event hooks.
+ */
+export function checkAchievements(stats: AchievementPlayerStats): string[] {
+  const thresholds: Array<{ id: string; name: string; stat: number; target: number }> = [
+    { id: 'first_blood',  name: 'First Blood',    stat: stats.kills,            target: 1 },
+    { id: 'big_game',     name: 'Hunter',          stat: stats.kills,            target: 50 },
+    { id: 'angler',       name: 'Angler',          stat: stats.fishCaught,       target: 10 },
+    { id: 'master_angler',name: 'Master Angler',   stat: stats.fishCaught,       target: 100 },
+    { id: 'craftsman',    name: 'Craftsman',       stat: stats.itemsCrafted,     target: 20 },
+    { id: 'artisan',      name: 'Artisan',         stat: stats.itemsCrafted,     target: 100 },
+    { id: 'explorer_s',   name: 'Explorer',        stat: stats.settlements,      target: 3 },
+    { id: 'wanderer',     name: 'Wanderer',        stat: stats.distanceTraveled, target: 5000 },
+    { id: 'wealthy',      name: 'Wealthy',         stat: stats.goldEarned,       target: 500 },
+    { id: 'rich',         name: 'Rich',            stat: stats.goldEarned,       target: 5000 },
+    { id: 'quester',      name: 'Quester',         stat: stats.questsCompleted,  target: 5 },
+    { id: 'hero',         name: 'Hero',            stat: stats.questsCompleted,  target: 25 },
+  ]
+
+  const newlyUnlocked: string[] = []
+
+  for (const { id, name, stat, target } of thresholds) {
+    if (stat < target) continue
+    if (unlockedAchievements.has(id)) continue
+
+    unlockedAchievements.add(id)
+    newlyUnlocked.push(name)
+
+    const detail = { achievement: { id, name, stat, target } }
+    window.dispatchEvent(new CustomEvent('achievement-unlocked', { detail }))
+
+    // Surface via the existing notification system
+    useUiStore.getState().addNotification(`Achievement Unlocked: ${name}`, 'discovery')
+  }
+
+  return newlyUnlocked
+}
+
+/**
+ * Mutable set of unlocked achievement IDs for the stat-threshold achievements
+ * managed by checkAchievements(). Separate from the class-based AchievementSystem
+ * so there is no risk of collision.
+ */
+export const unlockedAchievements: Set<string> = new Set()

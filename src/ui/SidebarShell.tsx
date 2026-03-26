@@ -106,7 +106,7 @@ const ICON_BUTTONS: Array<{ id: PanelId; icon: string; hint: string }> = [
   { id: 'map',         icon: 'MAP',  hint: 'Map (M)' },
   { id: 'skills',      icon: 'SKL',  hint: 'Skills (K)' },
   { id: 'quests',      icon: 'QST',  hint: 'Quests (Q)' },
-  { id: 'achievements',icon: 'ACH',  hint: 'Achievements' },
+  { id: 'achievements',icon: '🏆',   hint: 'Achievements (Z)' },
   { id: 'progression', icon: 'TTL',  hint: 'Progression & Titles (X)' },
   { id: 'fishing',     icon: 'FSH',  hint: 'Fishing (F near water)' },
   { id: 'home',        icon: 'HME',  hint: 'Home Base (H)' },
@@ -207,7 +207,8 @@ export function SidebarShell() {
         case 'y': case 'Y':   e.preventDefault(); togglePanel('alchemy');     break
         case 't': case 'T':   e.preventDefault(); togglePanel('tradepost');  break
         case 'v': case 'V':   e.preventDefault(); togglePanel('forge');      break
-        case 'n': case 'N':   e.preventDefault(); togglePanel('housing');   break
+        case 'n': case 'N':   e.preventDefault(); togglePanel('housing');      break
+        case 'z': case 'Z':   e.preventDefault(); togglePanel('achievements'); break
         case 'Tab':           e.preventDefault(); togglePanel('character');  break
         case 'm': case 'M':   e.preventDefault(); togglePanel('map');        break
         case '?': case '/':

@@ -60,6 +60,7 @@ import {
 } from '../ecs/systems/AnimalAISystem'
 
 import { inventory, buildingSystem, questSystem, combatSystem, achievementSystem, tutorialSystem, fishingSystem, merchantSystem } from './GameSingletons'
+import { checkAchievements, getPlayerStats } from './AchievementSystem'
 import { getNPCName } from './NPCScheduleSystem'
 import { SPECIES_LOOT, rollLoot } from './LootTable'
 import { ITEM, MAT, RARITY_NAMES, type RarityTier } from '../player/Inventory'
@@ -180,6 +181,9 @@ import { useExplorationStore } from '../store/explorationStore'
 import { tickSiege, startSiege, activeSiege } from './SiegeSystem'
 // M46 Track C: Recipe unlock — skill milestone discoveries
 import { discoverRecipe } from './RecipeUnlockSystem'
+// M47 Track B: Environmental hazards
+import { getActiveHazard, HAZARD_DEFS } from './HazardSystem'
+import { isPotionFireImmune } from './PotionSystem'
 
 // Register skill system with offline save manager for serialization
 registerSkillSystem(skillSystem)
@@ -258,12 +262,16 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
   // M42 Track B: Shelter update timer (every 2s) + heat exhaustion notify timer
   const shelterUpdateTimerRef   = useRef(0)    // shelter check every 2s
   const heatExhaustionNotifRef  = useRef(0)    // heat exhaustion warning throttle
+  // M47 Track A: Periodic achievement check (every 30 real-time seconds)
+  const achievementCheckTimerRef = useRef(0)
   // M35 Track B: Disaster system timers
   const tornadoSpawnTimerRef    = useRef(300 + Math.random() * 300)  // seconds until next tornado attempt
   const earthquakeTimerRef      = useRef(3600 + Math.random() * 3600) // seconds until next earthquake chance
   const earthquakeActiveRef     = useRef(0)   // countdown for active shake (0 = inactive)
   const volcanicAshTimerRef     = useRef(0)   // accumulates time near volcano
   const lavaCheckTimerRef       = useRef(0)   // 0.5s tick for lava damage
+  // M47 Track B: active hazard tracking (id of last hazard zone entered, or null)
+  const activeHazardIdRef       = useRef<string | null>(null)
   // M32: pending tame — animal id waiting for name input
   const pendingTameAnimalRef    = useRef<number | null>(null)
   // M34 Track A: home placement mode (true when player pressed B with HOME_DEED)
@@ -3029,6 +3037,13 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
       const mapRevealPct = 0  // TODO: wire real map reveal
       const belowSeaLevel = Position.y[entityId] < 0
       achievementSystem.tick(dt, px, py, pz, healthPct, dayCount2, isNight, biome, mapRevealPct, belowSeaLevel)
+    }
+
+    // ── M47 Track A: Periodic stat-threshold achievement check (every 30 s) ─
+    achievementCheckTimerRef.current += dt
+    if (achievementCheckTimerRef.current >= 30) {
+      achievementCheckTimerRef.current = 0
+      checkAchievements(getPlayerStats())
     }
 
     // ── M24: Tutorial system tick ───────────────────────────────────────────

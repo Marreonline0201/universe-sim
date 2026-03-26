@@ -37,6 +37,8 @@ const FactionPanel     = lazy(() => import('./panels/FactionPanel').then(m => ({
 const BuildingsPanelLazy = lazy(() => import('./panels/BuildingsPanel').then(m => ({ default: m.BuildingsPanel })))
 // M37 Track C: Progression panel (titles, stats, milestones)
 const ProgressionPanel = lazy(() => import('./panels/ProgressionPanel').then(m => ({ default: m.ProgressionPanel })))
+// M41 Track A: Alchemy workspace panel
+const AlchemyPanel = lazy(() => import('./panels/AlchemyPanel').then(m => ({ default: m.AlchemyPanel })))
 
 // M36 Track C: Wrapper resolves nearSettlementId from store so panel has no props
 function BuildingsPanelWrapper() {
@@ -76,6 +78,7 @@ const PANEL_LABEL: Record<PanelId, string> = {
   factions:     'FACTIONS',
   buildings:    'SETTLEMENT BUILDINGS',
   progression:  'PROGRESSION & TITLES',
+  alchemy:      'ALCHEMY',
 }
 
 const PANEL_WIDTH = 480
@@ -97,6 +100,7 @@ const ICON_BUTTONS: Array<{ id: PanelId; icon: string; hint: string }> = [
   { id: 'players',     icon: 'PLR',  hint: 'Players Online (P)' },
   { id: 'factions',    icon: 'FCT',  hint: 'Factions (G)' },
   { id: 'buildings',   icon: 'STL',  hint: 'Settlement Buildings (U)' },
+  { id: 'alchemy',     icon: 'ALK',  hint: 'Alchemy (Y)' },
   { id: 'science',     icon: ' ? ',  hint: 'Science Companion (?)' },
   { id: 'settings',    icon: 'SET',  hint: 'Settings (Esc)' },
 ]
@@ -121,6 +125,7 @@ const PANEL_COMPONENTS: Record<PanelId, React.ComponentType> = {
   factions:      FactionPanel,
   buildings:     BuildingsPanelWrapper,
   progression:   ProgressionPanel,
+  alchemy:       AlchemyPanel,
 }
 
 export function SidebarShell() {
@@ -166,6 +171,7 @@ export function SidebarShell() {
         case 'h': case 'H':   e.preventDefault(); togglePanel('home'); break
         case 'p': case 'P':   e.preventDefault(); togglePanel('players');     break
         case 'x': case 'X':   e.preventDefault(); togglePanel('progression'); break
+        case 'y': case 'Y':   e.preventDefault(); togglePanel('alchemy');     break
         case 'Tab':           e.preventDefault(); togglePanel('character');  break
         case 'm': case 'M':   e.preventDefault(); togglePanel('map');        break
         case '?': case '/':

@@ -17,6 +17,7 @@
 
 import { MAT } from '../player/Inventory'
 import { usePlayerStore } from '../store/playerStore'
+import type { SpellId } from './SpellSystem'
 
 export interface PotionBuff {
   name: string
@@ -201,6 +202,48 @@ export function isPotionFireImmune(): boolean {
 export function isPotionInvisible(): boolean {
   const now = Date.now()
   return activePotionBuffs.some(b => b.expiresAt > now && b.animalAggro === false)
+}
+
+// ── Alchemy Mutation System ───────────────────────────────────────────────────
+
+/**
+ * Discoveries log — list of alchemy mutations the player has found.
+ * Max 10 entries (oldest entries dropped when limit exceeded).
+ */
+export const discoveriesLog: string[] = []
+
+function addDiscovery(entry: string): void {
+  if (!discoveriesLog.includes(entry)) {
+    discoveriesLog.push(entry)
+    if (discoveriesLog.length > 10) discoveriesLog.shift()
+  }
+}
+
+/**
+ * Check if 3 ingredients (by MAT id) produce a special mutation potion.
+ * Ingredient order is ignored — all permutations are matched.
+ *
+ * Returns:
+ *  'fireball'  — COAL + SULFUR + ALCOHOL  (fire explosion potion)
+ *  'lightning' — COPPER + SALT + ALCOHOL  (shock potion)
+ *  null        — no special mutation
+ */
+export function checkAlchemyMutation(mat1: number, mat2: number, mat3: number): SpellId | null {
+  const combo = new Set([mat1, mat2, mat3])
+
+  // Fire explosion potion: COAL + SULFUR + ALCOHOL
+  if (combo.has(MAT.COAL) && combo.has(MAT.SULFUR) && combo.has(MAT.ALCOHOL)) {
+    addDiscovery('Fire Explosion Potion discovered!')
+    return 'fireball'
+  }
+
+  // Shock potion: COPPER + SALT + ALCOHOL
+  if (combo.has(MAT.COPPER) && combo.has(MAT.SALT) && combo.has(MAT.ALCOHOL)) {
+    addDiscovery('Shock Potion discovered!')
+    return 'lightning'
+  }
+
+  return null
 }
 
 /**

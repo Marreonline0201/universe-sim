@@ -197,6 +197,48 @@ export class PlayerController {
     return false
   }
 
+  // ── M38 Track B: Faction ability key (X) ─────────────────────────────────
+  private _factionAbilityConsumed = false
+  /** Consume the faction ability key (X). Returns true once per press. */
+  popFactionAbility(): boolean {
+    if (this.keys.has('KeyX') && !this._factionAbilityConsumed) {
+      this._factionAbilityConsumed = true
+      return true
+    }
+    if (!this.keys.has('KeyX')) this._factionAbilityConsumed = false
+    return false
+  }
+
+  // ── M38 Track B: Dodge roll detection ────────────────────────────────────
+  // Double-tap WASD or Shift+Space triggers a dodge roll.
+  // Tracks last key tap times for double-tap detection (< 0.3s).
+  private _lastKeyTapTimes: Partial<Record<string, number>> = {}
+  private _dodgePending = false
+
+  private _checkDoubleTap(code: string): boolean {
+    const now = Date.now()
+    const last = this._lastKeyTapTimes[code] ?? 0
+    this._lastKeyTapTimes[code] = now
+    return (now - last) < 300  // 300ms double-tap window
+  }
+
+  /** Returns true (once) if player should dodge this frame. Direction set by move input. */
+  popDodgeRequest(): boolean {
+    if (this._dodgePending) {
+      this._dodgePending = false
+      return true
+    }
+    return false
+  }
+
+  /** Internal: set by onKeyDown for double-tap. */
+  private _pendingDodgeCode: string | null = null
+
+  getPendingDodgeDirection(): { dx: number; dz: number } | null {
+    return this._pendingDodgeDir
+  }
+  private _pendingDodgeDir: { dx: number; dz: number } | null = null
+
   requestPointerLock(): void {
     try {
       // Try canvas first (most reliable), fallback to body
@@ -227,6 +269,24 @@ export class PlayerController {
     this.keys.add(e.code)
     if (e.code === 'KeyV') this.cycleCameraMode()
     if (['Space', 'KeyW', 'KeyS', 'KeyA', 'KeyD'].includes(e.code)) e.preventDefault()
+
+    // M38 Track B: Dodge roll — double-tap WASD or Shift+Space
+    const moveCodes = ['KeyW', 'KeyS', 'KeyA', 'KeyD']
+    if (moveCodes.includes(e.code) && this._checkDoubleTap(e.code)) {
+      this._dodgePending = true
+      // Map key to direction
+      const dirMap: Record<string, { dx: number; dz: number }> = {
+        KeyW: { dx: 0, dz: -1 },
+        KeyS: { dx: 0, dz: 1 },
+        KeyA: { dx: -1, dz: 0 },
+        KeyD: { dx: 1, dz: 0 },
+      }
+      this._pendingDodgeDir = dirMap[e.code] ?? null
+    }
+    if (e.code === 'Space' && (this.keys.has('ShiftLeft') || this.keys.has('ShiftRight'))) {
+      this._dodgePending = true
+      this._pendingDodgeDir = null  // backward direction will be computed from movement state
+    }
   }
 
   private onKeyUp(e: KeyboardEvent): void { this.keys.delete(e.code) }

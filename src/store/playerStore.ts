@@ -116,6 +116,12 @@ interface PlayerState {
   removeFromHomeStorage: (matId: number) => boolean
   homeTier: 0 | 1 | 2  // 0=Cozy (default), 1=Upgraded (+10 slots), 2=Fortified
   setHomeTier: (tier: 0 | 1 | 2) => void
+
+  // M38 Track B: Stamina system
+  stamina: number      // 0-100
+  maxStamina: number   // default 100
+  addStamina: (amt: number) => void
+  drainStamina: (amt: number) => boolean  // returns false if insufficient
 }
 
 export const usePlayerStore = create<PlayerState>((set, get) => ({
@@ -293,4 +299,20 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   },
   homeTier: 0,
   setHomeTier: (tier) => set({ homeTier: tier }),
+
+  // ── M38 Track B: Stamina system ───────────────────────────────────────────
+  stamina: 100,
+  maxStamina: 100,
+  addStamina: (amt) => set((s) => ({
+    stamina: Math.max(0, Math.min(s.maxStamina, s.stamina + amt)),
+  })),
+  drainStamina: (amt) => {
+    let success = false
+    set((s) => {
+      if (s.stamina < amt) return s
+      success = true
+      return { stamina: Math.max(0, s.stamina - amt) }
+    })
+    return success
+  },
 }))

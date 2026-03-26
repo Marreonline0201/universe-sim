@@ -174,6 +174,55 @@ function WarmthBar({ warmth }: { warmth: number }) {
   )
 }
 
+// ── M38 Track B: Stamina bar ──────────────────────────────────────────────────
+
+function StaminaBar({ stamina, maxStamina }: { stamina: number; maxStamina: number }) {
+  const clamped = Math.max(0, Math.min(maxStamina, stamina))
+  const pct     = maxStamina > 0 ? clamped / maxStamina : 0
+  const isLow   = pct < 0.3
+  const barColor = isLow ? '#eab308' : '#22c55e'  // yellow when < 30%, green otherwise
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
+      <span style={{
+        fontSize: 13,
+        width: 16,
+        textAlign: 'center',
+        opacity: isLow ? 1 : 0.75,
+        filter: isLow ? 'drop-shadow(0 0 4px #eab308)' : 'none',
+        flexShrink: 0,
+      }}>
+        ⚙
+      </span>
+      <div style={{
+        flex: 1,
+        height: 4,
+        background: 'rgba(255,255,255,0.12)',
+        borderRadius: 2,
+        overflow: 'hidden',
+      }}>
+        <div style={{
+          width: `${pct * 100}%`,
+          height: '100%',
+          background: barColor,
+          borderRadius: 2,
+          transition: 'width 0.2s ease, background 0.3s',
+        }} />
+      </div>
+      <span style={{
+        fontSize: 9,
+        color: isLow ? '#eab308' : '#888',
+        fontFamily: 'monospace',
+        width: 26,
+        textAlign: 'right',
+        flexShrink: 0,
+      }}>
+        {Math.round(clamped)}
+      </span>
+    </div>
+  )
+}
+
 // ── Hotbar slot ─────────────────────────────────────────────────────────────────
 // Live-wired to inventory. Reads slot data every 200ms so newly gathered items
 // appear immediately. Click to equip/unequip.
@@ -1912,7 +1961,7 @@ function QuestTrackerWidget() {
 
 export function HUD() {
   const { paused, simTime, epoch } = useGameStore()
-  const { health, hunger, thirst, energy, fatigue, ambientTemp, warmth, equippedSlot, equippedArmorSlot, equipArmor, unequipArmor, wounds, isSleeping, quenchSecondsRemaining } = usePlayerStore()
+  const { health, hunger, thirst, energy, fatigue, ambientTemp, warmth, equippedSlot, equippedArmorSlot, equipArmor, unequipArmor, wounds, isSleeping, quenchSecondsRemaining, stamina, maxStamina } = usePlayerStore()
   const { connectionStatus, remotePlayers } = useMultiplayerStore()
   const weatherSectors = useWeatherStore(s => s.sectors)
   const weatherPlayerSectorId = useWeatherStore(s => s.playerSectorId)
@@ -2127,6 +2176,8 @@ export function HUD() {
           <RustVitalBar value={1 - fatigue} color="#8e44ad" icon="●" label="Stamina"  />
           {/* M29 Track B: Warmth bar */}
           <WarmthBar warmth={warmth} />
+          {/* M38 Track B: Stamina bar */}
+          <StaminaBar stamina={stamina} maxStamina={maxStamina} />
 
           {/* Wound indicators (Slice 5) */}
           {wounds.length > 0 && (

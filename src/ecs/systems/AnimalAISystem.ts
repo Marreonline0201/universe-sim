@@ -1,5 +1,6 @@
 // ── AnimalAISystem.ts ──────────────────────────────────────────────────────────
 // M9 Track 2: Animal AI — Deer, Wolf, Boar
+// M38 Track B: Enemy status effects (stun, burn, confuse, fear)
 //
 // Architecture:
 //   Animals are stored in a module-level Map (animalRegistry) for zero-allocation
@@ -28,6 +29,8 @@ import { terrainHeightAt, PLANET_RADIUS } from '../../world/SpherePlanet'
 import { GenomeEncoder, type Genome } from '../../biology/GenomeEncoder'
 import { MutationEngine } from '../../biology/MutationEngine'
 import { applyBoidRules } from '../../ai/FlockingSystem'
+// M38 Track B: Import combat system for enemy status effects
+import { combatSystem } from '../../game/GameSingletons'
 
 // ── Genome decoder (singleton, allocation-free per-frame) ─────────────────────
 const _encoder = new GenomeEncoder()
@@ -611,6 +614,84 @@ export function tickAnimalAI(ctx: AnimalTickContext): void {
     if (animal.tameAlertTimer > 0) {
       animal.tameAlertTimer -= dt
       if (animal.tameAlertTimer < 0) animal.tameAlertTimer = 0
+    }
+
+    // M38 Track B: Process enemy status effects
+    {
+      const status = combatSystem.getEnemyStatus(animal.id)
+      if (status) {
+        // Stunned: freeze movement AI, skip this animal's AI tick
+        if (status.stunTimer > 0) {
+          animal.vx = 0; animal.vy = 0; animal.vz = 0
+          // Still position-clamp but skip behavior
+          const size = species === 'deer' ? 1.0 : species === 'wolf' ? 0.7 : 1.2
+          const [sx, sy, sz] = projectOntoSurface(animal.x, animal.y, animal.z, size)
+          if (sy > 0) { animal.x = sx; animal.y = sy; animal.z = sz }
+          continue
+        }
+
+        // Burning: take 2 damage per second (tracked via a burn tick accumulator)
+        if (status.burnTimer > 0) {
+          animal.health = Math.max(0, animal.health - 2 * dt)
+          if (animal.health <= 0) {
+            animal.behavior = 'DEAD'
+            animal.deadTimer = 0
+          }
+        }
+
+        // Confused: wander randomly, ignore player
+        if (status.confuseTimer > 0) {
+          // Random wander — randomize velocity if not already wandering
+          if (animal.wanderTimer <= 0) {
+            animal.wanderTimer = 1.5 + Math.random() * 2
+            const randAngle = Math.random() * Math.PI * 2
+            const spd = 2.0
+            // Build a surface-tangent random direction
+            const up = new THREE.Vector3(animal.x, animal.y, animal.z).normalize()
+            const arb = Math.abs(up.x) < 0.9 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0)
+            const east = new THREE.Vector3().crossVectors(up, arb).normalize()
+            const north = new THREE.Vector3().crossVectors(east, up).normalize()
+            animal.vx = (north.x * Math.cos(randAngle) + east.x * Math.sin(randAngle)) * spd
+            animal.vy = (north.y * Math.cos(randAngle) + east.y * Math.sin(randAngle)) * spd
+            animal.vz = (north.z * Math.cos(randAngle) + east.z * Math.sin(randAngle)) * spd
+          }
+          animal.wanderTimer -= dt
+          animal.x += animal.vx * dt
+          animal.y += animal.vy * dt
+          animal.z += animal.vz * dt
+          const size2 = species === 'deer' ? 1.0 : species === 'wolf' ? 0.7 : 1.2
+          const [sx2, sy2, sz2] = projectOntoSurface(animal.x, animal.y, animal.z, size2)
+          if (sy2 > 0) { animal.x = sx2; animal.y = sy2; animal.z = sz2 }
+          continue
+        }
+
+        // Fear response: flee when HP < 20% (30% chance to trigger, applied once on transition)
+        if (status.fearTimer > 0) {
+          // Override behavior to flee away from player
+          const dx = animal.x - playerX, dy = animal.y - playerY, dz = animal.z - playerZ
+          const dist = Math.sqrt(dx * dx + dy * dy + dz * dz)
+          if (dist > 0.01) {
+            const spd = DEER_SPEED_FLEE
+            animal.vx = (dx / dist) * spd
+            animal.vy = (dy / dist) * spd
+            animal.vz = (dz / dist) * spd
+          }
+          animal.x += animal.vx * dt
+          animal.y += animal.vy * dt
+          animal.z += animal.vz * dt
+          const size3 = species === 'deer' ? 1.0 : species === 'wolf' ? 0.7 : 1.2
+          const [sx3, sy3, sz3] = projectOntoSurface(animal.x, animal.y, animal.z, size3)
+          if (sy3 > 0) { animal.x = sx3; animal.y = sy3; animal.z = sz3 }
+          continue
+        }
+      }
+
+      // M38: Fear response trigger — when HP < 20%, 30% chance to flee for 4s
+      if (animal.health > 0 && animal.health / animal.maxHealth < 0.20) {
+        if (Math.random() < 0.30 * dt) {  // 30% chance per second (approximated with dt)
+          combatSystem.applyFear(animal.id, 4)
+        }
+      }
     }
 
     // M32: Tamed animal logic — override normal AI for tamed deer/boar

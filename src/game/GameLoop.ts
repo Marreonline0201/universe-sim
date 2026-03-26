@@ -1541,6 +1541,38 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
               if (!killed) {
                 combatSystem.updateEnemyHealth(hit.id, hit.species, hit.x, hit.y, hit.z, hit.health, hit.maxHealth)
               }
+
+              // M38 Track B: Apply weapon special effects on animal hit
+              {
+                const enchantSlot = usePlayerStore.getState().equippedSlot
+                const enchantList: string[] = []
+                // TODO: Read enchants from EnchantSystem when available
+                const weaponFx = combatSystem.applyWeaponEffects(stats.name, effectiveDamage, hit.id, enchantList)
+                // Life steal: heal player
+                if (weaponFx.healAmount > 0) {
+                  const maxHp38 = Health.max[entityId] || 100
+                  Health.current[entityId] = Math.min(maxHp38, Health.current[entityId] + weaponFx.healAmount)
+                }
+                // Stun notification
+                if (weaponFx.stunned) {
+                  useUiStore.getState().addNotification(`${stats.name} stunned the ${hit.species}!`, 'discovery')
+                }
+                // Blink strike (Quantum Blade): move player 2m toward enemy
+                if (weaponFx.blink) {
+                  const dx38 = hit.x - px, dy38 = hit.y - py, dz38 = hit.z - pz
+                  const dist38 = Math.sqrt(dx38 * dx38 + dy38 * dy38 + dz38 * dz38)
+                  if (dist38 > 0.1) {
+                    const blinkDist = Math.min(2, dist38 - 0.5)
+                    const nx38 = px + (dx38 / dist38) * blinkDist
+                    const ny38 = py + (dy38 / dist38) * blinkDist
+                    const nz38 = pz + (dz38 / dist38) * blinkDist
+                    const rapPhys38 = rapierWorld.getPlayer()
+                    if (rapPhys38) {
+                      rapPhys38.body.setNextKinematicTranslation({ x: nx38, y: ny38, z: nz38 })
+                    }
+                  }
+                }
+              }
             }
             if (killed) {
               const speciesName = killed.species.charAt(0).toUpperCase() + killed.species.slice(1)

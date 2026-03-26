@@ -2,6 +2,25 @@ import { create } from 'zustand'
 
 export type PanelId = 'inventory' | 'crafting' | 'journal' | 'character' | 'map' | 'settings' | 'build' | 'science' | 'dialogue' | 'skills' | 'quests' | 'achievements' | 'fishing' | 'merchant' | 'players'
 
+// ── M32 Track C: Fast travel ──────────────────────────────────────────────────
+export interface FastTravelTarget {
+  type: 'settlement' | 'waypoint'
+  name: string
+  x: number
+  z: number
+  cost: number          // gold cost (already computed)
+  waypointIndex?: number  // only for waypoint type
+}
+
+export function computeFastTravelCost(
+  playerX: number, playerZ: number,
+  targetX: number, targetZ: number,
+): number {
+  const dist = Math.sqrt((targetX - playerX) ** 2 + (targetZ - playerZ) ** 2)
+  if (dist <= 50) return 0
+  return Math.max(10, Math.round(dist / 100 * 5))
+}
+
 export interface Notification {
   id: number
   message: string
@@ -44,6 +63,19 @@ interface UiState {
   // Fog of war — visited cells persist across map open/close
   visitedCells: string[]
   addVisitedCell: (key: string) => void
+
+  // M32 Track C: Discovered settlements (by settlement id as string)
+  discoveredSettlements: Set<string>
+  discoverSettlement: (id: string) => void
+  isSettlementDiscovered: (id: string) => boolean
+
+  // M32 Track C: Fast travel confirmation dialog
+  fastTravelTarget: FastTravelTarget | null
+  setFastTravelTarget: (t: FastTravelTarget | null) => void
+
+  // M32 Track C: Screen fade overlay (fade-to-black for travel animation)
+  travelFading: boolean
+  setTravelFading: (v: boolean) => void
 }
 
 export const useUiStore = create<UiState>((set) => ({
@@ -96,4 +128,24 @@ export const useUiStore = create<UiState>((set) => ({
       if (s.visitedCells.includes(key)) return s
       return { visitedCells: [...s.visitedCells, key] }
     }),
+
+  // M32 Track C: Settlement discovery
+  discoveredSettlements: new Set<string>(),
+  discoverSettlement: (id) =>
+    set((s) => {
+      if (s.discoveredSettlements.has(id)) return s
+      const next = new Set(s.discoveredSettlements)
+      next.add(id)
+      return { discoveredSettlements: next }
+    }),
+  isSettlementDiscovered: (id) =>
+    useUiStore.getState().discoveredSettlements.has(id),
+
+  // M32 Track C: Fast travel dialog
+  fastTravelTarget: null,
+  setFastTravelTarget: (t) => set({ fastTravelTarget: t }),
+
+  // M32 Track C: Fade overlay
+  travelFading: false,
+  setTravelFading: (v) => set({ travelFading: v }),
 }))

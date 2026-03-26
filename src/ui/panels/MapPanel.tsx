@@ -6,6 +6,12 @@
 //   A4: Settlement labels — 8px white text within view bounds
 //   A5: Zoom controls — 3 levels (100/200/400 m), persisted in uiStore
 //
+// M32 Track C: Fast Travel
+//   - Left-click settlement → fast travel confirmation dialog (in-panel)
+//   - Left-click waypoint → fast travel confirmation dialog
+//   - Settlement discovery: undiscovered show as "???" grey markers
+//   - Travel cost: 5g per 100 world units, min 10g, free within 50 units
+//
 // Earlier features preserved: terrain colors, resource nodes, remote players,
 // compass, weather indicator, legend, player arrow.
 
@@ -15,9 +21,11 @@ import { usePlayerStore } from '../../store/playerStore'
 import { useMultiplayerStore } from '../../store/multiplayerStore'
 import { useSettlementStore } from '../../store/settlementStore'
 import { useWeatherStore } from '../../store/weatherStore'
-import { useUiStore, MINIMAP_ZOOM_LEVELS } from '../../store/uiStore'
+import { useUiStore, MINIMAP_ZOOM_LEVELS, computeFastTravelCost, type FastTravelTarget } from '../../store/uiStore'
 import { RESOURCE_NODES } from '../../world/ResourceNodeManager'
 import { terrainHeightAt, biomeColor } from '../../world/SpherePlanet'
+
+const SETTLEMENT_DISCOVERY_RADIUS = 150   // world units — player must be within this to discover
 
 const MAP_SIZE = 440            // canvas px
 const TERRAIN_GRID = 44         // 44×44 terrain color samples
@@ -112,7 +120,7 @@ export function MapPanel() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const animFrameRef = useRef<number>(0)
 
-  const { x: px, y: py, z: pz } = usePlayerStore()
+  const { x: px, z: pz } = usePlayerStore()
   const remotePlayers = useMultiplayerStore(s => s.remotePlayers)
   const remoteNpcs    = useMultiplayerStore(s => s.remoteNpcs)
   const settlements   = useSettlementStore(s => s.settlements)
@@ -133,6 +141,19 @@ export function MapPanel() {
   const addVisitedCell    = useUiStore(s => s.addVisitedCell)
   // Keep a Set reference for O(1) lookup during canvas render
   const visitedCellsRef = useRef<Set<string>>(new Set())
+
+  // ── M32 Track C: Fast travel state ────────────────────────────────────────
+  const discoveredSettlements = useUiStore(s => s.discoveredSettlements)
+  const discoverSettlement    = useUiStore(s => s.discoverSettlement)
+  const fastTravelTarget      = useUiStore(s => s.fastTravelTarget)
+  const setFastTravelTarget   = useUiStore(s => s.setFastTravelTarget)
+  const setTravelFading       = useUiStore(s => s.setTravelFading)
+  const closePanel            = useUiStore(s => s.closePanel)
+  const addNotification       = useUiStore(s => s.addNotification)
+  const gold                  = usePlayerStore(s => s.gold)
+  const spendGold             = usePlayerStore(s => s.spendGold)
+  const setPosition           = usePlayerStore(s => s.setPosition)
+  const py                    = usePlayerStore(s => s.y)
 
   // ── A3: NPC animation pulse time ─────────────────────────────────────────
   const startTimeRef = useRef(performance.now())
@@ -157,6 +178,45 @@ export function MapPanel() {
       addVisitedCell(key)
     }
   }, [px, pz, addVisitedCell])
+
+  // ── M32 Track C: Settlement discovery proximity check ─────────────────────
+  useEffect(() => {
+    for (const s of settlements.values()) {
+      const id = String(s.id)
+      if (discoveredSettlements.has(id)) continue
+      const dist = Math.sqrt((s.x - px) ** 2 + (s.z - pz) ** 2)
+      if (dist <= SETTLEMENT_DISCOVERY_RADIUS) {
+        discoverSettlement(id)
+        addNotification(`Discovered ${s.name}!`, 'discovery')
+      }
+    }
+  }, [px, pz, settlements, discoveredSettlements, discoverSettlement, addNotification])
+
+  // ── M32 Track C: Fast travel execute ──────────────────────────────────────
+  const executeFastTravel = useCallback(() => {
+    if (!fastTravelTarget) return
+    const { x: tx, z: tz, name, cost, waypointIndex } = fastTravelTarget
+
+    if (cost > 0 && !spendGold(cost)) return  // not enough gold (guard; dialog already blocks)
+
+    // Remove waypoint after traveling to it
+    if (waypointIndex !== undefined) {
+      removeWaypoint(waypointIndex)
+    }
+
+    setFastTravelTarget(null)
+    closePanel()
+
+    // Fade-to-black, teleport, fade back
+    setTravelFading(true)
+    setTimeout(() => {
+      setPosition(tx, py, tz + 5)
+      setTimeout(() => {
+        setTravelFading(false)
+        addNotification(`Arrived at ${name}!`, 'discovery')
+      }, 500)
+    }, 500)
+  }, [fastTravelTarget, spendGold, removeWaypoint, setFastTravelTarget, closePanel, setTravelFading, setPosition, py, addNotification])
 
   // ── Right-click → place waypoint ─────────────────────────────────────────
   const handleContextMenu = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -201,6 +261,55 @@ export function MapPanel() {
     setHoveredWpIndex(found)
     setTooltipPos(found >= 0 ? { x: e.clientX - rect.left, y: e.clientY - rect.top } : null)
   }, [waypoints, px, pz, worldRange])
+
+  // ── Left-click → fast travel to settlement or waypoint ───────────────────
+  const handleClick = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    const rect = canvasRef.current?.getBoundingClientRect()
+    if (!rect) return
+    const scaleX = MAP_SIZE / rect.width
+    const scaleY = MAP_SIZE / rect.height
+    const cx = (e.clientX - rect.left) * scaleX
+    const cy = (e.clientY - rect.top)  * scaleY
+
+    // Check waypoints first (smaller hit zone; drawn on top)
+    for (let i = 0; i < waypoints.length; i++) {
+      const [wcx, wcy] = worldToCanvas(waypoints[i].x, waypoints[i].z, px, pz, worldRange)
+      const dist = Math.sqrt((cx - wcx) ** 2 + (cy - wcy) ** 2)
+      if (dist < 12) {
+        const cost = computeFastTravelCost(px, pz, waypoints[i].x, waypoints[i].z)
+        const target: FastTravelTarget = {
+          type: 'waypoint',
+          name: `Waypoint ${i + 1}`,
+          x: waypoints[i].x,
+          z: waypoints[i].z,
+          cost,
+          waypointIndex: i,
+        }
+        setFastTravelTarget(target)
+        return
+      }
+    }
+
+    // Check settlements
+    for (const s of settlements.values()) {
+      const [scx, scy] = worldToCanvas(s.x, s.z, px, pz, worldRange)
+      const dist = Math.sqrt((cx - scx) ** 2 + (cy - scy) ** 2)
+      if (dist < 12) {
+        const id = String(s.id)
+        if (!discoveredSettlements.has(id)) return  // can't fast travel to undiscovered
+        const cost = computeFastTravelCost(px, pz, s.x, s.z)
+        const target: FastTravelTarget = {
+          type: 'settlement',
+          name: s.name,
+          x: s.x,
+          z: s.z,
+          cost,
+        }
+        setFastTravelTarget(target)
+        return
+      }
+    }
+  }, [waypoints, settlements, px, pz, worldRange, discoveredSettlements, setFastTravelTarget])
 
   // ── Main render loop ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -313,18 +422,24 @@ export function MapPanel() {
         ctx.fill()
       }
 
-      // ── A4: Settlement labels + diamond markers ─────────────────────────────
+      // ── A4 + M32C: Settlement labels + diamond markers ──────────────────────
+      // Use a snapshot of discoveredSettlements set at render time
+      const discoveredSnap = useUiStore.getState().discoveredSettlements
       for (const s of settlements.values()) {
         const [cx, cy] = worldToCanvas(s.x, s.z, px, pz, worldRange)
         if (cx < -20 || cx > MAP_SIZE + 20 || cy < -20 || cy > MAP_SIZE + 20) continue
 
-        drawDiamond(ctx, cx, cy, 5, settlementColor(s.civLevel), 'rgba(255,255,255,0.4)')
+        const isDiscovered = discoveredSnap.has(String(s.id))
+        const fillColor = isDiscovered ? settlementColor(s.civLevel) : '#555566'
+        const strokeColor = isDiscovered ? 'rgba(255,255,255,0.4)' : 'rgba(150,150,180,0.3)'
 
-        // A4: label (8px white text)
-        ctx.fillStyle = '#ffffff'
+        drawDiamond(ctx, cx, cy, 5, fillColor, strokeColor)
+
+        // A4: label (8px text; undiscovered shows "???")
+        ctx.fillStyle = isDiscovered ? '#ffffff' : '#888899'
         ctx.font = '8px monospace'
         ctx.textAlign = 'center'
-        ctx.fillText(s.name, cx, cy + 15)
+        ctx.fillText(isDiscovered ? s.name : '???', cx, cy + 15)
       }
 
       // ── A3: Animated NPC dots ──────────────────────────────────────────────
@@ -443,7 +558,7 @@ export function MapPanel() {
       cancelled = true
       cancelAnimationFrame(animFrameRef.current)
     }
-  }, [px, py, pz, remotePlayers, remoteNpcs, settlements, weather, worldRange, waypoints, hoveredWpIndex])
+  }, [px, py, pz, remotePlayers, remoteNpcs, settlements, weather, worldRange, waypoints, hoveredWpIndex, discoveredSettlements])
 
   // ── Waypoint hover distance helper ────────────────────────────────────────
   const hoveredWp = hoveredWpIndex >= 0 ? waypoints[hoveredWpIndex] : null
@@ -458,6 +573,7 @@ export function MapPanel() {
           ref={canvasRef}
           width={MAP_SIZE}
           height={MAP_SIZE}
+          onClick={handleClick}
           onContextMenu={handleContextMenu}
           onMouseMove={handleMouseMove}
           onMouseLeave={() => { setHoveredWpIndex(-1); setTooltipPos(null) }}
@@ -470,7 +586,7 @@ export function MapPanel() {
         />
 
         {/* A2: Waypoint distance tooltip */}
-        {hoveredWp && tooltipPos && (
+        {hoveredWp && tooltipPos && !fastTravelTarget && (
           <div
             style={{
               position: 'absolute',
@@ -487,7 +603,83 @@ export function MapPanel() {
               border: '1px solid rgba(255,200,0,0.4)',
             }}
           >
-            {wpDistance}m · right-click to remove
+            {wpDistance}m · left-click to travel · right-click to remove
+          </div>
+        )}
+
+        {/* M32 Track C: Fast travel confirmation dialog */}
+        {fastTravelTarget && (
+          <div style={{
+            position: 'absolute',
+            inset: 0,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            background: 'rgba(0,0,0,0.72)',
+            borderRadius: 8,
+            zIndex: 10,
+          }}>
+            <div style={{
+              background: '#111118',
+              border: '1px solid rgba(255,255,255,0.15)',
+              borderRadius: 8,
+              padding: '20px 28px',
+              minWidth: 220,
+              textAlign: 'center',
+              fontFamily: 'monospace',
+              color: '#eee',
+            }}>
+              <div style={{ fontSize: 13, marginBottom: 8, color: '#aaa' }}>
+                {fastTravelTarget.type === 'settlement' ? 'Fast Travel to' : 'Travel to Waypoint'}
+              </div>
+              <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>
+                {fastTravelTarget.name}
+              </div>
+              <div style={{ fontSize: 12, marginBottom: 16, color: fastTravelTarget.cost === 0 ? '#44cc88' : '#ffd700' }}>
+                {fastTravelTarget.cost === 0
+                  ? 'Free (nearby)'
+                  : `Cost: ${fastTravelTarget.cost} gold`}
+              </div>
+              {fastTravelTarget.cost > gold ? (
+                <div style={{ fontSize: 11, color: '#e74c3c', marginBottom: 14 }}>
+                  Need {fastTravelTarget.cost - gold} more gold to travel here
+                </div>
+              ) : null}
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+                <button
+                  onClick={executeFastTravel}
+                  disabled={fastTravelTarget.cost > gold}
+                  style={{
+                    background: fastTravelTarget.cost > gold ? 'rgba(255,255,255,0.06)' : 'rgba(68,204,136,0.2)',
+                    border: `1px solid ${fastTravelTarget.cost > gold ? 'rgba(255,255,255,0.1)' : '#44cc88'}`,
+                    borderRadius: 5,
+                    color: fastTravelTarget.cost > gold ? '#555' : '#44cc88',
+                    cursor: fastTravelTarget.cost > gold ? 'not-allowed' : 'pointer',
+                    fontFamily: 'monospace',
+                    fontSize: 12,
+                    padding: '6px 18px',
+                    fontWeight: 600,
+                  }}
+                >
+                  Travel
+                </button>
+                <button
+                  onClick={() => setFastTravelTarget(null)}
+                  style={{
+                    background: 'rgba(255,255,255,0.05)',
+                    border: '1px solid rgba(255,255,255,0.12)',
+                    borderRadius: 5,
+                    color: '#aaa',
+                    cursor: 'pointer',
+                    fontFamily: 'monospace',
+                    fontSize: 12,
+                    padding: '6px 18px',
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>

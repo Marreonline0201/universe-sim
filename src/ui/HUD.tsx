@@ -21,6 +21,7 @@ import { getLocalEmote } from '../game/EmoteSystem'
 import { skillSystem, SkillSystem, type SkillId } from '../game/SkillSystem'
 import { RemotePlayerNameTagsOverlay } from './RemotePlayerNameTags'
 import { InspectPlayerOverlay } from './InspectPlayerOverlay'
+import { useUiStore } from '../store/uiStore'
 
 // ── M20: Lazy-loaded overlays (rarely shown) ─────────────────────────────────
 const FirstContactOverlay = lazy(() => import('./FirstContactOverlay').then(m => ({ default: m.FirstContactOverlay })))
@@ -939,6 +940,9 @@ export function HUD() {
 
   const tempColor = ambientTemp < 0 ? '#88bbff' : ambientTemp < 30 ? '#88ff88' : ambientTemp < 50 ? '#ffaa44' : '#ff4444'
 
+  // ── M32 Track C: Fast travel fade overlay ─────────────────────────────────
+  const travelFading = useUiStore(s => s.travelFading)
+
   // ── M29 Track B: Lightning flash overlay state ─────────────────────────────
   const [lightningFlash, setLightningFlash] = useState(false)
   useEffect(() => {
@@ -1399,6 +1403,17 @@ export function HUD() {
 
       {/* ── M29 Track C4: Inspect player modal overlay ── */}
       <InspectPlayerOverlay />
+
+      {/* ── M32 Track C: Fast travel fade-to-black overlay ── */}
+      <div style={{
+        position: 'fixed',
+        inset: 0,
+        background: '#000',
+        pointerEvents: 'none',
+        zIndex: 3000,
+        opacity: travelFading ? 1 : 0,
+        transition: 'opacity 0.5s ease',
+      }} />
     </>
   )
 }

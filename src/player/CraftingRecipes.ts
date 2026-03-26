@@ -1318,7 +1318,6 @@ export const CRAFTING_RECIPES: CraftingRecipe[] = [
     ],
     output: { itemId: MAT.EMPTY_VIAL, quantity: 3, isMaterial: true },
     knowledgeRequired: [],
-    requiresAlchemyTable: true,
   },
 
   // ── M37 Track B: Material Transmutation ──────────────────────────────────

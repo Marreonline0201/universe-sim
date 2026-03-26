@@ -536,10 +536,8 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
         if (completed) {
           worldEventCompletedRef.current = ev.id
           completeWorldEvent(ev.id, 'local')
-          // Grant XP via skillSystem
+          // Grant XP (gold already granted inside completeWorldEvent)
           skillSystem.addXp('combat', ev.rewards.xp)
-          // Grant gold
-          usePlayerStore.getState().addGold?.(ev.rewards.gold)
           // Notify server
           getWorldSocket()?.send({ type: 'WORLD_EVENT_COMPLETE', eventId: ev.id })
         }

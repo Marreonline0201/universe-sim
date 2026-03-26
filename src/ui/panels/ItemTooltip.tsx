@@ -57,8 +57,8 @@ export function getItemCategory(slot: InventorySlot): ItemCategory {
   // Metals
   if (matId === MAT.IRON_ORE || matId === MAT.IRON_INGOT || matId === MAT.COPPER_ORE ||
       matId === MAT.COPPER_INGOT || matId === MAT.TIN_ORE || matId === MAT.TIN_INGOT ||
-      matId === MAT.BRONZE_INGOT || matId === MAT.GOLD_ORE || matId === MAT.GOLD_INGOT ||
-      matId === MAT.STEEL_INGOT || matId === MAT.CAST_IRON) return 'metal'
+      matId === MAT.BRONZE_INGOT || matId === MAT.GOLD ||
+      matId === MAT.STEEL_INGOT || matId === MAT.CAST_IRON_INGOT) return 'metal'
   // Building materials
   if (matId === MAT.STONE || matId === MAT.CLAY || matId === MAT.BRICK ||
       matId === MAT.SAND || matId === MAT.GLASS) return 'building'

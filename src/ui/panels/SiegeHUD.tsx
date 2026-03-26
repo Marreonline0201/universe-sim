@@ -4,7 +4,7 @@
 // a progress bar, and a DEFEND button.
 
 import { useState, useEffect, useRef } from 'react'
-import { activeSiege, contributeToCiege, getSiegeProgress } from '../../game/SiegeSystem'
+import { contributeToSiege, getSiegeProgress, getSiegeRemainingMs } from '../../game/SiegeSystem'
 import { FACTIONS } from '../../game/FactionSystem'
 import { useSettlementStore } from '../../store/settlementStore'
 
@@ -19,6 +19,7 @@ export function SiegeHUD() {
   const [visible, setVisible] = useState(false)
   const [display, setDisplay] = useState<SiegeDisplay | null>(null)
   const [progress, setProgress] = useState(0)
+  const [remainingMs, setRemainingMs] = useState(0)
   const [contributed, setContributed] = useState(false)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
@@ -42,6 +43,7 @@ export function SiegeHUD() {
       })
       setContributed(false)
       setProgress(0)
+      setRemainingMs(0)
       setVisible(true)
     }
 
@@ -49,6 +51,7 @@ export function SiegeHUD() {
       setVisible(false)
       setDisplay(null)
       setProgress(0)
+      setRemainingMs(0)
       setContributed(false)
     }
 
@@ -67,6 +70,7 @@ export function SiegeHUD() {
         const p = getSiegeProgress()
         if (p !== null) {
           setProgress(p)
+          setRemainingMs(getSiegeRemainingMs())
         } else {
           // Siege ended without event — hide
           setVisible(false)
@@ -95,16 +99,14 @@ export function SiegeHUD() {
       : 'OVERWHELMING SIEGE'
 
   const barColor = contributed ? '#44cc88' : '#f59e0b'
-  const timeRemaining = activeSiege
-    ? Math.max(0, Math.ceil(activeSiege.remainingMs / 1000))
-    : 0
+  const timeRemaining = Math.max(0, Math.ceil(remainingMs / 1000))
   const minutes = Math.floor(timeRemaining / 60)
   const seconds = timeRemaining % 60
   const timeStr = `${minutes}:${String(seconds).padStart(2, '0')}`
 
   function handleDefend() {
     if (contributed) return
-    contributeToCiege()
+    contributeToSiege()
     setContributed(true)
   }
 

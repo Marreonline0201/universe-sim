@@ -311,7 +311,13 @@ export function CraftingPanel() {
 
         {recipes.length === 0 && (
           <div style={{ color: '#555', fontSize: 12, textAlign: 'center', marginTop: 24 }}>
-            {debouncedSearch ? 'No matching recipes.' : filter === 'available' ? 'No craftable recipes right now.' : 'No recipes unlocked yet.'}
+            {debouncedSearch
+              ? 'No matching recipes.'
+              : filter === 'available'
+                ? 'No craftable recipes right now.'
+                : showUnlockedOnly
+                  ? 'No unlocked recipes match this filter.'
+                  : 'No recipes found.'}
           </div>
         )}
 

@@ -1,7 +1,7 @@
 // ── SiegeSystem.ts ─────────────────────────────────────────────────────────────
 // M46 Track B: Settlement Siege Events
 // Hostile factions can launch siege events against settlements.
-// The player can help defend by calling contributeToCiege().
+// The player can help defend by calling contributeToSiege().
 
 import { useFactionStore } from '../store/factionStore'
 import { usePlayerStore } from '../store/playerStore'
@@ -59,7 +59,7 @@ export function startSiege(
  * Player contributes to the ongoing siege defense.
  * Marks contribution, awards +20 rep with defending faction, dispatches event.
  */
-export function contributeToCiege(): void {
+export function contributeToSiege(): void {
   if (!activeSiege) return
   if (activeSiege.playerContributed) return  // Already contributed
 
@@ -140,4 +140,9 @@ export function getSiegeProgress(): number | null {
   if (!activeSiege) return null
   const elapsed = activeSiege.durationMs - activeSiege.remainingMs
   return Math.min(1, Math.max(0, elapsed / activeSiege.durationMs))
+}
+
+/** Returns remainingMs for the active siege, or 0 if none. */
+export function getSiegeRemainingMs(): number {
+  return activeSiege ? Math.max(0, activeSiege.remainingMs) : 0
 }

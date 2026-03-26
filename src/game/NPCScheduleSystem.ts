@@ -251,6 +251,27 @@ export const NPC_ROLE_SCHEDULES: Record<string, NpcSchedule> = {
     evening:   { location: 'council hall', activity: 'reviewing settlement matters' },
     night:     { location: 'council hall', activity: 'in late deliberation' },
   },
+  scout: {
+    dawn:      { location: 'the gate',      activity: 'preparing gear for the day' },
+    morning:   { location: 'the wilds',     activity: 'scouting the perimeter' },
+    afternoon: { location: 'the wilds',     activity: 'ranging further afield' },
+    evening:   { location: 'the barracks',  activity: 'filing a report' },
+    night:     { location: 'home',          activity: 'sleeping' },
+  },
+  artisan: {
+    dawn:      { location: 'the workshop',  activity: 'preparing the workshop' },
+    morning:   { location: 'the workshop',  activity: 'crafting goods' },
+    afternoon: { location: 'the workshop',  activity: 'crafting goods' },
+    evening:   { location: 'the stall',     activity: 'selling wares at the market' },
+    night:     { location: 'home',          activity: 'sleeping' },
+  },
+  smith: {
+    dawn:      { location: 'the forge',     activity: 'stoking the forge' },
+    morning:   { location: 'the forge',     activity: 'forging metalwork' },
+    afternoon: { location: 'the forge',     activity: 'forging metalwork' },
+    evening:   { location: 'the smithy',    activity: 'cleaning up the smithy' },
+    night:     { location: 'home',          activity: 'sleeping' },
+  },
 }
 
 const DEFAULT_NPC_SCHEDULE: NpcSchedule = NPC_ROLE_SCHEDULES.villager
@@ -293,5 +314,7 @@ export function getActivityDescription(activity: NPCActivity, npcName: string, r
       return `${npcName} is on patrol.`
     case 'socializing':
       return `${npcName} is relaxing in the town square.`
+    default:
+      return `${npcName} is occupied.`
   }
 }

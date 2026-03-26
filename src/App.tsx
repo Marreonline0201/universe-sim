@@ -8,6 +8,8 @@ import { useBootstrapStatus } from './hooks/useBootstrapStatus'
 import { WorldBootstrapScreen } from './ui/WorldBootstrapScreen'
 import { initWorldEventLogger } from './game/WorldEventLogger'
 import { initCaveFeatures } from './game/CaveFeatureSystem'
+import { initJournalSystem } from './game/JournalSystem'
+import { initNPCRelationshipSystem } from './game/NPCRelationshipSystem'
 
 // ── M20: Lazy-load AdminPanel (dev/admin only) ──────────────────────────────
 const AdminPanel = lazy(() => import('./ui/AdminPanel').then(m => ({ default: m.AdminPanel })))
@@ -54,6 +56,8 @@ function DevGame() {
   useEffect(() => {
     initWorldEventLogger()
     initCaveFeatures()
+    initJournalSystem()
+    initNPCRelationshipSystem()
   }, [])
 
   return (
@@ -98,9 +102,13 @@ function GameWithSave() {
 
   // M48 Track C: Initialize world event logger once on mount
   // M50 Track C: Initialize cave features
+  // M51 Track A: Initialize player journal system
+  // M51 Track B: Initialize NPC relationship system
   useEffect(() => {
     initWorldEventLogger()
     initCaveFeatures()
+    initJournalSystem()
+    initNPCRelationshipSystem()
   }, [])
 
   // Load save on first sign-in

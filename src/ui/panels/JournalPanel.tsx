@@ -1,153 +1,243 @@
 // ── JournalPanel ───────────────────────────────────────────────────────────────
-// Scrollable list of discovered journal entries grouped by category.
+// M51 Track A: Player journal — browse auto-recorded diary entries.
 
 import { useState, useEffect } from 'react'
-import { journal } from '../../game/GameSingletons'
-import type { Discovery } from '../../player/DiscoveryJournal'
+import {
+  getJournalEntries,
+  getEntriesByCategory,
+  clearJournal,
+  type JournalEntry,
+} from '../../game/JournalSystem'
 
-const CATEGORY_LABELS: Record<Discovery['category'], string> = {
-  physics:      '⚛ Physics',
-  chemistry:    '🧪 Chemistry',
-  biology:      '🌱 Biology',
-  technology:   '⚙ Technology',
-  social:       '👥 Social',
-  cosmic:       '🌌 Cosmic',
+type FilterTab = 'all' | JournalEntry['category']
+
+const TABS: Array<{ id: FilterTab; label: string }> = [
+  { id: 'all',         label: 'All' },
+  { id: 'combat',      label: 'Combat' },
+  { id: 'exploration', label: 'Exploration' },
+  { id: 'crafting',    label: 'Crafting' },
+  { id: 'social',      label: 'Social' },
+  { id: 'milestone',   label: 'Milestone' },
+  { id: 'survival',    label: 'Survival' },
+]
+
+const CATEGORY_COLOR: Record<JournalEntry['category'], string> = {
+  combat:      '#ef4444',
+  exploration: '#4ade80',
+  crafting:    '#facc15',
+  social:      '#a78bfa',
+  milestone:   '#f59e0b',
+  survival:    '#e91e63',
 }
 
-const CATEGORY_COLORS: Record<Discovery['category'], string> = {
-  physics:    '#3498db',
-  chemistry:  '#9b59b6',
-  biology:    '#2ecc71',
-  technology: '#f39c12',
-  social:     '#e67e22',
-  cosmic:     '#1abc9c',
-}
-
-function formatSimTime(secs: number): string {
-  if (secs < 60)         return `${secs.toFixed(1)} s`
-  if (secs < 3600)       return `${(secs / 60).toFixed(1)} min`
-  if (secs < 86400)      return `${(secs / 3600).toFixed(1)} hr`
-  if (secs < 31_557_600) return `${(secs / 86400).toFixed(1)} days`
-  const years = secs / 31_557_600
-  if (years < 1000)      return `${years.toFixed(1)} yr`
-  if (years < 1e6)       return `${(years / 1000).toFixed(2)} kyr`
-  return `${(years / 1e6).toFixed(2)} Myr`
+function relativeTime(ts: number): string {
+  const elapsed = Math.floor((Date.now() - ts) / 1000)
+  if (elapsed < 5)  return 'just now'
+  if (elapsed < 60) return `${elapsed}s ago`
+  const mins = Math.floor(elapsed / 60)
+  if (mins < 60) return `${mins}m ago`
+  const hrs = Math.floor(mins / 60)
+  if (hrs < 24) return `${hrs}h ago`
+  const days = Math.floor(hrs / 24)
+  return `${days}d ago`
 }
 
 export function JournalPanel() {
-  const [activeCategory, setActiveCategory] = useState<Discovery['category'] | null>(null)
-  const [expanded, setExpanded] = useState<string | null>(null)
-  const [, forceRefresh] = useState(0)
+  const [activeTab, setActiveTab] = useState<FilterTab>('all')
+  const [, setTick] = useState(0)
 
-  // Poll every 500ms so new journal entries appear without reopening the panel
+  // Refresh timestamps every 15 seconds
   useEffect(() => {
-    const id = setInterval(() => forceRefresh(r => r + 1), 500)
+    const id = setInterval(() => setTick(t => t + 1), 15_000)
     return () => clearInterval(id)
   }, [])
 
-  const allDiscoveries = journal.getAll()
-  const filtered = activeCategory
-    ? allDiscoveries.filter(d => d.category === activeCategory)
-    : allDiscoveries
-
-  const categories = Array.from(
-    new Set(allDiscoveries.map(d => d.category))
-  ) as Discovery['category'][]
+  const allEntries = getJournalEntries()
+  const filtered: JournalEntry[] = activeTab === 'all'
+    ? allEntries
+    : getEntriesByCategory(activeTab as JournalEntry['category'])
 
   return (
-    <div style={{ color: '#fff', fontFamily: 'monospace' }}>
-      {/* Stats */}
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: 0 }}>
+
+      {/* Entry count subheader */}
       <div style={{
-        marginBottom: 12, padding: '8px 12px',
-        background: 'rgba(26,188,156,0.1)',
-        border: '1px solid rgba(26,188,156,0.3)',
-        borderRadius: 8,
-        display: 'flex', alignItems: 'center', gap: 12,
+        fontSize: 9,
+        color: '#444',
+        fontFamily: 'monospace',
+        marginBottom: 10,
       }}>
-        <span style={{ fontSize: 18 }}>📖</span>
-        <div>
-          <div style={{ fontSize: 14, fontWeight: 700, color: '#1abc9c' }}>
-            {allDiscoveries.length} discoveries
-          </div>
-          <div style={{ fontSize: 10, color: '#888' }}>across {categories.length} categories</div>
-        </div>
+        {allEntries.length} {allEntries.length === 1 ? 'entry' : 'entries'} recorded
       </div>
 
-      {/* Category filter */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 12 }}>
-        <button
-          onClick={() => setActiveCategory(null)}
-          style={{
-            fontSize: 10, padding: '3px 8px', borderRadius: 4, cursor: 'pointer',
-            background: !activeCategory ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.04)',
-            border: `1px solid ${!activeCategory ? '#fff' : '#333'}`,
-            color: !activeCategory ? '#fff' : '#888',
-          }}
-        >
-          All
-        </button>
-        {categories.map(cat => (
-          <button
-            key={cat}
-            onClick={() => setActiveCategory(activeCategory === cat ? null : cat)}
-            style={{
-              fontSize: 10, padding: '3px 8px', borderRadius: 4, cursor: 'pointer',
-              background: activeCategory === cat ? `${CATEGORY_COLORS[cat]}33` : 'rgba(255,255,255,0.04)',
-              border: `1px solid ${activeCategory === cat ? CATEGORY_COLORS[cat] : '#333'}`,
-              color: activeCategory === cat ? CATEGORY_COLORS[cat] : '#888',
-            }}
-          >
-            {CATEGORY_LABELS[cat]}
-          </button>
-        ))}
-      </div>
-
-      {/* Discovery entries */}
-      {filtered.length === 0 && (
-        <div style={{ textAlign: 'center', color: '#555', fontSize: 12, marginTop: 32 }}>
-          No discoveries yet.<br />Explore and interact with the world.
-        </div>
-      )}
-
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-        {filtered.map(d => {
-          const color = CATEGORY_COLORS[d.category]
-          const isExpanded = expanded === String(d.id)
+      {/* Category filter tabs */}
+      <div style={{
+        display: 'flex',
+        flexWrap: 'wrap',
+        gap: 4,
+        marginBottom: 12,
+      }}>
+        {TABS.map(tab => {
+          const isActive = activeTab === tab.id
+          const color = tab.id === 'all' ? '#cd4420' : CATEGORY_COLOR[tab.id as JournalEntry['category']]
           return (
-            <div
-              key={d.id}
-              onClick={() => setExpanded(isExpanded ? null : String(d.id))}
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
               style={{
-                padding: '8px 10px',
-                background: isExpanded ? `${color}15` : 'rgba(255,255,255,0.04)',
-                border: `1px solid ${isExpanded ? color : 'rgba(255,255,255,0.08)'}`,
-                borderRadius: 6,
+                padding: '3px 8px',
+                fontSize: 9,
+                fontFamily: 'monospace',
+                fontWeight: 700,
+                letterSpacing: 0.5,
+                textTransform: 'uppercase',
                 cursor: 'pointer',
-                transition: 'all 0.1s',
+                border: `1px solid ${isActive ? color : 'rgba(255,255,255,0.12)'}`,
+                borderRadius: 3,
+                background: isActive ? `${color}22` : 'transparent',
+                color: isActive ? color : '#666',
+                transition: 'all 0.12s',
+              }}
+              onMouseEnter={e => {
+                if (!isActive) {
+                  e.currentTarget.style.color = '#aaa'
+                  e.currentTarget.style.borderColor = 'rgba(255,255,255,0.3)'
+                }
+              }}
+              onMouseLeave={e => {
+                if (!isActive) {
+                  e.currentTarget.style.color = '#666'
+                  e.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)'
+                }
               }}
             >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: 12, fontWeight: 700, color }}>{d.name}</span>
-                <span style={{ fontSize: 9, color: '#555' }}>{formatSimTime(d.timestamp)}</span>
-              </div>
-              <div style={{ fontSize: 10, color: '#666', marginTop: 2 }}>
-                {CATEGORY_LABELS[d.category]}
-              </div>
-              {isExpanded && (
-                <div style={{ marginTop: 8 }}>
-                  <div style={{ fontSize: 11, color: '#bbb', lineHeight: 1.5 }}>
-                    {d.description}
-                  </div>
-                  {d.unlocks.length > 0 && (
-                    <div style={{ marginTop: 6, fontSize: 10, color: '#2ecc71' }}>
-                      Unlocks: {d.unlocks.join(', ')}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
+              {tab.label}
+            </button>
           )
         })}
+      </div>
+
+      {/* Scrollable entry list */}
+      <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
+        {filtered.length === 0 ? (
+          <div style={{
+            color: '#444',
+            fontFamily: 'monospace',
+            fontSize: 11,
+            textAlign: 'center',
+            padding: '40px 16px',
+          }}>
+            No journal entries yet. Go explore!
+          </div>
+        ) : (
+          filtered.map(entry => {
+            const catColor = CATEGORY_COLOR[entry.category] ?? '#888'
+            return (
+              <div
+                key={entry.id}
+                style={{
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: 8,
+                  padding: '7px 10px',
+                  background: 'rgba(255,255,255,0.03)',
+                  border: '1px solid rgba(255,255,255,0.06)',
+                  borderLeft: `3px solid ${catColor}44`,
+                  borderRadius: 4,
+                }}
+              >
+                {/* Icon */}
+                <span style={{ fontSize: 14, flexShrink: 0, marginTop: 1 }}>
+                  {entry.icon}
+                </span>
+
+                {/* Content */}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 8,
+                    marginBottom: 2,
+                  }}>
+                    <span style={{
+                      fontFamily: 'monospace',
+                      fontWeight: 700,
+                      fontSize: 11,
+                      color: '#ddd',
+                    }}>
+                      {entry.title}
+                    </span>
+                    <span style={{
+                      fontSize: 8,
+                      color: '#444',
+                      fontFamily: 'monospace',
+                      flexShrink: 0,
+                    }}>
+                      {relativeTime(entry.timestamp)}
+                    </span>
+                  </div>
+
+                  {/* Body text */}
+                  <div style={{
+                    fontSize: 10,
+                    color: '#666',
+                    lineHeight: 1.4,
+                    marginBottom: 3,
+                  }}>
+                    {entry.body}
+                  </div>
+
+                  {/* Category badge */}
+                  <div style={{
+                    fontSize: 7,
+                    color: catColor,
+                    fontFamily: 'monospace',
+                    textTransform: 'uppercase',
+                    letterSpacing: 0.5,
+                    opacity: 0.7,
+                  }}>
+                    {entry.category}
+                  </div>
+                </div>
+              </div>
+            )
+          })
+        )}
+      </div>
+
+      {/* Clear Journal button */}
+      <div style={{ paddingTop: 12, borderTop: '1px solid #1a1a1a', marginTop: 8, flexShrink: 0 }}>
+        <button
+          onClick={() => { clearJournal(); setTick(t => t + 1) }}
+          style={{
+            width: '100%',
+            padding: '6px 0',
+            background: 'rgba(255,255,255,0.04)',
+            border: '1px solid rgba(255,255,255,0.1)',
+            borderRadius: 4,
+            color: '#666',
+            fontSize: 10,
+            fontFamily: 'monospace',
+            fontWeight: 700,
+            letterSpacing: 1,
+            textTransform: 'uppercase',
+            cursor: 'pointer',
+            transition: 'all 0.12s',
+          }}
+          onMouseEnter={e => {
+            e.currentTarget.style.color = '#ef4444'
+            e.currentTarget.style.borderColor = 'rgba(239,68,68,0.3)'
+            e.currentTarget.style.background = 'rgba(239,68,68,0.06)'
+          }}
+          onMouseLeave={e => {
+            e.currentTarget.style.color = '#666'
+            e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)'
+            e.currentTarget.style.background = 'rgba(255,255,255,0.04)'
+          }}
+        >
+          Clear Journal
+        </button>
       </div>
     </div>
   )

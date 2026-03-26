@@ -27,6 +27,8 @@ import {
   updateEventParticipants,
   type WorldEventType,
 } from '../game/WorldEventSystem'
+// M42 Track A: Trade post
+import { useTradePostStore, type TradePostListing } from '../store/tradePostStore'
 // M39 Track B: Chat + Party
 import { receiveChatMessage } from '../ui/ChatBox'
 import { usePartyStore } from '../store/partyStore'
@@ -970,6 +972,33 @@ export class WorldSocket {
           `${donor} donated ${qty} ${matName} to ${buildingName} (${current}/${needed})`,
           'info'
         )
+        break
+      }
+
+      // ── M42 Track A: Trade Post ───────────────────────────────────────────────
+
+      case 'TRADE_POST_LIST': {
+        // Another player listed an item — add to local store
+        const listing = msg.listing as TradePostListing
+        if (listing && listing.id) {
+          useTradePostStore.getState().addListing(listing)
+        }
+        break
+      }
+
+      case 'TRADE_POST_BUY': {
+        // A listing was purchased or cancelled — remove from local store
+        const listingId = msg.listingId as string
+        if (listingId) {
+          useTradePostStore.getState().removeListing(listingId)
+        }
+        break
+      }
+
+      case 'TRADE_POST_INIT': {
+        // Server sends full snapshot of active listings on connect
+        const listings = (msg.listings as TradePostListing[]) ?? []
+        useTradePostStore.getState().setListings(listings)
         break
       }
 

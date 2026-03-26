@@ -71,11 +71,13 @@ function SpeechBubble({ text, fromId, toId }: { text: string; fromId: string; to
   const fromMeta = AGENTS[fromId]
   const toMeta   = toId ? AGENTS[toId] : null
   const color    = toMeta?.color ?? fromMeta?.color ?? '#aaa'
+  // Flip bubble below the node for agents near the top edge (y < 0.2)
+  const flipBelow = (fromMeta?.y ?? 0.5) < 0.2
 
   return (
     <div style={{
       position: 'absolute',
-      bottom: '110%',
+      ...(flipBelow ? { top: '110%' } : { bottom: '110%' }),
       left: '50%',
       transform: 'translateX(-50%)',
       background: 'rgba(4,8,20,0.96)',
@@ -99,14 +101,14 @@ function SpeechBubble({ text, fromId, toId }: { text: string; fromId: string; to
         </span>
       )}
       {text}
-      {/* Tail */}
+      {/* Tail — points down when above node, up when below */}
       <div style={{
         position: 'absolute',
-        bottom: -5,
+        ...(flipBelow ? { top: -5 } : { bottom: -5 }),
         left: '50%',
         transform: 'translateX(-50%)',
         width: 8, height: 5,
-        clipPath: 'polygon(50% 100%, 0 0, 100% 0)',
+        clipPath: flipBelow ? 'polygon(50% 0%, 0 100%, 100% 100%)' : 'polygon(50% 100%, 0 0, 100% 0)',
         background: color,
       }} />
     </div>

@@ -262,6 +262,80 @@ export class Inventory {
     return Array.from(this.knownRecipes)
   }
 
+  /**
+   * Sort inventory slots in-place by category order:
+   * tools → weapons → food → metals → building → organic → misc
+   * Items in the same category sort by materialId ascending. Empty slots go to end.
+   */
+  sortInventory(): void {
+    const CATEGORY_ORDER: Record<string, number> = {
+      tool: 0,
+      weapon: 1,
+      food: 2,
+      metal: 3,
+      building: 4,
+      organic: 5,
+      misc: 6,
+    }
+
+    const getCategory = (slot: InventorySlot): string => {
+      if (slot.itemId > 0) return 'tool'
+      const m = slot.materialId
+      // Food
+      if ([41, 42, 60, 76, 77, 78, 79, 80, 81, 82, 83, 72, 73, 74, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105].includes(m)) return 'food'
+      // Metals
+      if ([11, 12, 13, 14, 15, 16, 25, 26, 27, 43, 44, 45, 46, 47].includes(m)) return 'metal'
+      // Building
+      if ([1, 8, 9, 18, 19, 20, 63].includes(m)) return 'building'
+      // Organic
+      if ([3, 4, 5, 6, 7, 10, 17, 21, 22, 23, 24, 36].includes(m)) return 'organic'
+      return 'misc'
+    }
+
+    const filled = this.slots.filter((s): s is InventorySlot => s !== null)
+    const empty: null[] = this.slots.filter((s): s is null => s === null)
+
+    filled.sort((a, b) => {
+      const ca = CATEGORY_ORDER[getCategory(a)] ?? 6
+      const cb = CATEGORY_ORDER[getCategory(b)] ?? 6
+      if (ca !== cb) return ca - cb
+      // Same category: sort by materialId ascending
+      const ma = a.itemId > 0 ? a.itemId : a.materialId
+      const mb = b.itemId > 0 ? b.itemId : b.materialId
+      return ma - mb
+    })
+
+    for (let i = 0; i < filled.length; i++) this.slots[i] = filled[i]
+    for (let i = 0; i < empty.length; i++) this.slots[filled.length + i] = null
+  }
+
+  /**
+   * Quick-stack: merge all slots with the same materialId into as few slots as possible.
+   * Only merges raw-material slots (itemId === 0). Items (itemId > 0) are not merged.
+   * No max stack size limit is enforced (Inventory doesn't define one; unlimited stacking).
+   */
+  quickStack(): void {
+    // Group raw-material slots by materialId
+    const groups = new Map<number, number>()
+    for (const s of this.slots) {
+      if (s && s.itemId === 0) {
+        groups.set(s.materialId, (groups.get(s.materialId) ?? 0) + s.quantity)
+      }
+    }
+
+    // Clear all raw-material slots
+    for (let i = 0; i < this.slots.length; i++) {
+      if (this.slots[i] && this.slots[i]!.itemId === 0) {
+        this.slots[i] = null
+      }
+    }
+
+    // Re-add merged stacks into freed slots
+    for (const [materialId, quantity] of groups) {
+      this.addItem({ itemId: 0, materialId, quantity, quality: 1 })
+    }
+  }
+
   /** Returns all non-null slots with their indices */
   listItems(): Array<{ index: number; slot: InventorySlot }> {
     const result: Array<{ index: number; slot: InventorySlot }> = []

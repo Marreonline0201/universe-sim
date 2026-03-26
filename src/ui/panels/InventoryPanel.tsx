@@ -84,8 +84,7 @@ function SlotCell({ slot, index, selected, equipped, onSelect, onHoverEnter, onH
           </div>
           {slot.quantity > 1 && (
             <div style={{
-              position: 'absolute', bottom: 2, right: 4,
-              fontSize: 9, color: '#f1c40f', fontFamily: 'monospace',
+              fontSize: 9, color: '#aaa', position: 'absolute', bottom: 2, right: 3, fontFamily: 'monospace',
             }}>
               x{slot.quantity}
             </div>
@@ -102,10 +101,33 @@ function SlotCell({ slot, index, selected, equipped, onSelect, onHoverEnter, onH
   )
 }
 
+type FilterTab = 'ALL' | 'TOOLS' | 'FOOD' | 'MATS' | 'MISC'
+
+const FOOD_MAT_IDS = new Set([41, 42, 60, 76, 77, 78, 79, 80, 81, 82, 83, 72, 73, 74, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105])
+const MATS_MAT_IDS = new Set([
+  // metals
+  11, 12, 13, 14, 15, 16, 25, 26, 27, 43, 44, 45, 46, 47,
+  // building
+  1, 8, 9, 18, 19, 20, 63,
+  // organic
+  3, 4, 5, 6, 7, 10, 17, 21, 22, 23, 24, 36,
+])
+
+function slotMatchesFilter(slot: InventorySlot | null, filter: FilterTab): boolean {
+  if (filter === 'ALL') return true
+  if (!slot) return false
+  if (filter === 'TOOLS') return slot.itemId > 0
+  if (filter === 'FOOD') return slot.itemId === 0 && FOOD_MAT_IDS.has(slot.materialId)
+  if (filter === 'MATS') return slot.itemId === 0 && MATS_MAT_IDS.has(slot.materialId)
+  // MISC: non-empty, not tool, not food, not mats
+  return slot.itemId === 0 && !FOOD_MAT_IDS.has(slot.materialId) && !MATS_MAT_IDS.has(slot.materialId)
+}
+
 export function InventoryPanel() {
   const [selected, setSelected] = useState<number | null>(null)
   const [dropQty, setDropQty] = useState(1)
   const [, forceRefresh] = useState(0)
+  const [filterTab, setFilterTab] = useState<FilterTab>('ALL')
 
   const equippedSlot  = usePlayerStore(s => s.equippedSlot)
   const equipAction   = usePlayerStore(s => s.equip)
@@ -174,20 +196,80 @@ export function InventoryPanel() {
       {/* Tooltip portal — renders outside grid to avoid overflow */}
       {tooltipPortal}
 
+      {/* Sort / Stack buttons */}
+      <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+        {(['SORT', 'STACK'] as const).map(action => (
+          <button
+            key={action}
+            onClick={() => {
+              if (action === 'SORT') {
+                inventory.sortInventory()
+              } else {
+                inventory.quickStack()
+              }
+              setSelected(null)
+              forceRefresh(r => r + 1)
+            }}
+            style={{
+              padding: '3px 10px',
+              fontSize: 10,
+              fontFamily: 'monospace',
+              fontWeight: 700,
+              letterSpacing: 1,
+              background: 'rgba(255,255,255,0.07)',
+              border: '1px solid rgba(255,255,255,0.2)',
+              borderRadius: 4,
+              color: '#ccc',
+              cursor: 'pointer',
+            }}
+          >
+            {action}
+          </button>
+        ))}
+      </div>
+
+      {/* Filter tabs */}
+      <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
+        {(['ALL', 'TOOLS', 'FOOD', 'MATS', 'MISC'] as FilterTab[]).map(tab => (
+          <button
+            key={tab}
+            onClick={() => setFilterTab(tab)}
+            style={{
+              padding: '2px 8px',
+              fontSize: 9,
+              fontFamily: 'monospace',
+              fontWeight: 700,
+              letterSpacing: 0.5,
+              background: filterTab === tab ? 'rgba(52,152,219,0.3)' : 'rgba(255,255,255,0.05)',
+              border: filterTab === tab ? '1px solid rgba(52,152,219,0.7)' : '1px solid rgba(255,255,255,0.1)',
+              borderRadius: 3,
+              color: filterTab === tab ? '#74b9ff' : '#888',
+              cursor: 'pointer',
+            }}
+          >
+            {tab}
+          </button>
+        ))}
+      </div>
+
       {/* 8-column grid */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(8, 52px)', gap: 4 }}>
-        {Array.from({ length: inventory.slotCount }, (_, i) => (
-          <SlotCell
-            key={i}
-            index={i}
-            slot={inventory.getSlot(i)}
-            selected={selected === i}
-            equipped={equippedSlot === i}
-            onSelect={handleSelect}
-            onHoverEnter={onMouseEnter}
-            onHoverLeave={onMouseLeave}
-          />
-        ))}
+        {Array.from({ length: inventory.slotCount }, (_, i) => {
+          const rawSlot = inventory.getSlot(i)
+          const visible = slotMatchesFilter(rawSlot, filterTab)
+          return (
+            <SlotCell
+              key={i}
+              index={i}
+              slot={visible ? rawSlot : null}
+              selected={selected === i}
+              equipped={equippedSlot === i}
+              onSelect={handleSelect}
+              onHoverEnter={onMouseEnter}
+              onHoverLeave={onMouseLeave}
+            />
+          )
+        })}
       </div>
 
       {/* Selected item detail */}

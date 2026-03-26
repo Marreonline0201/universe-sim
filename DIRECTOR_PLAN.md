@@ -1,8 +1,34 @@
 # Director Plan -- Universe Sim
 
 **Date**: 2026-03-26
-**Sprint**: M24
-**Status**: COMPLETE
+**Sprint**: M28
+**Status**: IN PROGRESS -- Workers spawning
+
+---
+
+## M26 Completion Summary (2026-03-26)
+
+**All 3 Tracks SHIPPED:**
+
+- **Track A (ui-worker): Remote Player Visibility -- DONE** -- Verified RemotePlayersRenderer.tsx already implemented; feature confirmed working. No new code needed.
+- **Track B (interaction): Player Emotes System -- DONE** -- EmoteSystem.ts (8 emotes: wave/dance/sit/point/cheer/bow/laugh/shrug, 3s auto-clear, WebSocket broadcast). EmoteWheel.tsx (hold T radial wheel, 8 sectors). Wired into HUD.tsx, GameLoop.ts, RemotePlayersRenderer.tsx.
+- **Track C (physics-prof): Enhanced Procedural Footsteps -- DONE** -- Rewrote footstep system in AmbientAudioEngine.ts: 6 terrain types (grass/stone/sand/snow/wood/water), spatial L/R panning, speed-linked rhythm, surface transition crossfade.
+
+**Build**: Passes (0 errors).
+
+---
+
+## M25 Completion Summary (2026-03-26)
+
+**All 3 Tracks SHIPPED:**
+
+- **Track A (ui-worker): Mobile Touch Controls -- DONE** -- Virtual joystick + action buttons for mobile browsers.
+- **Track B (ai-npc): Wildlife Flocking AI -- DONE** -- Boid rules for deer herds and bird flocks (separation/alignment/cohesion).
+- **Track C (interaction): Fishing Minigame -- DONE** -- Cast/wait/bite/reel state machine with loot integration.
+
+**Build**: Passes (0 errors).
+
+---
 
 ## M24 Completion Summary
 
@@ -685,3 +711,151 @@
 | `ui-worker` | Track A | A1-A6: Combat system + VFX + HUD | director |
 | `ai-npc` | Track B | B1-B6: Achievement system + panel | director |
 | `interaction` | Track C | C1-C6: Tutorial onboarding flow | director |
+
+---
+
+## M27 Sprint Plan -- 3 Parallel Tracks
+
+**Date**: 2026-03-26
+**Status**: IN PROGRESS -- Workers spawning
+
+### Track A (P0): Skill Progression UI + HUD XP Bar
+**Assigned to**: `ui-worker`
+**Duration**: Full sprint
+**Goal**: Surface the existing SkillSystem to the player. XP bar in HUD, level-up flash, skill point allocation panel. Players should see their progression clearly.
+
+| Task | Description | Technical Spec |
+|------|-------------|---------------|
+| A1 | XP bar in HUD | Add a compact XP bar to HUD.tsx: shows current XP / XP needed for next level. Slim horizontal bar (300px wide, 6px tall) at bottom of screen. Label: "Level X — Y XP". Animates fill smoothly on XP gain. Only visible when player has gained XP in last 30s (or always visible if level < max). |
+| A2 | Level-up flash effect | When player levels up (SkillSystem emits level event), show a full-screen gold flash (0.3s opacity pulse) and a large "LEVEL UP! — Skill: [SkillName] → Level X" toast at center of screen. Fade in 0.1s, hold 2s, fade out 0.5s. |
+| A3 | Create `SkillPanel.tsx` | New panel at `src/ui/panels/SkillPanel.tsx`. Shows all 10 skills (Gathering/Crafting/Combat/Building/Exploration/Cooking/Mining/Fishing/Husbandry/Science). Each row: skill name, current level (1-10), XP bar, description of current tier bonus. Read from SkillSystem.getSkills(). |
+| A4 | Register panel | Add `'skills'` PanelId in uiStore. Register SkillPanel in SidebarShell with lazy import. Use 'K' hotkey (for "Skills"). Add a simple star icon to sidebar strip. |
+| A5 | Skill gain toast | When any skill gains XP (not just level-up), show a small subtle toast bottom-left: "+12 Gathering XP". Auto-dismiss after 2s. Deduplicate same-skill toasts within 1s (accumulate and show once). |
+
+**Quality gate**: (a) XP bar visible in HUD, (b) level-up causes gold flash + toast, (c) K key opens skill panel with correct levels, (d) XP toasts appear on gather/craft, (e) build passes.
+
+---
+
+### Track B (P1): NPC Merchant Trading System
+**Assigned to**: `ai-npc`
+**Duration**: Full sprint
+**Goal**: Add gold currency + merchant NPCs in settlements with a buy/sell UI panel. Players can trade resources for gold and buy crafted goods.
+
+| Task | Description | Technical Spec |
+|------|-------------|---------------|
+| B1 | Gold currency in inventory | Add a `gold` field to PlayerState (number, starts at 0). Display gold in InventoryPanel header: "💰 X Gold". Add gold reward to quest completion (10–100 gold per quest based on difficulty). Wire into OfflineSaveManager. |
+| B2 | MerchantSystem.ts | New singleton at `src/game/MerchantSystem.ts`. Defines 4 merchant archetypes: General Store (sells basic tools/food/building mats), Blacksmith (buys ore/ingots, sells metal tools/weapons), Alchemist (buys plants/chemicals, sells potions/compounds), Trader (buys any resource at 60% market value). Each archetype has a `buyList` and `sellList` with base prices. Prices fluctuate ±20% based on settlement civTier. |
+| B3 | MerchantPanel.tsx | New panel at `src/ui/panels/MerchantPanel.tsx`. Two tabs: "Buy" and "Sell". Buy tab: list of items with icon, name, price; click to buy (deducts gold, adds to inventory). Sell tab: player's inventory grid; click item to sell (get gold). Show player's current gold balance. Confirm dialog for purchases >50 gold. |
+| B4 | Merchant NPCs | In NPC spawn logic (or SettlementSystem), spawn 1 merchant NPC per settlement of civTier >= 1. Merchant NPC has a special role tag and a bag icon above them. When player presses F near merchant, open MerchantPanel (not DialoguePanel). |
+| B5 | Register panel | Add `'merchant'` PanelId. Register in SidebarShell. Panel opens contextually (near merchant NPC pressing F), not from sidebar strip. |
+
+**Quality gate**: (a) Gold displayed in inventory, (b) quests reward gold, (c) merchant NPC spawns in settlements tier ≥1, (d) F near merchant opens shop UI, (e) buy/sell transactions work and update inventory + gold, (f) build passes.
+
+---
+
+### Track C (P0): Dynamic Lighting — Campfire + Sunrise/Sunset
+**Assigned to**: `physics-prof`
+**Duration**: Full sprint
+**Goal**: Add dynamic point lights from campfires that cast real-time shadows, and improve sunrise/sunset sky colors bleeding onto terrain.
+
+| Task | Description | Technical Spec |
+|------|-------------|---------------|
+| C1 | Campfire point light | In `ResourceNodesRenderer.tsx` or building renderer, when a campfire building exists, add a `THREE.PointLight` at its position: color `#ff6633`, intensity 2.0, distance 15m, decay 2. Animate intensity with `sin(time * 3.5) * 0.3 + 1.7` for realistic flicker. Add to scene and dispose when campfire is removed. Max 5 campfire lights total (nearest to player). |
+| C2 | Campfire shadow casting | Enable `shadowMap.enabled` on the renderer (if not already). Set campfire PointLight `castShadow = true`, shadow mapSize 512x512. Set terrain + building meshes `receiveShadow = true`, tree/rock meshes `castShadow = true`. Only enable for nearest campfire to player to control cost. |
+| C3 | Sunrise/sunset terrain tinting | In DayNightCycle.tsx, compute a `sunriseColor` lerp: when sun elevation is between -5° and +15°, lerp the ambient light color from dark blue-grey to warm orange-gold `#ff8040`. Inject this as `uSunTint` uniform into terrain shader via onBeforeCompile. Blend terrain albedo toward orange tint (strength 0.15) during golden hour. |
+| C4 | Moon glow at night | Add a secondary dim `THREE.DirectionalLight` pointing from moon direction (opposite of sun + slight offset). Color: `#c0d0ff` (cool blue-white), intensity 0.08. Gives subtle blue-silver tint to terrain at night. Controlled by same DayNightCycle that controls sun direction. |
+| C5 | Torch item building light | If player crafts and places a Torch building, add a PointLight similar to campfire but smaller: intensity 1.2, distance 8m, warm yellow `#ffcc44`, no shadow (cheaper). Stack with campfire lights but enforce global 8-light budget (Three.js limit). |
+
+**Quality gate**: (a) Campfire emits visible orange light that flickers, (b) campfire casts shadows onto nearby ground, (c) terrain turns gold/orange during sunrise/sunset, (d) moon casts subtle blue tint at night, (e) torch building adds light, (f) framerate regression < 5%, (g) build passes.
+
+---
+
+## Agent Dispatch Plan (M27)
+
+| Agent | Track | First Task | Report To |
+|-------|-------|-----------|-----------|
+| `ui-worker` | Track A | A1: Add XP bar to HUD.tsx | director |
+| `ai-npc` | Track B | B1-B2: Gold currency + MerchantSystem | director |
+| `physics-prof` | Track C | C1-C2: Campfire point light + shadows | director |
+
+---
+
+## M27 Completion Summary (2026-03-26)
+
+**All 3 Tracks SHIPPED:**
+
+- **Track A (ui-worker): Skill Progression UI -- DONE** -- SkillXpBar in HUD (300×6px, bottom-center, highest-XP skill), LevelUpFlash (gold screen-center toast 2.5s), XP gain toasts (bottom-left +N SkillName XP). SkillPanel.tsx (175 lines, 6 skills, icon/level/XP bar/bonus desc, K hotkey). Fixed SidebarShell lazy import pointing to non-existent SkillTreePanel.
+- **Track B (ai-npc): NPC Merchant Trading -- DONE** -- Gold currency in playerStore (addGold/spendGold), displayed in InventoryPanel header. MerchantSystem.ts (3 archetypes: general/blacksmith/alchemist, priced sell lists, 60% buy-back). MerchantPanel.tsx (buy/sell tabs, gold balance). Merchant NPCs (role trader, id%6===3) spawn in sessions with gold octahedron marker; F key opens shop. All quests award 10–50 gold. Persisted in OfflineSaveManager.
+- **Track C (physics-prof): Dynamic Lighting -- DONE** -- CampfireLightPass.tsx (PointLight color #ff6633, intensity 2.0, flicker via sin, max 5 nearest, shadow 512×512). DayNightCycle moon glow (#c0d0ff, 0.08 intensity, no shadow). PlanetTerrain sunrise/sunset tinting (uSunTint/#ff8040, 15% blend during golden hour). Torch building type added.
+
+**Bugs fixed this sprint:**
+- React duplicate instance across Vite chunks (removeChild crash) — fixed vendor-react chunk order
+- Clerk v6 routing="hash" removed → switched to routing="virtual"
+
+**Build**: Passes (0 errors).
+
+---
+
+## M28 Sprint Plan -- 3 Parallel Tracks
+
+**Date**: 2026-03-26
+**Status**: IN PROGRESS -- Workers spawning
+
+### Track A (P0): Minimap Upgrades — Waypoints + Fog of War
+**Assigned to**: `ui-worker`
+**Duration**: Full sprint
+**Goal**: Upgrade the existing minimap with fog of war, player-placed waypoints, and animated NPC dots.
+
+| Task | Description | Technical Spec |
+|------|-------------|---------------|
+| A1 | Fog of war layer | Add a canvas-based fog layer over the minimap. The fog is a dark overlay with circular "revealed" areas centered on the player's visited positions. Maintain a `Set<string>` of grid cells (32m resolution) the player has visited. On minimap render, draw black overlay then cut circular holes (radius 60px on minimap scale) for each visited cell near the viewport. This gives classic RPG fog-of-war feel. |
+| A2 | Player-placed waypoints | Right-click on minimap to place a waypoint marker (gold diamond). Store up to 5 waypoints in uiStore. Each shows a tooltip with distance on hover. Clicking an existing waypoint removes it. Waypoints persist in save state. |
+| A3 | Animated NPC dots | Show small colored dots on the minimap for NPCs within 200m of player. Green dot for friendly, amber for neutral, red for hostile/aggro'd. Dots pulse once per second to indicate they're living entities. Use the existing `remoteNpcs` data from SceneRoot/the NPC store. |
+| A4 | Settlement labels | Show settlement names as small text labels on the minimap when the viewport encompasses them. Font size 8px, white with dark shadow. Only show settlements within the current minimap view range. |
+| A5 | Zoom controls | Add +/- buttons to the minimap (top-right corner, small). 3 zoom levels: 100m radius, 200m radius, 400m radius. Default 200m. Persist zoom level in uiStore. |
+
+**Quality gate**: (a) Fog of war reveals as player moves, (b) right-click places waypoint, (c) NPC dots animate on map, (d) settlement names visible at appropriate zoom, (e) zoom works, (f) build passes.
+
+---
+
+### Track B (P1): Ship / Raft Building
+**Assigned to**: `interaction`
+**Duration**: Full sprint
+**Goal**: Let players build and ride a raft on the ocean. New building type, mounting mechanic, water movement physics.
+
+| Task | Description | Technical Spec |
+|------|-------------|---------------|
+| B1 | Raft building item | Add "Raft" to the build system: recipe requires 20 Wood + 5 Rope (or vine). Create `BuildingType.RAFT` in the buildings config. Raft can only be placed on water (check elevation < SEA_LEVEL at placement position). Visual: flat wooden platform 3×3m, made of instanced box geometries (planks). |
+| B2 | Mount/dismount mechanic | When player stands on or near a raft (within 2m) and presses E, they "mount" the raft. While mounted: player position is locked to raft position + offset. WASD controls raft movement (not player walk). Speed: 4 m/s forward, 2 m/s strafe. Q/E to rotate raft. Press E again to dismount (player placed on shore or nearest land). |
+| B3 | Water buoyancy | Raft position Y is locked to SEA_LEVEL + 0.5m. Add gentle bob animation: `posY = SEA_LEVEL + 0.5 + sin(time * 0.8 + raftId * 1.3) * 0.15`. Rotate raft pitch/roll: `pitch = sin(time * 0.5) * 0.03`, `roll = cos(time * 0.7) * 0.025`. |
+| B4 | Collision with shore | While piloting raft, if player tries to move into terrain (elevation > SEA_LEVEL - 0.5m), block movement in that direction (simple AABB collision). Show "Too shallow" indicator in HUD when blocked. |
+| B5 | Raft HUD indicator | When mounted on raft, show a small compass + speed indicator in HUD bottom-right: arrow showing heading, speed in m/s, "SAILING" label. Use consistent monospace dark style. |
+
+**Quality gate**: (a) Raft can be crafted and placed on water, (b) E mounts player, WASD moves raft, (c) gentle bobbing animation, (d) can't drive into shore, (e) HUD shows sailing indicator, (f) build passes.
+
+---
+
+### Track C (P0): Performance Pass — LOD + Culling
+**Assigned to**: `physics-prof`
+**Duration**: Full sprint
+**Goal**: Fix the large main bundle (3167 kB) and add LOD distance culling for trees/rocks to improve framerate on lower-end devices.
+
+| Task | Description | Technical Spec |
+|------|-------------|---------------|
+| C1 | Tree/rock distance culling | In `ResourceNodesRenderer.tsx`, add a distance check: only render nodes within 80m of player. Nodes beyond 80m are skipped entirely (no mesh in scene). At 40-80m range, use a simplified instanced mesh (just a cone + cylinder for trees, just a box for rocks, no normal maps). At 0-40m use full quality. Update culling every 2s (not every frame) to reduce CPU cost. |
+| C2 | NPC distance culling | In NPC renderers, skip rendering NPCs beyond 150m. Only process AI/pathfinding for NPCs within 100m. |
+| C3 | Geometry LOD for terrain | Check if `PlanetTerrain.tsx` supports LOD segments. If terrain mesh has fixed segment count, add a simple distance-based segment reduction: reduce terrain quad resolution by 50% when camera is above 200m altitude. |
+| C4 | Bundle size — lazy-load heavy systems | Dynamically import `AtmosphereShader`, `OceanShader`, and `CampfireLightPass` (the new rendering modules added in M19/M27). These are loaded once on startup but don't need to block the initial render. Use `React.lazy` + `Suspense` with null fallback. |
+| C5 | Remove dead code | Search for and remove any unused imports, commented-out code blocks, and unused exports introduced in the last 5 milestones. Target: reduce main bundle by 50+ kB. |
+
+**Quality gate**: (a) Trees/rocks beyond 80m not rendered, (b) framerate improves by ≥10% in scenes with many nodes, (c) bundle size reduces by at least 50 kB, (d) no visual regression at close range, (e) build passes.
+
+---
+
+## Agent Dispatch Plan (M28)
+
+| Agent | Track | First Task | Report To |
+|-------|-------|-----------|-----------|
+| `ui-worker` | Track A | A1: Add fog of war canvas layer to minimap | director |
+| `interaction` | Track B | B1-B2: Raft building item + mount mechanic | director |
+| `physics-prof` | Track C | C1: Tree/rock distance culling in ResourceNodesRenderer | director |

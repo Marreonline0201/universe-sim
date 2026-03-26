@@ -41,6 +41,8 @@ const ProgressionPanel = lazy(() => import('./panels/ProgressionPanel').then(m =
 const AlchemyPanel = lazy(() => import('./panels/AlchemyPanel').then(m => ({ default: m.AlchemyPanel })))
 // M42 Track A: Trade post panel
 const TradePostPanel = lazy(() => import('./panels/TradePostPanel').then(m => ({ default: m.TradePostPanel })))
+// M43 Track A: Forge / weapon upgrade panel
+const ForgePanel = lazy(() => import('./panels/ForgePanel').then(m => ({ default: m.ForgePanel })))
 
 // M36 Track C: Wrapper resolves nearSettlementId from store so panel has no props
 function BuildingsPanelWrapper() {
@@ -82,6 +84,7 @@ const PANEL_LABEL: Record<PanelId, string> = {
   progression:  'PROGRESSION & TITLES',
   alchemy:      'ALCHEMY',
   tradepost:    'TRADE POST',
+  forge:        'FORGE',
 }
 
 const PANEL_WIDTH = 480
@@ -105,6 +108,7 @@ const ICON_BUTTONS: Array<{ id: PanelId; icon: string; hint: string }> = [
   { id: 'buildings',   icon: 'STL',  hint: 'Settlement Buildings (U)' },
   { id: 'alchemy',     icon: 'ALK',  hint: 'Alchemy (Y)' },
   { id: 'tradepost',   icon: 'TRD',  hint: 'Trade Post (T)' },
+  { id: 'forge',       icon: 'FRG',  hint: 'Forge (V)' },
   { id: 'science',     icon: ' ? ',  hint: 'Science Companion (?)' },
   { id: 'settings',    icon: 'SET',  hint: 'Settings (Esc)' },
 ]
@@ -131,6 +135,7 @@ const PANEL_COMPONENTS: Record<PanelId, React.ComponentType> = {
   progression:   ProgressionPanel,
   alchemy:       AlchemyPanel,
   tradepost:     TradePostPanel,
+  forge:         ForgePanel,
 }
 
 export function SidebarShell() {
@@ -178,6 +183,7 @@ export function SidebarShell() {
         case 'x': case 'X':   e.preventDefault(); togglePanel('progression'); break
         case 'y': case 'Y':   e.preventDefault(); togglePanel('alchemy');     break
         case 't': case 'T':   e.preventDefault(); togglePanel('tradepost');  break
+        case 'v': case 'V':   e.preventDefault(); togglePanel('forge');      break
         case 'Tab':           e.preventDefault(); togglePanel('character');  break
         case 'm': case 'M':   e.preventDefault(); togglePanel('map');        break
         case '?': case '/':

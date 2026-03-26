@@ -171,6 +171,8 @@ import { updateShelterState, shelterState } from './ShelterSystem'
 import { getCaveEntrancePositions } from '../rendering/CaveEntrances'
 // M42 Track C: NPC reputation system
 import { useReputationStore } from '../store/reputationStore'
+// M43 Track C: Map exploration + fog of war
+import { useExplorationStore } from '../store/explorationStore'
 
 // Register skill system with offline save manager for serialization
 registerSkillSystem(skillSystem)
@@ -271,6 +273,10 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
   const lastStatsPos            = useRef<{ x: number; z: number } | null>(null)
   // M38 Track B: Track which faction abilities have been registered
   const registeredFactionAbilityRef = useRef<string | null>(null)
+  // M43 Track C: Exploration tick — every 5s mark cells around player as explored
+  const explorationTimerRef = useRef(0)
+  // M43 Track C: Cave discovery dedup — set of cave IDs already discovered
+  const discoveredCaveIdsRef = useRef<Set<string>>(new Set())
 
   useFrame((_, delta) => {
     // Cap dt to avoid spiral-of-death on slow frames
@@ -3106,6 +3112,55 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
                 fStore.damageSettlement(defenderSettId, RAID_DAMAGE)
               }
             }
+          }
+        }
+      }
+    }
+
+    // ── M43 Track C: Exploration tracking (every 5s) ─────────────────────────
+    {
+      explorationTimerRef.current += dt
+      if (explorationTimerRef.current >= 5) {
+        explorationTimerRef.current = 0
+        useExplorationStore.getState().markExplored(px, pz, 100)
+
+        // Cave discovery: check entrances within 10m
+        const caveEntrances43 = getCaveEntrancePositions()
+        const explorationStore43 = useExplorationStore.getState()
+        for (let i = 0; i < caveEntrances43.length; i++) {
+          const ce = caveEntrances43[i]
+          const dx = ce.x - px, dz = ce.z - pz
+          const dist = Math.sqrt(dx * dx + dz * dz)
+          if (dist <= 10) {
+            const caveId = `cave_${i}`
+            if (!discoveredCaveIdsRef.current.has(caveId)) {
+              discoveredCaveIdsRef.current.add(caveId)
+              explorationStore43.addDiscovery({
+                id: caveId,
+                name: `Cave Entrance ${i + 1}`,
+                x: ce.x,
+                z: ce.z,
+                type: 'cave',
+              })
+              useUiStore.getState().addNotification(`Discovered cave entrance!`, 'discovery')
+            }
+          }
+        }
+
+        // Settlement discovery: add to exploration store for map markers
+        const settStore43 = useSettlementStore.getState()
+        const discoveredUiStore43 = useUiStore.getState().discoveredSettlements
+        for (const s of settStore43.settlements.values()) {
+          const sid = String(s.id)
+          if (discoveredUiStore43.has(sid)) {
+            const discoveryId = `settlement_${s.id}`
+            explorationStore43.addDiscovery({
+              id: discoveryId,
+              name: s.name,
+              x: s.x,
+              z: s.z,
+              type: 'settlement',
+            })
           }
         }
       }

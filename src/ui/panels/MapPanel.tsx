@@ -34,6 +34,7 @@ import { merchantSystem } from '../../game/MerchantSystem'
 import { useSettlementQuestStore } from '../../store/settlementQuestStore'
 import { usePlayerStatsStore } from '../../store/playerStatsStore'
 import { checkNewTitles } from '../../game/TitleSystem'
+import { useExplorationStore, EXPLORATION_CELL_SIZE } from '../../store/explorationStore'
 
 const SETTLEMENT_DISCOVERY_RADIUS = 150   // world units — player must be within this to discover
 
@@ -183,6 +184,11 @@ export function MapPanel() {
   // ── M35: Settlement economy tooltip ──────────────────────────────────────
   const [hoveredSettlementId, setHoveredSettlementId] = useState<number | null>(null)
   const [settlementTooltipPos, setSettlementTooltipPos] = useState<{ x: number; y: number } | null>(null)
+
+  // ── M43 Track C: Exploration store ───────────────────────────────────────
+  const exploredCells     = useExplorationStore(s => s.exploredCells)
+  const explorationPct    = useExplorationStore(s => s.getExplorationPercent())
+  const mapDiscoveries    = useExplorationStore(s => s.discoveries)
 
   // ── Sync visitedCellsRef Set from the persisted store array ─────────────
   useEffect(() => {
@@ -501,6 +507,45 @@ export function MapPanel() {
         ctx.fillText(isDiscovered ? s.name : '???', cx, cy + 18)
       }
 
+      // ── M43 Track C: Discovery markers ────────────────────────────────────
+      {
+        const discovSnap = useExplorationStore.getState().discoveries
+        ctx.font = '11px serif'
+        ctx.textAlign = 'center'
+        for (const disc of discovSnap) {
+          if (disc.type === 'settlement') continue  // settlements already drawn as diamonds
+          const [dx, dy] = worldToCanvas(disc.x, disc.z, px, pz, worldRange)
+          if (dx < -16 || dx > MAP_SIZE + 16 || dy < -16 || dy > MAP_SIZE + 16) continue
+
+          // Only show if cell is explored (fog cleared)
+          const cellKey = `${Math.floor(disc.x / FOG_CELL_WORLD)},${Math.floor(disc.z / FOG_CELL_WORLD)}`
+          if (!visitedCellsRef.current.has(cellKey)) continue
+
+          let icon: string
+          switch (disc.type) {
+            case 'cave':     icon = '△'; break
+            case 'dungeon':  icon = '☠'; break
+            case 'resource': icon = '◇'; break
+            case 'ruin':     icon = '✕'; break
+            default:         icon = '?'
+          }
+          ctx.fillStyle = disc.type === 'cave' ? '#88ccff'
+                        : disc.type === 'dungeon' ? '#ff6666'
+                        : disc.type === 'resource' ? '#88ff88'
+                        : '#ffcc88'
+          ctx.globalAlpha = 0.9
+          ctx.fillText(icon, dx, dy + 4)
+          ctx.globalAlpha = 1.0
+
+          // name label
+          ctx.font = '7px monospace'
+          ctx.fillStyle = 'rgba(255,255,255,0.7)'
+          ctx.fillText(disc.name, dx, dy + 14)
+          ctx.font = '11px serif'
+        }
+        ctx.textAlign = 'left'
+      }
+
       // ── A3: Animated NPC dots ──────────────────────────────────────────────
       // pulse: scale oscillates 0.8 → 1.2 at ~1 Hz
       const pulse = 1.0 + 0.2 * Math.sin(elapsed * Math.PI * 2)  // ~1 Hz
@@ -657,7 +702,7 @@ export function MapPanel() {
       cancelled = true
       cancelAnimationFrame(animFrameRef.current)
     }
-  }, [px, py, pz, remotePlayers, remoteNpcs, settlements, weather, worldRange, waypoints, hoveredWpIndex, discoveredSettlements, underground])
+  }, [px, py, pz, remotePlayers, remoteNpcs, settlements, weather, worldRange, waypoints, hoveredWpIndex, discoveredSettlements, underground, exploredCells, mapDiscoveries])
 
   // ── Waypoint hover distance helper ────────────────────────────────────────
   const hoveredWp = hoveredWpIndex >= 0 ? waypoints[hoveredWpIndex] : null

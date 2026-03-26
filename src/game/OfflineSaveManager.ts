@@ -41,6 +41,7 @@ import { serializeBlueprints, deserializeBlueprints } from './BlueprintUnlockSys
 import { serializeMemories, deserializeMemories } from './NPCMemorySystem'
 import { serializeChronicle, deserializeChronicle } from './WorldChronicleSystem'
 import { serializeJournal, deserializeJournal } from './PlayerJournalSystem'
+import { serializeHousing, deserializeHousing } from './PlayerHousingSystem'
 import { Health, Metabolism, Position } from '../ecs/world'
 import { rapierWorld } from '../physics/RapierWorld'
 import { PLANET_RADIUS } from '../world/SpherePlanet'
@@ -168,6 +169,7 @@ export async function saveOffline(): Promise<boolean> {
       npcMemories: serializeMemories(),
       worldChronicle: serializeChronicle(),
       playerJournal: serializeJournal(),
+      playerHousing: serializeHousing(),
     })
     const meta = JSON.stringify({
       timestamp: Date.now(),
@@ -389,6 +391,11 @@ export async function loadOffline(): Promise<boolean> {
     // M62 Track B: Restore player journal
     if (state.playerJournal) {
       deserializeJournal(state.playerJournal)
+    }
+
+    // M64 Track B: Restore player housing
+    if (state.playerHousing) {
+      deserializeHousing(state.playerHousing)
     }
 
     // Restore position

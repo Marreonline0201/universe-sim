@@ -116,6 +116,8 @@ const BlueprintTreePanel = lazy(() => import('./panels/BlueprintTreePanel').then
 const NPCMemoryPanel = lazy(() => import('./panels/NPCMemoryPanel').then(m => ({ default: m.NPCMemoryPanel })))
 // M63 Track C: World event chronicle panel
 const WorldChroniclePanel = lazy(() => import('./panels/WorldChroniclePanel').then(m => ({ default: m.WorldChroniclePanel })))
+// M64 Track B: Player housing tier & upgrade panel
+const PlayerHousingPanel = lazy(() => import('./panels/PlayerHousingPanel').then(m => ({ default: m.PlayerHousingPanel })))
 
 // M36 Track C: Wrapper resolves nearSettlementId from store so panel has no props
 function BuildingsPanelWrapper() {
@@ -194,6 +196,7 @@ const PANEL_LABEL: Record<PanelId, string> = {
   blueprints:      'BLUEPRINT TREE',
   npcmemory:       'NPC MEMORY',
   chronicle:       'CHRONICLE',
+  playerhouse:     'PLAYER HOUSE',
 }
 
 const PANEL_WIDTH = 480
@@ -254,6 +257,7 @@ const ICON_BUTTONS: Array<{ id: PanelId; icon: string; hint: string }> = [
   { id: 'blueprints',  icon: '📐',   hint: 'Blueprint Tree (F3)' },
   { id: 'npcmemory',   icon: '🧠',   hint: 'NPC Memory (F4)' },
   { id: 'chronicle',   icon: '📰',   hint: 'Chronicle (F5)' },
+  { id: 'playerhouse', icon: '🏠',   hint: 'Player House (F6)' },
   { id: 'settings',    icon: 'SET',  hint: 'Settings (Esc)' },
   { id: 'factionrep',  icon: '🏅',   hint: 'Faction Reputation (F)' },
 ]
@@ -317,6 +321,7 @@ const PANEL_COMPONENTS: Record<PanelId, React.ComponentType> = {
   blueprints:      BlueprintTreePanel,
   npcmemory:       NPCMemoryPanel,
   chronicle:       WorldChroniclePanel,
+  playerhouse:     PlayerHousingPanel,
 }
 
 export function SidebarShell() {
@@ -412,6 +417,10 @@ export function SidebarShell() {
           e.preventDefault(); togglePanel('npcmemory'); break
         case 'F5':
           e.preventDefault(); togglePanel('chronicle'); break
+        case 'F6':
+          e.preventDefault(); togglePanel('playerhouse'); break
+        case 'F7':
+          e.preventDefault(); togglePanel('housing'); break
         case 'Escape':
           e.preventDefault()
           if (isFishingActive()) { cancelFishing(); useGameStore.getState().setGatherPrompt(null) }

@@ -33,6 +33,7 @@ import { initFactionReputationSystem } from './game/FactionReputationSystem'
 import { initBlueprintSystem } from './game/BlueprintUnlockSystem'
 import { initNPCMemorySystem } from './game/NPCMemorySystem'
 import { initWorldChronicle } from './game/WorldChronicleSystem'
+import { initPlayerHousing } from './game/PlayerHousingSystem'
 
 // ── M20: Lazy-load AdminPanel (dev/admin only) ──────────────────────────────
 const AdminPanel = lazy(() => import('./ui/AdminPanel').then(m => ({ default: m.AdminPanel })))
@@ -106,6 +107,7 @@ function DevGame() {
     initBlueprintSystem()
     initNPCMemorySystem()
     initWorldChronicle()
+    initPlayerHousing()
   }, [])
 
   return (
@@ -184,6 +186,7 @@ function GameWithSave() {
     initBlueprintSystem()
     initNPCMemorySystem()
     initWorldChronicle()
+    initPlayerHousing()
   }, [])
 
   // Load save on first sign-in

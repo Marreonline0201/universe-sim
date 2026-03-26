@@ -2,7 +2,7 @@
 // M40 Track B: Spell hotbar HUD — 4 slots + mana bar.
 // Positioned bottom-center, above the main hotbar.
 
-import React from 'react'
+import React, { useState, useEffect } from 'react'
 import { useSpellStore } from '../store/spellStore'
 import { SPELLS, SPELL_ICON } from '../game/SpellSystem'
 import type { SpellId } from '../game/SpellSystem'
@@ -13,6 +13,13 @@ const KEY_LABELS = ['1', '2', '3', '4']
 
 function CooldownOverlay({ spellId }: { spellId: SpellId }) {
   const expiry = useSpellStore(s => s.cooldowns[spellId])
+  const [, setTick] = useState(0)
+  useEffect(() => {
+    if (!expiry) return
+    const id = setInterval(() => setTick(t => t + 1), 100)
+    return () => clearInterval(id)
+  }, [expiry])
+
   const now = Date.now()
   if (!expiry || now >= expiry) return null
 

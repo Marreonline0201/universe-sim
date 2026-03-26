@@ -233,7 +233,7 @@ export function InventoryPanel() {
         {(['ALL', 'TOOLS', 'FOOD', 'MATS', 'MISC'] as FilterTab[]).map(tab => (
           <button
             key={tab}
-            onClick={() => setFilterTab(tab)}
+            onClick={() => { setFilterTab(tab); setSelected(null) }}
             style={{
               padding: '2px 8px',
               fontSize: 9,

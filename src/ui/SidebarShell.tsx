@@ -100,6 +100,8 @@ const CraftingMasteryPanel = lazy(() => import('./panels/CraftingMasteryPanel').
 const PlayerStatsDashboard = lazy(() => import('./panels/PlayerStatsDashboard').then(m => ({ default: m.PlayerStatsDashboard })))
 // M60 Track B: World boss panel
 const WorldBossPanel = lazy(() => import('./panels/WorldBossPanel').then(m => ({ default: m.WorldBossPanel })))
+// M61 Track A: Skill combo panel
+const SkillComboPanel = lazy(() => import('./panels/SkillComboPanel').then(m => ({ default: m.SkillComboPanel })))
 
 // M36 Track C: Wrapper resolves nearSettlementId from store so panel has no props
 function BuildingsPanelWrapper() {
@@ -170,6 +172,7 @@ const PANEL_LABEL: Record<PanelId, string> = {
   craftmastery:    'CRAFTING MASTERY',
   statsdash:       'PLAYER STATS',
   worldboss:       'WORLD BOSS',
+  combos:          'SKILL COMBOS',
 }
 
 const PANEL_WIDTH = 480
@@ -222,6 +225,7 @@ const ICON_BUTTONS: Array<{ id: PanelId; icon: string; hint: string }> = [
   { id: 'craftmastery',    icon: '⚒',   hint: 'Crafting Mastery' },
   { id: 'statsdash',       icon: '📈',  hint: 'Stats Dashboard' },
   { id: 'worldboss',       icon: '👹',  hint: 'World Boss' },
+  { id: 'combos',          icon: '⚡',  hint: 'Skill Combos' },
   { id: 'science',         icon: ' ? ', hint: 'Science Companion (?)' },
   { id: 'settings',    icon: 'SET',  hint: 'Settings (Esc)' },
 ]
@@ -277,6 +281,7 @@ const PANEL_COMPONENTS: Record<PanelId, React.ComponentType> = {
   craftmastery:    CraftingMasteryPanel,
   statsdash:       PlayerStatsDashboard,
   worldboss:       WorldBossPanel,
+  combos:          SkillComboPanel,
 }
 
 export function SidebarShell() {

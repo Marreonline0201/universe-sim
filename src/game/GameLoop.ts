@@ -132,6 +132,7 @@ import { trySpawnBoss, damageBoss, currentBoss } from './BossSystem'
 import { useFactionStore } from '../store/factionStore'
 import { FACTIONS, getFactionRelationship, FACTION_IDS } from './FactionSystem'
 // M36 Track B: Dungeon room system
+// M40 Track C: mini_boss + spike_trap rooms
 import {
   generateAllDungeonRooms,
   isDungeonRoomActive,
@@ -141,8 +142,15 @@ import {
   nextPlateInSequence,
   CAVE_STALKER,
   CAVE_BOSS,
+  dungeonState,
+  damageMiniBoss,
+  triggerTrap,
+  disarmTrap,
+  initMiniBossRoom,
+  initSpikeTrapRoom,
   type DungeonRoom,
 } from './DungeonSystem'
+import { useDungeonStore } from '../store/dungeonStore'
 // M37 Track A: World event participation
 import { currentWorldEvent, completeWorldEvent } from './WorldEventSystem'
 // M37 Track C: Player stats tracking + title check
@@ -1068,6 +1076,112 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
                 }
               } else if (room.cleared && distToRoom < 2 && gs.gatherPrompt === null) {
                 gs.setGatherPrompt('[F] Collect boss loot')
+              }
+            }
+          }
+
+          // ── M40 Track C: Mini-boss room ───────────────────────────────────
+          if (room.type === 'mini_boss') {
+            if (distToRoom < room.radius + 4) {
+              if (room.miniBossAlive) {
+                // Spawn mini-boss entity if not yet spawned
+                if (room.miniBossEntityId < 0) {
+                  const mb = spawnAnimal('wolf', rPos.x, rPos.y, rPos.z, 0, rPos.x, rPos.y, rPos.z)
+                  mb.health = room.miniBossMaxHp
+                  mb.maxHealth = room.miniBossMaxHp
+                  mb.elite = true
+                  mb.eliteGlowColor = '#9933cc'
+                  room.miniBossEntityId = mb.id
+                  room.miniBossHp = room.miniBossMaxHp
+                  // Sync into dungeonState singleton for DungeonRenderer
+                  initMiniBossRoom(room)
+                  useDungeonStore.getState().sync()
+                  uiSt.addNotification(`⚠ ${room.miniBossName} awakens!`, 'warning')
+                }
+                // Sync HP from entity
+                const mbEntity = animalRegistry.get(room.miniBossEntityId)
+                if (mbEntity) {
+                  room.miniBossHp = mbEntity.health
+                  dungeonState.miniBossHp = mbEntity.health
+                }
+                if (!mbEntity || mbEntity.behavior === 'DEAD' || mbEntity.health <= 0) {
+                  // Mini-boss defeated
+                  const gold = 50 + Math.floor(Math.random() * 51) // 50-100
+                  room.miniBossAlive = false
+                  clearDungeonRoom(room)
+                  // Drop rare item + gold
+                  inventory.addItem({ itemId: 0, materialId: 40, quantity: 1, quality: 1.0 }) // velar crystal (rare)
+                  usePlayerStore.getState().addGold(gold)
+                  skillSystem.addXp('combat', 150)
+                  // Sync store
+                  dungeonState.miniBossAlive = false
+                  useDungeonStore.getState().sync()
+                  uiSt.addNotification(`${room.miniBossName} defeated! +${gold} gold`, 'discovery')
+                  window.dispatchEvent(new CustomEvent('dungeon-boss-defeated', {
+                    detail: { name: room.miniBossName, gold },
+                  }))
+                }
+              }
+            }
+          }
+
+          // ── M40 Track C: Spike trap room ──────────────────────────────────
+          if (room.type === 'spike_trap') {
+            if (distToRoom < room.radius + 4) {
+              if (!room.cleared) {
+                // Initialise dungeon trap state on first entry
+                if (dungeonState.activeTraps.length === 0 && room.traps.length > 0) {
+                  initSpikeTrapRoom(room)
+                  useDungeonStore.getState().sync()
+                }
+
+                // Check each trap for proximity trigger and E-key disarm
+                for (const trap of room.traps) {
+                  if (trap.disarmed) continue
+                  const tdx = trap.x - px
+                  const tdz = trap.z - pz
+                  const trapDist = Math.sqrt(tdx * tdx + tdz * tdz)
+
+                  // Trigger: player steps on trap (within 0.6m)
+                  if (trapDist < 0.6) {
+                    const dmg = triggerTrap(trap.id, { current: Health.current[entityId], max: Health.max[entityId] })
+                    if (dmg > 0) {
+                      Health.current[entityId] = Math.max(0, Health.current[entityId] - dmg)
+                      room.trapTriggerCount++
+                      // Keep room trap list in sync with dungeonState
+                      const dsTrap = dungeonState.activeTraps.find(t => t.id === trap.id)
+                      if (dsTrap) dsTrap.lastTriggered = Date.now()
+                      trap.lastTriggered = Date.now()
+                      useDungeonStore.getState().sync()
+                      uiSt.addNotification(`Spike trap! -${dmg} HP`, 'warning')
+                    }
+                  }
+
+                  // Disarm: E key within 1.5m
+                  if (trapDist < 1.5 && gs.gatherPrompt === null) {
+                    gs.setGatherPrompt('[E] Disarm spike trap')
+                    if (controllerRef.current?.popInteract()) {
+                      disarmTrap(trap.id)
+                      trap.disarmed = true
+                      const dsTrap = dungeonState.activeTraps.find(t => t.id === trap.id)
+                      if (dsTrap) dsTrap.disarmed = true
+                      useDungeonStore.getState().sync()
+                      gs.setGatherPrompt(null)
+                      skillSystem.addXp('exploration', 20)
+                      uiSt.addNotification('Spike trap disarmed!', 'info')
+                    }
+                  }
+                }
+
+                // Room clears when all traps disarmed or 10 total triggers
+                const allDisarmed = room.traps.every(t => t.disarmed)
+                if (allDisarmed || room.trapTriggerCount >= 10) {
+                  clearDungeonRoom(room)
+                  dungeonState.activeTraps = []
+                  useDungeonStore.getState().sync()
+                  uiSt.addNotification('Spike trap room cleared!', 'discovery')
+                  window.dispatchEvent(new CustomEvent('dungeon-room-cleared', { detail: { type: 'spike_trap', roomId: room.id } }))
+                }
               }
             }
           }

@@ -30,7 +30,7 @@ function seededRandom(seed: number): () => number {
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-export type RoomType = 'guardian' | 'puzzle' | 'shrine' | 'boss_lair'
+export type RoomType = 'guardian' | 'puzzle' | 'shrine' | 'boss_lair' | 'mini_boss' | 'spike_trap'
 
 export interface PressurePlate {
   /** Local offset from room centre */
@@ -81,6 +81,133 @@ export interface DungeonRoom {
   bossMaxHp: number
   /** Animal entity ID of the boss (populated at runtime) */
   bossEntityId: number
+
+  // ── mini_boss room ──
+  miniBossAlive: boolean
+  miniBossHp: number
+  miniBossMaxHp: number
+  miniBossName: string
+  /** Animal entity ID of the mini-boss (populated at runtime) */
+  miniBossEntityId: number
+
+  // ── spike_trap room ──
+  /** Spike trap states for this room */
+  traps: TrapState[]
+  /** Total number of times traps have been triggered in this room */
+  trapTriggerCount: number
+}
+
+// ── M40 Track C: Trap & Dungeon progression state ─────────────────────────────
+
+export interface TrapState {
+  id: number
+  x: number
+  z: number
+  disarmed: boolean
+  lastTriggered: number // timestamp ms
+}
+
+export interface DungeonState {
+  activeDungeon: string | null
+  currentRoom: number
+  totalRooms: number
+  roomsCleared: number[]
+  activeTraps: TrapState[]
+  miniBossAlive: boolean
+  miniBossHp: number
+  miniBossMaxHp: number
+  miniBossName: string
+}
+
+const MINI_BOSS_NAMES = ['Iron Golem', 'Shadow Wraith', 'Bone Colossus']
+
+export const dungeonState: DungeonState = {
+  activeDungeon: null,
+  currentRoom: 0,
+  totalRooms: 0,
+  roomsCleared: [],
+  activeTraps: [],
+  miniBossAlive: false,
+  miniBossHp: 0,
+  miniBossMaxHp: 0,
+  miniBossName: '',
+}
+
+export function enterDungeon(dungeonId: string, seed: number): void {
+  const rng = seededRandom(seed)
+  const totalRooms = 3 + Math.floor(rng() * 4) // 3-6 rooms
+  dungeonState.activeDungeon = dungeonId
+  dungeonState.currentRoom = 0
+  dungeonState.totalRooms = totalRooms
+  dungeonState.roomsCleared = []
+  dungeonState.activeTraps = []
+  dungeonState.miniBossAlive = false
+  dungeonState.miniBossHp = 0
+  dungeonState.miniBossMaxHp = 0
+  dungeonState.miniBossName = ''
+}
+
+export function advanceRoom(): void {
+  if (!dungeonState.activeDungeon) return
+  dungeonState.currentRoom++
+  dungeonState.activeTraps = []
+  dungeonState.miniBossAlive = false
+  dungeonState.miniBossHp = 0
+  dungeonState.miniBossMaxHp = 0
+  dungeonState.miniBossName = ''
+}
+
+export function triggerTrap(
+  trapId: number,
+  _playerHp: { current: number; max: number },
+): number {
+  const trap = dungeonState.activeTraps.find(t => t.id === trapId)
+  if (!trap || trap.disarmed) return 0
+  const now = Date.now()
+  if (now - trap.lastTriggered < 3000) return 0
+  trap.lastTriggered = now
+  return 15
+}
+
+export function disarmTrap(trapId: number): void {
+  const trap = dungeonState.activeTraps.find(t => t.id === trapId)
+  if (trap) trap.disarmed = true
+}
+
+export function damageMiniBoss(amount: number): boolean {
+  if (!dungeonState.miniBossAlive) return false
+  dungeonState.miniBossHp = Math.max(0, dungeonState.miniBossHp - amount)
+  if (dungeonState.miniBossHp <= 0) {
+    dungeonState.miniBossAlive = false
+    return true
+  }
+  return false
+}
+
+export function exitDungeon(): void {
+  dungeonState.activeDungeon = null
+  dungeonState.currentRoom = 0
+  dungeonState.totalRooms = 0
+  dungeonState.roomsCleared = []
+  dungeonState.activeTraps = []
+  dungeonState.miniBossAlive = false
+  dungeonState.miniBossHp = 0
+  dungeonState.miniBossMaxHp = 0
+  dungeonState.miniBossName = ''
+}
+
+/** Initialise mini-boss data for a room (call when entering a mini_boss room). */
+export function initMiniBossRoom(room: DungeonRoom): void {
+  if (!room.miniBossAlive) return
+  dungeonState.miniBossAlive = true
+  dungeonState.miniBossHp = room.miniBossHp
+  dungeonState.miniBossMaxHp = room.miniBossMaxHp
+  dungeonState.miniBossName = room.miniBossName
+}
+
+/** Initialise trap data for a spike_trap room. */
+export function initSpikeTrapRoom(room: DungeonRoom): void {
+  dungeonState.activeTraps = room.traps.map(t => ({ ...t }))
 }
 
 // ── Chamber-center mirroring (same logic as ChestSystem / CaveTunnelRenderer) ─
@@ -118,9 +245,9 @@ export function generateDungeonRooms(caveIndex: number): DungeonRoom[] {
 
   const roomCount = 1 + Math.floor(rng() * 2) // 1-2 rooms per cave
 
-  // Room types cycle per cave: 4 types over 6 caves → each cave gets a
+  // Room types cycle per cave: 6 types over N caves → each cave gets a
   // subset.  First room: type determined by cave+0, second by cave+1.
-  const ALL_TYPES: RoomType[] = ['guardian', 'puzzle', 'shrine', 'boss_lair']
+  const ALL_TYPES: RoomType[] = ['guardian', 'puzzle', 'shrine', 'boss_lair', 'mini_boss', 'spike_trap']
   const rooms: DungeonRoom[] = []
 
   for (let r = 0; r < roomCount; r++) {
@@ -164,6 +291,28 @@ export function generateDungeonRooms(caveIndex: number): DungeonRoom[] {
     // ── Guardian count ─────────────────────────────────────────────────────
     const guardianCount = type === 'guardian' ? 2 + Math.floor(rng() * 3) : 0 // 2-4
 
+    // ── Mini-boss ──────────────────────────────────────────────────────────
+    const miniBossNameIdx = Math.floor(rng() * MINI_BOSS_NAMES.length)
+    const miniBossName = type === 'mini_boss' ? MINI_BOSS_NAMES[miniBossNameIdx] : ''
+    const miniBossMaxHp = type === 'mini_boss' ? CAVE_STALKER.maxHp * 3 : 0
+
+    // ── Spike traps ────────────────────────────────────────────────────────
+    const trapCount = type === 'spike_trap' ? 3 + Math.floor(rng() * 4) : 0 // 3-6 traps
+    const traps: TrapState[] = []
+    if (type === 'spike_trap') {
+      for (let ti = 0; ti < trapCount; ti++) {
+        const ta = rng() * Math.PI * 2
+        const tr = 1.5 + rng() * 4
+        traps.push({
+          id: ti,
+          x: pos.x + Math.cos(ta) * tr,
+          z: pos.z + Math.sin(ta) * tr,
+          disarmed: false,
+          lastTriggered: 0,
+        })
+      }
+    }
+
     rooms.push({
       id: `cave${caveIndex}_room${r}`,
       caveIndex,
@@ -189,6 +338,15 @@ export function generateDungeonRooms(caveIndex: number): DungeonRoom[] {
       bossHp: 300,
       bossMaxHp: 300,
       bossEntityId: -1,
+
+      miniBossAlive: type === 'mini_boss',
+      miniBossHp: miniBossMaxHp,
+      miniBossMaxHp,
+      miniBossName,
+      miniBossEntityId: -1,
+
+      traps,
+      trapTriggerCount: 0,
     })
   }
 
@@ -236,6 +394,12 @@ export function clearDungeonRoom(room: DungeonRoom): void {
   // Reset boss
   room.bossAlive = false
   room.bossEntityId = -1
+  // Reset mini-boss
+  room.miniBossAlive = false
+  room.miniBossEntityId = -1
+  // Reset traps
+  room.traps.forEach(t => { t.disarmed = false; t.lastTriggered = 0 })
+  room.trapTriggerCount = 0
 }
 
 /** Reset an expired room so it can be encountered again. */
@@ -252,6 +416,13 @@ export function resetDungeonRoom(room: DungeonRoom): void {
   room.bossAlive = true
   room.bossHp = room.bossMaxHp
   room.bossEntityId = -1
+  // Reset mini-boss
+  room.miniBossAlive = room.type === 'mini_boss'
+  room.miniBossHp = room.miniBossMaxHp
+  room.miniBossEntityId = -1
+  // Reset traps
+  room.traps.forEach(t => { t.disarmed = false; t.lastTriggered = 0 })
+  room.trapTriggerCount = 0
 }
 
 // ── Puzzle helpers ────────────────────────────────────────────────────────────

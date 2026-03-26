@@ -62,6 +62,8 @@ import { PlayerHomeRenderer } from './PlayerHomeRenderer'
 import { WorldEventRenderer } from './WorldEventRenderer'
 // M39 Track A: Volumetric cloud system
 import { CloudSystem } from './CloudSystem'
+// M40 Track C: Dungeon progression — mini-boss HP bar + spike trap meshes
+import { DungeonRenderer } from './DungeonRenderer'
 
 // M10 Track A: Seasonal terrain pass
 import { SeasonalTerrainPass } from './SeasonalTerrainPass'
@@ -589,6 +591,8 @@ export function SceneRoot() {
             <CaveEntrances />
             <CaveTunnelRenderer />
             <UndergroundAtmosphere />
+            {/* M40 Track C: Dungeon progression — mini-boss health bar + spike trap meshes */}
+            <DungeonRenderer />
           </>
         )}
       </Suspense>

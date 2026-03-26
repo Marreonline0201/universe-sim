@@ -197,6 +197,11 @@ export function CraftingPanel() {
       usePlayerStatsStore.getState().incrementStat('itemsCrafted')
       checkNewTitles()
 
+      // M60: Notify CraftingMasterySystem
+      window.dispatchEvent(new CustomEvent('item-crafted', {
+        detail: { recipeId: String(selectedRecipe.id), category: selectedRecipe.requiresAlchemyTable ? 'alchemy' : 'materials' },
+      }))
+
       // M22: Crafting XP — 15-50 based on recipe tier
       import('../../game/SkillSystem').then(m => {
         m.skillSystem.addXp('crafting', 15 + selectedRecipe.tier * 7)

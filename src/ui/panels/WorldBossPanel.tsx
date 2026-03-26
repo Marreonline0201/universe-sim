@@ -10,6 +10,7 @@ import {
   defeatBoss,
   type ActiveBoss,
 } from '../../game/WorldBossSystem'
+import { useGameStore } from '../../store/gameStore'
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -211,7 +212,7 @@ export function WorldBossPanel() {
   const [activeBoss, setActiveBoss]  = useState<ActiveBoss | null>(() => getActiveBoss())
   const [history, setHistory]        = useState<ActiveBoss[]>(() => getBossHistory())
   const [nextSpawnAt, setNextSpawnAt] = useState<number>(() => getNextSpawnAt())
-  const [simNow, setSimNow]          = useState<number>(0)
+  const simNow = useGameStore(s => s.simSeconds ?? 0)
 
   const refresh = useCallback(() => {
     setActiveBoss(getActiveBoss())
@@ -229,10 +230,9 @@ export function WorldBossPanel() {
     window.addEventListener('boss-defeated', onDefeated)
     window.addEventListener('boss-expired',  onExpired)
 
-    // Fallback poll + countdown update every 5s
+    // Fallback poll every 5s
     const id = setInterval(() => {
       refresh()
-      setSimNow(n => n + 5)
     }, 5_000)
 
     return () => {

@@ -7,6 +7,7 @@
 import { usePlayerStore } from '../store/playerStore'
 import { skillSystem } from './SkillSystem'
 import { useUiStore } from '../store/uiStore'
+import { usePlayerStatsStore } from '../store/playerStatsStore'
 import type { SkillId } from './SkillSystem'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -223,6 +224,8 @@ export function defeatBoss(bossId: string): void {
 
   // Schedule next spawn
   _nextSpawnAt = simSeconds + randomInt(300, 900)
+
+  usePlayerStatsStore.getState().incrementStat('bossesKilled')
 
   useUiStore.getState().addNotification(
     `🏆 ${def.icon} ${def.name} defeated! +${def.rewards.gold} gold, +${def.rewards.xp} ${def.rewards.skill} XP`,

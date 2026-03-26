@@ -49,16 +49,19 @@ export const CRAFTING_RECIPES: CraftingRecipe[] = [
     knowledgeRequired: ['fire_making'],
   },
   {
+    // M31 Track C: Bow — Tier 1 ranged weapon. 3x Wood + 2x Fiber → 1x Bow
+    // Right-click to fire arrow (projectile). 25 damage + 5 per archery (combat) skill.
     id: 8, name: 'Bow', tier: 0, time: 30,
-    inputs: [{ materialId: MAT.WOOD, quantity: 2 }, { materialId: MAT.FIBER, quantity: 3 }, { materialId: MAT.BONE, quantity: 1 }],
+    inputs: [{ materialId: MAT.WOOD, quantity: 3 }, { materialId: MAT.FIBER, quantity: 2 }],
     output: { itemId: ITEM.BOW, quantity: 1 },
-    knowledgeRequired: ['tool_use', 'ranged_weapons'],
+    knowledgeRequired: ['tool_use'],
   },
   {
-    id: 9, name: 'Arrow (×10)', tier: 0, time: 15,
-    inputs: [{ materialId: MAT.FLINT, quantity: 3 }, { materialId: MAT.WOOD, quantity: 2 }, { materialId: MAT.LEAF, quantity: 1 }],
-    output: { itemId: ITEM.ARROW, quantity: 10 },
-    knowledgeRequired: ['ranged_weapons'],
+    // M31 Track C: Arrow — 1x Wood + 1x Stone → 5x Arrows (MAT.ARROW_AMMO)
+    id: 9, name: 'Arrow (×5)', tier: 0, time: 15,
+    inputs: [{ materialId: MAT.WOOD, quantity: 1 }, { materialId: MAT.STONE, quantity: 1 }],
+    output: { itemId: MAT.ARROW_AMMO, quantity: 5, isMaterial: true },
+    knowledgeRequired: [],
   },
   {
     id: 10, name: 'Clay Pot', tier: 0, time: 60,
@@ -1064,5 +1067,28 @@ export const CRAFTING_RECIPES: CraftingRecipe[] = [
     ],
     output: { itemId: ITEM.VELAR_BEACON, quantity: 1 },
     knowledgeRequired: ['velar_fabrication'],
+  },
+
+  // ── M31 Track C: Weapon Tier Scaling ──────────────────────────────────────
+  {
+    // id 114 — Diamond Blade: Tier 3 weapon, 55 damage, 0.45s cooldown
+    id: 114, name: 'Diamond Blade', tier: 3, time: 120,
+    inputs: [
+      { materialId: MAT.STEEL_INGOT,  quantity: 4 },
+      { materialId: MAT.SILICON,      quantity: 2 }, // synthetic diamond substrate
+      { materialId: MAT.WOOD,         quantity: 1 },
+    ],
+    output: { itemId: ITEM.DIAMOND_BLADE, quantity: 1 },
+    knowledgeRequired: ['steel_making', 'weapon_smithing'],
+  },
+  {
+    // id 115 — Quantum Blade: Tier 4+ weapon, 80 damage, 0.35s cooldown
+    id: 115, name: 'Quantum Blade', tier: 5, time: 300,
+    inputs: [
+      { materialId: MAT.VELAR_ALLOY,  quantity: 3 },
+      { materialId: MAT.QUANTUM_CORE, quantity: 1 },
+    ],
+    output: { itemId: ITEM.QUANTUM_BLADE, quantity: 1 },
+    knowledgeRequired: ['velar_fabrication', 'weapon_smithing'],
   },
 ]

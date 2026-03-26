@@ -316,6 +316,8 @@ export const MAT = {
   ALCOHOL: 72,           // fermented grain spirit — restores 5 warmth, reduces pain
   MEAD: 73,              // honey wine — restores 8 warmth, 10 hunger
   VINEGAR: 74,           // over-fermented alcohol — preservative, crafting ingredient
+  // ── M31 Track C: Ranged combat ───────────────────────────────────────────
+  ARROW_AMMO: 75,        // crafted arrows — consumed per bow shot, stackable raw material
 } as const
 
 // ── Item IDs ──────────────────────────────────────────────────────────────────
@@ -366,4 +368,7 @@ export const ITEM = {
   VELAR_BEACON: 68,      // resonance marker — broadcasts home universe coordinates across Lattice
   VELAR_FABRICATOR: 69,  // advanced crafting station — unlocks Velar-tier fabrication
   GRAVITY_LENS: 70,      // Velar-tier tool — reduces resource weight, enables deep-core mining
+  // ── M31 Track C: Weapon tier scaling ─────────────────────────────────────
+  DIAMOND_BLADE: 71,     // Tier 3 weapon — 55 damage, 0.45s cooldown
+  QUANTUM_BLADE: 72,     // Tier 4+ weapon — 80 damage, 0.35s cooldown
 } as const

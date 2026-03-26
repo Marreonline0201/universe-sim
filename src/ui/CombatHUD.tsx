@@ -155,12 +155,12 @@ function DamageNumbers() {
         // Rise upward from spawn point over lifetime
         const yOffset = -progress * 60  // rise 60px over lifetime
 
-        // Color: white normal, yellow combo, red critical
-        const color = dn.isCritical ? '#ef4444'
-                    : dn.isCombo    ? '#facc15'
+        // M31 Track C: CRIT! = bright yellow, 20px; combo = orange, 15px; normal = white, 14px
+        const color = dn.isCritical ? '#facc15'
+                    : dn.isCombo    ? '#f97316'
                     : '#ffffff'
 
-        const fontSize = dn.isCritical ? 18 : (dn.isCombo ? 15 : 13)
+        const fontSize = dn.isCritical ? 20 : (dn.isCombo ? 15 : 14)
 
         // Project world position to screen coords; fall back to screen center
         const screen = worldToScreen(dn.x, dn.y, dn.z)
@@ -177,12 +177,14 @@ function DamageNumbers() {
             fontSize,
             fontWeight: 700,
             fontFamily: 'monospace',
-            textShadow: `0 0 4px ${color}, 0 1px 2px rgba(0,0,0,0.8)`,
+            textShadow: dn.isCritical
+              ? `0 0 8px ${color}, 0 0 16px ${color}, 0 1px 2px rgba(0,0,0,0.9)`
+              : `0 0 4px ${color}, 0 1px 2px rgba(0,0,0,0.8)`,
             opacity,
             pointerEvents: 'none',
             transition: 'none',
           }}>
-            {dn.isCritical ? 'CRIT ' : ''}{dn.amount}
+            {dn.isCritical ? 'CRIT! ' : ''}{dn.amount}
           </div>
         )
       })}

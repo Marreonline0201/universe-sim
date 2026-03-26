@@ -81,6 +81,12 @@ interface PlayerState {
   equipArmor: (slotIndex: number) => void
   unequipArmor: () => void
 
+  // M31: Weapon durability — keyed by slot index. Max durability = 100.
+  weaponDurability: Record<number, number>
+  setWeaponDurability: (slotIndex: number, value: number) => void
+  reduceWeaponDurability: (slotIndex: number, amount: number) => void
+  repairWeaponDurability: (slotIndex: number, amount: number) => void
+
   // M8: Quenching countdown — seconds remaining to quench hot_steel_ingot
   // Set to 30 when a hot_steel_ingot enters inventory. Counts down each real second.
   // Hits 0 → hot_steel automatically converts to soft_steel in SurvivalSystems.
@@ -212,6 +218,22 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   equippedArmorSlot: null,
   equipArmor:   (slotIndex) => set({ equippedArmorSlot: slotIndex }),
   unequipArmor: () => set({ equippedArmorSlot: null }),
+
+  // ── M31: Weapon durability ────────────────────────────────────────────────
+  weaponDurability: {},
+  setWeaponDurability: (slotIndex, value) => set((s) => ({
+    weaponDurability: { ...s.weaponDurability, [slotIndex]: Math.max(0, Math.min(100, value)) },
+  })),
+  reduceWeaponDurability: (slotIndex, amount) => set((s) => {
+    const current = s.weaponDurability[slotIndex] ?? 100
+    const next = Math.max(0, current - amount)
+    return { weaponDurability: { ...s.weaponDurability, [slotIndex]: next } }
+  }),
+  repairWeaponDurability: (slotIndex, amount) => set((s) => {
+    const current = s.weaponDurability[slotIndex] ?? 100
+    const next = Math.min(100, current + amount)
+    return { weaponDurability: { ...s.weaponDurability, [slotIndex]: next } }
+  }),
 
   // ── M8: Quench countdown ──────────────────────────────────────────────────
   quenchSecondsRemaining: null,

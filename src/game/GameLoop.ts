@@ -49,6 +49,7 @@ import { inventory, buildingSystem, questSystem, combatSystem, achievementSystem
 import { SPECIES_LOOT, rollLoot } from './LootTable'
 import { ITEM, MAT, RARITY_NAMES, type RarityTier } from '../player/Inventory'
 import { getItemStats, canHarvest } from '../player/EquipSystem'
+import { CombatSystem } from './CombatSystem'
 import { BUILDING_TYPES } from '../civilization/BuildingSystem'
 import {
   tickFoodCooking,
@@ -812,9 +813,27 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
         } else {
         // M24: Start attack — get combo multiplier and apply cooldown
         const comboMult = combatSystem.startAttack(stats.name)
-        const isCritical = Math.random() < 0.1  // 10% crit chance
-        const critMult = isCritical ? 2.0 : 1.0
-        const totalDamage = stats.damage * comboMult * critMult
+        // M31 Track C: Improved crit — 5% base + 2%/combat level + 15% backstab
+        const combatLevel = skillSystem.getLevel('combat')
+        const isCritical = combatSystem.rollCrit(combatLevel)
+        const critMult = isCritical ? CombatSystem.CRIT_MULTIPLIER : 1.0
+        const skillDmgMult = skillSystem.getBonuses().combatDamageMultiplier
+        const totalDamage = stats.damage * comboMult * critMult * skillDmgMult
+
+        // M31 Track C: Weapon durability — reduce by 1 per attack on equipped weapon
+        const eqSlot = usePlayerStore.getState().equippedSlot
+        if (eqSlot !== null) {
+          usePlayerStore.getState().reduceWeaponDurability(eqSlot, 1)
+          const dur = usePlayerStore.getState().weaponDurability[eqSlot] ?? 100
+          if (dur <= 0) {
+            // Weapon breaks — remove from inventory and notify
+            const brokenSlot = inventory.getSlot(eqSlot)
+            const brokenName = brokenSlot ? stats.name : 'weapon'
+            inventory.dropItem(eqSlot, brokenSlot?.quantity ?? 1)
+            usePlayerStore.getState().unequip()
+            useUiStore.getState().addNotification(`Your ${brokenName} broke!`, 'error')
+          }
+        }
 
         let hitCreature = false
         let nearestCreatureEid = -1

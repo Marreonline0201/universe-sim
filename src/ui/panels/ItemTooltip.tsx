@@ -13,6 +13,13 @@ import { getItemStats, getFoodStats } from '../../player/EquipSystem'
 import { usePlayerStore } from '../../store/playerStore'
 import { inventory } from '../../game/GameSingletons'
 
+// ── Durability bar color helper (M31 Track C) ────────────────────────────────
+function durabilityColor(pct: number): string {
+  if (pct > 0.6) return '#4ade80'   // green  > 60%
+  if (pct > 0.2) return '#facc15'   // yellow 20-60%
+  return '#ef4444'                   // red    < 20%
+}
+
 // ── Name lookups ────────────────────────────────────────────────────────────
 const MAT_NAMES: Record<number, string> = Object.fromEntries(
   Object.entries(MAT).map(([k, v]) => [v, k.toLowerCase().replace(/_/g, ' ')])
@@ -86,12 +93,21 @@ interface TooltipProps {
   anchorRect: DOMRect
   /** Slot index of currently equipped item, for stat comparison. Null if nothing equipped. */
   equippedSlotIndex: number | null
+  /** Slot index of THIS item (for durability lookup). */
+  slotIndex?: number
 }
 
-function TooltipContent({ slot, anchorRect, equippedSlotIndex }: TooltipProps) {
+function TooltipContent({ slot, anchorRect, equippedSlotIndex, slotIndex }: TooltipProps) {
+  const weaponDurability = usePlayerStore(s => s.weaponDurability)
   const name = slot.itemId === 0
     ? (MAT_NAMES[slot.materialId] ?? `material #${slot.materialId}`)
     : (ITEM_NAMES[slot.itemId] ?? `item #${slot.itemId}`)
+
+  // M31 Track C: durability for weapon items
+  const durability = (slot.itemId > 0 && slotIndex !== undefined)
+    ? (weaponDurability[slotIndex] ?? 100)
+    : null
+  const durPct = durability !== null ? durability / 100 : null
 
   const category = getItemCategory(slot)
   const color = qualityColor(slot.quality)
@@ -182,6 +198,30 @@ function TooltipContent({ slot, anchorRect, equippedSlotIndex }: TooltipProps) {
         }} />
       </div>
 
+      {/* M31 Track C: Durability bar for weapons */}
+      {durPct !== null && (
+        <div style={{ marginBottom: 8 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 9, color: '#888', marginBottom: 2 }}>
+            <span>Durability</span>
+            <span style={{ color: durabilityColor(durPct) }}>{Math.round(durPct * 100)}%</span>
+          </div>
+          <div style={{
+            height: 3,
+            background: 'rgba(255,255,255,0.1)',
+            borderRadius: 2,
+            overflow: 'hidden',
+          }}>
+            <div style={{
+              height: '100%',
+              width: `${durPct * 100}%`,
+              background: durabilityColor(durPct),
+              borderRadius: 2,
+              transition: 'width 0.2s ease',
+            }} />
+          </div>
+        </div>
+      )}
+
       {/* Quantity */}
       {slot.quantity > 1 && (
         <div style={{ fontSize: 11, color: '#aaa', marginBottom: 4 }}>
@@ -238,15 +278,15 @@ function TooltipContent({ slot, anchorRect, equippedSlotIndex }: TooltipProps) {
 // Attach the handlers to the slot element; render tooltipPortal in the component.
 
 export function useItemTooltip() {
-  const [tooltip, setTooltip] = useState<{ slot: InventorySlot; rect: DOMRect } | null>(null)
+  const [tooltip, setTooltip] = useState<{ slot: InventorySlot; rect: DOMRect; slotIndex?: number } | null>(null)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const equippedSlotIndex = usePlayerStore(s => s.equippedSlot)
 
-  const onMouseEnter = useCallback((slot: InventorySlot, e: React.MouseEvent) => {
+  const onMouseEnter = useCallback((slot: InventorySlot, e: React.MouseEvent, slotIndex?: number) => {
     if (timerRef.current) clearTimeout(timerRef.current)
     timerRef.current = setTimeout(() => {
       const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
-      setTooltip({ slot, rect })
+      setTooltip({ slot, rect, slotIndex })
     }, 150) // 150ms delay to avoid flicker
   }, [])
 
@@ -265,7 +305,12 @@ export function useItemTooltip() {
 
   const tooltipPortal = tooltip
     ? createPortal(
-        <TooltipContent slot={tooltip.slot} anchorRect={tooltip.rect} equippedSlotIndex={equippedSlotIndex} />,
+        <TooltipContent
+          slot={tooltip.slot}
+          anchorRect={tooltip.rect}
+          equippedSlotIndex={equippedSlotIndex}
+          slotIndex={tooltip.slotIndex}
+        />,
         document.body,
       )
     : null

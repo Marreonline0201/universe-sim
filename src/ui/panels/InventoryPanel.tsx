@@ -23,7 +23,7 @@ function SlotCell({ slot, index, selected, equipped, onSelect, onHoverEnter, onH
   selected: boolean
   equipped: boolean
   onSelect: (i: number) => void
-  onHoverEnter: (slot: InventorySlot, e: React.MouseEvent) => void
+  onHoverEnter: (slot: InventorySlot, e: React.MouseEvent, slotIndex?: number) => void
   onHoverLeave: () => void
 }) {
   const category = slot ? getItemCategory(slot) : null
@@ -35,7 +35,7 @@ function SlotCell({ slot, index, selected, equipped, onSelect, onHoverEnter, onH
   return (
     <div
       onClick={() => onSelect(index)}
-      onMouseEnter={slot ? (e) => onHoverEnter(slot, e) : undefined}
+      onMouseEnter={slot ? (e) => onHoverEnter(slot, e, index) : undefined}
       onMouseLeave={slot ? onHoverLeave : undefined}
       style={{
         width: 52,

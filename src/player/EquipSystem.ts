@@ -14,7 +14,7 @@ export interface ItemStats {
 
 const HAND: ItemStats = {
   name:         'Hand',
-  damage:       1,
+  damage:       5,    // M31: Tier 0 — Fists: 5 damage, 0.8s cooldown (in CombatSystem)
   harvestPower: 1,
   harvestTypes: ['wood', 'fiber', 'bark', 'bone', 'hide', 'leaf', 'rubber', 'saltpeter'],
   range:        2.0,
@@ -24,7 +24,7 @@ const HAND: ItemStats = {
 const STATS: Partial<Record<number, ItemStats>> = {
   [ITEM.STONE_TOOL]: {
     name:         'Stone Tool',
-    damage:       5,
+    damage:       12,   // M31: Tier 0 Stone Axe-class — 12 damage, 1.2s cooldown
     harvestPower: 2,
     harvestTypes: ['stone', 'flint', 'clay', 'wood', 'fiber', 'sand', 'bark', 'coal', 'tin_ore', 'copper_ore', 'iron_ore', 'sulfur', 'leaf', 'rubber', 'saltpeter', 'gold', 'silver', 'uranium'],
     range:        2.5,
@@ -44,8 +44,8 @@ const STATS: Partial<Record<number, ItemStats>> = {
     range:        3.5,
   },
   [ITEM.AXE]: {
-    name:         'Axe',
-    damage:       10,
+    name:         'Stone Axe',
+    damage:       12,   // M31: Tier 0 — 12 damage, 1.2s cooldown
     harvestPower: 3,
     harvestTypes: ['stone', 'wood', 'clay', 'fiber', 'bark', 'coal', 'tin_ore', 'copper_ore', 'iron_ore', 'sulfur', 'gold', 'silver', 'uranium', 'rubber', 'saltpeter'],
     range:        2.5,
@@ -66,14 +66,14 @@ const STATS: Partial<Record<number, ItemStats>> = {
   },
   [ITEM.IRON_SWORD]: {
     name:         'Iron Sword',
-    damage:       20,
+    damage:       20,   // M31: Tier 1 — 20 damage, 0.7s cooldown
     harvestPower: 3,
     harvestTypes: [],
     range:        2.5,
   },
   [ITEM.STEEL_SWORD]: {
     name:         'Steel Sword',
-    damage:       25,
+    damage:       35,   // M31: Tier 2 — 35 damage, 0.55s cooldown
     harvestPower: 4,
     harvestTypes: [],
     range:        2.5,
@@ -138,7 +138,7 @@ const STATS: Partial<Record<number, ItemStats>> = {
   // Cast Iron Pot / Door are not equippable weapons — zero combat stats.
   [ITEM.STEEL_SWORD_M8]: {
     name:         'Steel Sword',
-    damage:       45,
+    damage:       35,   // M31: Tier 2 — 35 damage, 0.55s cooldown
     harvestPower: 4,
     harvestTypes: [],
     range:        2.5,
@@ -222,6 +222,24 @@ const STATS: Partial<Record<number, ItemStats>> = {
     harvestPower: 1,
     harvestTypes: [],
     range:        1.0,
+  },
+
+  // ── M31 Track C: Weapon tier scaling ─────────────────────────────────────
+  // Tier 3: Diamond Blade — 55 damage, 0.45s cooldown
+  // Tier 4+: Quantum Blade — 80 damage, 0.35s cooldown
+  [ITEM.DIAMOND_BLADE]: {
+    name:         'Diamond Blade',
+    damage:       55,
+    harvestPower: 4,
+    harvestTypes: [],
+    range:        2.8,
+  },
+  [ITEM.QUANTUM_BLADE]: {
+    name:         'Quantum Blade',
+    damage:       80,
+    harvestPower: 5,
+    harvestTypes: [],
+    range:        3.0,
   },
 }
 

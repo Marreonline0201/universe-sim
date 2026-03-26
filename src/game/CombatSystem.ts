@@ -25,17 +25,40 @@ export interface EnemyHealthBar {
 }
 
 // Weapon cooldowns by weapon category (seconds)
+// M31 Track C: Full tier table
+//   Fists:         0.8s  (Tier 0)
+//   Stone Axe:     1.2s  (Tier 0)
+//   Iron Sword:    0.7s  (Tier 1)
+//   Steel Sword:   0.55s (Tier 2)
+//   Diamond Blade: 0.45s (Tier 3)
+//   Quantum Blade: 0.35s (Tier 4+)
 const WEAPON_COOLDOWNS: Record<string, number> = {
-  hand:       0.8,
-  stone_tool: 1.2,
-  knife:      0.7,
-  spear:      1.0,
-  axe:        1.1,
-  sword:      0.6,
-  bow:        1.5,
-  musket:     8.0,
-  default:    1.0,
+  hand:          0.8,
+  stone_tool:    1.2,
+  stone_axe:     1.2,
+  knife:         0.7,
+  spear:         1.0,
+  axe:           1.1,
+  iron_sword:    0.7,
+  steel_sword:   0.55,
+  diamond_blade: 0.45,
+  quantum_blade: 0.35,
+  sword:         0.6,
+  bow:           1.5,
+  musket:        8.0,
+  default:       1.0,
 }
+
+// ── Weapon damage table (M31 Track C: authoritative tier table) ─────────────
+// Used for validation/display; actual damage comes from EquipSystem ItemStats.
+export const WEAPON_TIER_TABLE = [
+  { name: 'Fists',         tier: 0,  damage: 5,  cooldown: 0.8  },
+  { name: 'Stone Axe',     tier: 0,  damage: 12, cooldown: 1.2  },
+  { name: 'Iron Sword',    tier: 1,  damage: 20, cooldown: 0.7  },
+  { name: 'Steel Sword',   tier: 2,  damage: 35, cooldown: 0.55 },
+  { name: 'Diamond Blade', tier: 3,  damage: 55, cooldown: 0.45 },
+  { name: 'Quantum Blade', tier: 4,  damage: 80, cooldown: 0.35 },
+] as const
 
 // Map weapon name keywords to category
 function getWeaponCategory(weaponName: string): string {
@@ -43,9 +66,14 @@ function getWeaponCategory(weaponName: string): string {
   if (lower === 'hand') return 'hand'
   if (lower.includes('musket')) return 'musket'
   if (lower.includes('bow')) return 'bow'
+  if (lower.includes('quantum blade')) return 'quantum_blade'
+  if (lower.includes('diamond blade')) return 'diamond_blade'
+  if (lower.includes('steel sword')) return 'steel_sword'
+  if (lower.includes('iron sword')) return 'iron_sword'
   if (lower.includes('sword')) return 'sword'
   if (lower.includes('knife') || lower.includes('dagger')) return 'knife'
   if (lower.includes('spear')) return 'spear'
+  if (lower.includes('stone axe')) return 'stone_axe'
   if (lower.includes('axe')) return 'axe'
   if (lower.includes('stone tool')) return 'stone_tool'
   return 'default'
@@ -73,6 +101,14 @@ export class CombatSystem {
   // ── Block ────────────────────────────────────────────────────────────────
   private _isBlocking = false
   private static BLOCK_DR = 0.5    // 50% damage reduction
+
+  // ── Crit configuration (M31 Track C) ─────────────────────────────────────
+  // Base: 5% + 2% per combat skill level + 15% backstab bonus
+  // Crit multiplier: 2.5x (up from 2x)
+  static readonly CRIT_BASE        = 0.05
+  static readonly CRIT_PER_LEVEL   = 0.02
+  static readonly CRIT_BACKSTAB    = 0.15
+  static readonly CRIT_MULTIPLIER  = 2.5
 
   // ── Last combat time (for HUD visibility) ────────────────────────────────
   private lastCombatTime = 0
@@ -109,6 +145,23 @@ export class CombatSystem {
   get isBlocking(): boolean { return this._isBlocking }
 
   // ── Actions ──────────────────────────────────────────────────────────────
+
+  /**
+   * Roll for critical hit.
+   * M31 Track C: 5% base + 2% per combat skill level + 15% backstab.
+   * Backstab: dot(attackDir, enemyFacing) < -0.5 (attacking from behind).
+   * @param combatSkillLevel - player's combat skill level (0-10)
+   * @param attackDir - normalised direction from player to enemy
+   * @param enemyFacing - normalised forward vector of enemy
+   */
+  rollCrit(combatSkillLevel: number, attackDir?: { x: number; z: number }, enemyFacing?: { x: number; z: number }): boolean {
+    let chance = CombatSystem.CRIT_BASE + combatSkillLevel * CombatSystem.CRIT_PER_LEVEL
+    if (attackDir && enemyFacing) {
+      const dot = attackDir.x * enemyFacing.x + attackDir.z * enemyFacing.z
+      if (dot < -0.5) chance += CombatSystem.CRIT_BACKSTAB
+    }
+    return Math.random() < chance
+  }
 
   canAttack(): boolean {
     return this.attackCooldownTimer <= 0

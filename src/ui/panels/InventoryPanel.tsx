@@ -1,5 +1,5 @@
 // ── InventoryPanel ─────────────────────────────────────────────────────────────
-// 8×5 grid of inventory slots. Reads from GameSingletons.inventory.
+// M20: 8×5 grid with rich tooltips, category badges, and quality indicators.
 
 import { useState, useEffect } from 'react'
 import { inventory } from '../../game/GameSingletons'
@@ -7,6 +7,7 @@ import { MAT, ITEM, type InventorySlot } from '../../player/Inventory'
 import { usePlayerStore } from '../../store/playerStore'
 import { getItemStats, getFoodStats } from '../../player/EquipSystem'
 import { Metabolism } from '../../ecs/world'
+import { useItemTooltip, getItemCategory, CATEGORY_COLORS, CATEGORY_LABELS } from './ItemTooltip'
 
 // Reverse lookup maps for display names
 const MAT_NAMES: Record<number, string> = Object.fromEntries(
@@ -16,17 +17,24 @@ const ITEM_NAMES: Record<number, string> = Object.fromEntries(
   Object.entries(ITEM).map(([k, v]) => [v, k.toLowerCase().replace(/_/g, ' ')])
 )
 
-function SlotCell({ slot, index, selected, equipped, onSelect }: {
+function SlotCell({ slot, index, selected, equipped, onSelect, onHoverEnter, onHoverLeave }: {
   slot: InventorySlot | null
   index: number
   selected: boolean
   equipped: boolean
   onSelect: (i: number) => void
+  onHoverEnter: (slot: InventorySlot, e: React.MouseEvent) => void
+  onHoverLeave: () => void
 }) {
+  const category = slot ? getItemCategory(slot) : null
+  const categoryColor = category ? CATEGORY_COLORS[category] : '#666'
+  const categoryLabel = category ? CATEGORY_LABELS[category] : ''
+
   return (
     <div
       onClick={() => onSelect(index)}
-      title={slot ? `${slot.itemId === 0 ? (MAT_NAMES[slot.materialId] ?? slot.materialId) : (ITEM_NAMES[slot.itemId] ?? slot.itemId)} ×${slot.quantity}` : ''}
+      onMouseEnter={slot ? (e) => onHoverEnter(slot, e) : undefined}
+      onMouseLeave={slot ? onHoverLeave : undefined}
       style={{
         width: 52,
         height: 52,
@@ -52,20 +60,28 @@ function SlotCell({ slot, index, selected, equipped, onSelect }: {
     >
       {slot && (
         <>
-          <div style={{ fontSize: 10, color: '#ccc', textAlign: 'center', lineHeight: 1.2, padding: '0 2px', wordBreak: 'break-word' }}>
+          {/* Category badge (top-left) */}
+          <div style={{
+            position: 'absolute', top: 2, left: 3,
+            fontSize: 7, fontWeight: 700,
+            color: categoryColor,
+            opacity: 0.8,
+            letterSpacing: 0.5,
+          }}>
+            {categoryLabel}
+          </div>
+
+          <div style={{ fontSize: 10, color: '#ccc', textAlign: 'center', lineHeight: 1.2, padding: '0 2px', wordBreak: 'break-word', marginTop: 4 }}>
             {slot.itemId === 0
               ? (MAT_NAMES[slot.materialId] ?? '?')
               : (ITEM_NAMES[slot.itemId] ?? MAT_NAMES[slot.itemId] ?? '?')}
-          </div>
-          <div style={{ fontSize: 9, color: '#888', marginTop: 2 }}>
-            {slot.itemId === 0 ? 'mat' : 'item'}
           </div>
           {slot.quantity > 1 && (
             <div style={{
               position: 'absolute', bottom: 2, right: 4,
               fontSize: 9, color: '#f1c40f', fontFamily: 'monospace',
             }}>
-              ×{slot.quantity}
+              x{slot.quantity}
             </div>
           )}
           {/* Quality bar */}
@@ -91,6 +107,8 @@ export function InventoryPanel() {
   const updateVitals  = usePlayerStore(s => s.updateVitals)
   const entityId      = usePlayerStore(s => s.entityId)
 
+  const { onMouseEnter, onMouseLeave, tooltipPortal } = useItemTooltip()
+
   // Poll inventory every 200ms so newly gathered items appear immediately
   useEffect(() => {
     const id = setInterval(() => forceRefresh(r => r + 1), 200)
@@ -109,8 +127,7 @@ export function InventoryPanel() {
     const slot = inventory.getSlot(selected)
     if (!slot) return
     const qty = Math.min(dropQty, slot.quantity)
-    inventory.dropItem(selected, qty)  // always removes, even in god mode
-    // If we just emptied the equipped slot, unequip it
+    inventory.dropItem(selected, qty)
     if (selected === equippedSlot && qty >= slot.quantity) unequipAction()
     setSelected(null)
     setDropQty(1)
@@ -124,7 +141,10 @@ export function InventoryPanel() {
 
   return (
     <div style={{ color: '#fff', fontFamily: 'monospace' }}>
-      {/* 8-column grid — dynamically sized to match actual inventory (god mode can exceed 40 slots) */}
+      {/* Tooltip portal — renders outside grid to avoid overflow */}
+      {tooltipPortal}
+
+      {/* 8-column grid */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(8, 52px)', gap: 4 }}>
         {Array.from({ length: inventory.slotCount }, (_, i) => (
           <SlotCell
@@ -134,6 +154,8 @@ export function InventoryPanel() {
             selected={selected === i}
             equipped={equippedSlot === i}
             onSelect={handleSelect}
+            onHoverEnter={onMouseEnter}
+            onHoverLeave={onMouseLeave}
           />
         ))}
       </div>
@@ -153,7 +175,7 @@ export function InventoryPanel() {
               : (ITEM_NAMES[selectedSlot.itemId] ?? `item #${selectedSlot.itemId}`)}
           </div>
           <div style={{ fontSize: 11, color: '#aaa', marginBottom: 2 }}>
-            Material: {selectedSlot.materialId === 0 ? '—' : (MAT_NAMES[selectedSlot.materialId] ?? selectedSlot.materialId)}
+            Material: {selectedSlot.materialId === 0 ? '--' : (MAT_NAMES[selectedSlot.materialId] ?? selectedSlot.materialId)}
           </div>
           <div style={{ fontSize: 11, color: '#aaa', marginBottom: 2 }}>
             Quantity: {selectedSlot.quantity}
@@ -182,13 +204,10 @@ export function InventoryPanel() {
             <button
               onClick={() => {
                 if (selected === null || !foodStats) return
-                // Update ECS Metabolism directly — GameLoop overwrites playerStore from ECS every frame,
-                // so writing only to playerStore would be discarded on the next tick.
                 if (entityId !== null) {
                   Metabolism.hunger[entityId] = Math.max(0, Metabolism.hunger[entityId] - foodStats.hungerRestore)
                   Metabolism.thirst[entityId] = Math.max(0, Metabolism.thirst[entityId] - foodStats.thirstRestore)
                 } else {
-                  // Fallback: no entity yet, write to store only
                   const current = usePlayerStore.getState()
                   updateVitals({
                     hunger: Math.max(0, current.hunger - foodStats.hungerRestore),
@@ -228,7 +247,7 @@ export function InventoryPanel() {
                   cursor: 'pointer',
                 }}
               >
-                {n}×
+                {n}x
               </button>
             ))}
             <input

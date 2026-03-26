@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, Suspense, lazy } from 'react'
 import { useGameStore } from '../store/gameStore'
 import { usePlayerStore } from '../store/playerStore'
 import { useMultiplayerStore } from '../store/multiplayerStore'
@@ -11,9 +11,11 @@ import { NotificationSystem } from './NotificationSystem'
 import { inventory } from '../game/GameSingletons'
 import { MAT, ITEM } from '../player/Inventory'
 import { cookingProgress } from '../game/SurvivalSystems'
-import { FirstContactOverlay } from './FirstContactOverlay'
 import { useVelarStore } from '../store/velarStore'
 import { getReactorTemp, isCleanupActive, getCleanupTimeRemaining, SAFE_TEMP_CELSIUS, MELT_THRESHOLD_C } from '../game/NuclearReactorSystem'
+
+// ── M20: Lazy-loaded overlays (rarely shown) ─────────────────────────────────
+const FirstContactOverlay = lazy(() => import('./FirstContactOverlay').then(m => ({ default: m.FirstContactOverlay })))
 
 // ── Armor slot visual constants ────────────────────────────────────────────────
 const STEEL_BLUE = '#4a9eff'
@@ -589,12 +591,14 @@ export function HUD() {
 
   return (
     <>
-      {/* ── M13: First Contact cinematic overlay ────────────────────────────── */}
+      {/* ── M13: First Contact cinematic overlay (lazy-loaded M20) ────────── */}
       {showFirstContact && (
-        <FirstContactOverlay
-          decoderName={decodedByName ?? 'Unknown'}
-          onDone={() => setShowFirstContact(false)}
-        />
+        <Suspense fallback={null}>
+          <FirstContactOverlay
+            decoderName={decodedByName ?? 'Unknown'}
+            onDone={() => setShowFirstContact(false)}
+          />
+        </Suspense>
       )}
 
       {/* ── M13: Reactor HUD widget (top-left, below vitals) ────────────────── */}

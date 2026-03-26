@@ -1,12 +1,14 @@
-import { Suspense, useEffect, useRef } from 'react'
+import { Suspense, useEffect, useRef, lazy } from 'react'
 import { SignIn, useAuth, useUser } from '@clerk/react'
 import { SceneRoot } from './rendering/SceneRoot'
 import { HUD } from './ui/HUD'
-import { AdminPanel } from './ui/AdminPanel'
 import { loadSave, saveGame } from './store/saveStore'
 import { useWorldSocket } from './net/useWorldSocket'
 import { useBootstrapStatus } from './hooks/useBootstrapStatus'
 import { WorldBootstrapScreen } from './ui/WorldBootstrapScreen'
+
+// ── M20: Lazy-load AdminPanel (dev/admin only) ──────────────────────────────
+const AdminPanel = lazy(() => import('./ui/AdminPanel').then(m => ({ default: m.AdminPanel })))
 
 // Dev bypass: set VITE_DEV_BYPASS_AUTH=true in .env.local to skip Clerk login
 const DEV_BYPASS = import.meta.env.DEV && import.meta.env.VITE_DEV_BYPASS_AUTH === 'true'
@@ -53,7 +55,7 @@ function DevGame() {
         <SceneRoot />
       </Suspense>
       <HUD />
-      <AdminPanel />
+      <Suspense fallback={null}><AdminPanel /></Suspense>
     </>
   )
 }
@@ -112,7 +114,7 @@ function GameWithSave() {
         <SceneRoot />
       </Suspense>
       <HUD />
-      <AdminPanel />
+      <Suspense fallback={null}><AdminPanel /></Suspense>
     </>
   )
 }

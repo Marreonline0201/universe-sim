@@ -2,7 +2,7 @@
 // Right-edge icon strip (48 px) + animated panel mount.
 // Registers global hotkeys. Blocks game input while any panel is open.
 
-import React, { useEffect } from 'react'
+import React, { useEffect, Suspense, lazy } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useUiStore, type PanelId } from '../store/uiStore'
 import { useGameStore } from '../store/gameStore'
@@ -10,14 +10,18 @@ import { usePlayerStore } from '../store/playerStore'
 import { cancelFishing, isFishingActive } from '../world/SailingSystem'
 import { tryEatFood } from '../game/SurvivalSystems'
 import { inventory } from '../game/GameSingletons'
-import { InventoryPanel } from './panels/InventoryPanel'
-import { CraftingPanel } from './panels/CraftingPanel'
-import { JournalPanel } from './panels/JournalPanel'
-import { CharacterPanel } from './panels/CharacterPanel'
-import { MapPanel } from './panels/MapPanel'
-import { SettingsPanel } from './panels/SettingsPanel'
-import { BuildPanel } from './panels/BuildPanel'
-import { SciencePanel } from './panels/SciencePanel'
+import { useDialogueStore } from '../store/dialogueStore'
+
+// ── Lazy-loaded panels (M20 code splitting) ──────────────────────────────────
+const InventoryPanel = lazy(() => import('./panels/InventoryPanel').then(m => ({ default: m.InventoryPanel })))
+const CraftingPanel  = lazy(() => import('./panels/CraftingPanel').then(m => ({ default: m.CraftingPanel })))
+const JournalPanel   = lazy(() => import('./panels/JournalPanel').then(m => ({ default: m.JournalPanel })))
+const CharacterPanel = lazy(() => import('./panels/CharacterPanel').then(m => ({ default: m.CharacterPanel })))
+const MapPanel       = lazy(() => import('./panels/MapPanel').then(m => ({ default: m.MapPanel })))
+const SettingsPanel  = lazy(() => import('./panels/SettingsPanel').then(m => ({ default: m.SettingsPanel })))
+const BuildPanel     = lazy(() => import('./panels/BuildPanel').then(m => ({ default: m.BuildPanel })))
+const SciencePanel   = lazy(() => import('./panels/SciencePanel').then(m => ({ default: m.SciencePanel })))
+const DialoguePanel  = lazy(() => import('./panels/DialoguePanel').then(m => ({ default: m.DialoguePanel })))
 
 const PANEL_LABEL: Record<PanelId, string> = {
   inventory: 'INVENTORY',
@@ -28,6 +32,7 @@ const PANEL_LABEL: Record<PanelId, string> = {
   map:       'MAP',
   settings:  'SETTINGS',
   science:   'SCIENCE COMPANION',
+  dialogue:  'DIALOGUE',
 }
 
 const PANEL_WIDTH = 480
@@ -53,6 +58,7 @@ const PANEL_COMPONENTS: Record<PanelId, React.ComponentType> = {
   map:        MapPanel,
   settings:   SettingsPanel,
   science:    SciencePanel,
+  dialogue:   DialoguePanel,
 }
 
 export function SidebarShell() {
@@ -100,7 +106,10 @@ export function SidebarShell() {
           e.preventDefault()
           if (isFishingActive()) { cancelFishing(); useGameStore.getState().setGatherPrompt(null) }
           else if (placementMode) setPlacementMode(null)
-          else if (activePanel !== null) closePanel()
+          else if (activePanel !== null) {
+            if (activePanel === 'dialogue') useDialogueStore.getState().closeDialogue()
+            closePanel()
+          }
           else togglePanel('settings')
           break
         default: break
@@ -231,7 +240,13 @@ export function SidebarShell() {
             </div>
             {/* Panel content */}
             <div style={{ flex: 1, overflow: 'auto', padding: 16 }}>
-              {ActivePanel && <ActivePanel />}
+              <Suspense fallback={
+                <div style={{ color: '#555', fontFamily: 'monospace', fontSize: 12, textAlign: 'center', padding: 32 }}>
+                  Loading panel...
+                </div>
+              }>
+                {ActivePanel && <ActivePanel />}
+              </Suspense>
             </div>
           </motion.div>
         )}

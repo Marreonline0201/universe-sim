@@ -20,6 +20,7 @@ import { usePlayerStore } from '../store/playerStore'
 import { useUiStore } from '../store/uiStore'
 import { useMultiplayerStore } from '../store/multiplayerStore'
 import { useSettlementStore } from '../store/settlementStore'
+import { useDialogueStore } from '../store/dialogueStore'
 import { useOutlawStore } from '../store/outlawStore'
 import { useWeatherStore } from '../store/weatherStore'
 import { useRiverStore } from '../store/riverStore'
@@ -364,6 +365,47 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
       }
     } else {
       if (gs.gatherPrompt !== null) gs.setGatherPrompt(null)
+    }
+
+    // ── M20 Track B: NPC dialogue proximity ──────────────────────────────────
+    {
+      const dialogueState = useDialogueStore.getState()
+      if (!dialogueState.isOpen && !gs.inputBlocked) {
+        const remoteNpcs2 = useMultiplayerStore.getState().remoteNpcs
+        let closestNpc: typeof remoteNpcs2[0] | null = null
+        let closestDist = Infinity
+        for (const npc of remoteNpcs2) {
+          const dx = npc.x - px, dy = (npc.y ?? 1) - py, dz = npc.z - pz
+          const dist = Math.sqrt(dx * dx + dy * dy + dz * dz)
+          if (dist < 4 && dist < closestDist) {
+            closestDist = dist
+            closestNpc = npc
+          }
+        }
+        if (closestNpc && gs.gatherPrompt === null) {
+          // Find nearest settlement for NPC name/role
+          const settlements = useSettlementStore.getState().settlements
+          let npcSettlement = 'Wanderer'
+          let nearestSettDist = Infinity
+          for (const [, sett] of settlements) {
+            const sdx = sett.x - closestNpc.x, sdy = sett.y - closestNpc.y, sdz = sett.z - closestNpc.z
+            const sdist = Math.sqrt(sdx * sdx + sdy * sdy + sdz * sdz)
+            if (sdist < nearestSettDist) {
+              nearestSettDist = sdist
+              npcSettlement = sett.name
+            }
+          }
+          const NPC_ROLES = ['villager', 'guard', 'elder', 'trader', 'artisan', 'scout']
+          const npcRole = NPC_ROLES[closestNpc.id % NPC_ROLES.length]
+          const npcName = `${npcSettlement} ${npcRole.charAt(0).toUpperCase() + npcRole.slice(1)}`
+          gs.setGatherPrompt(`[F] Talk to ${npcName}`)
+          if (controllerRef.current?.popInteract()) {
+            gs.setGatherPrompt(null)
+            useDialogueStore.getState().openDialogue(closestNpc.id, npcName, npcRole, npcSettlement)
+            useUiStore.getState().openPanel('dialogue')
+          }
+        }
+      }
     }
 
     // ── M11 Track D: Telescope ───────────────────────────────────────────────

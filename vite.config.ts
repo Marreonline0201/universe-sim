@@ -21,5 +21,17 @@ export default defineConfig({
   },
   build: {
     target: 'esnext',
+    rollupOptions: {
+      output: {
+        // M20: Split vendor libraries into separate chunks for better caching
+        manualChunks(id) {
+          if (id.includes('node_modules')) {
+            if (id.includes('three') || id.includes('@react-three')) return 'vendor-3d'
+            if (id.includes('@clerk')) return 'vendor-auth'
+            if (id.includes('framer-motion')) return 'vendor-ui'
+          }
+        },
+      },
+    },
   },
 })

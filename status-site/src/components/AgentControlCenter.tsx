@@ -81,13 +81,13 @@ function SpeechBubble({ text, fromId, toId }: { text: string; fromId: string; to
       background: 'rgba(4,8,20,0.96)',
       border: `1px solid ${color}`,
       borderRadius: 6,
-      padding: '4px 8px',
+      padding: '5px 10px',
       fontSize: 8,
       color: 'rgba(220,235,255,0.9)',
-      whiteSpace: 'nowrap',
-      maxWidth: 180,
-      overflow: 'hidden',
-      textOverflow: 'ellipsis',
+      whiteSpace: 'normal',
+      maxWidth: 240,
+      wordBreak: 'break-word',
+      lineHeight: 1.5,
       zIndex: 20,
       pointerEvents: 'none',
       boxShadow: `0 0 8px ${color}44`,
@@ -322,14 +322,14 @@ export function AgentControlCenter({ agentState }: Props) {
                 {/* Task tooltip if active */}
                 {isActive && entry.task && (
                   <div style={{
-                    fontSize: 6.5,
-                    color: 'rgba(160,200,240,0.5)',
-                    maxWidth: 72,
+                    fontSize: 7,
+                    color: 'rgba(160,200,240,0.65)',
+                    maxWidth: 110,
                     textAlign: 'center',
-                    lineHeight: 1.3,
+                    lineHeight: 1.4,
                     overflow: 'hidden',
                     display: '-webkit-box',
-                    WebkitLineClamp: 2,
+                    WebkitLineClamp: 3,
                     WebkitBoxOrient: 'vertical' as any,
                   }}>
                     {entry.task}

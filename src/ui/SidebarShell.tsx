@@ -28,6 +28,7 @@ const QuestPanel       = lazy(() => import('./panels/QuestPanel').then(m => ({ d
 const AchievementPanel = lazy(() => import('./panels/AchievementPanel').then(m => ({ default: m.AchievementPanel })))
 const FishingPanel     = lazy(() => import('./panels/FishingPanel').then(m => ({ default: m.FishingPanel })))
 const MerchantPanel    = lazy(() => import('./panels/MerchantPanel').then(m => ({ default: m.MerchantPanel })))
+const PlayerListPanel  = lazy(() => import('./panels/PlayerListPanel').then(m => ({ default: m.PlayerListPanel })))
 
 const PANEL_LABEL: Record<PanelId, string> = {
   inventory: 'INVENTORY',
@@ -44,6 +45,7 @@ const PANEL_LABEL: Record<PanelId, string> = {
   achievements: 'ACHIEVEMENTS',
   fishing:      'FISHING',
   merchant:     'MERCHANT',
+  players:      'PLAYERS ONLINE',
 }
 
 const PANEL_WIDTH = 480
@@ -60,6 +62,7 @@ const ICON_BUTTONS: Array<{ id: PanelId; icon: string; hint: string }> = [
   { id: 'quests',     icon: 'QST',  hint: 'Quests (Q)' },
   { id: 'achievements', icon: 'ACH', hint: 'Achievements (H)' },
   { id: 'fishing',    icon: 'FSH',  hint: 'Fishing (F near water)' },
+  { id: 'players',    icon: 'PLR',  hint: 'Players Online (P)' },
   { id: 'science',    icon: ' ? ',  hint: 'Science Companion (?)' },
   { id: 'settings',   icon: 'SET',  hint: 'Settings (Esc)' },
 ]
@@ -79,6 +82,7 @@ const PANEL_COMPONENTS: Record<PanelId, React.ComponentType> = {
   achievements: AchievementPanel,
   fishing:      FishingPanel,
   merchant:     MerchantPanel,
+  players:      PlayerListPanel,
 }
 
 export function SidebarShell() {
@@ -120,6 +124,7 @@ export function SidebarShell() {
         case 'k': case 'K':   e.preventDefault(); togglePanel('skills');     break
         case 'q': case 'Q':   e.preventDefault(); togglePanel('quests');     break
         case 'h': case 'H':   e.preventDefault(); togglePanel('achievements'); break
+        case 'p': case 'P':   e.preventDefault(); togglePanel('players');     break
         case 'Tab':           e.preventDefault(); togglePanel('character');  break
         case 'm': case 'M':   e.preventDefault(); togglePanel('map');        break
         case '?': case '/':

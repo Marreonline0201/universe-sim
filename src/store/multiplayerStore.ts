@@ -7,7 +7,10 @@ export interface RemotePlayer {
   y: number
   z: number
   health: number
+  warmth?: number       // M29: warmth% for inspect panel
   murderCount?: number  // M5: criminal record — skull icon shown when > 0
+  lastMovedAt?: number  // M29: timestamp of last position change (ms) for AFK detection
+  equippedWeapon?: string // M29: visible weapon name for inspect panel
 }
 
 export interface RemoteNpc {
@@ -29,6 +32,10 @@ interface MultiplayerState {
   setRemotePlayers: (players: RemotePlayer[]) => void
   upsertRemotePlayer: (player: RemotePlayer) => void
   removeRemotePlayer: (userId: string) => void
+
+  // M29 Track C: per-player ping in ms (estimated from update interval)
+  playerPings: Map<string, number>
+  setPlayerPing: (userId: string, pingMs: number) => void
 
   remoteNpcs: RemoteNpc[]
   setRemoteNpcs: (npcs: RemoteNpc[]) => void
@@ -66,7 +73,10 @@ export const useMultiplayerStore = create<MultiplayerState>((set) => ({
   upsertRemotePlayer: (player) =>
     set((s) => {
       const next = new Map(s.remotePlayers)
-      next.set(player.userId, player)
+      const existing = s.remotePlayers.get(player.userId)
+      // Track last-moved time for AFK detection
+      const moved = !existing || existing.x !== player.x || existing.y !== player.y || existing.z !== player.z
+      next.set(player.userId, { ...player, lastMovedAt: moved ? Date.now() : (existing?.lastMovedAt ?? Date.now()) })
       return { remotePlayers: next }
     }),
   removeRemotePlayer: (userId) =>
@@ -74,6 +84,14 @@ export const useMultiplayerStore = create<MultiplayerState>((set) => ({
       const next = new Map(s.remotePlayers)
       next.delete(userId)
       return { remotePlayers: next }
+    }),
+
+  playerPings: new Map(),
+  setPlayerPing: (userId, pingMs) =>
+    set((s) => {
+      const next = new Map(s.playerPings)
+      next.set(userId, pingMs)
+      return { playerPings: next }
     }),
 
   remoteNpcs: [],

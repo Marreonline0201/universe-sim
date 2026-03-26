@@ -2,6 +2,7 @@
 // Renders other connected players as coloured capsules with username labels.
 // M7 T2: Wanted players (murderCount >= 5) show skull icon + bounty amount.
 // M26 Track B: Emote chat bubbles float above players when they emote.
+// M29 Track C: Proximity indicator ring when player within 15m.
 
 import { useRef, useState } from 'react'
 import { useFrame } from '@react-three/fiber'
@@ -9,16 +10,47 @@ import { Text } from '@react-three/drei'
 import * as THREE from 'three'
 import { useMultiplayerStore } from '../store/multiplayerStore'
 import { useOutlawStore } from '../store/outlawStore'
+import { usePlayerStore } from '../store/playerStore'
 import { useAuth } from '@clerk/react'
 import { getRemoteEmote } from '../game/EmoteSystem'
 
 const WANTED_THRESHOLD = 5
+const PROXIMITY_RADIUS = 15   // metres — ring appears when player within this range
+const RING_CYCLE_S = 2        // seconds for one full ring expand cycle
 
 // Stable capsule geometry shared across all player meshes
 const CAPSULE_GEO = new THREE.CapsuleGeometry(0.35, 1.2, 4, 8)
 const CAPSULE_MAT = new THREE.MeshStandardMaterial({ color: '#3498db', roughness: 0.7 })
 
-function RemotePlayer({ userId, username, x, y, z, health, murderCount = 0 }: {
+// ── Proximity ring ─────────────────────────────────────────────────────────────
+function ProximityRing({ visible }: { visible: boolean }) {
+  const ringRef  = useRef<THREE.Mesh>(null!)
+  const phaseRef = useRef(Math.random() * RING_CYCLE_S) // stagger rings across players
+
+  useFrame((_, dt) => {
+    if (!visible || !ringRef.current) return
+    phaseRef.current = (phaseRef.current + dt) % RING_CYCLE_S
+    const t = phaseRef.current / RING_CYCLE_S  // 0→1
+
+    // Expand radius from 0.5 to 2, then reset
+    const radius = 0.5 + t * 1.5
+    ringRef.current.scale.setScalar(radius)
+    // Fade in/out: opaque at t=0.1, fade to 0 by t=1
+    const alpha = t < 0.1 ? (t / 0.1) : (1 - t)
+    ;(ringRef.current.material as THREE.MeshBasicMaterial).opacity = alpha * 0.15
+  })
+
+  if (!visible) return null
+
+  return (
+    <mesh ref={ringRef} rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.55, 0]}>
+      <torusGeometry args={[1, 0.06, 6, 32]} />
+      <meshBasicMaterial color="#ffffff" transparent opacity={0.15} depthWrite={false} />
+    </mesh>
+  )
+}
+
+function RemotePlayer({ userId, username, x, y, z, health, murderCount = 0, localX, localZ }: {
   userId: string
   username: string
   x: number
@@ -26,6 +58,8 @@ function RemotePlayer({ userId, username, x, y, z, health, murderCount = 0 }: {
   z: number
   health: number
   murderCount?: number
+  localX: number
+  localZ: number
 }) {
   const meshRef  = useRef<THREE.Mesh>(null!)
   const groupRef = useRef<THREE.Group>(null!)
@@ -38,6 +72,9 @@ function RemotePlayer({ userId, username, x, y, z, health, murderCount = 0 }: {
   const [currentEmote, setCurrentEmote] = useState<string | null>(null)
   const emoteCheckRef = useRef(0)
 
+  // M29: proximity ring — recalculate distance on each frame
+  const [isNearby, setIsNearby] = useState(false)
+
   // Smoothly interpolate to server position
   useFrame((_, dt) => {
     const g = groupRef.current
@@ -49,6 +86,12 @@ function RemotePlayer({ userId, username, x, y, z, health, murderCount = 0 }: {
       emoteCheckRef.current = 0
       const emoji = getRemoteEmote(userId)
       setCurrentEmote(prev => prev !== emoji ? emoji : prev)
+
+      // Check proximity
+      const dx = x - localX, dz = z - localZ
+      const dist2 = dx * dx + dz * dz
+      const nearby = dist2 < PROXIMITY_RADIUS * PROXIMITY_RADIUS
+      setIsNearby(prev => prev !== nearby ? nearby : prev)
     }
   })
 
@@ -62,6 +105,9 @@ function RemotePlayer({ userId, username, x, y, z, health, murderCount = 0 }: {
   return (
     <group ref={groupRef} position={[x, y + 0.6, z]}>
       <mesh ref={meshRef} geometry={CAPSULE_GEO} material={capsuleMat} />
+
+      {/* M29 Track C: proximity ring on the ground */}
+      <ProximityRing visible={isNearby} />
 
       {/* Health indicator ring */}
       <mesh rotation={[0, 0, 0]} position={[0, 1.2, 0]}>
@@ -129,13 +175,15 @@ function RemotePlayer({ userId, username, x, y, z, health, murderCount = 0 }: {
 export function RemotePlayersRenderer() {
   const { userId: myUserId } = useAuth()
   const remotePlayers = useMultiplayerStore(s => s.remotePlayers)
+  const localX = usePlayerStore(s => s.x)
+  const localZ = usePlayerStore(s => s.z)
 
   return (
     <>
       {Array.from(remotePlayers.values())
         .filter(p => p.userId !== myUserId)
         .map(p => (
-          <RemotePlayer key={p.userId} {...p} />
+          <RemotePlayer key={p.userId} {...p} localX={localX} localZ={localZ} />
         ))}
     </>
   )

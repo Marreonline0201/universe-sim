@@ -74,6 +74,8 @@ import { SailingHUD } from '../ui/SailingHUD'
 import { CaveEntrances } from './CaveEntrances'
 import { CaveTunnelRenderer } from './CaveTunnelRenderer'
 import { UndergroundAtmosphere } from './UndergroundAtmosphere'
+// M29 Track C: Remote player name tags bridge (runs inside Canvas, projects to HTML)
+import { RemotePlayerNameTagsBridge } from '../ui/RemotePlayerNameTags'
 
 // M10 Track C: Shop UI
 import { ShopHUD } from '../ui/ShopHUD'
@@ -520,6 +522,8 @@ export function SceneRoot() {
             <PlacedRaftsRenderer />
             <CreatureRenderer />
             <RemotePlayersRenderer />
+            {/* M29 Track C1/C5: name tags + ping dots — HTML overlay projected from world positions */}
+            <RemotePlayerNameTagsBridge />
             <ServerNpcsRenderer />
             <LocalNpcsRenderer />
             <FireRenderer simManager={simManager} />

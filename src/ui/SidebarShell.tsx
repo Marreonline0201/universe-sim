@@ -10,6 +10,7 @@ import { usePlayerStore } from '../store/playerStore'
 import { cancelFishing, isFishingActive } from '../world/SailingSystem'
 import { tryEatFood } from '../game/SurvivalSystems'
 import { inventory } from '../game/GameSingletons'
+import { fishingSystem } from '../game/FishingSystem'
 import { useDialogueStore } from '../store/dialogueStore'
 
 // ── Lazy-loaded panels (M20 code splitting) ──────────────────────────────────
@@ -25,6 +26,7 @@ const DialoguePanel  = lazy(() => import('./panels/DialoguePanel').then(m => ({ 
 const SkillTreePanel = lazy(() => import('./panels/SkillTreePanel').then(m => ({ default: m.SkillTreePanel })))
 const QuestPanel       = lazy(() => import('./panels/QuestPanel').then(m => ({ default: m.QuestPanel })))
 const AchievementPanel = lazy(() => import('./panels/AchievementPanel').then(m => ({ default: m.AchievementPanel })))
+const FishingPanel     = lazy(() => import('./panels/FishingPanel').then(m => ({ default: m.FishingPanel })))
 
 const PANEL_LABEL: Record<PanelId, string> = {
   inventory: 'INVENTORY',
@@ -39,6 +41,7 @@ const PANEL_LABEL: Record<PanelId, string> = {
   skills:    'SKILLS',
   quests:       'QUESTS',
   achievements: 'ACHIEVEMENTS',
+  fishing:      'FISHING',
 }
 
 const PANEL_WIDTH = 480
@@ -54,6 +57,7 @@ const ICON_BUTTONS: Array<{ id: PanelId; icon: string; hint: string }> = [
   { id: 'skills',     icon: 'SKL',  hint: 'Skills (K)' },
   { id: 'quests',     icon: 'QST',  hint: 'Quests (Q)' },
   { id: 'achievements', icon: 'ACH', hint: 'Achievements (H)' },
+  { id: 'fishing',    icon: 'FSH',  hint: 'Fishing (F near water)' },
   { id: 'science',    icon: ' ? ',  hint: 'Science Companion (?)' },
   { id: 'settings',   icon: 'SET',  hint: 'Settings (Esc)' },
 ]
@@ -71,6 +75,7 @@ const PANEL_COMPONENTS: Record<PanelId, React.ComponentType> = {
   skills:     SkillTreePanel,
   quests:     QuestPanel,
   achievements: AchievementPanel,
+  fishing:      FishingPanel,
 }
 
 export function SidebarShell() {

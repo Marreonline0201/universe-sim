@@ -44,7 +44,7 @@ import {
   tickRespawnQueue,
 } from '../ecs/systems/AnimalAISystem'
 
-import { inventory, buildingSystem, questSystem, combatSystem, achievementSystem, tutorialSystem } from './GameSingletons'
+import { inventory, buildingSystem, questSystem, combatSystem, achievementSystem, tutorialSystem, fishingSystem } from './GameSingletons'
 import { SPECIES_LOOT, rollLoot } from './LootTable'
 import { ITEM, MAT, RARITY_NAMES, type RarityTier } from '../player/Inventory'
 import { getItemStats, canHarvest } from '../player/EquipSystem'
@@ -1293,12 +1293,56 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
       const canFish = (nearWater || nearRiver10) && inventory.hasItemById(ITEM.FISHING_ROD)
       const gs10 = useGameStore.getState()
 
-      if (canFish && !isFishingActive()) {
-        const fishLabel = '[F] Cast fishing rod'
-        if (gs10.gatherPrompt === null) gs10.setGatherPrompt(fishLabel)
+      // ── M25 Track C: New fishing state machine ──────────────────────────────
+      {
+        const fsPhase = fishingSystem.state.phase
+        const keysSet25 = (controllerRef.current as any)?._keys ?? (controllerRef.current as any)?.keys ?? new Set()
+        const fKeyHeld = keysSet25.has('KeyF') || keysSet25.has('f') || keysSet25.has('F')
+
+        if (canFish && fsPhase === 'idle' && !isFishingActive() && !gs10.inputBlocked) {
+          const fishLabel = '[F] Cast fishing rod'
+          if (gs10.gatherPrompt === null) gs10.setGatherPrompt(fishLabel)
+        }
+
+        if (canFish && !gs10.inputBlocked && controllerRef.current?.popInteract()) {
+          if (fsPhase === 'idle') {
+            // Cast line — open fishing panel
+            fishingSystem.cast()
+            useUiStore.getState().openPanel('fishing')
+            useUiStore.getState().addNotification('Line cast! Watch the fishing panel.', 'info')
+            gs10.setGatherPrompt(null)
+          } else if (fsPhase === 'biting') {
+            // Player pressed F during bite window — start reeling
+            fishingSystem.startReel()
+          } else if (fsPhase === 'landed' || fsPhase === 'escaped') {
+            // Reset so next F press casts again
+            fishingSystem.reset()
+          }
+        }
+
+        if (fsPhase === 'biting' && !gs10.inputBlocked && controllerRef.current?.popInteract()) {
+          // Already handled above; no-op here to avoid double-consume
+        }
+
+        // Tick fishing state machine every frame (pass F-held for reeling)
+        if (fsPhase !== 'idle') {
+          const result = fishingSystem.tick(dt, fKeyHeld)
+          if (result === 'landed') {
+            const caught = fishingSystem.state.lastCatch
+            if (caught) {
+              inventory.addItem({ itemId: 0, materialId: MAT.FISH, quantity: 1, quality: caught.rarity === 'Rare' ? 1.0 : caught.rarity === 'Uncommon' ? 0.85 : 0.7 })
+              useUiStore.getState().addNotification(`Caught ${caught.rarity} ${caught.name}! Added to inventory.`, 'discovery')
+              skillSystem.addXp('gathering', caught.rarity === 'Rare' ? 50 : caught.rarity === 'Uncommon' ? 30 : 15)
+            }
+          } else if (result === 'escaped') {
+            useUiStore.getState().addNotification('The fish got away! Try again.', 'warning')
+          }
+        }
       }
 
-      if (canFish && controllerRef.current?.popInteract() && !isFishingActive()) {
+      // ── Legacy M10 Track B fishing (SailingSystem) — kept for compatibility ─
+      if (false && canFish && !isFishingActive()) {
+        // Legacy path disabled — M25 Track C handles fishing above
         const started = startFishing()
         if (started) {
           useUiStore.getState().addNotification('Line cast — waiting for a bite... (5-15s)', 'info')

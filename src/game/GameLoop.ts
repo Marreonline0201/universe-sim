@@ -3454,6 +3454,15 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
       }
     }
 
+    // ── M54 Track C: Exploration discovery check (every 2s) ──────────────────
+    {
+      discoveryTimerRef.current += dt
+      if (discoveryTimerRef.current >= 2) {
+        discoveryTimerRef.current = 0
+        checkDiscoveries(px, pz, useGameStore.getState().simSeconds)
+      }
+    }
+
     // ── M7 T2: NPC guard aggro ────────────────────────────────────────────────
     {
       const localMurderCount = usePlayerStore.getState().murderCount

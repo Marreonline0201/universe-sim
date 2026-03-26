@@ -26,6 +26,7 @@ import { serializeHome, deserializeHome } from './HomeCustomizationSystem'
 import { serializeRoutes, deserializeRoutes } from './TradingRouteSystem'
 import { serializeRepTitles, deserializeRepTitles } from './ReputationTitleSystem'
 import { serializeDiscovery, deserializeDiscovery } from './RecipeDiscoverySystem'
+import { serializeDiscoveries, deserializeDiscoveries } from './ExplorationDiscoverySystem'
 import { Health, Metabolism, Position } from '../ecs/world'
 import { rapierWorld } from '../physics/RapierWorld'
 import { PLANET_RADIUS } from '../world/SpherePlanet'
@@ -138,6 +139,7 @@ export async function saveOffline(): Promise<boolean> {
       repTitles: serializeRepTitles(),
       recipeDiscovery: serializeDiscovery(),
       homeCustomization: serializeHome(),
+      explorationDiscoveries: serializeDiscoveries(),
     })
     const meta = JSON.stringify({
       timestamp: Date.now(),
@@ -284,6 +286,11 @@ export async function loadOffline(): Promise<boolean> {
     // M53 Track B: Restore home customization
     if (state.homeCustomization) {
       deserializeHome(state.homeCustomization)
+    }
+
+    // M54 Track C: Restore exploration discoveries
+    if (state.explorationDiscoveries) {
+      deserializeDiscoveries(state.explorationDiscoveries)
     }
 
     // Restore position

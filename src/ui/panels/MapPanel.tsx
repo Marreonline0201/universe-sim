@@ -28,6 +28,7 @@ import { RESOURCE_NODES } from '../../world/ResourceNodeManager'
 import { terrainHeightAt, biomeColor } from '../../world/SpherePlanet'
 import { useCaveStore } from '../../store/caveStore'
 import { generateAllCaveChests, isChestAvailable } from '../../game/ChestSystem'
+import { generateAllDungeonRooms, isDungeonRoomActive } from '../../game/DungeonSystem'
 import { marketSystem } from '../../game/MarketSystem'
 import { merchantSystem } from '../../game/MerchantSystem'
 import { useSettlementQuestStore } from '../../store/settlementQuestStore'
@@ -537,6 +538,31 @@ export function MapPanel() {
         if (cx < -12 || cx > MAP_SIZE + 12 || cy < -12 || cy > MAP_SIZE + 12) continue
         const isHovered = i === hoveredWpIndex
         drawDiamond(ctx, cx, cy, isHovered ? 8 : 6, '#ffd700', isHovered ? '#fff' : 'rgba(255,200,0,0.7)')
+      }
+
+      // ── M36 Track B: Dungeon room markers (shown when underground) ───────────
+      if (underground) {
+        const allRooms = generateAllDungeonRooms()
+        ctx.font = '13px serif'
+        ctx.textAlign = 'center'
+        for (const room of allRooms) {
+          const [rx, ry] = worldToCanvas(room.position[0], room.position[2], px, pz, worldRange)
+          if (rx < -16 || rx > MAP_SIZE + 16 || ry < -16 || ry > MAP_SIZE + 16) continue
+          const active = isDungeonRoomActive(room)
+          ctx.globalAlpha = active ? 1.0 : 0.35
+          const icon = room.type === 'guardian'  ? '⚔'
+                     : room.type === 'puzzle'    ? '🧩'
+                     : room.type === 'shrine'    ? '🌟'
+                     : '☠'  // boss_lair
+          ctx.fillText(icon, rx, ry + 5)
+          // Label under icon
+          ctx.font = '8px monospace'
+          ctx.fillStyle = active ? '#eecc44' : '#888888'
+          ctx.fillText(active ? room.type : 'cleared', rx, ry + 16)
+          ctx.font = '13px serif'
+          ctx.fillStyle = '#fff'
+        }
+        ctx.globalAlpha = 1.0
       }
 
       // ── M33 Track C: Chest markers (shown when underground) ───────────────

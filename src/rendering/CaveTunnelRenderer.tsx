@@ -6,11 +6,13 @@
 //   A3 — Iron / crystal / coal resource meshes in chamber
 //   A4 — PointLights + glowing mushroom meshes in chamber
 // M33 Track C: Treasure chest meshes in chambers (common/rare/legendary tiers)
+// M36 Track B: Dungeon room meshes (guardian/puzzle/shrine/boss_lair)
 
 import { useMemo, useEffect, useState } from 'react'
 import * as THREE from 'three'
 import { getCaveEntrancePositions, CAVE_SEED } from './CaveEntrances'
 import { generateAllCaveChests, isChestAvailable, type TreasureChest } from '../game/ChestSystem'
+import { generateAllDungeonRooms, isDungeonRoomActive, type DungeonRoom } from '../game/DungeonSystem'
 
 // ── Seeded PRNG ───────────────────────────────────────────────────────────────
 function seededRandom(seed: number): () => number {
@@ -91,6 +93,28 @@ const ORE_TYPES = [
   { geo: () => new THREE.SphereGeometry(0.35, 5, 4), color: 0x1a1208, emissive: 0x331100, emissiveIntensity: 0.15, label: 'coal' },
 ] as const
 
+// ── Dungeon room geometry builders ────────────────────────────────────────────
+
+/** Build a displaced sphere for dungeon rooms (slightly bigger than main chamber). */
+function buildDungeonChamber(
+  center: THREE.Vector3,
+  radius: number,
+  rng: () => number,
+): THREE.BufferGeometry {
+  const geo = new THREE.SphereGeometry(radius, 8, 6)
+  const pos = geo.attributes.position
+  for (let i = 0; i < pos.count; i++) {
+    const ox = pos.getX(i), oy = pos.getY(i), oz = pos.getZ(i)
+    const n = (rng() - 0.5) * 2.4
+    const len = Math.sqrt(ox * ox + oy * oy + oz * oz)
+    if (len > 0.001) pos.setXYZ(i, ox + (ox / len) * n, oy + (oy / len) * n, oz + (oz / len) * n)
+  }
+  pos.needsUpdate = true
+  geo.computeVertexNormals()
+  geo.translate(center.x, center.y, center.z)
+  return geo
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function CaveTunnelRenderer() {
@@ -169,6 +193,56 @@ export function CaveTunnelRenderer() {
     () => new THREE.MeshStandardMaterial({ color: 0xffcc00, emissive: 0xffcc00, emissiveIntensity: 0.5 }),
     [],
   )
+
+  // ── M36 Track B: Dungeon room materials ─────────────────────────────────
+  // Shared chamber wall material (dark stone)
+  const dungeonChamberMat = useMemo(
+    () => new THREE.MeshStandardMaterial({ color: 0x0e0c10, roughness: 0.97, metalness: 0.0, side: THREE.BackSide }),
+    [],
+  )
+  // Stone pillar (guardian room)
+  const pillarMat = useMemo(
+    () => new THREE.MeshStandardMaterial({ color: 0x2a2830, roughness: 0.8, metalness: 0.15 }),
+    [],
+  )
+  // Pressure plate — inactive amber glow
+  const plateMat = useMemo(
+    () => new THREE.MeshStandardMaterial({ color: 0x3a2c00, emissive: 0xffaa00, emissiveIntensity: 0.25, roughness: 0.8 }),
+    [],
+  )
+  // Pressure plate — activated green
+  const plateActiveMat = useMemo(
+    () => new THREE.MeshStandardMaterial({ color: 0x003a10, emissive: 0x00ff88, emissiveIntensity: 0.45, roughness: 0.7 }),
+    [],
+  )
+  // Altar base
+  const altarMat = useMemo(
+    () => new THREE.MeshStandardMaterial({ color: 0x1a0a2e, roughness: 0.7, metalness: 0.3, emissive: 0x6600cc, emissiveIntensity: 0.2 }),
+    [],
+  )
+  // Boss lair floor decoration (bone/skulls represented as slightly bright stone)
+  const boneDecorMat = useMemo(
+    () => new THREE.MeshStandardMaterial({ color: 0xe8e0cc, roughness: 0.9, metalness: 0.0 }),
+    [],
+  )
+
+  // Shared geometries for dungeon room elements
+  const pillarGeo    = useMemo(() => new THREE.CylinderGeometry(0.5, 0.65, 4, 8), [])
+  const plateGeo     = useMemo(() => new THREE.BoxGeometry(1, 0.12, 1), [])
+  const altarBaseGeo = useMemo(() => new THREE.BoxGeometry(1.5, 1.2, 0.8), [])
+  const altarTopGeo  = useMemo(() => new THREE.BoxGeometry(0.8, 0.5, 0.5), [])
+  const boneGeo      = useMemo(() => new THREE.SphereGeometry(0.2, 5, 4), [])
+
+  // ── M36 Track B: Dungeon rooms ──────────────────────────────────────────
+  // Poll every 2s to pick up cleared/respawned rooms
+  const [dungeonTick, setDungeonTick] = useState(0)
+  useEffect(() => {
+    const id = setInterval(() => setDungeonTick(t => t + 1), 2000)
+    return () => clearInterval(id)
+  }, [])
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const allDungeonRooms: DungeonRoom[] = useMemo(() => generateAllDungeonRooms(), [dungeonTick])
 
   // ── Per-cave data ────────────────────────────────────────────────────────
   const caves = useMemo(() => {
@@ -305,6 +379,173 @@ export function CaveTunnelRenderer() {
           }
         </group>
       ))}
+
+      {/* M36 Track B: Dungeon room meshes */}
+      {allDungeonRooms.map(room => {
+        const pos = new THREE.Vector3(...room.position)
+        const active = isDungeonRoomActive(room)
+        const opacity = active ? 1.0 : 0.3
+
+        // Seeded RNG for deterministic pillar/decoration positions
+        const rngSeed = (room.caveIndex * 0x1000 + 0xD00B) >>> 0
+        let sr = rngSeed >>> 0
+        const lrng = () => {
+          sr |= 0; sr = sr + 0x6D2B79F5 | 0
+          let t = Math.imul(sr ^ (sr >>> 15), 1 | sr)
+          t = t + Math.imul(t ^ (t >>> 7), 61 | t) ^ t
+          return ((t ^ (t >>> 14)) >>> 0) / 0x100000000
+        }
+
+        // Shared: expanded chamber sphere (BackSide so player sees interior)
+        const chamberGeo = buildDungeonChamber(pos, room.radius, lrng)
+
+        return (
+          <group key={room.id} name={`dungeon-${room.id}`}>
+            {/* Chamber sphere */}
+            <mesh geometry={chamberGeo} material={dungeonChamberMat} />
+
+            {/* ── Guardian room ── */}
+            {room.type === 'guardian' && (
+              <>
+                {/* 4 stone pillars at cardinal points */}
+                {[0, 1, 2, 3].map(pi => {
+                  const a = (pi / 4) * Math.PI * 2
+                  return (
+                    <mesh
+                      key={pi}
+                      geometry={pillarGeo}
+                      material={pillarMat}
+                      position={[pos.x + Math.cos(a) * 5, pos.y, pos.z + Math.sin(a) * 5]}
+                    />
+                  )
+                })}
+                {/* Red torches at pillar bases */}
+                {[0, 1, 2, 3].map(pi => {
+                  const a = (pi / 4) * Math.PI * 2
+                  return (
+                    <pointLight
+                      key={pi}
+                      position={[pos.x + Math.cos(a) * 5, pos.y + 2, pos.z + Math.sin(a) * 5]}
+                      color="#ff2200"
+                      intensity={active ? 0.8 : 0.1}
+                      distance={8}
+                    />
+                  )
+                })}
+                {/* Legendary chest in room centre (locked until cleared) */}
+                {room.cleared && (
+                  <group position={[pos.x, pos.y, pos.z]}>
+                    <mesh geometry={chestGeo} material={chestLegendaryMat} />
+                    <pointLight color="#aa00ff" intensity={0.4} distance={3} />
+                  </group>
+                )}
+              </>
+            )}
+
+            {/* ── Puzzle room ── */}
+            {room.type === 'puzzle' && room.plates.map((plate, pi) => {
+              const platePos: [number, number, number] = [
+                pos.x + plate.offsetX,
+                pos.y,
+                pos.z + plate.offsetZ,
+              ]
+              const mat = plate.activated ? plateActiveMat : plateMat
+              return (
+                <group key={pi}>
+                  <mesh geometry={plateGeo} material={mat} position={platePos} />
+                  {plate.activated && (
+                    <pointLight
+                      position={platePos}
+                      color="#00ff88"
+                      intensity={0.4}
+                      distance={3}
+                    />
+                  )}
+                  {!plate.activated && (
+                    <pointLight
+                      position={platePos}
+                      color="#ffaa00"
+                      intensity={0.2}
+                      distance={2}
+                    />
+                  )}
+                </group>
+              )
+            })}
+
+            {/* ── Shrine room ── */}
+            {room.type === 'shrine' && (
+              <>
+                {/* Altar base + top block */}
+                <mesh geometry={altarBaseGeo} material={altarMat} position={[pos.x, pos.y + 0.6, pos.z]} />
+                <mesh geometry={altarTopGeo}  material={altarMat} position={[pos.x, pos.y + 1.45, pos.z]} />
+                {/* Purple glow */}
+                <pointLight
+                  position={[pos.x, pos.y + 2, pos.z]}
+                  color="#9900ff"
+                  intensity={active && !room.shrineUsed ? 1.0 : 0.15}
+                  distance={10}
+                />
+                {/* Particle sparkle — approximated with small glow spheres */}
+                {active && !room.shrineUsed && [0, 1, 2].map(si => (
+                  <mesh
+                    key={si}
+                    geometry={new THREE.SphereGeometry(0.06, 5, 4)}
+                    material={new THREE.MeshStandardMaterial({
+                      color: 0xcc88ff,
+                      emissive: 0xbb44ff,
+                      emissiveIntensity: 1.2,
+                    })}
+                    position={[
+                      pos.x + Math.cos((si / 3) * Math.PI * 2) * 0.5,
+                      pos.y + 1.8,
+                      pos.z + Math.sin((si / 3) * Math.PI * 2) * 0.5,
+                    ]}
+                  />
+                ))}
+              </>
+            )}
+
+            {/* ── Boss lair ── */}
+            {room.type === 'boss_lair' && (
+              <>
+                {/* Dark red ambient fog light */}
+                <pointLight
+                  position={[pos.x, pos.y, pos.z]}
+                  color="#440011"
+                  intensity={active ? 1.5 : 0.3}
+                  distance={22}
+                />
+                {/* Bone/skull decoration clusters */}
+                {[0, 1, 2, 3, 4].map(bi => {
+                  const ba = lrng() * Math.PI * 2
+                  const br = 4 + lrng() * 6
+                  return (
+                    <mesh
+                      key={bi}
+                      geometry={boneGeo}
+                      material={boneDecorMat}
+                      position={[
+                        pos.x + Math.cos(ba) * br,
+                        pos.y - 0.5,
+                        pos.z + Math.sin(ba) * br,
+                      ]}
+                      scale={[1.5 + lrng(), 1, 1.5 + lrng()]}
+                    />
+                  )
+                })}
+                {/* Boss slain → legendary loot chest */}
+                {room.cleared && (
+                  <group position={[pos.x, pos.y, pos.z]}>
+                    <mesh geometry={chestGeo} material={chestLegendaryMat} />
+                    <pointLight color="#ff4400" intensity={0.5} distance={4} />
+                  </group>
+                )}
+              </>
+            )}
+          </group>
+        )
+      })}
     </group>
   )
 }

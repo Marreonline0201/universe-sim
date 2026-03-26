@@ -53,6 +53,8 @@ import {
   findNearestTameableAnimal,
   attemptTameNearestAnimal,
   renameTamedAnimal,
+  spawnAnimal,
+  animalRegistry,
 } from '../ecs/systems/AnimalAISystem'
 
 import { inventory, buildingSystem, questSystem, combatSystem, achievementSystem, tutorialSystem, fishingSystem, merchantSystem } from './GameSingletons'
@@ -126,6 +128,18 @@ import { trySpawnBoss, damageBoss, currentBoss } from './BossSystem'
 // M35 Track C: Faction system
 import { useFactionStore } from '../store/factionStore'
 import { FACTIONS, getFactionRelationship, FACTION_IDS } from './FactionSystem'
+// M36 Track B: Dungeon room system
+import {
+  generateAllDungeonRooms,
+  isDungeonRoomActive,
+  activatePlate,
+  clearDungeonRoom,
+  resetDungeonRoom,
+  nextPlateInSequence,
+  CAVE_STALKER,
+  CAVE_BOSS,
+  type DungeonRoom,
+} from './DungeonSystem'
 
 // Register skill system with offline save manager for serialization
 registerSkillSystem(skillSystem)
@@ -207,6 +221,9 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
   // M35 Track C: faction war event timers
   const factionWarTimerRef      = useRef(0)  // seconds since last war check (fires every 60s)
   const factionHealTimerRef     = useRef(0)  // seconds since last settlement health tick (every 60s)
+  // M36 Track B: Dungeon room tracking
+  const dungeonRoomCheckRef     = useRef(0)  // seconds since last dungeon room respawn check (every 30s)
+  const puzzleResetCheckRef     = useRef<Record<string, number>>({}) // roomId → reset timestamp
 
   useFrame((_, delta) => {
     // Cap dt to avoid spiral-of-death on slow frames
@@ -641,6 +658,226 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
               window.dispatchEvent(new CustomEvent('chest-opened', {
                 detail: { tier: nearChest.tier, lootLines }
               }))
+            }
+          }
+        }
+      }
+    }
+
+    // ── M36 Track B: Dungeon room interactions ────────────────────────────────
+    {
+      const isUG = useCaveStore.getState().underground
+      if (isUG) {
+        const allRooms = generateAllDungeonRooms()
+        const uiSt = useUiStore.getState()
+        const pPos = new THREE.Vector3(px, py, pz)
+
+        // Periodic room-respawn check every 30s
+        dungeonRoomCheckRef.current += dt
+        if (dungeonRoomCheckRef.current > 30) {
+          dungeonRoomCheckRef.current = 0
+          for (const room of allRooms) {
+            if (room.cleared && Date.now() - room.clearedAt > room.respawnMs) {
+              resetDungeonRoom(room)
+            }
+          }
+        }
+
+        for (const room of allRooms) {
+          if (!isDungeonRoomActive(room)) continue
+
+          const rPos = new THREE.Vector3(...room.position)
+          const distToRoom = pPos.distanceTo(rPos)
+
+          // ── Guardian room ─────────────────────────────────────────────────
+          if (room.type === 'guardian') {
+            const triggerRadius = room.radius + 2
+            if (distToRoom < triggerRadius) {
+              // Show warning once per room visit
+              if (!room.warned) {
+                room.warned = true
+                uiSt.addNotification('⚠ Guardian Chamber — Enemies ahead', 'warning')
+              }
+              // Spawn guardian stalkers if not yet spawned
+              if (room.guardianIds.length === 0) {
+                for (let gi = 0; gi < room.guardianCount; gi++) {
+                  const angle = (gi / room.guardianCount) * Math.PI * 2
+                  const spawnX = rPos.x + Math.cos(angle) * 4
+                  const spawnY = rPos.y
+                  const spawnZ = rPos.z + Math.sin(angle) * 4
+                  // Spawn as elite wolves with cave stalker stats
+                  const stalker = spawnAnimal('wolf', spawnX, spawnY, spawnZ, 9999, rPos.x, rPos.y, rPos.z)
+                  stalker.health = CAVE_STALKER.hp
+                  stalker.maxHealth = CAVE_STALKER.maxHp
+                  stalker.elite = true
+                  stalker.eliteGlowColor = '#333344'
+                  room.guardianIds.push(stalker.id)
+                }
+              }
+              // Check if all guardians are dead
+              if (room.guardianIds.length > 0) {
+                const allDead = room.guardianIds.every(gid => {
+                  const g = animalRegistry.get(gid)
+                  return !g || g.behavior === 'DEAD' || g.health <= 0
+                })
+                if (allDead) {
+                  clearDungeonRoom(room)
+                  uiSt.addNotification('Guardian Chamber cleared! Legendary chest unlocked.', 'discovery')
+                  window.dispatchEvent(new CustomEvent('dungeon-room-cleared', { detail: { type: 'guardian', roomId: room.id } }))
+                }
+              }
+            }
+
+            // Open legendary chest (post-clear, player within 2m)
+            if (room.cleared) {
+              const isUnderground = useCaveStore.getState().underground
+              if (isUnderground && distToRoom < 2 && !gs.inputBlocked && gs.gatherPrompt === null) {
+                gs.setGatherPrompt('[F] Open Legendary Chest')
+                if (controllerRef.current?.popInteract()) {
+                  gs.setGatherPrompt(null)
+                  const lootLines = ['10x Iron Ore', '3x Velar Crystal', '+500 gold', 'Diamond Blade']
+                  inventory.addItem({ itemId: 0, materialId: 14, quantity: 10, quality: 0.9 }) // iron ore
+                  inventory.addItem({ itemId: 0, materialId: 40, quantity: 3,  quality: 1.0 }) // velar crystal
+                  usePlayerStore.getState().addGold(500)
+                  skillSystem.addXp('exploration', 100)
+                  uiSt.addNotification('Legendary loot obtained!', 'discovery')
+                  window.dispatchEvent(new CustomEvent('chest-opened', { detail: { tier: 'legendary', lootLines } }))
+                }
+              }
+            }
+          }
+
+          // ── Puzzle room ──────────────────────────────────────────────────
+          if (room.type === 'puzzle') {
+            const triggerRadius = room.radius + 4
+
+            if (distToRoom < triggerRadius && !gs.inputBlocked) {
+              // Show sequence hint if not solved
+              if (!room.cleared) {
+                const nextOrder = nextPlateInSequence(room)
+                const hintLabel = `Step on plates in order: ${room.plates.map(p => p.correctOrder).sort((a, b) => a - b).join('→')} (next: ${nextOrder})`
+                if (gs.gatherPrompt === null) gs.setGatherPrompt(hintLabel)
+
+                // Handle puzzle reset timer
+                if (room.puzzleResetAt > 0 && Date.now() > room.puzzleResetAt) {
+                  room.puzzleResetAt = 0
+                  uiSt.addNotification('Puzzle reset — wrong order!', 'warning')
+                }
+
+                // Check if player is stepping on a plate (within 1.2m of any plate)
+                for (let pi = 0; pi < room.plates.length; pi++) {
+                  const plate = room.plates[pi]
+                  if (plate.activated) continue
+                  const plateDx = (rPos.x + plate.offsetX) - px
+                  const plateDz = (rPos.z + plate.offsetZ) - pz
+                  const plateDist = Math.sqrt(plateDx * plateDx + plateDz * plateDz)
+                  if (plateDist < 1.2) {
+                    const result = activatePlate(room, pi)
+                    if (result === 'wrong') {
+                      uiSt.addNotification('Wrong plate! Puzzle resets in 3s…', 'warning')
+                    } else if (result === 'correct') {
+                      uiSt.addNotification(`Plate ${plate.correctOrder} activated!`, 'info')
+                    } else if (result === 'solved') {
+                      clearDungeonRoom(room)
+                      uiSt.addNotification('Puzzle solved! Chest unlocked!', 'discovery')
+                      skillSystem.addXp('exploration', 80)
+                      // Grant puzzle loot
+                      inventory.addItem({ itemId: 0, materialId: 14, quantity: 5, quality: 0.85 })
+                      usePlayerStore.getState().addGold(100)
+                      window.dispatchEvent(new CustomEvent('dungeon-room-cleared', { detail: { type: 'puzzle', roomId: room.id } }))
+                    }
+                    break
+                  }
+                }
+              }
+            }
+          }
+
+          // ── Shrine room ──────────────────────────────────────────────────
+          if (room.type === 'shrine') {
+            if (distToRoom < 3 && !gs.inputBlocked) {
+              if (room.shrineUsed) {
+                if (gs.gatherPrompt === null) gs.setGatherPrompt('[Shrine dimmed — returns in 20 min]')
+              } else {
+                if (gs.gatherPrompt === null) gs.setGatherPrompt('[E] Make offering: 5 Iron Ore → Skill XP Boost')
+                if (controllerRef.current?.popInteract()) {
+                  // Check iron ore (MAT.IRON_ORE = 14)
+                  let ironCount = 0
+                  const ironSlots: number[] = []
+                  for (let slot = 0; slot < 40; slot++) {
+                    const s = inventory.getSlot(slot)
+                    if (s && s.itemId === 0 && s.materialId === 14) {
+                      ironCount += s.quantity
+                      ironSlots.push(slot)
+                    }
+                  }
+                  if (ironCount >= 5) {
+                    // Consume 5 iron ore
+                    let toRemove = 5
+                    for (const slotIdx of ironSlots) {
+                      if (toRemove <= 0) break
+                      const s = inventory.getSlot(slotIdx)
+                      if (!s) continue
+                      const take = Math.min(toRemove, s.quantity)
+                      inventory.removeItem(slotIdx, take)
+                      toRemove -= take
+                    }
+                    // Grant +200 XP to a random non-maxed skill
+                    const skills: Array<'gathering' | 'crafting' | 'combat' | 'survival' | 'exploration' | 'smithing' | 'husbandry'> =
+                      ['gathering', 'crafting', 'combat', 'survival', 'exploration', 'smithing', 'husbandry']
+                    const chosen = skills[Math.floor(Math.random() * skills.length)]
+                    skillSystem.addXp(chosen, 200)
+                    room.shrineUsed = true
+                    room.shrineUsedAt = Date.now()
+                    gs.setGatherPrompt(null)
+                    uiSt.addNotification(`The shrine glows... +200 ${chosen.charAt(0).toUpperCase() + chosen.slice(1)} XP`, 'discovery')
+                    window.dispatchEvent(new CustomEvent('shrine-used', { detail: { skill: chosen, roomId: room.id } }))
+                  } else {
+                    uiSt.addNotification(`Need 5 Iron Ore — you have ${ironCount}`, 'warning')
+                    gs.setGatherPrompt(null)
+                  }
+                }
+              }
+            }
+          }
+
+          // ── Boss lair ────────────────────────────────────────────────────
+          if (room.type === 'boss_lair') {
+            if (distToRoom < room.radius + 4) {
+              if (room.bossAlive) {
+                // Spawn boss entity (wolf-body, max stats)
+                if (room.bossEntityId < 0) {
+                  const boss = spawnAnimal('wolf', rPos.x, rPos.y, rPos.z, 0, rPos.x, rPos.y, rPos.z)
+                  boss.health = CAVE_BOSS.maxHp
+                  boss.maxHealth = CAVE_BOSS.maxHp
+                  boss.elite = true
+                  boss.eliteGlowColor = '#660000'
+                  room.bossEntityId = boss.id
+                  room.bossHp = CAVE_BOSS.maxHp
+                  uiSt.addNotification(`⚠ ${CAVE_BOSS.name} awakens!`, 'warning')
+                }
+                // Sync hp from entity
+                const bossEntity = animalRegistry.get(room.bossEntityId)
+                if (bossEntity) {
+                  room.bossHp = bossEntity.health
+                }
+                if (!bossEntity || bossEntity.behavior === 'DEAD' || (bossEntity && bossEntity.health <= 0)) {
+                  // Boss defeated
+                  room.bossAlive = false
+                  clearDungeonRoom(room)
+                  // Drop unique loot
+                  inventory.addItem({ itemId: 0, materialId: 14, quantity: 5,  quality: 1.0 }) // iron ore
+                  inventory.addItem({ itemId: 0, materialId: 40, quantity: 3,  quality: 1.0 }) // velar crystal
+                  inventory.addItem({ itemId: 0, materialId: 5,  quantity: 8,  quality: 1.0 }) // coal
+                  usePlayerStore.getState().addGold(150)
+                  skillSystem.addXp('combat', 200)
+                  skillSystem.addXp('exploration', 100)
+                  uiSt.addNotification(`${CAVE_BOSS.name} defeated! Rare cave loot dropped!`, 'discovery')
+                  window.dispatchEvent(new CustomEvent('dungeon-room-cleared', { detail: { type: 'boss_lair', roomId: room.id } }))
+                }
+              } else if (room.cleared && distToRoom < 2 && gs.gatherPrompt === null) {
+                gs.setGatherPrompt('[F] Collect boss loot')
+              }
             }
           }
         }

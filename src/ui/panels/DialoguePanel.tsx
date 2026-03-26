@@ -205,6 +205,104 @@ const ROLE_DIALOGUE: Record<string, RoleDialogue> = {
       'Safe roads. And remember — I give the best rates in the region.',
     ],
   },
+  healer: {
+    greetings: [
+      'Come in, come in. Let me have a look at you.',
+      'Ah — you look like you could use some rest. Or perhaps a remedy?',
+      'My door is always open for those who need mending.',
+    ],
+    responses: [
+      'Rest is the best medicine, but herbs help too.',
+      'I have seen worse injuries. You will live.',
+      'The body remembers every wound. Treat it with respect.',
+      'Willow bark for pain, yarrow for bleeding. The old ways still hold.',
+      'Sleep is when the real healing happens. Do not underestimate it.',
+      'I trained under the herbalists of the western highlands. Long apprenticeship.',
+      'Some wounds you cannot see. Those are the hardest to treat.',
+      'Keep this poultice on for a day. No arguing about it.',
+    ],
+    farewells: [
+      'Take care of yourself out there. My door is always open.',
+      'Come back if that does not improve. No shame in needing help.',
+    ],
+  },
+  blacksmith: {
+    greetings: [
+      "Just give me a moment to set this down. What'll it be?",
+      'You catch me mid-forge. Talk quick or wait — I cannot leave the metal.',
+      'Need something made, or are you just here to watch?',
+    ],
+    responses: [
+      'Steel does not lie. Neither do I.',
+      'A dull blade is more dangerous than a sharp one. Remember that.',
+      'Iron is honest. You put in the work, you get the result. No shortcuts.',
+      'I can reforge that if you like. Bring it back when you have coin.',
+      'The bellows need fixing again. Third time this month.',
+      'Good metal is about the heat as much as the hammer. Timing is everything.',
+      'I apprenticed for four years before I was allowed near the good anvil.',
+      'That alloy you see on the wall? Mixed it myself. You will not find better.',
+    ],
+    farewells: [
+      'Come back with coin if you want something made.',
+      'Clear the floor — I need to get back to it.',
+    ],
+  },
+  smith: {
+    greetings: [
+      "Just give me a moment to set this down. What'll it be?",
+      'You catch me mid-forge. Talk quick or wait — I cannot leave the metal.',
+      'Need something made, or are you just here to watch?',
+    ],
+    responses: [
+      'Steel does not lie. Neither do I.',
+      'A dull blade is more dangerous than a sharp one. Remember that.',
+      'Iron is honest. You put in the work, you get the result. No shortcuts.',
+      'I can reforge that if you like. Bring it back when you have coin.',
+      'Good metal is about the heat as much as the hammer. Timing is everything.',
+    ],
+    farewells: [
+      'Come back with coin if you want something made.',
+      'Clear the floor — I need to get back to it.',
+    ],
+  },
+  scholar: {
+    greetings: [
+      'Ah — a visitor. Unusual. Most people avoid the library.',
+      'Careful with the books. Some of those are older than the settlement.',
+      'Knowledge is the only currency that multiplies when you spend it. Come in.',
+    ],
+    responses: [
+      'The answer to your question is almost certainly in here somewhere.',
+      'I have been cataloguing the eastern expedition journals. Fascinating accounts.',
+      'Most people ask the wrong questions. You seem different. Perhaps.',
+      'There are three versions of that history. All of them are probably wrong.',
+      'Do not believe everything written down. Scribes have biases too.',
+      'I studied under the Academy for twelve years. Then I realized they knew less than they claimed.',
+      'The older the text, the more carefully you must read it.',
+      'Come back tomorrow. I may have found what you were looking for.',
+    ],
+    farewells: [
+      'Return if you have more questions. Or interesting books to donate.',
+      'Mind the step. And try not to disturb the reading room.',
+    ],
+  },
+  librarian: {
+    greetings: [
+      'Careful with the books. Some of those are older than the settlement.',
+      'Knowledge is the only currency that multiplies when you spend it. Come in.',
+      'Ah — a visitor. Unusual. Most people avoid the library.',
+    ],
+    responses: [
+      'The answer to your question is almost certainly in here somewhere.',
+      'I have been cataloguing the eastern expedition journals. Fascinating accounts.',
+      'Do not believe everything written down. Scribes have biases too.',
+      'There are three versions of that history. All of them are probably wrong.',
+    ],
+    farewells: [
+      'Return if you have more questions.',
+      'Mind the step on the way out.',
+    ],
+  },
 }
 
 // ── Dialogue helpers ─────────────────────────────────────────────────────────

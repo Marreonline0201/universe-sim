@@ -42,6 +42,8 @@ import { PartyHUD } from './PartyHUD'
 import { SpectateMode } from './SpectateMode'
 // M40 Track B: Magic spell system
 const SpellBar = lazy(() => import('./SpellBar').then(m => ({ default: m.SpellBar })))
+// M39 Track C: Civilization progression banners
+import { useCivStore, CIV_LEVEL_LABELS, CIV_LEVEL_ICONS } from '../store/civStore'
 
 // ── M20: Lazy-loaded overlays (rarely shown) ─────────────────────────────────
 const FirstContactOverlay = lazy(() => import('./FirstContactOverlay').then(m => ({ default: m.FirstContactOverlay })))
@@ -176,6 +178,56 @@ function WarmthBar({ warmth }: { warmth: number }) {
       }}>
         {Math.round(clamped)}
       </span>
+    </div>
+  )
+}
+
+// ── M39 Track C: Civ level-up and milestone banners ──────────────────────────
+
+function CivLevelUpBanner() {
+  const pendingLevelUp = useCivStore(s => s.pendingLevelUp)
+  const dismissLevelUp = useCivStore(s => s.dismissLevelUp)
+  useEffect(() => {
+    if (!pendingLevelUp) return
+    const id = setTimeout(dismissLevelUp, 6000)
+    return () => clearTimeout(id)
+  }, [pendingLevelUp, dismissLevelUp])
+  if (!pendingLevelUp) return null
+  return (
+    <div style={{
+      position: 'fixed', top: 0, left: 0, right: 0, zIndex: 300,
+      background: 'linear-gradient(90deg, #7c3f00, #cd7f32, #7c3f00)',
+      color: '#fff', fontFamily: 'monospace', textAlign: 'center',
+      padding: '10px 0', fontSize: 15, letterSpacing: 2, fontWeight: 700,
+      borderBottom: '2px solid #cd7f32',
+    }}>
+      {CIV_LEVEL_ICONS[pendingLevelUp]} AGE ADVANCED — {CIV_LEVEL_LABELS[pendingLevelUp].toUpperCase()} {CIV_LEVEL_ICONS[pendingLevelUp]}
+    </div>
+  )
+}
+
+function CivMilestoneBanner() {
+  const [banner, setBanner] = useState<{ title: string; description: string } | null>(null)
+  useEffect(() => {
+    function onMilestone(e: Event) {
+      const { title, description } = (e as CustomEvent).detail
+      setBanner({ title, description })
+      setTimeout(() => setBanner(null), 5000)
+    }
+    window.addEventListener('civ-milestone', onMilestone)
+    return () => window.removeEventListener('civ-milestone', onMilestone)
+  }, [])
+  if (!banner) return null
+  return (
+    <div style={{
+      position: 'fixed', top: 44, left: '50%', transform: 'translateX(-50%)',
+      background: 'rgba(10,10,10,0.92)', border: '1px solid #cd7f32',
+      borderRadius: 6, padding: '8px 20px', zIndex: 299,
+      color: '#fff', fontFamily: 'monospace', textAlign: 'center',
+      fontSize: 12, letterSpacing: 1,
+    }}>
+      <div style={{ color: '#cd7f32', fontWeight: 700, marginBottom: 2 }}>⚙ {banner.title}</div>
+      <div style={{ color: '#aaa' }}>{banner.description}</div>
     </div>
   )
 }
@@ -2179,7 +2231,7 @@ export function HUD() {
           <RustVitalBar value={1 - hunger}  color="#e67e22" icon="◆" label="Food"     />
           <RustVitalBar value={1 - thirst}  color="#2980b9" icon="~" label="Water"    />
           <RustVitalBar value={energy}      color="#27ae60" icon="⚡" label="Energy"  />
-          <RustVitalBar value={1 - fatigue} color="#8e44ad" icon="●" label="Stamina"  />
+          <RustVitalBar value={1 - fatigue} color="#8e44ad" icon="●" label="Endurance" />
           {/* M29 Track B: Warmth bar */}
           <WarmthBar warmth={warmth} />
           {/* M38 Track B: Stamina bar */}
@@ -2544,6 +2596,10 @@ export function HUD() {
 
       {/* ── M37 Track A: World event banner + indicator + history ── */}
       <WorldEventHUD />
+
+      {/* ── M39 Track C: Civilization level-up and milestone banners ── */}
+      <CivLevelUpBanner />
+      <CivMilestoneBanner />
 
       {/* ── M32 Track C: Fast travel fade-to-black overlay ── */}
       <div style={{

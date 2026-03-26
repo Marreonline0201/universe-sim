@@ -124,6 +124,8 @@ import { CreatureBody } from '../ecs/world'
 import { skillSystem } from './SkillSystem'
 import { saveOffline, registerSkillSystem, registerQuestSystem, registerAchievementSystem, registerTutorialSystem } from './OfflineSaveManager'
 import { useSettlementQuestStore } from '../store/settlementQuestStore'
+import { useCivStore } from '../store/civStore'
+import { checkAndFireMilestones } from './CivMilestoneSystem'
 // M33 Track B: Food buff system
 import { consumeFood, tickFoodBuffs } from './FoodBuffSystem'
 // M34 Track B: Boss system
@@ -224,6 +226,7 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
   const evoUnlockedRef          = useRef(-1)  // -1 triggers base stats on first frame
   const fwdVec                  = useRef(new THREE.Vector3())
   const settlementCheckTimerRef = useRef(0)   // M6: seconds since last proximity check
+  const civTierTimerRef         = useRef(0)   // M39 Track C: seconds since last civ tier sync
   const ecosystemTimerRef       = useRef(0)   // M9: seconds since last ecosystem respawn check
   const fishingStateRef         = useRef<'idle'|'waiting'|'bite'>('idle')  // M10 Track B
   const offlineSaveTimerRef     = useRef(0)    // M22: auto-save every 60s
@@ -1219,7 +1222,7 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
               npcSettlementId = String(sett.id)
             }
           }
-          const NPC_ROLES = ['villager', 'guard', 'elder', 'trader', 'artisan', 'scout']
+          const NPC_ROLES = ['villager', 'guard', 'elder', 'trader', 'artisan', 'scout', 'healer', 'blacksmith', 'scholar']
           const npcRole = NPC_ROLES[closestNpc.id % NPC_ROLES.length]
           const isMerchant = npcRole === 'trader'
           // M38: Use seeded NPC names (consistent per settlement+role)
@@ -2146,6 +2149,16 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
         // M35 Track C: ensure all settlements have faction assignments
         const settlementIds = Array.from(settlementStore.settlements.keys())
         useFactionStore.getState().assignSettlementFactions(settlementIds)
+        // M39 Track C: sync civilization tier from settlement civLevels
+        civTierTimerRef.current += dt
+        if (civTierTimerRef.current >= 5) {
+          civTierTimerRef.current = 0
+          let totalTier = 0
+          for (const s of settlementStore.settlements.values()) totalTier += (s.civLevel ?? 0)
+          const civState = useCivStore.getState()
+          civState.setTotalTier(totalTier)
+          checkAndFireMilestones(civState.civLevel)
+        }
         let nearestId: number | null = null
         let nearestDistSq = Infinity
         for (const s of settlementStore.settlements.values()) {

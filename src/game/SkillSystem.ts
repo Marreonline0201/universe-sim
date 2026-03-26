@@ -224,7 +224,12 @@ export class SkillSystem {
       const { usePartyStore } = require('../store/partyStore') as typeof import('../store/partyStore')
       partyBonus = usePartyStore.getState().getXpBonus()
     } catch { /* party system not loaded */ }
-    s.xp += amount * baseMultiplier * prestigeXpBonus * partyBonus
+    let civXpBonus = 1.0
+    try {
+      const { getSkillXpMultiplier } = require('./CivMilestoneSystem') as typeof import('./CivMilestoneSystem')
+      civXpBonus = getSkillXpMultiplier()
+    } catch { /* civ system not loaded */ }
+    s.xp += amount * baseMultiplier * prestigeXpBonus * partyBonus * civXpBonus
 
     // Check for level up
     while (s.level < 10 && s.xp >= XP_THRESHOLDS[s.level + 1]) {

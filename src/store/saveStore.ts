@@ -6,6 +6,7 @@ import { usePlayerStore } from './playerStore'
 import { useGameStore } from './gameStore'
 import { inventory, journal, buildingSystem } from '../game/GameSingletons'
 import { skillSystem } from '../game/SkillSystem'
+import { useSkillStore } from './skillStore'
 import { Health, Metabolism, Position } from '../ecs/world'
 import { rapierWorld } from '../physics/RapierWorld'
 import { PLANET_RADIUS } from '../world/SpherePlanet'
@@ -84,6 +85,11 @@ export async function loadSave(getToken: () => Promise<string | null>) {
     skillSystem.deserialize(data.skills)
   }
 
+  // M36: Skill tree nodes, skill points, prestige
+  if (data.skillTree) {
+    useSkillStore.getState().deserialize(data.skillTree)
+  }
+
   // Slice 5: Wounds — restore active infections so logout doesn't reset them.
   // Skip restoring wounds when the save had 0 HP (player died before saving); those
   // wounds caused the death and should not persist into the fresh load.
@@ -150,6 +156,7 @@ export async function saveGame(getToken: () => Promise<string | null>, username:
       smithingXp:  ps.smithingXp,
       wounds:      ps.wounds,
       skills:      skillSystem.serialize(),
+      skillTree:   useSkillStore.getState().serialize(),
     }),
   })
 }

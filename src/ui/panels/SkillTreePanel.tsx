@@ -14,6 +14,7 @@ const BONUS_DESCRIPTIONS: Record<SkillId, (level: number) => string> = {
   survival: (l) => l > 0 ? `-${l * 3}% hunger/thirst drain` : 'Slow hunger and thirst drain',
   exploration: (l) => l > 0 ? `+${l * 5}% reveal range, +${(l * 1.5).toFixed(1)}% speed` : 'Move faster, reveal more map',
   smithing: (l) => l > 0 ? `+${(l * 2.5).toFixed(1)}% smithing quality` : 'Improve smithed item quality',
+  husbandry: (l) => l > 0 ? `+${l * 5}% taming success chance` : 'Improve taming success chance',
 }
 
 export function SkillTreePanel() {

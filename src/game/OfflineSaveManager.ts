@@ -19,6 +19,7 @@
 
 import { usePlayerStore } from '../store/playerStore'
 import { useGameStore } from '../store/gameStore'
+import { useSkillStore } from '../store/skillStore'
 import { inventory, journal, buildingSystem } from './GameSingletons'
 import { Health, Metabolism, Position } from '../ecs/world'
 import { rapierWorld } from '../physics/RapierWorld'
@@ -123,6 +124,7 @@ export async function saveOffline(): Promise<boolean> {
       wounds: ps.wounds,
       gold: ps.gold,
       skills: _skillSystem ? _skillSystem.serialize() : null,
+      skillTree: useSkillStore.getState().serialize(),
       quests: _questSystem ? _questSystem.serialize() : null,
       achievements: _achievementSystem ? _achievementSystem.serialize() : null,
       tutorialStep: _tutorialSystem ? _tutorialSystem.serialize() : null,
@@ -229,6 +231,11 @@ export async function loadOffline(): Promise<boolean> {
     // Restore skills
     if (state.skills && _skillSystem) {
       _skillSystem.deserialize(state.skills)
+    }
+
+    // M36: Restore skill tree nodes, points, prestige
+    if (state.skillTree) {
+      useSkillStore.getState().deserialize(state.skillTree)
     }
 
     // Restore quest progress (M23)

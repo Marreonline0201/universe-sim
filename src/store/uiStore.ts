@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 
-export type PanelId = 'inventory' | 'crafting' | 'journal' | 'character' | 'map' | 'settings' | 'build' | 'science' | 'dialogue' | 'skills' | 'quests' | 'achievements' | 'fishing' | 'merchant' | 'players' | 'home' | 'factions' | 'buildings' | 'progression' | 'alchemy' | 'tradepost' | 'forge'
+export type PanelId = 'inventory' | 'crafting' | 'journal' | 'character' | 'map' | 'settings' | 'build' | 'science' | 'dialogue' | 'skills' | 'quests' | 'achievements' | 'fishing' | 'merchant' | 'players' | 'home' | 'factions' | 'buildings' | 'progression' | 'alchemy' | 'tradepost' | 'forge' | 'housing'
 
 // ── M32 Track C: Fast travel ──────────────────────────────────────────────────
 export interface FastTravelTarget {
@@ -76,6 +76,10 @@ interface UiState {
   // M32 Track C: Screen fade overlay (fade-to-black for travel animation)
   travelFading: boolean
   setTravelFading: (v: boolean) => void
+
+  // M44 Track B: Housing panel
+  housingOpen: boolean
+  toggleHousing: () => void
 }
 
 export const useUiStore = create<UiState>((set) => ({
@@ -148,4 +152,9 @@ export const useUiStore = create<UiState>((set) => ({
   // M32 Track C: Fade overlay
   travelFading: false,
   setTravelFading: (v) => set({ travelFading: v }),
+
+  // M44 Track B: Housing panel
+  housingOpen: false,
+  toggleHousing: () =>
+    set((s) => ({ activePanel: s.activePanel === 'housing' ? null : 'housing', housingOpen: s.activePanel !== 'housing' })),
 }))

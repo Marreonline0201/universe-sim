@@ -60,6 +60,8 @@ const ReputationToast = lazy(() => import('./ReputationToast').then(m => ({ defa
 const FirstContactOverlay = lazy(() => import('./FirstContactOverlay').then(m => ({ default: m.FirstContactOverlay })))
 // M44 Track A: Dungeon loot drop overlay
 const LootOverlay = lazy(() => import('./panels/LootOverlay').then(m => ({ default: m.LootOverlay })))
+// M46 Track B: Settlement siege HUD
+const SiegeHUD = lazy(() => import('./panels/SiegeHUD').then(m => ({ default: m.SiegeHUD })))
 
 // ── Armor slot visual constants ────────────────────────────────────────────────
 const STEEL_BLUE = '#4a9eff'
@@ -2647,6 +2649,11 @@ export function HUD() {
       <FactionBadgeWidget />
       <SettlementTerritoryBanner />
       <RaidAlertBanner />
+
+      {/* ── M46 Track B: Settlement siege HUD banner ── */}
+      <Suspense fallback={null}>
+        <SiegeHUD />
+      </Suspense>
 
       {/* ── M34 Track B: World boss alerts ── */}
       <BossSpawnAlert />

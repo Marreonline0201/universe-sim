@@ -176,6 +176,8 @@ import { useReputationStore } from '../store/reputationStore'
 import { marketSystem } from './MarketSystem'
 // M43 Track C: Map exploration + fog of war
 import { useExplorationStore } from '../store/explorationStore'
+// M46 Track B: Settlement siege events
+import { tickSiege, startSiege, activeSiege } from './SiegeSystem'
 
 // Register skill system with offline save manager for serialization
 registerSkillSystem(skillSystem)
@@ -280,6 +282,8 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
   const explorationTimerRef = useRef(0)
   // M43 Track C: Cave discovery dedup — set of cave IDs already discovered
   const discoveredCaveIdsRef = useRef<Set<string>>(new Set())
+  // M46 Track B: Siege trigger timer — check every 600s (10 minutes)
+  const siegeTriggerTimerRef = useRef(0)
 
   useFrame((_, delta) => {
     // Cap dt to avoid spiral-of-death on slow frames
@@ -3131,6 +3135,42 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
               }
             }
           }
+        }
+      }
+    }
+
+    // ── M46 Track B: Siege system tick + trigger ──────────────────────────────
+    {
+      // Tick active siege every frame
+      tickSiege(dt * 1000)
+
+      // Every 10 minutes, randomly start a siege against a qualifying settlement
+      const SIEGE_TRIGGER_INTERVAL = 600  // seconds
+      const SIEGE_CHANCE = 0.05           // 5% per eligible settlement per check
+      siegeTriggerTimerRef.current += dt
+      if (siegeTriggerTimerRef.current >= SIEGE_TRIGGER_INTERVAL && activeSiege === null) {
+        siegeTriggerTimerRef.current = 0
+        const settStore46 = useSettlementStore.getState()
+        const fStore46 = useFactionStore.getState()
+        const eligible = Array.from(settStore46.settlements.values()).filter(s => (s.civLevel ?? 0) >= 2)
+        for (const s of eligible) {
+          if (Math.random() > SIEGE_CHANCE) continue
+          // Pick a hostile faction (one that is at war with the settlement's faction)
+          const sF = fStore46.getSettlementFaction(s.id)
+          if (!sF) continue
+          const hostileFactions = FACTION_IDS.filter(fId => {
+            if (fId === sF) return false
+            return FACTIONS[fId].relationship[sF] === 'war'
+          })
+          if (hostileFactions.length === 0) continue
+          const attacker = hostileFactions[Math.floor(Math.random() * hostileFactions.length)]
+          const intensity = (Math.floor(Math.random() * 3) + 1) as 1 | 2 | 3
+          startSiege(s.id, attacker, intensity)
+          useUiStore.getState().addNotification(
+            `[SIEGE] ${FACTIONS[attacker].icon} ${FACTIONS[attacker].name} is besieging ${s.name}!`,
+            'warning'
+          )
+          break  // Only one siege at a time
         }
       }
     }

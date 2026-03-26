@@ -177,6 +177,15 @@ export function MapPanel() {
   const terrainCacheRef    = useRef<string[]>([])
   const lastSamplePosRef   = useRef({ x: 0, z: 0, range: 0 })
 
+  // ── Fog of war offscreen canvas (created once, reused each frame) ─────────
+  const fogCanvasRef = useRef<HTMLCanvasElement | null>(null)
+  useEffect(() => {
+    const fc = document.createElement('canvas')
+    fc.width  = MAP_SIZE
+    fc.height = MAP_SIZE
+    fogCanvasRef.current = fc
+  }, [])
+
   // ── Waypoint hover state ──────────────────────────────────────────────────
   const [hoveredWpIndex, setHoveredWpIndex] = useState<number>(-1)
   const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number } | null>(null)
@@ -416,38 +425,59 @@ export function MapPanel() {
       }
 
       // ── A1: Fog of war overlay (visited cells punch holes) ─────────────────
-      // Draw full black fog, then use destination-out to cut revealed circles
-      const fogCanvas = document.createElement('canvas')
-      fogCanvas.width  = MAP_SIZE
-      fogCanvas.height = MAP_SIZE
-      const fogCtx = fogCanvas.getContext('2d')!
+      // Reuse offscreen canvas created once in useEffect (avoids per-frame GC / context limit)
+      const fogCanvas = fogCanvasRef.current
+      if (fogCanvas) {
+        const fogCtx = fogCanvas.getContext('2d')
+        if (fogCtx) {
+          fogCtx.globalCompositeOperation = 'source-over'
+          fogCtx.clearRect(0, 0, MAP_SIZE, MAP_SIZE)
+          fogCtx.fillStyle = 'rgba(0,0,0,0.82)'
+          fogCtx.fillRect(0, 0, MAP_SIZE, MAP_SIZE)
 
-      // Fill fog
-      fogCtx.fillStyle = 'rgba(0,0,0,0.82)'
-      fogCtx.fillRect(0, 0, MAP_SIZE, MAP_SIZE)
+          fogCtx.globalCompositeOperation = 'destination-out'
+          const revealPx = FOG_REVEAL_WORLD * (MAP_SIZE / 2 / worldRange)
 
-      // Cut holes for each visited cell
-      fogCtx.globalCompositeOperation = 'destination-out'
-      const revealPx = FOG_REVEAL_WORLD * (MAP_SIZE / 2 / worldRange)
-      for (const key of visitedCellsRef.current) {
-        const [gxStr, gzStr] = key.split(',')
-        const cellWorldX = (parseInt(gxStr) + 0.5) * FOG_CELL_WORLD
-        const cellWorldZ = (parseInt(gzStr) + 0.5) * FOG_CELL_WORLD
-        const [cx, cy] = worldToCanvas(cellWorldX, cellWorldZ, px, pz, worldRange)
-        // Only bother drawing if on canvas
-        if (cx < -revealPx * 2 || cx > MAP_SIZE + revealPx * 2) continue
-        if (cy < -revealPx * 2 || cy > MAP_SIZE + revealPx * 2) continue
-        const grad = fogCtx.createRadialGradient(cx, cy, 0, cx, cy, revealPx)
-        grad.addColorStop(0,   'rgba(0,0,0,1)')
-        grad.addColorStop(0.6, 'rgba(0,0,0,1)')
-        grad.addColorStop(1,   'rgba(0,0,0,0)')
-        fogCtx.fillStyle = grad
-        fogCtx.beginPath()
-        fogCtx.arc(cx, cy, revealPx, 0, Math.PI * 2)
-        fogCtx.fill()
+          // Old fog system: uiStore visitedCells (FOG_CELL_WORLD=32 grid)
+          for (const key of visitedCellsRef.current) {
+            const [gxStr, gzStr] = key.split(',')
+            const cellWorldX = (parseInt(gxStr) + 0.5) * FOG_CELL_WORLD
+            const cellWorldZ = (parseInt(gzStr) + 0.5) * FOG_CELL_WORLD
+            const [cx, cy] = worldToCanvas(cellWorldX, cellWorldZ, px, pz, worldRange)
+            if (cx < -revealPx * 2 || cx > MAP_SIZE + revealPx * 2) continue
+            if (cy < -revealPx * 2 || cy > MAP_SIZE + revealPx * 2) continue
+            const grad = fogCtx.createRadialGradient(cx, cy, 0, cx, cy, revealPx)
+            grad.addColorStop(0,   'rgba(0,0,0,1)')
+            grad.addColorStop(0.6, 'rgba(0,0,0,1)')
+            grad.addColorStop(1,   'rgba(0,0,0,0)')
+            fogCtx.fillStyle = grad
+            fogCtx.beginPath()
+            fogCtx.arc(cx, cy, revealPx, 0, Math.PI * 2)
+            fogCtx.fill()
+          }
+
+          // New exploration system: explorationStore cells (EXPLORATION_CELL_SIZE=50 grid)
+          const exploredSnap = useExplorationStore.getState().exploredCells
+          for (const key of exploredSnap) {
+            const [gxStr, gzStr] = key.split(',')
+            const cellWorldX = (parseInt(gxStr) + 0.5) * EXPLORATION_CELL_SIZE
+            const cellWorldZ = (parseInt(gzStr) + 0.5) * EXPLORATION_CELL_SIZE
+            const [cx, cy] = worldToCanvas(cellWorldX, cellWorldZ, px, pz, worldRange)
+            if (cx < -revealPx * 2 || cx > MAP_SIZE + revealPx * 2) continue
+            if (cy < -revealPx * 2 || cy > MAP_SIZE + revealPx * 2) continue
+            const grad = fogCtx.createRadialGradient(cx, cy, 0, cx, cy, revealPx)
+            grad.addColorStop(0,   'rgba(0,0,0,1)')
+            grad.addColorStop(0.6, 'rgba(0,0,0,1)')
+            grad.addColorStop(1,   'rgba(0,0,0,0)')
+            fogCtx.fillStyle = grad
+            fogCtx.beginPath()
+            fogCtx.arc(cx, cy, revealPx, 0, Math.PI * 2)
+            fogCtx.fill()
+          }
+
+          ctx.drawImage(fogCanvas, 0, 0)
+        }
       }
-
-      ctx.drawImage(fogCanvas, 0, 0)
 
       // ── Resource node dots (only in revealed area) ─────────────────────────
       for (const node of RESOURCE_NODES) {

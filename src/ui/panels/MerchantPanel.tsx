@@ -89,21 +89,22 @@ function BuyTab({ archetype, settlementId, settlementNumId }: {
       addNotification(`Not enough gold to buy ${name} (need ${paidPrice}💰)`, 'warning')
       return
     }
-    let allAdded = true
+    let unitsAdded = 0
     for (let i = 0; i < qty; i++) {
       const added = inventory.addItem({ itemId, materialId, quantity: 1, quality: 0.8, rarity: 0 })
       if (!added) {
-        // Refund remaining
-        addGold(paidPrice - Math.round((paidPrice / qty) * i))
+        // Refund remaining units
+        addGold(paidPrice - Math.round((paidPrice / qty) * unitsAdded))
         addNotification('Inventory full — purchase stopped', 'warning')
-        allAdded = false
         break
       }
+      unitsAdded++
     }
-    if (allAdded) {
-      marketSystem.recordPurchase(settlementId, materialId, qty, itemId)
+    if (unitsAdded > 0) {
+      // Always record purchase for however many units were actually received
+      marketSystem.recordPurchase(settlementId, materialId, unitsAdded, itemId)
       addNotification(
-        `Bought ${qty > 1 ? `${qty}× ` : ''}${name} for ${paidPrice}💰`,
+        `Bought ${unitsAdded > 1 ? `${unitsAdded}× ` : ''}${name} for ${Math.round((paidPrice / qty) * unitsAdded)}💰`,
         'info',
       )
     }

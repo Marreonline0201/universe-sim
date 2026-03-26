@@ -183,6 +183,96 @@ export function getNPCName(settlementId: number, role: string, roleIndex: number
   return `${title} ${firstName}`
 }
 
+// ── M46 Track A: NPC Schedules and Daily Routines ──────────────────────────────
+
+export type TimeOfDay = 'dawn' | 'morning' | 'afternoon' | 'evening' | 'night'
+
+/**
+ * Map an in-game hour (0–24) to a named time of day.
+ * dawn: 5–7, morning: 7–12, afternoon: 12–17, evening: 17–21, night: 21–5
+ */
+export function getTimeOfDay(gameHour: number): TimeOfDay {
+  if (gameHour >= 5  && gameHour < 7)  return 'dawn'
+  if (gameHour >= 7  && gameHour < 12) return 'morning'
+  if (gameHour >= 12 && gameHour < 17) return 'afternoon'
+  if (gameHour >= 17 && gameHour < 21) return 'evening'
+  return 'night'
+}
+
+export type NpcSchedule = Record<TimeOfDay, { location: string; activity: string }>
+
+export const NPC_ROLE_SCHEDULES: Record<string, NpcSchedule> = {
+  villager: {
+    dawn:      { location: 'home',        activity: 'waking up' },
+    morning:   { location: 'the fields',  activity: 'working fields' },
+    afternoon: { location: 'marketplace', activity: 'visiting the marketplace' },
+    evening:   { location: 'the tavern',  activity: 'relaxing at the tavern' },
+    night:     { location: 'home',        activity: 'sleeping' },
+  },
+  guard: {
+    dawn:      { location: 'the gate',    activity: 'on duty at the gate' },
+    morning:   { location: 'on patrol',   activity: 'patrolling the settlement' },
+    afternoon: { location: 'the wall',    activity: 'watching from the wall' },
+    evening:   { location: 'on patrol',   activity: 'evening patrol' },
+    night:     { location: 'the gate',    activity: 'guarding the gate' },
+  },
+  trader: {
+    dawn:      { location: 'the storeroom', activity: 'restocking goods' },
+    morning:   { location: 'the stall',     activity: 'open for business' },
+    afternoon: { location: 'the stall',     activity: 'open for business' },
+    evening:   { location: 'the stall',     activity: 'closing up for the day' },
+    night:     { location: 'home',          activity: 'sleeping' },
+  },
+  healer: {
+    dawn:      { location: 'the herb garden', activity: 'tending the herb garden' },
+    morning:   { location: 'the clinic',      activity: 'seeing patients' },
+    afternoon: { location: 'the clinic',      activity: 'tending to the sick' },
+    evening:   { location: 'the ward',        activity: 'doing evening rounds' },
+    night:     { location: 'quarters',        activity: 'resting' },
+  },
+  blacksmith: {
+    dawn:      { location: 'the forge',    activity: 'stoking the forge' },
+    morning:   { location: 'the forge',    activity: 'forging metalwork' },
+    afternoon: { location: 'the forge',    activity: 'forging metalwork' },
+    evening:   { location: 'the smithy',   activity: 'cleaning up the smithy' },
+    night:     { location: 'home',         activity: 'sleeping' },
+  },
+  scholar: {
+    dawn:      { location: 'the study',   activity: 'studying before dawn' },
+    morning:   { location: 'the library', activity: 'researching in the library' },
+    afternoon: { location: 'the hall',    activity: 'teaching students' },
+    evening:   { location: 'the study',   activity: 'writing notes' },
+    night:     { location: 'the study',   activity: 'studying late into the night' },
+  },
+  elder: {
+    dawn:      { location: 'council hall', activity: 'in quiet reflection' },
+    morning:   { location: 'council hall', activity: 'receiving petitioners' },
+    afternoon: { location: 'council hall', activity: 'holding council' },
+    evening:   { location: 'council hall', activity: 'reviewing settlement matters' },
+    night:     { location: 'council hall', activity: 'in late deliberation' },
+  },
+}
+
+const DEFAULT_NPC_SCHEDULE: NpcSchedule = NPC_ROLE_SCHEDULES.villager
+
+/**
+ * Get the location and activity for an NPC role at a given in-game hour.
+ */
+export function getNpcActivity(role: string, gameHour: number): { location: string; activity: string } {
+  const tod = getTimeOfDay(gameHour)
+  const key = role.trim().toLowerCase()
+  const schedule = NPC_ROLE_SCHEDULES[key] ?? DEFAULT_NPC_SCHEDULE
+  return schedule[tod]
+}
+
+/**
+ * Returns a human-readable schedule hint, e.g. "Currently: working fields at the marketplace"
+ */
+export function getNpcScheduleDesc(role: string, gameHour: number): string {
+  const { activity, location } = getNpcActivity(role, gameHour)
+  return `Currently: ${activity} at ${location}`
+}
+
 /**
  * Get a human-readable description of the current NPC activity.
  */

@@ -22,7 +22,7 @@ import { inventory } from '../../game/GameSingletons'
 import { skillSystem } from '../../game/SkillSystem'
 // M38 Track A: NPC memory + schedule
 import { useNPCMemoryStore } from '../../store/npcMemoryStore'
-import { getCurrentActivity, getActivityDescription, isNighttime } from '../../game/NPCScheduleSystem'
+import { getCurrentActivity, getActivityDescription, isNighttime, getNpcScheduleDesc, getTimeOfDay, getInGameHour } from '../../game/NPCScheduleSystem'
 import { useGameStore } from '../../store/gameStore'
 // M42 Track C: Settlement reputation display
 import { useReputationStore, type ReputationTier } from '../../store/reputationStore'
@@ -652,6 +652,11 @@ export function DialoguePanel() {
         {/* M38: Activity status */}
         <div style={{ fontSize: 10, color: '#556b8a', marginTop: 2, fontStyle: 'italic' }}>
           {getActivityDescription(currentActivity.activity, targetNpcName, targetNpcRole)}
+        </div>
+        {/* M46 Track A: NPC schedule hint */}
+        <div style={{ fontSize: 10, color: '#777', marginTop: 2 }}>
+          [{(() => { const tod = getTimeOfDay(getInGameHour(dayAngle)); return tod.charAt(0).toUpperCase() + tod.slice(1) })()}]{' '}
+          {getNpcScheduleDesc(targetNpcRole || 'villager', getInGameHour(dayAngle))}
         </div>
         {/* M38: Memory indicator */}
         {npcMemory.timesSpokenTo > 0 && (

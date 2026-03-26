@@ -269,8 +269,11 @@ export function CraftingPanel() {
                             transition: 'background 0.3s',
                           }}
                         >
-                          <div style={{ fontSize: 12, fontWeight: 700 }}>
+                          <div style={{ fontSize: 12, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 5 }}>
                             {r.name}
+                            {r.requiresCampfire && (
+                              <span title="Requires campfire" style={{ fontSize: 10, color: '#f39c12', opacity: 0.85 }}>🔥</span>
+                            )}
                           </div>
                           <div style={{ fontSize: 10, color: '#888', marginTop: 2 }}>
                             {r.inputs.map(inp => `${inp.quantity}x ${MAT_NAMES[inp.materialId] ?? inp.materialId}`).join(', ')}

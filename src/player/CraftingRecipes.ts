@@ -1091,4 +1091,83 @@ export const CRAFTING_RECIPES: CraftingRecipe[] = [
     output: { itemId: ITEM.QUANTUM_BLADE, quantity: 1 },
     knowledgeRequired: ['velar_fabrication', 'weapon_smithing'],
   },
+
+  // ── M33 Track B: Cooking Recipes (requiresCampfire) ───────────────────────
+  // All of these require proximity to a fire (campfire/fire) to be used.
+  // They show in the crafting panel when the player is near a campfire.
+  {
+    // id 120 — Cooked Fish: 1x RAW_FISH → 1x COOKED_FISH
+    // Grants Well Fed buff: +1 HP/s for 2 minutes
+    id: 120, name: 'Cooked Fish', tier: 0, time: 10,
+    inputs: [{ materialId: MAT.RAW_FISH, quantity: 1 }],
+    output: { itemId: MAT.COOKED_FISH, quantity: 1, isMaterial: true },
+    knowledgeRequired: ['fire_making'],
+    requiresCampfire: true,
+  },
+  {
+    // id 121 — Cooked Meat (campfire): 1x RAW_MEAT → 1x COOKED_MEAT
+    // Grants Strength Fed buff: +20 max HP for 3 minutes
+    id: 121, name: 'Cooked Meat (campfire)', tier: 0, time: 15,
+    inputs: [{ materialId: MAT.RAW_MEAT, quantity: 1 }],
+    output: { itemId: MAT.COOKED_MEAT, quantity: 1, isMaterial: true },
+    knowledgeRequired: ['fire_making'],
+    requiresCampfire: true,
+  },
+  {
+    // id 122 — Mushroom Soup: 2x MUSHROOM → 1x MUSHROOM_SOUP
+    // Grants Steady Footing buff: +10% speed for 90 seconds
+    id: 122, name: 'Mushroom Soup', tier: 0, time: 20,
+    inputs: [{ materialId: MAT.MUSHROOM, quantity: 2 }],
+    output: { itemId: MAT.MUSHROOM_SOUP, quantity: 1, isMaterial: true },
+    knowledgeRequired: ['fire_making'],
+    requiresCampfire: true,
+  },
+  {
+    // id 123 — Berry Jam: 3x BERRY → 1x BERRY_JAM
+    // Grants Sugar Rush buff: +15% speed for 60 seconds
+    id: 123, name: 'Berry Jam', tier: 0, time: 15,
+    inputs: [{ materialId: MAT.BERRY, quantity: 3 }],
+    output: { itemId: MAT.BERRY_JAM, quantity: 1, isMaterial: true },
+    knowledgeRequired: ['fire_making'],
+    requiresCampfire: true,
+  },
+  {
+    // id 124 — Herbal Tea: 2x BERRY + 1x MUSHROOM → 1x HERBAL_TEA
+    // Grants Warmth Brew buff: +2 warmth/s for 2.5 minutes
+    id: 124, name: 'Herbal Tea', tier: 0, time: 25,
+    inputs: [
+      { materialId: MAT.BERRY,    quantity: 2 },
+      { materialId: MAT.MUSHROOM, quantity: 1 },
+    ],
+    output: { itemId: MAT.HERBAL_TEA, quantity: 1, isMaterial: true },
+    knowledgeRequired: ['fire_making'],
+    requiresCampfire: true,
+  },
+  {
+    // id 125 — Hearty Stew: 1x COOKED_MEAT + 1x MUSHROOM + 1x BERRY → 1x HEARTY_STEW
+    // Grants Full Meal buff: +2 HP/s, +1 warmth/s, +5% speed for 4 minutes
+    id: 125, name: 'Hearty Stew', tier: 0, time: 40,
+    inputs: [
+      { materialId: MAT.COOKED_MEAT, quantity: 1 },
+      { materialId: MAT.MUSHROOM,    quantity: 1 },
+      { materialId: MAT.BERRY,       quantity: 1 },
+    ],
+    output: { itemId: MAT.HEARTY_STEW, quantity: 1, isMaterial: true },
+    knowledgeRequired: ['fire_making'],
+    requiresCampfire: true,
+  },
+
+  // ── M33 Track C: Cave Treasure Chests ────────────────────────────────────
+  {
+    // id 130 — Lockpick (×3): 2x Iron Ore + 1x Rope → 3x Lockpick
+    // Thin iron picks — used to open locked rare/legendary treasure chests in caves.
+    // Consumed on successful use.
+    id: 130, name: 'Lockpick (×3)', tier: 2, time: 20,
+    inputs: [
+      { materialId: MAT.IRON_ORE, quantity: 2 },
+      { materialId: MAT.ROPE,     quantity: 1 },
+    ],
+    output: { itemId: MAT.LOCKPICK, quantity: 3, isMaterial: true },
+    knowledgeRequired: [],
+  },
 ]

@@ -47,6 +47,9 @@ export const NODE_TYPES = [
   { type: 'rubber',      label: 'Rubber',      matId: MAT.RUBBER,     color: '#2a2a2a', count: 5  },
   { type: 'saltpeter',   label: 'Saltpeter',   matId: MAT.SALTPETER,  color: '#f0f0e0', count: 4  },
   { type: 'raw_meat',    label: 'Raw Meat',    matId: MAT.RAW_MEAT,   color: '#cc4444', count: 12 },
+  // ── M33 Track B: Cooking ingredients ────────────────────────────────────────
+  { type: 'berry',       label: 'Berry',       matId: MAT.BERRY,      color: '#cc3388', count: 10 },
+  { type: 'mushroom',    label: 'Mushroom',    matId: MAT.MUSHROOM,   color: '#aa8844', count: 8  },
 ]
 
 // ── P2-4: Geology-based ore placement ─────────────────────────────────────────

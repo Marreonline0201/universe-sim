@@ -18,6 +18,8 @@ import { rapierWorld } from '../physics/RapierWorld'
 import { useJoystickStore } from '../ui/MobileControls'
 // M29 Track B: storm movement penalty (set by GameLoop each frame)
 import { weatherSpeedMult } from '../game/GameLoop'
+// M33 Track B: food buff speed multiplier
+import { getFoodSpeedMult } from '../game/FoodBuffSystem'
 
 export type CameraMode = 'first_person' | 'third_person' | 'orbit'
 
@@ -357,7 +359,7 @@ export class PlayerController {
     }
 
     // ── Normal movement (land + water) ───────────────────────────────────────
-    let speed = inWater ? SWIM_SPEED : WALK_SPEED * speedMult * weatherSpeedMult
+    let speed = inWater ? SWIM_SPEED : WALK_SPEED * speedMult * weatherSpeedMult * getFoodSpeedMult()
     if (!inWater && inp.sprint) speed *= SPRINT_MULT
     if (!inWater && inp.crouch) speed *= CROUCH_MULT
 

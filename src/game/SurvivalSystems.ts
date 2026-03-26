@@ -17,6 +17,8 @@ import { BUILDING_TYPES } from '../civilization/BuildingSystem'
 import { usePlayerStore } from '../store/playerStore'
 import { useUiStore } from '../store/uiStore'
 import { Metabolism, Health } from '../ecs/world'
+// M33 Track B: food buff activation on eat
+import { consumeFood } from './FoodBuffSystem'
 
 // ── M5: Death System ──────────────────────────────────────────────────────────
 //
@@ -192,6 +194,36 @@ export function tryEatFood(inv: Inventory, entityId: number): boolean {
     return true
   }
 
+  // ── M33 Track B: Cooked buff foods ───────────────────────────────────────
+  // Check for buff foods before falling through to plain cooked meat.
+  // consumeFood is imported lazily to avoid circular dependency concerns.
+  const buffFoodOrder = [MAT.HEARTY_STEW, MAT.HERBAL_TEA, MAT.BERRY_JAM, MAT.MUSHROOM_SOUP, MAT.COOKED_FISH]
+  for (const fid of buffFoodOrder) {
+    const bSlot = inv.findItem(fid)
+    if (bSlot >= 0) {
+      inv.removeItem(bSlot, 1)
+      // Apply hunger restore + buff
+      const psB = usePlayerStore.getState()
+      const newHungerB = Math.max(0, psB.hunger - HUNGER_RESTORE)
+      psB.updateVitals({ hunger: newHungerB })
+      Metabolism.hunger[entityId] = newHungerB
+      // Activate buff via FoodBuffSystem
+      consumeFood(fid)
+      const buffNames: Record<number, string> = {
+        [MAT.COOKED_FISH]:   'Well Fed (+HP regen 2min)',
+        [MAT.MUSHROOM_SOUP]: 'Steady Footing (+speed 90s)',
+        [MAT.BERRY_JAM]:     'Sugar Rush (+speed 60s)',
+        [MAT.HERBAL_TEA]:    'Warmth Brew (+warmth 2.5min)',
+        [MAT.HEARTY_STEW]:   'Full Meal (HP + warmth + speed 4min)',
+      }
+      useUiStore.getState().addNotification(
+        `✓ ${buffNames[fid] ?? 'Ate food — buff active!'}`,
+        'discovery'
+      )
+      return true
+    }
+  }
+
   // Find first cooked meat slot
   const slotIdx = inv.findItem(MAT.COOKED_MEAT)
   if (slotIdx < 0) return false
@@ -204,8 +236,10 @@ export function tryEatFood(inv: Inventory, entityId: number): boolean {
   ps.updateVitals({ hunger: newHunger })
   Metabolism.hunger[entityId] = newHunger
   const hungerPct = Math.round(newHunger * 100)
+  // Activate Strength Fed buff for COOKED_MEAT
+  consumeFood(MAT.COOKED_MEAT)
   useUiStore.getState().addNotification(
-    hungerPct > 50 ? `✓ Ate cooked meat` : hungerPct > 25 ? `✓ Ate! Still hungry...` : `✓ Ate, but very hungry`,
+    hungerPct > 50 ? `✓ Ate cooked meat (Strength Fed)` : hungerPct > 25 ? `✓ Ate! Still hungry...` : `✓ Ate, but very hungry`,
     'info'
   )
   return true

@@ -45,6 +45,7 @@ export interface CraftingRecipe {
   output: { itemId: number; quantity: number; isMaterial?: boolean }
   knowledgeRequired: string[]  // discovery IDs player must have
   time: number  // seconds to craft
+  requiresCampfire?: boolean  // M33: cooking recipes require proximity to a campfire/fire
 }
 
 const SLOT_COUNT = 40
@@ -318,6 +319,17 @@ export const MAT = {
   VINEGAR: 74,           // over-fermented alcohol — preservative, crafting ingredient
   // ── M31 Track C: Ranged combat ───────────────────────────────────────────
   ARROW_AMMO: 75,        // crafted arrows — consumed per bow shot, stackable raw material
+  // ── M33 Track B: Cooking + Food Buffs ────────────────────────────────────
+  RAW_FISH: 76,          // caught via fishing rod (extends FISH with buff-system support)
+  COOKED_FISH: 77,       // cooked RAW_FISH at campfire — grants Well Fed buff (hp regen)
+  MUSHROOM: 78,          // gatherable in cave/forest biome — cooking ingredient
+  MUSHROOM_SOUP: 79,     // 2x mushroom at campfire — Steady Footing buff (+10% speed)
+  BERRY_JAM: 80,         // 3x berry at campfire — Sugar Rush buff (+15% speed, short)
+  BERRY: 81,             // gatherable berry — used in jam, tea, stew
+  HERBAL_TEA: 82,        // 2x berry + 1x mushroom at campfire — Warmth Brew buff
+  HEARTY_STEW: 83,       // cooked_meat + mushroom + berry at campfire — Full Meal buff
+  // ── M33 Track C: Cave treasure chests ────────────────────────────────────
+  LOCKPICK: 90,          // thin iron pick — opens locked treasure chests; consumed on use
 } as const
 
 // ── Item IDs ──────────────────────────────────────────────────────────────────

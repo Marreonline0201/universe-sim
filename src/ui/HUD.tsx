@@ -14,6 +14,7 @@ import { MobileControls } from './MobileControls'
 import { inventory } from '../game/GameSingletons'
 import { MAT, ITEM } from '../player/Inventory'
 import { cookingProgress } from '../game/SurvivalSystems'
+import { activeFoodBuffs } from '../game/FoodBuffSystem'
 import { useVelarStore } from '../store/velarStore'
 import { getReactorTemp, isCleanupActive, getCleanupTimeRemaining, SAFE_TEMP_CELSIUS, MELT_THRESHOLD_C } from '../game/NuclearReactorSystem'
 import { EmoteWheel } from './EmoteWheel'
@@ -685,6 +686,143 @@ function ReactorWidget() {
   )
 }
 
+// ── M33 Track B: Active Food Buffs bar (bottom-left, above vitals panel) ──────
+
+function ActiveBuffsBar({ tick }: { tick: number }) {
+  const now = Date.now()
+  const buffs = activeFoodBuffs.filter(b => b.expiresAt > now)
+  if (buffs.length === 0) return null
+
+  return (
+    <div style={{
+      display: 'flex',
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 5,
+      marginTop: 6,
+      paddingTop: 5,
+      borderTop: '1px solid rgba(143,255,143,0.18)',
+    }}>
+      {buffs.map(b => {
+        const remaining = b.expiresAt - now
+        const totalMs = b.durationMs
+        const secs = Math.ceil(remaining / 1000)
+        const mins = Math.floor(secs / 60)
+        const s = secs % 60
+        const timeStr = mins > 0 ? `${mins}:${String(s).padStart(2, '0')}` : `${secs}s`
+        const isExpiring = remaining < 10_000
+        const pct = Math.max(0, Math.min(1, remaining / totalMs))
+
+        return (
+          <div
+            key={b.name}
+            title={b.name}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 3,
+              background: 'rgba(0,0,0,0.65)',
+              border: `1px solid ${isExpiring ? '#ffaa00' : 'rgba(143,255,143,0.35)'}`,
+              borderRadius: 3,
+              padding: '2px 6px 2px 4px',
+              animation: isExpiring ? 'buffExpiring 0.7s ease-in-out infinite' : 'none',
+              position: 'relative',
+              overflow: 'hidden',
+            }}
+          >
+            {/* duration fill bar at bottom */}
+            <div style={{
+              position: 'absolute',
+              bottom: 0, left: 0,
+              width: `${pct * 100}%`,
+              height: 2,
+              background: isExpiring ? '#ffaa00' : '#8fff8f',
+              transition: 'width 0.5s linear',
+            }} />
+            <span style={{ fontSize: 13, lineHeight: 1 }}>{b.icon}</span>
+            <span style={{
+              fontSize: 8,
+              fontFamily: 'monospace',
+              color: isExpiring ? '#ffaa00' : '#8fff8f',
+              letterSpacing: 0.5,
+              fontWeight: 700,
+              lineHeight: 1,
+            }}>
+              {timeStr}
+            </span>
+          </div>
+        )
+      })}
+      {/* CSS animation for expiring buffs */}
+      <style>{`
+        @keyframes buffExpiring {
+          0%   { opacity: 1; }
+          50%  { opacity: 0.55; }
+          100% { opacity: 1; }
+        }
+      `}</style>
+    </div>
+  )
+}
+
+// ── M33 Track C: Chest loot popup ─────────────────────────────────────────────
+
+const CHEST_TIER_COLOR: Record<string, string> = {
+  common:    '#cc9955',
+  rare:      '#4da6ff',
+  legendary: '#cc66ff',
+}
+
+function ChestLootPopup() {
+  const [popup, setPopup] = useState<{ tier: string; lines: string[]; key: number } | null>(null)
+
+  useEffect(() => {
+    let keyCounter = 0
+    function onChestOpened(e: Event) {
+      const { tier, lootLines } = (e as CustomEvent).detail as { tier: string; lootLines: string[] }
+      const key = ++keyCounter
+      setPopup({ tier, lines: lootLines, key })
+      setTimeout(() => setPopup(p => (p?.key === key ? null : p)), 3000)
+    }
+    window.addEventListener('chest-opened', onChestOpened)
+    return () => window.removeEventListener('chest-opened', onChestOpened)
+  }, [])
+
+  if (!popup) return null
+
+  const color = CHEST_TIER_COLOR[popup.tier] ?? '#cccccc'
+  return (
+    <div
+      key={popup.key}
+      style={{
+        position: 'fixed',
+        bottom: 200,
+        left: '50%',
+        transform: 'translateX(-50%)',
+        background: 'rgba(8,6,14,0.92)',
+        border: `1px solid ${color}66`,
+        borderTop: `2px solid ${color}`,
+        borderRadius: 4,
+        padding: '10px 20px',
+        fontFamily: 'monospace',
+        zIndex: 400,
+        pointerEvents: 'none',
+        minWidth: 220,
+        animation: 'chestLootSlideUp 0.3s ease-out forwards',
+      }}
+    >
+      <div style={{ fontSize: 10, color, letterSpacing: 3, marginBottom: 6, textTransform: 'uppercase' }}>
+        Chest Opened — {popup.tier}
+      </div>
+      {popup.lines.map((line, i) => (
+        <div key={i} style={{ fontSize: 11, color: '#e8e8e8', marginBottom: 3, letterSpacing: 0.5 }}>
+          + {line}
+        </div>
+      ))}
+    </div>
+  )
+}
+
 // ── M27 Track A: Skill XP bar (bottom-center, above hotbar) ──────────────────
 
 function SkillXpBar() {
@@ -882,6 +1020,12 @@ function SkillXpBar() {
         @keyframes lightningFlash {
           0%   { opacity: 0.8; }
           100% { opacity: 0; }
+        }
+        @keyframes chestLootSlideUp {
+          0%   { opacity: 0; transform: translateX(-50%) translateY(12px); }
+          20%  { opacity: 1; transform: translateX(-50%) translateY(0); }
+          80%  { opacity: 1; transform: translateX(-50%) translateY(0); }
+          100% { opacity: 0; transform: translateX(-50%) translateY(-6px); }
         }
       `}</style>
     </>
@@ -1252,6 +1396,9 @@ export function HUD() {
             )
           })()}
 
+          {/* M33 Track B: Active food buffs */}
+          <ActiveBuffsBar tick={survivalTick} />
+
           {/* Gathering hint — show when player should gather */}
           {(() => {
             const anyStoneNearby = true // This would ideally check proximity, but we keep it simple
@@ -1403,6 +1550,9 @@ export function HUD() {
 
         {/* ── M27 Track A: Skill XP bar + level-up flash ── */}
         <SkillXpBar />
+
+        {/* ── M33 Track C: Chest loot popup ── */}
+        <ChestLootPopup />
 
         {/* ── Top-right: Science Companion button ── */}
         <a

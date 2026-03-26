@@ -29,6 +29,13 @@ import { useShopStore } from '../store/shopStore'
 import { useTransitStore } from '../store/transitStore'
 import { useVelarStore } from '../store/velarStore'
 import { useInspectPlayerStore } from '../ui/InspectPlayerOverlay'
+import { useCaveStore } from '../store/caveStore'
+import {
+  generateAllCaveChests,
+  isChestAvailable,
+  canOpenChest,
+  openChest,
+} from './ChestSystem'
 
 import {
   world,
@@ -532,6 +539,77 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
       }
     } else {
       if (gs.gatherPrompt !== null) gs.setGatherPrompt(null)
+    }
+
+    // ── M33 Track C: Cave treasure chest interaction ───────────────────────────
+    {
+      const isUnderground = useCaveStore.getState().underground
+      if (isUnderground && !gs.inputBlocked && gs.gatherPrompt === null) {
+        const allChests = generateAllCaveChests()
+        let nearChest = null as ReturnType<typeof generateAllCaveChests>[0] | null
+        let nearChestDist = Infinity
+        for (const chest of allChests) {
+          if (!isChestAvailable(chest)) continue
+          const dx = chest.position.x - px
+          const dy = chest.position.y - py
+          const dz = chest.position.z - pz
+          const d2 = dx * dx + dy * dy + dz * dz
+          if (d2 < 4 && d2 < nearChestDist) { // within 2m
+            nearChestDist = d2
+            nearChest = chest
+          }
+        }
+        if (nearChest) {
+          // Check player's lockpick inventory and lockpick skill
+          const lockpickSlotIdx = inventory.findItem(MAT.LOCKPICK)
+          const hasLockpick = lockpickSlotIdx >= 0
+          const lockpickSkillLevel = skillSystem.getLevel('survival') // use survival as proxy
+          const canOpen = canOpenChest(nearChest, hasLockpick, lockpickSkillLevel)
+          const promptLabel = nearChest.locked
+            ? (canOpen ? '[F] Pick Lock' : '[F] Open Chest (Need Lockpick)')
+            : '[F] Open Chest'
+          if (gs.gatherPrompt !== promptLabel) gs.setGatherPrompt(promptLabel)
+
+          if (controllerRef.current?.popInteract()) {
+            if (!canOpen) {
+              useUiStore.getState().addNotification(
+                'Need a Lockpick! Craft one from Iron Ore + Rope.',
+                'warning'
+              )
+            } else {
+              // Consume lockpick if chest was locked
+              if (nearChest.locked && hasLockpick) {
+                inventory.removeItem(lockpickSlotIdx, 1)
+              }
+              const loot = openChest(nearChest)
+              gs.setGatherPrompt(null)
+              // Grant loot to player
+              let goldGained = 0
+              const lootLines: string[] = []
+              for (const entry of loot) {
+                if (entry.gold !== undefined) {
+                  goldGained += entry.gold
+                  lootLines.push(`+${entry.gold} gold`)
+                } else if (entry.itemId !== undefined) {
+                  inventory.addItem({ itemId: entry.itemId, materialId: 0, quantity: entry.qty, quality: 0.85 })
+                  lootLines.push(entry.label)
+                } else if (entry.matId !== undefined) {
+                  inventory.addItem({ itemId: 0, materialId: entry.matId, quantity: entry.qty, quality: 0.8 })
+                  lootLines.push(entry.label)
+                }
+              }
+              if (goldGained > 0) {
+                usePlayerStore.getState().addGold(goldGained)
+              }
+              skillSystem.addXp('exploration', 30)
+              // Dispatch loot popup event for HUD
+              window.dispatchEvent(new CustomEvent('chest-opened', {
+                detail: { tier: nearChest.tier, lootLines }
+              }))
+            }
+          }
+        }
+      }
     }
 
     // ── M20 Track B: NPC dialogue proximity ──────────────────────────────────

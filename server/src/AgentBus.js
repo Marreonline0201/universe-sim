@@ -116,8 +116,14 @@ export function tickHeartbeats() {
       const text = entry.status === 'blocked'
         ? `⏳ Waiting for approval — ${entry.task || 'blocked'}`
         : `⚙ Still working — ${entry.task || 'in progress'}`
-      messages.unshift({ from: id, to: null, text, ts: now, heartbeat: true })
-      if (messages.length > MAX_MESSAGES) messages.length = MAX_MESSAGES
+      // Replace existing heartbeat from this agent instead of spamming a new entry
+      const existingIdx = messages.findIndex(m => m.from === id && m.heartbeat)
+      if (existingIdx >= 0) {
+        messages[existingIdx] = { from: id, to: null, text, ts: now, heartbeat: true }
+      } else {
+        messages.unshift({ from: id, to: null, text, ts: now, heartbeat: true })
+        if (messages.length > MAX_MESSAGES) messages.length = MAX_MESSAGES
+      }
       entry.lastMessage = now
       changed = true
     }

@@ -387,6 +387,10 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
 
     // M41 Track B: Mount and riding system
     {
+      if (gs.inputBlocked) {
+        // Clear any pending R key while UI is open so it doesn't fire on panel close
+        controllerRef.current?.popMount()
+      } else {
       const mountSt = useMountStore.getState()
       const isMounted = mountSt.mountedAnimalId !== null
 
@@ -442,9 +446,10 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
         if (isGallopKey && curStamina > 0) {
           // Gallop: 2× speed, drain stamina 15/s
           setMountSpeedMult(mountSt.mountSpeed * 2.0)
-          mountSt.setMountStamina(curStamina - 15 * dt)
-          // Force dismount if stamina runs out
-          if (mountSt.mountStamina <= 0) {
+          const newStamina = curStamina - 15 * dt
+          mountSt.setMountStamina(newStamina)
+          // Force dismount if stamina runs out (check computed value, not stale snapshot)
+          if (newStamina <= 0) {
             mountSt.dismount()
             setMountSpeedMult(1.0)
             window.dispatchEvent(new CustomEvent('mount-changed', { detail: { mounted: false } }))
@@ -465,6 +470,7 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
         // Not mounted — ensure speed mult is reset
         setMountSpeedMult(1.0)
       }
+      } // end !inputBlocked
     }
 
     // M38 Track B: Dodge roll — check for double-tap dodge request

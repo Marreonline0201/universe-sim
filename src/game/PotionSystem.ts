@@ -212,7 +212,7 @@ export function isPotionInvisible(): boolean {
  */
 export const discoveriesLog: string[] = []
 
-function addDiscovery(entry: string): void {
+export function addDiscovery(entry: string): void {
   if (!discoveriesLog.includes(entry)) {
     discoveriesLog.push(entry)
     if (discoveriesLog.length > 10) discoveriesLog.shift()
@@ -233,13 +233,11 @@ export function checkAlchemyMutation(mat1: number, mat2: number, mat3: number): 
 
   // Fire explosion potion: COAL + SULFUR + ALCOHOL
   if (combo.has(MAT.COAL) && combo.has(MAT.SULFUR) && combo.has(MAT.ALCOHOL)) {
-    addDiscovery('Fire Explosion Potion discovered!')
     return 'fireball'
   }
 
   // Shock potion: COPPER + SALT + ALCOHOL
   if (combo.has(MAT.COPPER) && combo.has(MAT.SALT) && combo.has(MAT.ALCOHOL)) {
-    addDiscovery('Shock Potion discovered!')
     return 'lightning'
   }
 

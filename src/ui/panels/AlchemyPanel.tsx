@@ -5,7 +5,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { inventory } from '../../game/GameSingletons'
 import { MAT } from '../../player/Inventory'
 import { CRAFTING_RECIPES } from '../../player/CraftingRecipes'
-import { checkAlchemyMutation, discoveriesLog } from '../../game/PotionSystem'
+import { checkAlchemyMutation, discoveriesLog, addDiscovery } from '../../game/PotionSystem'
 import { useUiStore } from '../../store/uiStore'
 
 const MAT_NAMES: Record<number, string> = Object.fromEntries(
@@ -95,21 +95,23 @@ export function AlchemyPanel() {
   function handleBrew() {
     // 1. Check for mutation first
     if (mutation && slots.every(s => s.matId !== null)) {
-      // Consume one of each ingredient
-      const consumed = slots.every(s => {
-        if (!s.matId) return false
-        const idx = inventory.findItem(s.matId)
-        if (idx === -1) return false
-        return inventory.removeItem(idx, 1)
-      })
-      if (consumed) {
-        window.dispatchEvent(new CustomEvent('alchemy-mutation', { detail: { mutation } }))
-        addNotification(`Mutation brew: ${mutation === 'fireball' ? 'Fire Explosion Potion' : 'Shock Potion'} discovered!`, 'discovery')
-        showMessage(`[~] MUTATION: ${mutation === 'fireball' ? 'Fire Explosion Potion' : 'Shock Potion'} created!`, true)
-        setSlots([{ matId: null }, { matId: null }, { matId: null }])
-      } else {
+      // Atomic check: validate ALL slots have ingredients before consuming any
+      const indices = slots.map(s => s.matId !== null ? inventory.findItem(s.matId) : -1)
+      if (indices.some(i => i === -1)) {
         showMessage('Missing ingredients to brew!', false)
+        return
       }
+      // All valid — consume in reverse order to avoid index shifting
+      for (let i = indices.length - 1; i >= 0; i--) inventory.removeItem(indices[i], 1)
+      // Grant the mutation potion item
+      const outputMat = mutation === 'fireball' ? MAT.POTION_FIRE_RESIST : MAT.POTION_SPEED
+      const outputName = mutation === 'fireball' ? 'Fire Explosion Potion' : 'Shock Potion'
+      inventory.addMaterial(outputMat, 1)
+      // Record discovery (only here, not during preview render)
+      addDiscovery(`${outputName} discovered!`)
+      addNotification(`${outputName} created!`, 'discovery')
+      showMessage(`[~] MUTATION: ${outputName} brewed!`, true)
+      setSlots([{ matId: null }, { matId: null }, { matId: null }])
       return
     }
 

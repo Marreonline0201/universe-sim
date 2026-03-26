@@ -13,10 +13,13 @@ interface FestivalStoreState {
   sync(): void
 }
 
-export const useFestivalStore = create<FestivalStoreState>((set) => ({
+export const useFestivalStore = create<FestivalStoreState>((set, get) => ({
   activeFestival: null,
   festivalDayCount: 0,
   sync() {
+    const s = get()
+    if (s.activeFestival === festivalSystem.activeFestival &&
+        s.festivalDayCount === festivalSystem.festivalDayCount) return
     set({
       activeFestival: festivalSystem.activeFestival,
       festivalDayCount: festivalSystem.festivalDayCount,

@@ -167,6 +167,7 @@ export class SkillSystem {
       explorationRangeMultiplier: 1.0 + this.skills.exploration.level * 0.05,
       movementSpeedMultiplier: 1.0 + this.skills.exploration.level * 0.015, // +1.5% per level
       smithingQualityBonus: this.skills.smithing.level * 0.025,            // +0.025 per level
+      husbandryTameBonus: this.skills.husbandry.level * 0.05,              // +5% tame chance per level
     }
   }
 
@@ -198,6 +199,7 @@ export class SkillSystem {
       case 'survival': return `${level * 3}% less hunger/thirst drain`
       case 'exploration': return `+${level * 5}% reveal range`
       case 'smithing': return `+${(level * 2.5).toFixed(1)}% smithing quality`
+      case 'husbandry': return `+${level * 5}% taming success chance`
     }
   }
 

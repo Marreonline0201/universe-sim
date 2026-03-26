@@ -117,6 +117,18 @@ export interface AnimalEntity {
 
   /** Genome-derived phenotype stats. Optional — absent means use hardcoded species defaults. */
   phenotype?: AnimalGenomePhenotype
+
+  // M32 Track B: Taming system
+  /** True if this animal has been tamed by a player. */
+  tamed: boolean
+  /** Player entity ID that owns this animal (set on taming). */
+  ownerId: number
+  /** Display name chosen by the player after taming (default: species name). */
+  petName: string
+  /** Alert timer after a failed tame attempt — animal is wary for 30s. */
+  tameAlertTimer: number
+  /** Seconds since last product drop (leather for deer, meat for boar). */
+  productTimer: number
 }
 
 export interface LootDrop {
@@ -346,6 +358,12 @@ export function spawnAnimal(
     flightPhase: Math.random() * Math.PI * 2,
     patrolCx, patrolCy, patrolCz,
     phenotype,
+    // M32 Track B: Taming
+    tamed: false,
+    ownerId: -1,
+    petName: species,
+    tameAlertTimer: 0,
+    productTimer: 0,
   }
   animalRegistry.set(id, animal)
 
@@ -522,7 +540,17 @@ export interface AnimalTickContext {
   playerCrouching: boolean
   onPlayerDamaged: (hp: number) => void
   onAnimalKilled: (animal: AnimalEntity) => void
+  /** M32: Called when a tamed animal produces a resource drop (once per 5 in-game minutes). */
+  onTamedProductDrop?: (animal: AnimalEntity, materialId: number, label: string) => void
 }
+
+// ── M32 Track B: Taming constants ────────────────────────────────────────────
+/** 5 in-game minutes = 5 * 60s (real-time). Tunable. */
+const TAME_PRODUCT_INTERVAL = 300   // seconds between passive drops
+const TAME_FOLLOW_START     = 5     // m — start moving toward player
+const TAME_FOLLOW_STOP      = 3     // m — stop following when this close
+const TAME_MAX_FOLLOW_DIST  = 15    // m — follow range
+const TAME_FOLLOW_SPEED     = 3.5   // m/s
 
 const _v3 = new THREE.Vector3()
 
@@ -554,11 +582,22 @@ export function tickAnimalAI(ctx: AnimalTickContext): void {
     const { species } = animal
     animal.stateTimer += dt
 
-    switch (species) {
-      case 'deer': tickDeer(animal, ctx, deerPositions); break
-      case 'wolf': tickWolf(animal, ctx, deerPositions, onPlayerDamaged); break
-      case 'boar': tickBoar(animal, ctx, onPlayerDamaged); break
-      case 'bird': tickBird(animal, ctx, birdPositions); break
+    // M32: Tick tame alert countdown
+    if (animal.tameAlertTimer > 0) {
+      animal.tameAlertTimer -= dt
+      if (animal.tameAlertTimer < 0) animal.tameAlertTimer = 0
+    }
+
+    // M32: Tamed animal logic — override normal AI for tamed deer/boar
+    if (animal.tamed && (species === 'deer' || species === 'boar')) {
+      tickTamedAnimal(animal, ctx)
+    } else {
+      switch (species) {
+        case 'deer': tickDeer(animal, ctx, deerPositions); break
+        case 'wolf': tickWolf(animal, ctx, deerPositions, onPlayerDamaged); break
+        case 'boar': tickBoar(animal, ctx, onPlayerDamaged); break
+        case 'bird': tickBird(animal, ctx, birdPositions); break
+      }
     }
 
     // Clamp position to surface after movement — birds float at altitude, others walk terrain
@@ -586,6 +625,141 @@ export function tickAnimalAI(ctx: AnimalTickContext): void {
   }
 
   for (const id of toDelete) animalRegistry.delete(id)
+}
+
+// ── M32: Tamed animal AI ──────────────────────────────────────────────────────
+// Tamed deer and boar follow the player within 15m and produce resources
+// passively every TAME_PRODUCT_INTERVAL seconds.
+
+function tickTamedAnimal(a: AnimalEntity, ctx: AnimalTickContext): void {
+  const { dt, playerX, playerY, playerZ, onTamedProductDrop } = ctx
+
+  const dpx = playerX - a.x
+  const dpy = playerY - a.y
+  const dpz = playerZ - a.z
+  const playerDist = Math.sqrt(dpx * dpx + dpy * dpy + dpz * dpz)
+
+  // Follow logic: move toward player if >5m, stop if <3m
+  if (playerDist > TAME_FOLLOW_START && playerDist < TAME_MAX_FOLLOW_DIST) {
+    const invD = 1 / playerDist
+    a.vx = dpx * invD * TAME_FOLLOW_SPEED
+    a.vz = dpz * invD * TAME_FOLLOW_SPEED
+    a.behavior = 'GRAZING'  // visually neutral
+  } else if (playerDist <= TAME_FOLLOW_STOP || playerDist >= TAME_MAX_FOLLOW_DIST) {
+    a.vx *= 0.85  // decelerate
+    a.vz *= 0.85
+  }
+
+  a.x += a.vx * dt
+  a.y += dpy * 0  // no vertical drift
+  a.z += a.vz * dt
+
+  // Passive product timer
+  a.productTimer += dt
+  if (a.productTimer >= TAME_PRODUCT_INTERVAL) {
+    a.productTimer = 0
+    // Deer produces Leather (shedding), Boar produces Raw Meat
+    if (a.species === 'deer') {
+      onTamedProductDrop?.(a, MAT_LEATHER, 'Leather')
+    } else if (a.species === 'boar') {
+      onTamedProductDrop?.(a, MAT_RAW_MEAT, 'Meat')
+    }
+  }
+}
+
+// ── M32: Taming API ───────────────────────────────────────────────────────────
+
+/**
+ * Attempt to tame the nearest non-aggro, non-tamed deer or boar within range.
+ * Returns the animal entity if an attempt was made (success or fail), null if none in range.
+ * `survivalLevel` is the player's Survival skill level (0-10).
+ */
+export function attemptTameNearestAnimal(
+  px: number, py: number, pz: number,
+  survivalLevel: number,
+  range = 3,
+): { animal: AnimalEntity; success: boolean } | null {
+  let nearest: AnimalEntity | null = null
+  let nearestDist = range
+
+  for (const a of animalRegistry.values()) {
+    if (a.behavior === 'DEAD') continue
+    if (a.species !== 'deer' && a.species !== 'boar') continue
+    if (a.tamed) continue
+    if (a.tameAlertTimer > 0) continue  // on alert — won't accept
+    // Only non-aggro animals: deer must be GRAZING/FLOCKING, boar must be ROAMING
+    const isNonAggro = a.species === 'deer'
+      ? (a.behavior === 'GRAZING' || a.behavior === 'FLOCKING')
+      : a.behavior === 'ROAMING'
+    if (!isNonAggro) continue
+
+    const dx = a.x - px, dy = a.y - py, dz = a.z - pz
+    const d = Math.sqrt(dx * dx + dy * dy + dz * dz)
+    if (d < nearestDist) { nearestDist = d; nearest = a }
+  }
+
+  if (!nearest) return null
+
+  // Success chance: 30% base + 5% per Survival level
+  const chance = 0.30 + survivalLevel * 0.05
+  const success = Math.random() < chance
+
+  if (success) {
+    nearest.tamed = true
+    nearest.ownerId = 0  // local player ID
+    nearest.petName = nearest.species  // default name (caller can rename)
+    nearest.productTimer = 0
+    // Tamed animal stops fleeing
+    nearest.behavior = nearest.species === 'deer' ? 'GRAZING' : 'ROAMING'
+  } else {
+    // Failed tame — animal goes on alert for 30s
+    nearest.tameAlertTimer = 30
+    if (nearest.species === 'deer') {
+      nearest.behavior = 'FLEEING'
+      nearest.stateTimer = 0
+    }
+  }
+
+  return { animal: nearest, success }
+}
+
+/**
+ * Find the nearest tameable (non-tamed, non-aggro) deer or boar within range.
+ * Used by GameLoop to show the "[F] Tame {species}" prompt.
+ */
+export function findNearestTameableAnimal(
+  px: number, py: number, pz: number,
+  range = 3,
+): AnimalEntity | null {
+  let nearest: AnimalEntity | null = null
+  let nearestDist = range
+
+  for (const a of animalRegistry.values()) {
+    if (a.behavior === 'DEAD') continue
+    if (a.species !== 'deer' && a.species !== 'boar') continue
+    if (a.tamed) continue
+    if (a.tameAlertTimer > 0) continue
+    const isNonAggro = a.species === 'deer'
+      ? (a.behavior === 'GRAZING' || a.behavior === 'FLOCKING')
+      : a.behavior === 'ROAMING'
+    if (!isNonAggro) continue
+
+    const dx = a.x - px, dy = a.y - py, dz = a.z - pz
+    const d = Math.sqrt(dx * dx + dy * dy + dz * dz)
+    if (d < nearestDist) { nearestDist = d; nearest = a }
+  }
+
+  return nearest
+}
+
+/**
+ * Rename a tamed animal by id.
+ */
+export function renameTamedAnimal(animalId: number, name: string): boolean {
+  const a = animalRegistry.get(animalId)
+  if (!a || !a.tamed) return false
+  a.petName = name.trim().slice(0, 24) || a.species
+  return true
 }
 
 // ── Deer AI ───────────────────────────────────────────────────────────────────

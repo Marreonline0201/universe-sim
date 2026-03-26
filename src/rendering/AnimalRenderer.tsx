@@ -12,9 +12,9 @@
 // animal that moved (all do, every frame) using setMatrixAt + instanceMatrix.needsUpdate.
 
 import * as THREE from 'three'
-import { useFrame } from '@react-three/fiber'
-import { useRef, useMemo } from 'react'
-import { animalRegistry } from '../ecs/systems/AnimalAISystem'
+import { useFrame, useThree } from '@react-three/fiber'
+import { useRef, useMemo, useState, useEffect } from 'react'
+import { animalRegistry, renameTamedAnimal } from '../ecs/systems/AnimalAISystem'
 import type { AnimalEntity, AnimalSpecies } from '../ecs/systems/AnimalAISystem'
 
 // ── Procedural geometry builders ─────────────────────────────────────────────
@@ -339,5 +339,182 @@ export function AnimalRenderer() {
       <AnimalSpeciesRenderer species="wolf" geometry={wolfGeo} material={wolfMat} />
       <AnimalSpeciesRenderer species="boar" geometry={boarGeo} material={boarMat} />
     </>
+  )
+}
+
+// ── M32: Tamed animal label overlay ──────────────────────────────────────────
+// Projects tamed animal world positions to screen space each frame and renders
+// a green heart + pet name as absolutely-positioned DOM elements.
+// Kept outside the Canvas so it can be a plain HTML overlay layer.
+
+interface TamedLabelEntry {
+  id: number
+  screenX: number
+  screenY: number
+  petName: string
+}
+
+const _worldPos3 = new THREE.Vector3()
+const _screenVec = new THREE.Vector3()
+
+export function TamedAnimalOverlay() {
+  const { camera, size } = useThree()
+  const [labels, setLabels] = useState<TamedLabelEntry[]>([])
+
+  useFrame(() => {
+    const next: TamedLabelEntry[] = []
+    for (const a of animalRegistry.values()) {
+      if (!a.tamed || a.behavior === 'DEAD') continue
+      _worldPos3.set(a.x, a.y + 2.2, a.z)
+      _screenVec.copy(_worldPos3).project(camera)
+      // NDC to pixel coords
+      const sx = (_screenVec.x * 0.5 + 0.5) * size.width
+      const sy = (-_screenVec.y * 0.5 + 0.5) * size.height
+      // Skip if behind camera
+      if (_screenVec.z > 1) continue
+      next.push({ id: a.id, screenX: sx, screenY: sy, petName: a.petName })
+    }
+    setLabels(next)
+  })
+
+  if (labels.length === 0) return null
+
+  return (
+    <div
+      style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden' }}
+    >
+      {labels.map(lbl => (
+        <div
+          key={lbl.id}
+          style={{
+            position: 'absolute',
+            left: lbl.screenX,
+            top: lbl.screenY,
+            transform: 'translate(-50%, -100%)',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: 1,
+            pointerEvents: 'none',
+            userSelect: 'none',
+          }}
+        >
+          <span style={{ fontSize: 14, lineHeight: 1 }}>♥</span>
+          <span style={{
+            fontFamily: 'monospace',
+            fontSize: 10,
+            color: '#a8e6a3',
+            background: 'rgba(0,0,0,0.55)',
+            padding: '1px 5px',
+            borderRadius: 3,
+            whiteSpace: 'nowrap',
+            textShadow: '0 1px 3px rgba(0,0,0,0.9)',
+            letterSpacing: 1,
+          }}>
+            {lbl.petName}
+          </span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// ── M32: Pet naming popup ─────────────────────────────────────────────────────
+// Listens for 'tame-animal-name-prompt' custom events dispatched by GameLoop
+// and shows a small input popup to let the player name their new companion.
+
+interface NamePromptState {
+  animalId: number
+  defaultName: string
+}
+
+export function TamedAnimalNamePrompt() {
+  const [prompt, setPrompt] = useState<NamePromptState | null>(null)
+  const [inputValue, setInputValue] = useState('')
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ animalId: number; defaultName: string }>).detail
+      setPrompt(detail)
+      setInputValue(detail.defaultName)
+    }
+    window.addEventListener('tame-animal-name-prompt', handler)
+    return () => window.removeEventListener('tame-animal-name-prompt', handler)
+  }, [])
+
+  if (!prompt) return null
+
+  const confirm = () => {
+    renameTamedAnimal(prompt.animalId, inputValue || prompt.defaultName)
+    setPrompt(null)
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') confirm()
+    if (e.key === 'Escape') { renameTamedAnimal(prompt.animalId, prompt.defaultName); setPrompt(null) }
+  }
+
+  return (
+    <div style={{
+      position: 'fixed',
+      inset: 0,
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      zIndex: 9000,
+      background: 'rgba(0,0,0,0.45)',
+    }}>
+      <div style={{
+        background: 'rgba(20,20,20,0.97)',
+        border: '1px solid rgba(168,230,163,0.4)',
+        borderRadius: 6,
+        padding: '18px 24px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 10,
+        minWidth: 240,
+        fontFamily: 'monospace',
+        color: '#e0e0e0',
+      }}>
+        <div style={{ fontSize: 13, color: '#a8e6a3', letterSpacing: 1 }}>
+          ♥ Name your companion:
+        </div>
+        <input
+          autoFocus
+          value={inputValue}
+          onChange={e => setInputValue(e.target.value)}
+          onKeyDown={handleKeyDown}
+          maxLength={24}
+          style={{
+            background: 'rgba(255,255,255,0.08)',
+            border: '1px solid rgba(168,230,163,0.35)',
+            borderRadius: 4,
+            color: '#e0e0e0',
+            fontFamily: 'monospace',
+            fontSize: 13,
+            padding: '6px 10px',
+            outline: 'none',
+          }}
+        />
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <button
+            onClick={confirm}
+            style={{
+              background: 'rgba(168,230,163,0.18)',
+              border: '1px solid rgba(168,230,163,0.4)',
+              borderRadius: 4,
+              color: '#a8e6a3',
+              fontFamily: 'monospace',
+              fontSize: 11,
+              padding: '4px 14px',
+              cursor: 'pointer',
+              letterSpacing: 1,
+            }}
+          >
+            CONFIRM
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }

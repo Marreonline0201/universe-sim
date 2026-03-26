@@ -44,7 +44,7 @@ import {
   rebuildResourceNodes,
 } from '../world/ResourceNodeManager'
 
-import { AnimalRenderer } from './AnimalRenderer'
+import { AnimalRenderer, TamedAnimalOverlay, TamedAnimalNamePrompt } from './AnimalRenderer'
 import { ServerNpcsRenderer } from './entities/ServerNpcsRenderer'
 import { LocalNpcsRenderer } from './entities/LocalNpcsRenderer'
 import { PlayerMesh, EquippedItemMesh } from './entities/PlayerRenderer'
@@ -563,6 +563,8 @@ export function SceneRoot() {
             <RiverRenderer key={serverWorldSeed} seed={serverWorldSeed} />
             {/* M9: Animal renderer — instanced deer/wolf/boar meshes */}
             <AnimalRenderer />
+            {/* M32: Tamed animal label overlay — heart + pet name projected to screen */}
+            <TamedAnimalOverlay />
             {/* M14 Track A: Destination planet — shown when transit phase === 'arrived' */}
             <DestinationPlanetMeshWrapper />
             {/* M29 Track A: Underground cave system — entrances, tunnels, ore, bioluminescent lighting */}
@@ -634,6 +636,8 @@ export function SceneRoot() {
     {(pointerLocked || bypassPointerLock) && <ContextualHints />}
     {/* M32 Track A: Seasonal events HTML overlay — festival banner + XP indicator */}
     <SeasonalEventsUI />
+    {/* M32 Track B: Pet naming popup — shown after successful taming */}
+    <TamedAnimalNamePrompt />
     </>
   )
 }

@@ -43,6 +43,9 @@ import {
   pendingLoot,
   tickEcosystemBalance,
   tickRespawnQueue,
+  findNearestTameableAnimal,
+  attemptTameNearestAnimal,
+  renameTamedAnimal,
 } from '../ecs/systems/AnimalAISystem'
 
 import { inventory, buildingSystem, questSystem, combatSystem, achievementSystem, tutorialSystem, fishingSystem, merchantSystem } from './GameSingletons'
@@ -176,6 +179,8 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
   const rainFireTimerRef        = useRef(0)    // 10s rain extinguishes fires check
   const lightningTimerRef       = useRef(0)    // countdown to next lightning strike
   const warmthStormMultRef      = useRef(1)    // storm movement speed multiplier
+  // M32: pending tame — animal id waiting for name input
+  const pendingTameAnimalRef    = useRef<number | null>(null)
 
   useFrame((_, delta) => {
     // Cap dt to avoid spiral-of-death on slow frames
@@ -223,6 +228,15 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
           markCombatDamage()
         },
         onAnimalKilled: () => { /* handled via return value of attackNearestAnimal */ },
+        // M32: Tamed animal passive product drop
+        onTamedProductDrop: (animal, materialId, label) => {
+          inventory.addItem({ itemId: 0, materialId, quantity: 1, quality: 0.8 })
+          skillSystem.addXp('husbandry', 10)
+          useUiStore.getState().addNotification(
+            `${animal.petName} produced +1 ${label}!`,
+            'discovery'
+          )
+        },
       })
       // Drain pending loot from wolf kills (wolf-on-deer kills drop loot here)
       while (pendingLoot.length > 0) {
@@ -330,6 +344,67 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
           if (gs_inspect.gatherPrompt !== inspLabel) gs_inspect.setGatherPrompt(inspLabel)
           if (!gs_inspect.inputBlocked && controllerRef.current?.popInteract()) {
             inspectStore.openInspect(nearestRemote)
+          }
+        }
+      }
+    }
+
+    // ── M32 Track B: Animal taming prompt ────────────────────────────────────
+    {
+      const gs_tame = useGameStore.getState()
+      if (!gs_tame.inputBlocked && gs_tame.gatherPrompt === null) {
+        const nearTameable = findNearestTameableAnimal(px, py, pz, 3)
+        if (nearTameable) {
+          const speciesLabel = nearTameable.species.charAt(0).toUpperCase() + nearTameable.species.slice(1)
+          const tameLabel = `[F] Tame ${speciesLabel}`
+          if (gs_tame.gatherPrompt !== tameLabel) gs_tame.setGatherPrompt(tameLabel)
+          if (controllerRef.current?.popInteract()) {
+            gs_tame.setGatherPrompt(null)
+            // Check for food item in inventory (any food material)
+            const foodMatIds = [MAT.RAW_MEAT, MAT.COOKED_MEAT, MAT.FISH, MAT.GRAIN]
+            let foodSlotIdx = -1
+            for (const fid of foodMatIds) {
+              const idx = inventory.findItem(fid)
+              if (idx >= 0) { foodSlotIdx = idx; break }
+            }
+            if (foodSlotIdx < 0) {
+              useUiStore.getState().addNotification(
+                'Need food to tame! Bring raw meat, fish, or grain.',
+                'warning'
+              )
+            } else {
+              // Award XP for attempt regardless of outcome
+              skillSystem.addXp('husbandry', 20)
+              // Use survival level for base chance; husbandry provides an extra bonus
+              const survLevel = skillSystem.getLevel('survival')
+              const husbandryBonus = skillSystem.getBonuses().husbandryTameBonus
+              // The husbandry bonus stacks on top of the survival-based chance
+              // attemptTameNearestAnimal uses survivalLevel * 0.05, so pass combined value
+              const effectiveLevel = survLevel + Math.round(husbandryBonus / 0.05)
+              const result = attemptTameNearestAnimal(px, py, pz, effectiveLevel)
+              if (result) {
+                if (result.success) {
+                  // Consume 1 food item on success
+                  inventory.removeItem(foodSlotIdx, 1)
+                  skillSystem.addXp('husbandry', 50)
+                  pendingTameAnimalRef.current = result.animal.id
+                  // Show name-input popup via custom event
+                  const specName = result.animal.species
+                  window.dispatchEvent(new CustomEvent('tame-animal-name-prompt', {
+                    detail: { animalId: result.animal.id, defaultName: specName }
+                  }))
+                  useUiStore.getState().addNotification(
+                    `You tamed a ${speciesLabel}! Name your companion.`,
+                    'discovery'
+                  )
+                } else {
+                  useUiStore.getState().addNotification(
+                    `Taming failed — ${speciesLabel} spooked! Try again in 30s.`,
+                    'warning'
+                  )
+                }
+              }
+            }
           }
         }
       }
@@ -1298,8 +1373,8 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
       const pw29       = wStore29.getPlayerWeather()
       const wState29   = pw29?.state ?? 'CLEAR'
 
-      // B4: Storm movement penalty
-      setWeatherSpeedMult(wState29 === 'STORM' ? 0.6 : 1.0)
+      // B4: Storm/rain movement penalty
+      setWeatherSpeedMult(wState29 === 'STORM' ? 0.6 : wState29 === 'RAIN' ? 0.85 : 1.0)
 
       // B1: Warmth drain by weather type
       const dayAngle29 = getDayAngle()

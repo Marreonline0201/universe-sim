@@ -177,6 +177,20 @@ export function initWorldEventLogger(): void {
     })
   })
 
+  // location-discovered — M54 Track C: player found a world discovery point
+  window.addEventListener('location-discovered', (e: Event) => {
+    const detail = (e as CustomEvent).detail ?? {}
+    const name: string = detail.name ?? 'Unknown Location'
+    const icon: string = detail.icon ?? '🗺'
+    const rewardGold: number = detail.rewardGold ?? 0
+    useWorldEventStore.getState().addEvent({
+      category: 'exploration',
+      icon,
+      title: 'Location Discovered',
+      detail: `${name} found! (+${rewardGold}g)`,
+    })
+  })
+
   // combo-milestone — M53 Track C: combo streak milestones
   window.addEventListener('combo-milestone', (e: Event) => {
     const detail = (e as CustomEvent).detail ?? {}

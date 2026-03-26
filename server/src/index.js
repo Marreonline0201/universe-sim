@@ -24,6 +24,17 @@ import * as AgentBus from './AgentBus.js'
 import * as Telegram from './TelegramAgent.js'
 import Anthropic from '@anthropic-ai/sdk'
 
+// ── Pending agent launch triggers (queued from Telegram, consumed by Claude Code) ──
+const pendingTriggers = [] // Array<{ agentId, queuedAt }>
+export function queueTrigger(agentId) {
+  if (!pendingTriggers.find(t => t.agentId === agentId)) {
+    pendingTriggers.push({ agentId, queuedAt: Date.now() })
+  }
+}
+export function consumeTriggers() {
+  return pendingTriggers.splice(0, pendingTriggers.length)
+}
+
 // ── Telegram conversation history (per chat_id, in-memory, last 20 turns) ────
 const telegramHistory = new Map() // chatId → Array<{role, content}>
 const MAX_HISTORY = 20
@@ -346,12 +357,12 @@ async function main() {
             const runMatch = userText.match(/^run\s+([a-z\-]+)$/i)
             if (runMatch) {
               const agentId = runMatch[1].toLowerCase()
+              queueTrigger(agentId)
               ;(async () => {
                 await Telegram.sendMessage(
-                  `To restart *${agentId}*, run this in Claude Code:\n\n` +
-                  `\`\`\`\nClause Code → type your task prompt mentioning "${agentId}"\`\`\`\n\n` +
-                  `Or from the terminal in the project folder, agents are launched via the Claude Code agent system. ` +
-                  `The director agent can also spawn it — type *run director* to restart the director first.`
+                  `📬 *${agentId}* launch queued.\n\n` +
+                  `The next time Claude Code is active in your project, it will automatically pick this up and launch the agent.\n\n` +
+                  `If Claude Code is open right now, it will start within seconds.`
                 )
               })()
               return
@@ -379,7 +390,8 @@ Rules:
 - If an agent shows "active", it IS currently running
 - If all agents show "idle", no agents are currently running
 - Be concise — this is a mobile Telegram chat
-- You can also help with game dev questions about Universe Sim`
+- You can also help with game dev questions about Universe Sim
+- IMPORTANT: You cannot launch agents yourself. To launch an agent, tell the user to type "run [agentId]" — the server handles queuing it for Claude Code to pick up automatically. Do NOT say you are "triggering" or "starting" anything yourself.`
                 // Append user message to history
                 pushTelegramHistory(chatId, 'user', userText)
                 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
@@ -411,6 +423,14 @@ Rules:
       const approval = agentId ? AgentBus.checkApproval(agentId) : null
       res.writeHead(200, { 'Content-Type': 'application/json', ...corsHeaders })
       res.end(JSON.stringify({ approval }))
+      return
+    }
+
+    // GET /pending-triggers — Claude Code polls this to pick up Telegram launch requests
+    if (req.method === 'GET' && normalizedPath === '/pending-triggers') {
+      const triggers = consumeTriggers()
+      res.writeHead(200, { 'Content-Type': 'application/json', ...corsHeaders })
+      res.end(JSON.stringify({ triggers }))
       return
     }
 

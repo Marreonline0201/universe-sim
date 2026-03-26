@@ -300,6 +300,20 @@ export function spawnAnimal(
     phenotype,
   }
   animalRegistry.set(id, animal)
+
+  // [GenomeDebug] Log spawn with decoded phenotype so developer can verify genome → behavior wiring
+  if (phenotype) {
+    console.log(
+      `[GenomeDebug] Spawned ${species} #${id}: ` +
+      `speedMult=${phenotype.speedMult.toFixed(2)} ` +
+      `detectionRange=${phenotype.detectionRange.toFixed(1)}m ` +
+      `attackDamage=${phenotype.attackDamage} ` +
+      `maxHealth=${phenotype.maxHealth} ` +
+      `armorReduction=${(phenotype.armorReduction * 100).toFixed(0)}% ` +
+      `behaviorTier=${phenotype.behaviorTier}`
+    )
+  }
+
   return animal
 }
 
@@ -495,6 +509,15 @@ function tickDeer(
     ? DEER_FLEE_RADIUS_CROUCH
     : Math.max(10, DEER_FLEE_RADIUS + detectionBonus)
   const fleeRadius = fleeRadiusBase
+
+  // [GenomeDebug] Deer phenotype — log once per new state entry
+  if (a.stateTimer < 0.05) {
+    console.log(
+      `[GenomeDebug] Deer #${a.id} phenotype: speedMult=${speedMult.toFixed(2)} ` +
+      `fleeRadius=${fleeRadius.toFixed(1)}m behaviorTier=${a.phenotype?.behaviorTier ?? 1} ` +
+      `maxHealth=${a.maxHealth} state=${a.behavior}`
+    )
+  }
 
   // ── State transitions ─────────────────────────────────────────────────────
   if (a.behavior === 'GRAZING' && playerDist < fleeRadius) {
@@ -746,8 +769,16 @@ function tickWolf(
     }
   }
 
-  // Suppress unused variable warning (armorReduction applies to deer incoming damage above)
-  void armorReduction
+  // armorReduction: wolf's own armor reduces incoming damage (applied in attackNearestAnimal).
+  // Log wolf phenotype once per state entry for developer verification.
+  if (a.stateTimer < 0.05) {
+    console.log(
+      `[GenomeDebug] Wolf #${a.id} phenotype: speedMult=${speedMult.toFixed(2)} ` +
+      `huntRadius=${huntRadius.toFixed(1)}m attackDamage=${attackDamage} ` +
+      `armorReduction=${(armorReduction * 100).toFixed(0)}% behaviorTier=${behaviorTier} ` +
+      `state=${a.behavior}`
+    )
+  }
 
   // Tick attack cooldown
   const cd = wolfAttackCooldowns.get(a.id) ?? 0
@@ -775,10 +806,22 @@ function tickBoar(
   const playerDist = Math.sqrt(dpx * dpx + dpy * dpy + dpz * dpz)
 
   // Genome-derived stats
-  const speedMult     = a.phenotype?.speedMult    ?? 1.0
+  const speedMult      = a.phenotype?.speedMult      ?? 1.0
   const detectionRange = a.phenotype?.detectionRange ?? BOAR_TRIGGER_RADIUS
-  const attackDamage  = a.phenotype?.attackDamage ?? BOAR_DAMAGE
-  const triggerRadius = Math.max(4, Math.min(16, detectionRange * 0.4))
+  const attackDamage   = a.phenotype?.attackDamage   ?? BOAR_DAMAGE
+  const armorReduction = a.phenotype?.armorReduction ?? 0
+  const behaviorTier   = a.phenotype?.behaviorTier   ?? 1
+  const triggerRadius  = Math.max(4, Math.min(16, detectionRange * 0.4))
+
+  // [GenomeDebug] Boar phenotype — log once per new state entry
+  if (a.stateTimer < 0.05) {
+    console.log(
+      `[GenomeDebug] Boar #${a.id} phenotype: speedMult=${speedMult.toFixed(2)} ` +
+      `detectionRange=${detectionRange.toFixed(1)}m attackDamage=${attackDamage} ` +
+      `armorReduction=${(armorReduction * 100).toFixed(0)}% behaviorTier=${behaviorTier} ` +
+      `state=${a.behavior}`
+    )
+  }
 
   // ── State transitions ─────────────────────────────────────────────────────
   if (a.behavior === 'ROAMING' && playerDist < triggerRadius) {
@@ -802,7 +845,8 @@ function tickBoar(
       const roamSpeed = BOAR_ROAM_SPEED * speedMult
       a.vx = Math.cos(angle) * roamSpeed
       a.vz = Math.sin(angle) * roamSpeed
-      a.wanderTimer = 3 + Math.random() * 6
+      // Tier 0 boars (reflex-only) change direction more frequently — simpler cognition
+      a.wanderTimer = behaviorTier === 0 ? 1 + Math.random() * 2 : 3 + Math.random() * 6
     }
   }
 
@@ -815,6 +859,8 @@ function tickBoar(
       a.vz = dpz * invD * chargeSpeed
     }
     // Deal impact damage when within contact range — genome-derived damage
+    // armorReduction on the boar's own genome does NOT reduce player damage (boar is attacker);
+    // it instead reduces damage the boar receives. Stored here for use in attackNearestAnimal().
     if (playerDist < 2.5) {
       const cd = boarAttackCooldowns.get(a.id) ?? 0
       if (cd <= 0) {
@@ -823,6 +869,9 @@ function tickBoar(
       }
     }
   }
+
+  // Suppress unused variable warning (armorReduction is applied in attackNearestAnimal)
+  void armorReduction
 
   // Tick attack cooldown
   const cd = boarAttackCooldowns.get(a.id) ?? 0
@@ -880,7 +929,15 @@ export function attackNearestAnimal(
 
   if (!nearest) return null
 
-  nearest.health -= damage
+  // Apply genome armor reduction: armored animals (boars in particular) absorb some damage
+  const armorReduction = nearest.phenotype?.armorReduction ?? 0
+  const effectiveDamage = damage * (1 - armorReduction)
+  console.log(
+    `[GenomeDebug] attackNearestAnimal: ${nearest.species} #${nearest.id} ` +
+    `rawDamage=${damage.toFixed(1)} armorReduction=${(armorReduction * 100).toFixed(0)}% ` +
+    `effectiveDamage=${effectiveDamage.toFixed(1)} hp=${nearest.health.toFixed(1)}/${nearest.maxHealth}`
+  )
+  nearest.health -= effectiveDamage
   if (nearest.health > 0) return { killed: null, loot: [] }  // hit but survived
 
   // Animal died

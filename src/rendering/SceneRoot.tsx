@@ -713,10 +713,11 @@ function DeathScreenWrapper({ onRespawn }: { onRespawn: () => void }) {
 }
 
 // GameLoop is implemented in src/game/GameLoop.ts and imported at the top.
-// Dead code start marker (will be paired with end marker below):
-// DEADCODE_GAMELOOP_BODY_START
-    for (const [eid_DEAD, ws_DEAD] of new Map<number,any>()) {
-      ws.timer -= dt
+// ── BEGIN: dead GameLoop body (1315 lines removed) ────────────────────────────
+// ──   replaced by import { GameLoop } from '../game/GameLoop'               ──
+// ── END dead body marker ──────────────────────────────────────────────────────
+    for (const [eid_DEAD2, ws_DEAD2] of new Map<number,any>()) {
+      const _ws_DEAD2_timer = 0
       if (ws.timer <= 0) {
         // Pick a new random tangent-plane direction
         const angle = Math.random() * Math.PI * 2
@@ -1996,38 +1997,6 @@ function DeathScreenWrapper({ onRespawn }: { onRespawn: () => void }) {
     // as environmental hazard from guards). Check once per 3s with settlement timer.
     {
       const localMurderCount = usePlayerStore.getState().murderCount
-      const WANTED_THRESHOLD_CLIENT = 5
-      const GUARD_RANGE_SQ = 30 * 30  // 30 metre aggro radius
-      const GUARD_DPS = 8             // damage per second from guard volley
-      if (localMurderCount >= WANTED_THRESHOLD_CLIENT) {
-        const nearestSettlement = useSettlementStore.getState().nearSettlementId
-        if (nearestSettlement !== null) {
-          // Guards deal damage proportional to dt — simulate arrow volley per frame
-          const ps3 = usePlayerStore.getState()
-          // Check if any server NPC is within 30m (they are settlement guards)
-          const remoteNpcs3 = useMultiplayerStore.getState().remoteNpcs
-          for (const npc of remoteNpcs3) {
-            const dx = npc.x - px, dy = (npc.y ?? 1) - py, dz = npc.z - pz
-            const distSq = dx * dx + dy * dy + dz * dz
-            if (distSq < GUARD_RANGE_SQ) {
-              // Guard attacks — apply damage per second, scaled by dt
-              const guardDmg = GUARD_DPS * dt
-              const maxHp    = Health.max[entityId] || 100
-              const newHp    = Math.max(0, Health.current[entityId] - guardDmg)
-              Health.current[entityId] = newHp
-              // Mark as combat damage so death is attributed correctly
-              markCombatDamage()
-              break  // one guard attack per frame is enough
-            }
-          }
-        }
-      }
-    }
-  })
-
-  return null
-}
-
 // ── Building ghost (shown during placement mode) ──────────────────────────────
 
 // Scratch objects for BuildingGhost — allocated once at module scope, never inside useFrame

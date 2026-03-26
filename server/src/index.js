@@ -419,6 +419,13 @@ Rules:
     }
 
     // GET /agent-approval?agentId=xxx — agents poll this to check if approved/rejected
+    // GET /agent-status — full agent state for external polling (watchdog, CLI)
+    if (req.method === 'GET' && normalizedPath === '/agent-status') {
+      res.writeHead(200, { 'Content-Type': 'application/json', ...corsHeaders })
+      res.end(JSON.stringify(AgentBus.getState()))
+      return
+    }
+
     if (req.method === 'GET' && normalizedPath === '/agent-approval') {
       const agentId = new URL(req.url, 'http://localhost').searchParams.get('agentId')
       const approval = agentId ? AgentBus.checkApproval(agentId) : null

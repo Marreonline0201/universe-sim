@@ -33,9 +33,12 @@ export interface AudioUpdateState {
   playerZ: number
   playerMoving: boolean
   playerRunning: boolean
+  playerCrouching: boolean // crouch = slower step rhythm
   playerGrounded: boolean
   playerElevation: number  // height above sea level
-  terrainType: 'grass' | 'rock' | 'sand' | 'snow' | 'water'
+  playerSpeed: number      // m/s — used for step interval + impact weight
+  playerMass: number       // kg — default 70; heavier = louder footsteps
+  terrainType: 'grass' | 'rock' | 'sand' | 'snow' | 'water' | 'wood'
 
   // Proximity triggers
   nearFire: boolean        // within 15m of a fire source
@@ -100,6 +103,9 @@ export class AmbientAudioEngine {
   // Footsteps: triggered by movement timer
   private footstepTimer = 0
   private lastFootstepTime = 0
+  private footstepLeftFoot = true           // alternates L/R for panning
+  private lastTerrainType = ''             // for surface transition crossfade
+  private terrainTransitionStep = 3        // 0-2: count up to 3 for full new-surface volume
 
   // Fire: random crackle timer
   private fireTimer = 0

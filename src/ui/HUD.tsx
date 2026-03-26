@@ -42,8 +42,13 @@ import { PartyHUD } from './PartyHUD'
 import { SpectateMode } from './SpectateMode'
 // M40 Track B: Magic spell system
 const SpellBar = lazy(() => import('./SpellBar').then(m => ({ default: m.SpellBar })))
+// M41 Track B: Mount HUD
+const MountHUD = lazy(() => import('./MountHUD').then(m => ({ default: m.MountHUD })))
 // M39 Track C: Civilization progression banners
 import { useCivStore, CIV_LEVEL_LABELS, CIV_LEVEL_ICONS } from '../store/civStore'
+
+// M41 Track C: Seasonal festival events
+const FestivalHUD = lazy(() => import('./FestivalHUD').then(m => ({ default: m.FestivalHUD })))
 
 // ── M20: Lazy-loaded overlays (rarely shown) ─────────────────────────────────
 const FirstContactOverlay = lazy(() => import('./FirstContactOverlay').then(m => ({ default: m.FirstContactOverlay })))
@@ -2594,8 +2599,18 @@ export function HUD() {
         <SpellBar />
       </Suspense>
 
+      {/* ── M41 Track B: Mount HUD (shown when riding) ── */}
+      <Suspense fallback={null}>
+        <MountHUD />
+      </Suspense>
+
       {/* ── M37 Track A: World event banner + indicator + history ── */}
       <WorldEventHUD />
+
+      {/* ── M41 Track C: Seasonal festival banner + corner indicator ── */}
+      <Suspense fallback={null}>
+        <FestivalHUD />
+      </Suspense>
 
       {/* ── M39 Track C: Civilization level-up and milestone banners ── */}
       <CivLevelUpBanner />

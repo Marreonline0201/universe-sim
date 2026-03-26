@@ -11,6 +11,7 @@
 import { useUiStore } from '../store/uiStore'
 import { useGameStore } from '../store/gameStore'
 import { useSkillStore } from '../store/skillStore'
+import { festivalSystem } from './FestivalSystem'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -229,7 +230,8 @@ export class SkillSystem {
       const { getSkillXpMultiplier } = require('./CivMilestoneSystem') as typeof import('./CivMilestoneSystem')
       civXpBonus = getSkillXpMultiplier()
     } catch { /* civ system not loaded */ }
-    s.xp += amount * baseMultiplier * prestigeXpBonus * partyBonus * civXpBonus
+    const festBonus = festivalSystem.getXpBonus()
+    s.xp += amount * baseMultiplier * prestigeXpBonus * partyBonus * civXpBonus * festBonus
 
     // Check for level up
     while (s.level < 10 && s.xp >= XP_THRESHOLDS[s.level + 1]) {

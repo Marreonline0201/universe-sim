@@ -25,6 +25,8 @@ import { useOutlawStore } from '../store/outlawStore'
 import { useWeatherStore } from '../store/weatherStore'
 import { useRiverStore } from '../store/riverStore'
 import { useSeasonStore } from '../store/seasonStore'
+import { festivalSystem } from './FestivalSystem'
+import { useFestivalStore } from '../store/festivalStore'
 import { useShopStore } from '../store/shopStore'
 import { useTransitStore } from '../store/transitStore'
 import { useVelarStore } from '../store/velarStore'
@@ -161,6 +163,9 @@ import { checkNewTitles } from './TitleSystem'
 // M40 Track B: Magic spell system
 import { spellSystem } from './SpellSystem'
 import { useSpellStore } from '../store/spellStore'
+// M41 Track B: Mount and riding system
+import { useMountStore } from '../store/mountStore'
+import { setMountSpeedMult } from '../player/PlayerController'
 
 // Register skill system with offline save manager for serialization
 registerSkillSystem(skillSystem)
@@ -369,6 +374,88 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
       const isDodgingNow = combatSystem.isDodging
       if (!isSprinting && !isDodgingNow && ps38.stamina < ps38.maxStamina) {
         ps38.addStamina(10 * dt)
+      }
+    }
+
+    // M41 Track B: Mount and riding system
+    {
+      const mountSt = useMountStore.getState()
+      const isMounted = mountSt.mountedAnimalId !== null
+
+      // R key: mount nearby tamed animal or dismount
+      if (controllerRef.current?.popMount()) {
+        if (isMounted) {
+          // Dismount
+          mountSt.dismount()
+          setMountSpeedMult(1.0)
+          window.dispatchEvent(new CustomEvent('mount-changed', { detail: { mounted: false } }))
+        } else {
+          // Find nearby tamed animal within 3m
+          const _pxM = Position.x[entityId], _pyM = Position.y[entityId], _pzM = Position.z[entityId]
+          let nearestTamed: import('../ecs/systems/AnimalAISystem').AnimalEntity | null = null
+          let nearestTamedDist = 3
+          for (const [, aData] of animalRegistry) {
+            if (!aData.tamed || aData.behavior === 'DEAD') continue
+            const dx = aData.x - _pxM, dy = aData.y - _pyM, dz = aData.z - _pzM
+            const dist = Math.sqrt(dx * dx + dy * dy + dz * dz)
+            if (dist < nearestTamedDist) {
+              nearestTamedDist = dist
+              nearestTamed = aData
+            }
+          }
+          if (nearestTamed) {
+            // Determine speed based on species
+            // wolf = fast, boar = medium, others = slower
+            const sp: string = nearestTamed.species
+            let mountSpeed = 1.3
+            if (sp === 'wolf') mountSpeed = 1.6
+            else if (sp === 'boar') mountSpeed = 1.4
+            const mountName = nearestTamed.petName || nearestTamed.species
+            mountSt.mount(nearestTamed.id, mountName, nearestTamed.health, mountSpeed)
+            setMountSpeedMult(mountSpeed)
+            window.dispatchEvent(new CustomEvent('mount-changed', { detail: { mounted: true, name: mountName } }))
+            useUiStore.getState().addNotification(`Mounted ${mountName}! Shift = gallop. R = dismount.`, 'discovery')
+          } else {
+            useUiStore.getState().addNotification('No tamed animal nearby to mount.', 'warning')
+          }
+        }
+      }
+
+      if (isMounted) {
+        const isGallopKey = !!(controllerRef.current as any)?.keys?.has?.('ShiftLeft') ||
+                            !!(controllerRef.current as any)?.keys?.has?.('ShiftRight')
+        const curStamina = mountSt.mountStamina
+
+        // Update gallop state
+        if (isGallopKey !== mountSt.isGalloping) {
+          mountSt.setGalloping(isGallopKey)
+        }
+
+        if (isGallopKey && curStamina > 0) {
+          // Gallop: 2× speed, drain stamina 15/s
+          setMountSpeedMult(mountSt.mountSpeed * 2.0)
+          mountSt.setMountStamina(curStamina - 15 * dt)
+          // Force dismount if stamina runs out
+          if (mountSt.mountStamina <= 0) {
+            mountSt.dismount()
+            setMountSpeedMult(1.0)
+            window.dispatchEvent(new CustomEvent('mount-changed', { detail: { mounted: false } }))
+            useUiStore.getState().addNotification('Mount exhausted — dismounted!', 'warning')
+          }
+        } else {
+          // Normal riding speed
+          setMountSpeedMult(mountSt.mountSpeed)
+          // Regen stamina at 5/s when not galloping
+          if (curStamina < 100) {
+            mountSt.setMountStamina(curStamina + 5 * dt)
+          }
+          if (isGallopKey && curStamina <= 0) {
+            mountSt.setGalloping(false)
+          }
+        }
+      } else {
+        // Not mounted — ensure speed mult is reset
+        setMountSpeedMult(1.0)
       }
     }
 
@@ -2564,6 +2651,14 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
         const target = curTemp + tempMod * 0.02
         usePlayerStore.getState().setAmbientTemp(curTemp + (target - curTemp) * Math.min(1, dt))
       }
+    }
+
+    // ── M41 Track C: Festival system tick ────────────────────────────────────
+    {
+      const currentSeason = useSeasonStore.getState().season
+      // One in-game day = 1200 real seconds (matches simSeconds day/night cycle)
+      festivalSystem.tick(dt, currentSeason, 1200)
+      useFestivalStore.getState().sync()
     }
 
     // ── M10 Track B: Sailing + fishing ────────────────────────────────────────

@@ -22,6 +22,7 @@ import { useGameStore } from '../store/gameStore'
 import { useSkillStore } from '../store/skillStore'
 import { inventory, journal, buildingSystem } from './GameSingletons'
 import { serializeSpecs, deserializeSpecs } from './SkillSpecializationSystem'
+import { serializeHome, deserializeHome } from './HomeCustomizationSystem'
 import { serializeRoutes, deserializeRoutes } from './TradingRouteSystem'
 import { serializeRepTitles, deserializeRepTitles } from './ReputationTitleSystem'
 import { serializeDiscovery, deserializeDiscovery } from './RecipeDiscoverySystem'
@@ -136,6 +137,7 @@ export async function saveOffline(): Promise<boolean> {
       tradeRoutes: serializeRoutes(),
       repTitles: serializeRepTitles(),
       recipeDiscovery: serializeDiscovery(),
+      homeCustomization: serializeHome(),
     })
     const meta = JSON.stringify({
       timestamp: Date.now(),
@@ -277,6 +279,11 @@ export async function loadOffline(): Promise<boolean> {
     // M52 Track B: Restore recipe discovery state
     if (state.recipeDiscovery) {
       deserializeDiscovery(state.recipeDiscovery)
+    }
+
+    // M53 Track B: Restore home customization
+    if (state.homeCustomization) {
+      deserializeHome(state.homeCustomization)
     }
 
     // Restore position

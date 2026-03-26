@@ -96,6 +96,19 @@ export function initWorldEventLogger(): void {
     })
   })
 
+  // home-customized — detail: { decorationId, decorationName, theme }
+  window.addEventListener('home-customized', (e: Event) => {
+    const detail = (e as CustomEvent).detail ?? {}
+    const decorName = detail.decorationName ?? 'a decoration'
+    const theme = detail.theme ?? ''
+    useWorldEventStore.getState().addEvent({
+      category: 'social',
+      icon: '🏡',
+      title: 'Home Customized',
+      detail: `Equipped ${decorName}${theme ? ` (${theme} theme)` : ''}.`,
+    })
+  })
+
   // recipe-discovered — detail: { recipeId: string }
   window.addEventListener('recipe-discovered', (e: Event) => {
     const detail = (e as CustomEvent).detail ?? {}
@@ -138,6 +151,17 @@ export function initWorldEventLogger(): void {
       icon: detail.icon ?? '🌙',
       title: detail.title ?? 'Night Event',
       detail: `A ${timeWindow} event has begun.`,
+    })
+  })
+
+  // seasonal-event — M53 Track A: seasonal event triggered
+  window.addEventListener('seasonal-event', (e: Event) => {
+    const detail = (e as CustomEvent).detail ?? {}
+    useWorldEventStore.getState().addEvent({
+      category: 'exploration',
+      icon: detail.icon ?? '🍃',
+      title: detail.name ?? 'Seasonal Event',
+      detail: detail.description ?? 'A seasonal event has begun.',
     })
   })
 }

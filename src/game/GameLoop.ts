@@ -191,6 +191,8 @@ import { isPotionFireImmune } from './PotionSystem'
 import { tickRestockEvent, triggerRestockEvent } from './MerchantRestockSystem'
 // M48 Track C: World events log
 import { logCombatEvent } from './WorldEventLogger'
+// M49 Track B: Trading routes
+import { tickRoutes } from './TradingRouteSystem'
 
 // Register skill system with offline save manager for serialization
 registerSkillSystem(skillSystem)
@@ -3283,6 +3285,9 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
         }
       }
     }
+
+    // ── M49 Track B: Trading routes tick ─────────────────────────────────────
+    tickRoutes(dt * 1000)
 
     // ── M43 Track C: Exploration tracking (every 5s) ─────────────────────────
     {

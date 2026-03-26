@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 
-export type PanelId = 'inventory' | 'crafting' | 'journal' | 'character' | 'map' | 'settings' | 'build' | 'science' | 'dialogue' | 'skills' | 'quests' | 'achievements' | 'fishing' | 'merchant' | 'players' | 'home' | 'factions' | 'buildings' | 'progression' | 'alchemy' | 'tradepost' | 'forge' | 'housing' | 'pet' | 'worldevents'
+export type PanelId = 'inventory' | 'crafting' | 'journal' | 'character' | 'map' | 'settings' | 'build' | 'science' | 'dialogue' | 'skills' | 'quests' | 'achievements' | 'fishing' | 'merchant' | 'players' | 'home' | 'factions' | 'buildings' | 'progression' | 'alchemy' | 'tradepost' | 'forge' | 'housing' | 'pet' | 'worldevents' | 'traderoutes' | 'bestiary'
 
 // ── M32 Track C: Fast travel ──────────────────────────────────────────────────
 export interface FastTravelTarget {

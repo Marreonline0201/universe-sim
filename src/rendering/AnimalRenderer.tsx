@@ -16,6 +16,7 @@ import { useFrame, useThree } from '@react-three/fiber'
 import { useRef, useMemo, useState, useEffect } from 'react'
 import { animalRegistry, renameTamedAnimal } from '../ecs/systems/AnimalAISystem'
 import type { AnimalEntity, AnimalSpecies } from '../ecs/systems/AnimalAISystem'
+import { currentBoss, syncBossPosition, getBossDistanceAndDirection } from '../game/BossSystem'
 
 // ── Procedural geometry builders ─────────────────────────────────────────────
 //
@@ -297,10 +298,16 @@ function AnimalSpeciesRenderer({ species, geometry, material }: AnimalSpeciesRen
         ? _quatDead.multiplyQuaternions(_quat, _deadTilt)
         : _quat
 
+      // M34 Track B: Elite = 1.3× scale, Boss = 1.8× scale
+      const s = animal.boss ? 1.8 : (animal.elite ? 1.3 : 1.0)
+      _scale.set(s, s, s)
       _mat4.compose(_pos, quat, _scale)
       mesh.setMatrixAt(count, _mat4)
       count++
     }
+
+    // Restore default scale
+    _scale.set(1, 1, 1)
 
     // Clear remaining instances
     if (count < mesh.count) {
@@ -324,6 +331,202 @@ function AnimalSpeciesRenderer({ species, geometry, material }: AnimalSpeciesRen
   )
 }
 
+// ── M34: Elite glow ring renderer ────────────────────────────────────────────
+// Renders a pulsing torus beneath each elite/boss creature.
+// One torus per eligible animal (elite + boss), updated each frame.
+
+const MAX_ELITE_INSTANCES = 10  // max elites+boss visible at once
+
+const _elitePos   = new THREE.Vector3()
+const _eliteQuat  = new THREE.Quaternion()
+const _eliteScale = new THREE.Vector3()
+
+export function EliteGlowRenderer() {
+  const glowMeshRef = useRef<THREE.InstancedMesh>(null)
+  const bossAuraMeshRef = useRef<THREE.InstancedMesh>(null)
+  const uTime = useRef(0)
+
+  const torusGeo = useMemo(() => new THREE.TorusGeometry(1.2, 0.12, 8, 24), [])
+  const bossAuraGeo = useMemo(() => new THREE.TorusGeometry(2.2, 0.22, 8, 32), [])
+
+  // We create one material per possible glow color. For simplicity we use a single
+  // emissive material and swap color in the instance color attribute each frame.
+  const eliteMat = useMemo(() => new THREE.MeshStandardMaterial({
+    color: '#ff6600',
+    emissive: '#ff6600',
+    emissiveIntensity: 1.5,
+    transparent: true,
+    opacity: 0.75,
+  }), [])
+
+  const bossMat = useMemo(() => new THREE.MeshStandardMaterial({
+    color: '#cc0000',
+    emissive: '#cc0000',
+    emissiveIntensity: 2.0,
+    transparent: true,
+    opacity: 0.85,
+  }), [])
+
+  useFrame((_, dt) => {
+    uTime.current += dt
+    const t = uTime.current
+    // Pulse: sin oscillates 0.6–1.0 amplitude
+    const pulse = 0.6 + 0.4 * Math.abs(Math.sin(t * Math.PI * 2 / 0.5))
+
+    const glowMesh = glowMeshRef.current
+    const bossMesh = bossAuraMeshRef.current
+    if (!glowMesh || !bossMesh) return
+
+    let glowCount = 0
+    let bossCount = 0
+
+    for (const animal of animalRegistry.values()) {
+      if (animal.behavior === 'DEAD') continue
+      if (!animal.elite && !animal.boss) continue
+
+      computeSurfaceQuat(animal.x, animal.y, animal.z, animal.vx, animal.vz)
+      _elitePos.set(animal.x, animal.y, animal.z)
+
+      if (animal.boss && bossCount < 1) {
+        const bossS = 1.0 * pulse
+        _eliteScale.set(bossS, bossS, bossS)
+        _mat4.compose(_elitePos, _quat, _eliteScale)
+        bossMesh.setMatrixAt(bossCount, _mat4)
+        bossCount++
+      } else if (animal.elite && glowCount < MAX_ELITE_INSTANCES) {
+        const glowS = pulse
+        _eliteScale.set(glowS, glowS, glowS)
+        _mat4.compose(_elitePos, _quat, _eliteScale)
+        glowMesh.setMatrixAt(glowCount, _mat4)
+        glowCount++
+      }
+    }
+
+    // Clear unused slots
+    _mat4.makeScale(0, 0, 0)
+    for (let i = glowCount; i < MAX_ELITE_INSTANCES; i++) glowMesh.setMatrixAt(i, _mat4)
+    for (let i = bossCount; i < 1; i++) bossMesh.setMatrixAt(i, _mat4)
+
+    glowMesh.count = MAX_ELITE_INSTANCES
+    bossMesh.count = 1
+    glowMesh.instanceMatrix.needsUpdate = true
+    bossMesh.instanceMatrix.needsUpdate = true
+
+    eliteMat.emissiveIntensity = 1.0 + pulse
+    bossMat.emissiveIntensity  = 1.5 + pulse
+
+    // Sync boss position for HUD/minimap
+    syncBossPosition()
+  })
+
+  return (
+    <>
+      <instancedMesh ref={glowMeshRef} args={[torusGeo, eliteMat, MAX_ELITE_INSTANCES]} />
+      <instancedMesh ref={bossAuraMeshRef} args={[bossAuraGeo, bossMat, 1]} />
+    </>
+  )
+}
+
+// ── M34: Boss world-position projection for skull overlay ─────────────────────
+// Runs inside Canvas; dispatches a DOM event with boss screen coordinates.
+
+interface BossProjectionData {
+  screenX: number
+  screenY: number
+  hp: number
+  maxHp: number
+  visible: boolean
+}
+
+const _bossPos  = new THREE.Vector3()
+const _bossProj = new THREE.Vector3()
+
+export function BossOverlayProjector() {
+  const { camera, size } = useThree()
+
+  useFrame(() => {
+    const boss = currentBoss
+    if (!boss || boss.killed) {
+      window.dispatchEvent(new CustomEvent<BossProjectionData>('__bossOverlayUpdate', {
+        detail: { screenX: 0, screenY: 0, hp: 0, maxHp: 1, visible: false },
+      }))
+      return
+    }
+
+    const [bx, by, bz] = boss.position
+    _bossPos.set(bx, by + 3.5, bz)
+    _bossProj.copy(_bossPos).project(camera)
+
+    const visible = _bossProj.z < 1  // in front of camera
+    const sx = (_bossProj.x *  0.5 + 0.5) * size.width
+    const sy = (-_bossProj.y * 0.5 + 0.5) * size.height
+
+    window.dispatchEvent(new CustomEvent<BossProjectionData>('__bossOverlayUpdate', {
+      detail: { screenX: sx, screenY: sy, hp: boss.hp, maxHp: boss.maxHp, visible },
+    }))
+  })
+
+  return null
+}
+
+/** DOM overlay that renders skull + HP bar above the boss world position. */
+export function BossWorldOverlayDOM() {
+  const [data, setData] = useState<BossProjectionData | null>(null)
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const d = (e as CustomEvent<BossProjectionData>).detail
+      setData(d.visible ? d : null)
+    }
+    window.addEventListener('__bossOverlayUpdate', handler)
+    return () => window.removeEventListener('__bossOverlayUpdate', handler)
+  }, [])
+
+  if (!data) return null
+
+  const hpPct = Math.max(0, Math.min(1, data.hp / data.maxHp))
+
+  return (
+    <div style={{
+      position: 'fixed',
+      left: data.screenX,
+      top: data.screenY,
+      transform: 'translate(-50%, -100%)',
+      pointerEvents: 'none',
+      zIndex: 200,
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      gap: 3,
+    }}>
+      <span style={{ fontSize: 22, lineHeight: 1, filter: 'drop-shadow(0 0 6px #ff0000)' }}>&#9760;</span>
+      <div style={{
+        background: 'rgba(0,0,0,0.7)',
+        border: '1px solid #cc0000',
+        borderRadius: 4,
+        padding: '2px 6px',
+        minWidth: 120,
+      }}>
+        <div style={{ fontSize: 10, color: '#ff4444', fontFamily: 'monospace', textAlign: 'center', marginBottom: 3 }}>
+          Ancient Dire Wolf
+        </div>
+        <div style={{ height: 6, background: 'rgba(255,255,255,0.15)', borderRadius: 3, overflow: 'hidden' }}>
+          <div style={{
+            width: `${hpPct * 100}%`,
+            height: '100%',
+            background: '#cc0000',
+            borderRadius: 3,
+            transition: 'width 0.2s ease',
+          }} />
+        </div>
+        <div style={{ fontSize: 9, color: '#aaa', fontFamily: 'monospace', textAlign: 'center', marginTop: 2 }}>
+          {Math.round(data.hp)}/{data.maxHp} HP
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function AnimalRenderer() {
   const deerGeo  = useMemo(() => buildDeerGeometry(),  [])
   const wolfGeo  = useMemo(() => buildWolfGeometry(),  [])
@@ -338,6 +541,10 @@ export function AnimalRenderer() {
       <AnimalSpeciesRenderer species="deer" geometry={deerGeo} material={deerMat} />
       <AnimalSpeciesRenderer species="wolf" geometry={wolfGeo} material={wolfMat} />
       <AnimalSpeciesRenderer species="boar" geometry={boarGeo} material={boarMat} />
+      {/* M34 Track B: Elite glow rings + boss aura */}
+      <EliteGlowRenderer />
+      {/* M34 Track B: Boss skull position projector (Canvas-side) */}
+      <BossOverlayProjector />
     </>
   )
 }

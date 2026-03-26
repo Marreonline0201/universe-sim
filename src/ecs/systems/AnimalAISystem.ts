@@ -129,6 +129,14 @@ export interface AnimalEntity {
   tameAlertTimer: number
   /** Seconds since last product drop (leather for deer, meat for boar). */
   productTimer: number
+
+  // M34 Track B: Elite / Boss variants
+  /** True if this is an elite creature: 2× HP, 1.5× damage, 1.3× speed, guaranteed loot. */
+  elite?: boolean
+  /** True if this is the world boss: 5× HP, 2× damage, special abilities. */
+  boss?: boolean
+  /** Glow color for elite visual ring (e.g. '#ff2200' for wolves). */
+  eliteGlowColor?: string
 }
 
 export interface LootDrop {
@@ -213,6 +221,13 @@ const MAT_LEATHER    = 24
 const MAT_BONE       = 6
 const MAT_WOLF_PELT  = 57  // NEW in M9
 const MAT_BOAR_TUSK  = 58  // NEW in M9
+// M34 Track B: Elite / boss loot material IDs (matching Inventory.ts MAT)
+const MAT_IRON_ORE   = 14
+const MAT_GOLD       = 27
+const MAT_VELAR_CRYSTAL = 69
+const MAT_LOCKPICK   = 90
+const MAT_ROPE       = 23
+const MAT_ALCOHOL    = 72
 
 // ── Genome phenotype decoder ──────────────────────────────────────────────────
 
@@ -342,6 +357,13 @@ export function spawnAnimal(
               : species === 'bird' ? 10
               : 60  // boar
 
+  // M34 Track B: 5% of normal spawns become elite (birds excluded)
+  const isElite = species !== 'bird' && Math.random() < 0.05
+  const eliteHp = isElite ? maxHp * 2 : maxHp
+  const eliteGlowColor = isElite
+    ? (species === 'wolf' ? '#ff2200' : species === 'deer' ? '#ffaa00' : '#ff6600')
+    : undefined
+
   const animal: AnimalEntity = {
     id, species,
     behavior: species === 'deer' ? 'GRAZING'
@@ -350,7 +372,7 @@ export function spawnAnimal(
             : 'ROAMING',
     x, y, z,
     vx: 0, vy: 0, vz: 0,
-    health: maxHp, maxHealth: maxHp,
+    health: eliteHp, maxHealth: eliteHp,
     packId, chargeTimer: 0, stateTimer: 0,
     wanderTimer: 1 + Math.random() * 4,
     deadTimer: 0,
@@ -364,6 +386,9 @@ export function spawnAnimal(
     petName: species,
     tameAlertTimer: 0,
     productTimer: 0,
+    // M34 Track B: Elite flag
+    elite: isElite || undefined,
+    eliteGlowColor,
   }
   animalRegistry.set(id, animal)
 
@@ -1026,10 +1051,14 @@ function tickWolf(
   const dpz = playerZ - a.z
   const playerDist = Math.sqrt(dpx * dpx + dpy * dpy + dpz * dpz)
 
+  // M34 Track B: Elite multipliers (1.5× damage, 1.3× speed for elites)
+  const eliteSpeedMult = (a.elite || a.boss) ? (a.boss ? 2.0 : 1.3) : 1.0
+  const eliteDamageMult = (a.elite || a.boss) ? (a.boss ? 2.0 : 1.5) : 1.0
+
   // Genome-derived stats: scale patrol/hunt speed and detection radius
-  const speedMult = a.phenotype?.speedMult ?? 1.0
+  const speedMult = (a.phenotype?.speedMult ?? 1.0) * eliteSpeedMult
   const detectionRange = a.phenotype?.detectionRange ?? WOLF_HUNT_RADIUS
-  const attackDamage = a.phenotype?.attackDamage ?? WOLF_DAMAGE
+  const attackDamage = Math.round((a.phenotype?.attackDamage ?? WOLF_DAMAGE) * eliteDamageMult)
   const armorReduction = a.phenotype?.armorReduction ?? 0
 
   const huntRadius   = Math.max(15, detectionRange)
@@ -1231,10 +1260,14 @@ function tickBoar(
   const dpz = playerZ - a.z
   const playerDist = Math.sqrt(dpx * dpx + dpy * dpy + dpz * dpz)
 
+  // M34 Track B: Elite multipliers
+  const _eliteSpeedMultB = (a.elite || a.boss) ? (a.boss ? 2.0 : 1.3) : 1.0
+  const _eliteDmgMultB   = (a.elite || a.boss) ? (a.boss ? 2.0 : 1.5) : 1.0
+
   // Genome-derived stats
-  const speedMult      = a.phenotype?.speedMult      ?? 1.0
+  const speedMult      = (a.phenotype?.speedMult      ?? 1.0) * _eliteSpeedMultB
   const detectionRange = a.phenotype?.detectionRange ?? BOAR_TRIGGER_RADIUS
-  const attackDamage   = a.phenotype?.attackDamage   ?? BOAR_DAMAGE
+  const attackDamage   = Math.round((a.phenotype?.attackDamage   ?? BOAR_DAMAGE) * _eliteDmgMultB)
   const armorReduction = a.phenotype?.armorReduction ?? 0
   const behaviorTier   = a.phenotype?.behaviorTier   ?? 1
   const triggerRadius  = Math.max(4, Math.min(16, detectionRange * 0.4))
@@ -1339,8 +1372,10 @@ function tickBoar(
 
 export interface AnimalKillLoot {
   materialId: number
+  itemId?: number      // M34: item drops (non-zero = item, 0 = raw material)
   quantity: number
   label: string
+  rarity?: number      // 0=Common … 4=Legendary
 }
 
 const ANIMAL_LOOT: Record<AnimalSpecies, AnimalKillLoot[]> = {
@@ -1425,8 +1460,26 @@ export function attackNearestAnimal(
     patrolCy: nearest.patrolCy,
     patrolCz: nearest.patrolCz,
   })
-  const loot = ANIMAL_LOOT[nearest.species]
-  return { killed: nearest, hit: nearest, loot, effectiveDamage }
+  const baseLoot: AnimalKillLoot[] = [...ANIMAL_LOOT[nearest.species]]
+
+  // M34 Track B: Elite creature guaranteed extra loot
+  if (nearest.elite) {
+    const goldAmt = 10 + Math.floor(Math.random() * 21)  // 10-30 gold
+    const oreAmt  = 2 + Math.floor(Math.random() * 4)    // 2-5 iron ore
+    baseLoot.push({ materialId: MAT_IRON_ORE, quantity: oreAmt, label: 'Iron Ore (elite)' })
+    baseLoot.push({ materialId: MAT_GOLD, quantity: goldAmt, label: 'Gold (elite)' })
+    // 30% chance of rare consumable
+    const roll = Math.random()
+    if (roll < 0.10) {
+      baseLoot.push({ materialId: MAT_LOCKPICK, quantity: 1, label: 'Lockpick (elite)', rarity: 2 })
+    } else if (roll < 0.20) {
+      baseLoot.push({ materialId: MAT_ROPE, quantity: 2, label: 'Rope (elite)', rarity: 1 })
+    } else if (roll < 0.30) {
+      baseLoot.push({ materialId: MAT_ALCOHOL, quantity: 1, label: 'Alcohol (elite)', rarity: 1 })
+    }
+  }
+
+  return { killed: nearest, hit: nearest, loot: baseLoot, effectiveDamage }
 }
 
 // ── Ecosystem respawn (call periodically from GameLoop) ───────────────────────

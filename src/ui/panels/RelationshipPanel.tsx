@@ -1,13 +1,22 @@
 // ── RelationshipPanel ─────────────────────────────────────────────────────────
 // M51 Track B: View and filter NPC relationships with the player.
+// M58 Track B: Gift UI added — give items to NPCs to boost affinity.
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import {
   getAllRelationships,
   getRelationshipTierColor,
   type NPCRelationship,
   type RelationshipTier,
 } from '../../game/NPCRelationshipSystem'
+import {
+  getGiftableItems,
+  canGift,
+  getRemainingCooldown,
+  giveGift,
+  NPC_GIFT_PREFERENCES,
+  type GiftableItem,
+} from '../../game/NPCGiftSystem'
 
 type FilterTab = 'all' | 'friendly' | 'hostile'
 
@@ -30,6 +39,14 @@ function relativeTime(ts: number): string {
   if (hrs < 24) return `${hrs}h ago`
   const days = Math.floor(hrs / 24)
   return `${days}d ago`
+}
+
+function formatCooldown(ms: number): string {
+  if (ms <= 0) return ''
+  const secs = Math.ceil(ms / 1000)
+  if (secs < 60) return `${secs}s`
+  const mins = Math.ceil(secs / 60)
+  return `${mins}m`
 }
 
 function AffinityBar({ affinity, tier }: { affinity: number; tier: RelationshipTier }) {
@@ -71,7 +88,225 @@ function AffinityBar({ affinity, tier }: { affinity: number; tier: RelationshipT
   )
 }
 
-function RelationshipCard({ rel }: { rel: NPCRelationship }) {
+// ── Gift Section ──────────────────────────────────────────────────────────────
+
+interface GiftSectionProps {
+  rel: NPCRelationship
+  onGiftGiven: () => void
+}
+
+function GiftSection({ rel, onGiftGiven }: GiftSectionProps) {
+  const [expanded, setExpanded] = useState(false)
+  const [selectedMatId, setSelectedMatId] = useState<number | null>(null)
+  const [cooldownMs, setCooldownMs] = useState(() => getRemainingCooldown(rel.npcId))
+  const [availableItems, setAvailableItems] = useState<GiftableItem[]>([])
+  const [lastGiftMsg, setLastGiftMsg] = useState<string | null>(null)
+
+  // Refresh cooldown every second while expanded
+  useEffect(() => {
+    if (!expanded) return
+    const id = setInterval(() => {
+      setCooldownMs(getRemainingCooldown(rel.npcId))
+    }, 1000)
+    return () => clearInterval(id)
+  }, [expanded, rel.npcId])
+
+  // Refresh available items when expanded
+  useEffect(() => {
+    if (!expanded) return
+    const items = getGiftableItems()
+    setAvailableItems(items)
+    // Reset selection if no longer available
+    if (selectedMatId !== null && !items.find(i => i.matId === selectedMatId)) {
+      setSelectedMatId(null)
+    }
+  }, [expanded, selectedMatId])
+
+  const rolePrefs = NPC_GIFT_PREFERENCES[rel.npcRole] ?? []
+
+  const handleGive = useCallback(() => {
+    if (selectedMatId === null) return
+    const success = giveGift(rel.npcId, rel.npcName, rel.npcRole, selectedMatId)
+    if (success) {
+      const item = availableItems.find(i => i.matId === selectedMatId)
+      const isPreferred = rolePrefs.includes(selectedMatId)
+      const affection = item ? Math.round(item.baseAffection * (isPreferred ? 1.5 : 1.0)) : 0
+      setLastGiftMsg(`+${affection} affinity${isPreferred ? ' ✨' : ''}`)
+      setSelectedMatId(null)
+      setCooldownMs(getRemainingCooldown(rel.npcId))
+      setAvailableItems(getGiftableItems())
+      onGiftGiven()
+      setTimeout(() => setLastGiftMsg(null), 3000)
+    }
+  }, [selectedMatId, rel.npcId, rel.npcName, rel.npcRole, availableItems, rolePrefs, onGiftGiven])
+
+  const onCooldown = cooldownMs > 0
+  const canGiveNow = canGift(rel.npcId)
+
+  return (
+    <div style={{ marginTop: 4 }}>
+      {/* Toggle button */}
+      <button
+        onClick={() => setExpanded(e => !e)}
+        style={{
+          width: '100%',
+          padding: '3px 8px',
+          fontSize: 8,
+          fontFamily: 'monospace',
+          fontWeight: 700,
+          letterSpacing: 0.5,
+          textTransform: 'uppercase',
+          cursor: 'pointer',
+          border: '1px solid rgba(255,255,255,0.1)',
+          borderRadius: 3,
+          background: expanded ? 'rgba(255,200,80,0.08)' : 'transparent',
+          color: expanded ? '#f5c842' : '#666',
+          textAlign: 'left',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          transition: 'all 0.12s',
+        }}
+      >
+        <span>Give Gift</span>
+        <span style={{ fontSize: 7, opacity: 0.6 }}>{expanded ? '▲' : '▼'}</span>
+      </button>
+
+      {/* Gift panel */}
+      {expanded && (
+        <div style={{
+          marginTop: 4,
+          padding: '8px 10px',
+          background: 'rgba(255,200,80,0.04)',
+          border: '1px solid rgba(255,200,80,0.1)',
+          borderRadius: 4,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 6,
+        }}>
+          {onCooldown ? (
+            <div style={{
+              fontFamily: 'monospace',
+              fontSize: 9,
+              color: '#888',
+              textAlign: 'center',
+            }}>
+              Next gift in {formatCooldown(cooldownMs)}
+            </div>
+          ) : availableItems.length === 0 ? (
+            <div style={{
+              fontFamily: 'monospace',
+              fontSize: 9,
+              color: '#666',
+              textAlign: 'center',
+            }}>
+              No giftable items in inventory
+            </div>
+          ) : (
+            <>
+              {/* Item list */}
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                {availableItems.map(item => {
+                  const isPreferred = rolePrefs.includes(item.matId)
+                  const isSelected = selectedMatId === item.matId
+                  const qty = 0  // display only, quantity managed by inventory
+                  return (
+                    <button
+                      key={item.matId}
+                      onClick={() => setSelectedMatId(isSelected ? null : item.matId)}
+                      title={`${item.name}${isPreferred ? ' (preferred!)' : ''}`}
+                      style={{
+                        padding: '3px 7px',
+                        fontSize: 9,
+                        fontFamily: 'monospace',
+                        cursor: 'pointer',
+                        border: `1px solid ${isSelected
+                          ? (isPreferred ? '#f5c842' : 'rgba(255,255,255,0.35)')
+                          : (isPreferred ? 'rgba(245,200,66,0.35)' : 'rgba(255,255,255,0.1)')}`,
+                        borderRadius: 3,
+                        background: isSelected
+                          ? (isPreferred ? 'rgba(245,200,66,0.18)' : 'rgba(255,255,255,0.08)')
+                          : (isPreferred ? 'rgba(245,200,66,0.06)' : 'transparent'),
+                        color: isPreferred ? '#f5c842' : '#aaa',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 4,
+                        transition: 'all 0.1s',
+                      }}
+                    >
+                      <span>{item.icon}</span>
+                      <span>{item.name}</span>
+                      {isPreferred && (
+                        <span style={{ fontSize: 7, color: '#f5c842', opacity: 0.8 }}>★</span>
+                      )}
+                    </button>
+                  )
+                })}
+              </div>
+
+              {/* Affection preview + give button */}
+              {selectedMatId !== null && (() => {
+                const item = availableItems.find(i => i.matId === selectedMatId)
+                if (!item) return null
+                const isPreferred = rolePrefs.includes(selectedMatId)
+                const preview = Math.round(item.baseAffection * (isPreferred ? 1.5 : 1.0))
+                return (
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                    <span style={{
+                      fontFamily: 'monospace',
+                      fontSize: 9,
+                      color: isPreferred ? '#f5c842' : '#4ade80',
+                      fontWeight: 700,
+                    }}>
+                      +{preview} affinity{isPreferred ? ' (preferred!)' : ''}
+                    </span>
+                    <button
+                      onClick={handleGive}
+                      disabled={!canGiveNow}
+                      style={{
+                        padding: '3px 10px',
+                        fontSize: 9,
+                        fontFamily: 'monospace',
+                        fontWeight: 700,
+                        letterSpacing: 0.5,
+                        cursor: canGiveNow ? 'pointer' : 'not-allowed',
+                        border: `1px solid ${canGiveNow ? 'rgba(74,222,128,0.5)' : 'rgba(255,255,255,0.1)'}`,
+                        borderRadius: 3,
+                        background: canGiveNow ? 'rgba(74,222,128,0.12)' : 'transparent',
+                        color: canGiveNow ? '#4ade80' : '#555',
+                        transition: 'all 0.12s',
+                      }}
+                    >
+                      Give {item.icon}
+                    </button>
+                  </div>
+                )
+              })()}
+            </>
+          )}
+
+          {/* Last gift feedback */}
+          {lastGiftMsg && (
+            <div style={{
+              fontFamily: 'monospace',
+              fontSize: 9,
+              color: '#4ade80',
+              fontWeight: 700,
+              textAlign: 'center',
+              animation: 'fadeIn 0.2s ease',
+            }}>
+              {lastGiftMsg}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Relationship Card ──────────────────────────────────────────────────────────
+
+function RelationshipCard({ rel, onGiftGiven }: { rel: NPCRelationship; onGiftGiven: () => void }) {
   const color = getRelationshipTierColor(rel.tier)
   const lastTwoNotes = rel.notes.slice(-2)
 
@@ -171,27 +406,43 @@ function RelationshipCard({ rel }: { rel: NPCRelationship }) {
           ))}
         </div>
       )}
+
+      {/* Row 5: Gift section */}
+      <GiftSection rel={rel} onGiftGiven={onGiftGiven} />
     </div>
   )
 }
+
+// ── Main Panel ─────────────────────────────────────────────────────────────────
 
 export function RelationshipPanel() {
   const [activeTab, setActiveTab] = useState<FilterTab>('all')
   const [relationships, setRelationships] = useState<NPCRelationship[]>([])
   const [, setTick] = useState(0)
 
+  const refresh = useCallback(() => {
+    setRelationships(getAllRelationships())
+  }, [])
+
   // Refresh data and timestamps periodically
   useEffect(() => {
-    function refresh() {
-      setRelationships(getAllRelationships())
-    }
     refresh()
     const id = setInterval(() => {
       refresh()
       setTick(t => t + 1)
     }, 15_000)
     return () => clearInterval(id)
-  }, [])
+  }, [refresh])
+
+  // Also refresh on gift events
+  useEffect(() => {
+    const handler = () => {
+      refresh()
+      setTick(t => t + 1)
+    }
+    window.addEventListener('npc-gift', handler)
+    return () => window.removeEventListener('npc-gift', handler)
+  }, [refresh])
 
   const filtered = relationships.filter(rel => {
     if (activeTab === 'all')      return true
@@ -272,7 +523,9 @@ export function RelationshipPanel() {
               : `No ${activeTab} NPCs found.`}
           </div>
         ) : (
-          filtered.map(rel => <RelationshipCard key={rel.npcId} rel={rel} />)
+          filtered.map(rel => (
+            <RelationshipCard key={rel.npcId} rel={rel} onGiftGiven={refresh} />
+          ))
         )}
       </div>
     </div>

@@ -30,7 +30,7 @@ class RootErrorBoundary extends Component<{ children: ReactNode }, { error: Erro
 
 createRoot(document.getElementById('root')!).render(
   <RootErrorBoundary>
-    <ClerkProvider publishableKey={PUBLISHABLE_KEY} afterSignInUrl="/" afterSignUpUrl="/">
+    <ClerkProvider publishableKey={PUBLISHABLE_KEY}>
       <App />
     </ClerkProvider>
   </RootErrorBoundary>,

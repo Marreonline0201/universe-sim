@@ -161,7 +161,7 @@ function LoginScreen() {
         <div style={{ fontSize: 42, fontWeight: 700, letterSpacing: 2 }}>UNIVERSE</div>
         <div style={{ fontSize: 14, opacity: 0.5, letterSpacing: 6 }}>SIMULATION</div>
       </div>
-      <SignIn routing="virtual" fallbackRedirectUrl="/" />
+      <SignIn fallbackRedirectUrl="/" />
     </div>
   )
 }

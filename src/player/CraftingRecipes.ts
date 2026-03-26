@@ -1170,4 +1170,47 @@ export const CRAFTING_RECIPES: CraftingRecipe[] = [
     output: { itemId: MAT.LOCKPICK, quantity: 3, isMaterial: true },
     knowledgeRequired: [],
   },
+
+  // ── M34 Track C: Fish species cooking ────────────────────────────────────
+  {
+    // id 126 — Cooked Sardine: 1x Sardine → 1x Cooked Sardine
+    // Same buff as Cooked Fish (Well Fed: +1 HP/s for 2 min)
+    id: 126, name: 'Cooked Sardine', tier: 0, time: 8,
+    inputs: [{ materialId: MAT.SARDINE, quantity: 1 }],
+    output: { itemId: MAT.COOKED_SARDINE, quantity: 1, isMaterial: true },
+    knowledgeRequired: ['fire_making'],
+    requiresCampfire: true,
+  },
+  {
+    // id 127 — Cooked Salmon: 1x Salmon → 1x Cooked Salmon
+    // Grants Salmon Feast buff: 2x HP regen (+2 HP/s), 3 minutes
+    id: 127, name: 'Cooked Salmon', tier: 0, time: 18,
+    inputs: [{ materialId: MAT.SALMON, quantity: 1 }],
+    output: { itemId: MAT.COOKED_SALMON, quantity: 1, isMaterial: true },
+    knowledgeRequired: ['fire_making'],
+    requiresCampfire: true,
+  },
+  {
+    // id 128 — Cooked Tuna: 1x Tuna → 1x Cooked Tuna
+    // Grants Tuna Power buff: 1.25x speed + 1.5 HP/s, 4 minutes
+    id: 128, name: 'Cooked Tuna', tier: 0, time: 25,
+    inputs: [{ materialId: MAT.TUNA, quantity: 1 }],
+    output: { itemId: MAT.COOKED_TUNA, quantity: 1, isMaterial: true },
+    knowledgeRequired: ['fire_making'],
+    requiresCampfire: true,
+  },
+
+  // ── M34 Track A: Player Housing ───────────────────────────────────────────
+  {
+    // id 140 — Home Deed: 30 Wood + 10 Stone + 5 Rope → 1 Home Deed
+    // Consumed when placed to create a permanent personal home base.
+    id: 140, name: 'Home Deed', tier: 0, time: 30,
+    inputs: [
+      { materialId: MAT.WOOD,  quantity: 30 },
+      { materialId: MAT.STONE, quantity: 10 },
+      { materialId: MAT.ROPE,  quantity: 5 },
+    ],
+    output: { itemId: ITEM.HOME_DEED, quantity: 1, isMaterial: false },
+    knowledgeRequired: [],
+  },
 ]

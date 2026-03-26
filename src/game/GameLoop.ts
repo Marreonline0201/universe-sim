@@ -121,6 +121,8 @@ import { saveOffline, registerSkillSystem, registerQuestSystem, registerAchievem
 import { useSettlementQuestStore } from '../store/settlementQuestStore'
 // M33 Track B: Food buff system
 import { consumeFood, tickFoodBuffs } from './FoodBuffSystem'
+// M34 Track B: Boss system
+import { trySpawnBoss, damageBoss, currentBoss } from './BossSystem'
 
 // Register skill system with offline save manager for serialization
 registerSkillSystem(skillSystem)
@@ -191,6 +193,8 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
   const warmthStormMultRef      = useRef(1)    // storm movement speed multiplier
   // M32: pending tame — animal id waiting for name input
   const pendingTameAnimalRef    = useRef<number | null>(null)
+  // M34 Track A: home placement mode (true when player pressed B with HOME_DEED)
+  const homePlacementModeRef    = useRef(false)
 
   useFrame((_, delta) => {
     // Cap dt to avoid spiral-of-death on slow frames
@@ -266,6 +270,17 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
     if (ecosystemTimerRef.current >= 10) {
       ecosystemTimerRef.current = 0
       tickEcosystemBalance(
+        Position.x[entityId],
+        Position.y[entityId],
+        Position.z[entityId],
+      )
+    }
+
+    // M34 Track B: Boss spawn tick — try to spawn boss when new in-game day begins
+    {
+      const _bossSpawnDayAngle = getDayAngle()
+      trySpawnBoss(
+        _bossSpawnDayAngle,
         Position.x[entityId],
         Position.y[entityId],
         Position.z[entityId],
@@ -1085,6 +1100,7 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
             }
             if (killed) {
               const speciesName = killed.species.charAt(0).toUpperCase() + killed.species.slice(1)
+              const elitePrefix = killed.elite ? '[ELITE] ' : killed.boss ? '[BOSS] ' : ''
               // M23: Use loot table system for rarity-aware drops
               const speciesTable = SPECIES_LOOT[killed.species]
               if (speciesTable) {
@@ -1097,17 +1113,30 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
                   return `${l.quantity}x item${rarityName}`
                 }).join(', ')
                 useUiStore.getState().addNotification(
-                  `${speciesName} killed — ${lootSummary}`, 'discovery'
+                  `${elitePrefix}${speciesName} killed — ${lootSummary}`, 'discovery'
                 )
               } else {
                 // Fallback to old loot system for unknown species
                 for (const drop of loot) {
-                  inventory.addItem({ itemId: 0, materialId: drop.materialId, quantity: drop.quantity, quality: 0.8 })
+                  inventory.addItem({ itemId: drop.itemId ?? 0, materialId: drop.materialId, quantity: drop.quantity, quality: 0.8, rarity: drop.rarity })
                 }
                 const lootSummary = loot.map(l => `${l.quantity}x ${l.label}`).join(', ')
                 useUiStore.getState().addNotification(
-                  `${speciesName} killed — ${lootSummary} collected!`, 'discovery'
+                  `${elitePrefix}${speciesName} killed — ${lootSummary} collected!`, 'discovery'
                 )
+              }
+              // M34 Track B: Apply extra elite loot (from AnimalAISystem augmented loot)
+              if (killed.elite) {
+                for (const drop of loot) {
+                  if (drop.materialId === 14 || drop.materialId === 27 || drop.materialId === 90 || drop.materialId === 23 || drop.materialId === 72) {
+                    inventory.addItem({ itemId: 0, materialId: drop.materialId, quantity: drop.quantity, quality: 0.85, rarity: drop.rarity ?? 0 })
+                  }
+                }
+              }
+              // M34 Track B: Boss kill — trigger legendary loot + announcement
+              if (killed.boss && currentBoss && currentBoss.entityId === killed.id) {
+                damageBoss(effectiveDamage, 'Player', inventory)
+                skillSystem.addXp('combat', 500)  // bonus XP for boss kill
               }
               skillSystem.addXp('combat', 50) // M22: Combat XP on animal kill
               // M23: Quest progress on kill
@@ -1413,6 +1442,67 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
             useUiStore.getState().addNotification(
               'Bedroll placed! This is now your respawn point.', 'discovery'
             )
+          }
+        }
+      }
+    }
+
+    // ── M34 Track A: Home placement (B key) + E-near-home ────────────────────
+    {
+      const psHome = usePlayerStore.getState()
+      const hasHomeDeed = inventory.hasItemById(ITEM.HOME_DEED)
+
+      // B key: enter home placement mode (if has deed and not already placed)
+      if (!gs.inputBlocked && !psHome.homeSet && hasHomeDeed && controllerRef.current?.popHomePlacement?.()) {
+        homePlacementModeRef.current = !homePlacementModeRef.current
+        if (homePlacementModeRef.current) {
+          useUiStore.getState().addNotification('Home placement mode — left-click terrain to place cabin!', 'discovery')
+        } else {
+          gs.setGatherPrompt(null)
+        }
+      }
+
+      // Home placement mode active — show hint and place on left-click
+      if (homePlacementModeRef.current && !gs.inputBlocked) {
+        const placeLabel = '[Click] Place cabin here  [B] Cancel'
+        if (gs.gatherPrompt !== placeLabel) gs.setGatherPrompt(placeLabel)
+
+        // Confirm placement on F (interact) key — consistent with building system
+        if (controllerRef.current?.popInteract()) {
+          // Snap position to surface directly in front of player
+          const playerDir = new THREE.Vector3(px, py, pz).normalize()
+          const surfR = surfaceRadiusAt(px, py, pz)
+          const placePos: [number, number, number] = [
+            playerDir.x * surfR,
+            playerDir.y * surfR,
+            playerDir.z * surfR,
+          ]
+          psHome.setHomePosition(placePos)
+          psHome.setBedrollPos({ x: placePos[0], y: placePos[1], z: placePos[2] })
+          // Consume HOME_DEED from inventory
+          for (let _i = 0; _i < inventory.slotCount; _i++) {
+            const _s = inventory.getSlot(_i)
+            if (_s && _s.itemId === ITEM.HOME_DEED) {
+              inventory.removeItem(_i, 1)
+              break
+            }
+          }
+          homePlacementModeRef.current = false
+          gs.setGatherPrompt(null)
+          useUiStore.getState().addNotification('Home placed! This is now your respawn point. Press H to open.', 'discovery')
+        }
+      }
+
+      // E near home — show "Enter Home" prompt and open HomePanel
+      if (!gs.inputBlocked && psHome.homeSet && psHome.homePosition && !homePlacementModeRef.current) {
+        const [hx, hy, hz] = psHome.homePosition
+        const hdx = hx - px, hdy = hy - py, hdz = hz - pz
+        const homeDist2 = hdx * hdx + hdy * hdy + hdz * hdz
+        if (homeDist2 < 9) {  // within 3m
+          if (gs.gatherPrompt === null) gs.setGatherPrompt('[E] Enter Home')
+          if (controllerRef.current?.popEat?.()) {
+            useUiStore.getState().openPanel('home')
+            gs.setGatherPrompt(null)
           }
         }
       }
@@ -1765,14 +1855,23 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
       const canFish = (nearWater || nearRiver10) && inventory.hasItemById(ITEM.FISHING_ROD)
       const gs10 = useGameStore.getState()
 
-      // ── M25 Track C: New fishing state machine ──────────────────────────────
+      // ── M25 Track C: New fishing state machine (M34: species + tension) ──────
       {
         const fsPhase = fishingSystem.state.phase
         const keysSet25 = (controllerRef.current as any)?._keys ?? (controllerRef.current as any)?.keys ?? new Set()
         const fKeyHeld = keysSet25.has('KeyF') || keysSet25.has('f') || keysSet25.has('F')
 
+        // M34: pass environmental context to fishing system
+        const isUnderground = (useCaveStore.getState() as any).underground ?? false
+        fishingSystem.setContext(fishingSystem.state.nearGoodSpot, isUnderground)
+
         if (canFish && fsPhase === 'idle' && !isFishingActive() && !gs10.inputBlocked) {
-          const fishLabel = '[F] Cast fishing rod'
+          const rodDur = fishingSystem.state.rodDurability
+          const fishLabel = rodDur <= 0
+            ? '[Rod broken — repair needed]'
+            : fishingSystem.state.nearGoodSpot
+              ? '[F] Cast (good spot! +20% catch rate)'
+              : '[F] Cast fishing rod'
           if (gs10.gatherPrompt === null) gs10.setGatherPrompt(fishLabel)
         } else if ((nearWater || nearRiver10) && !inventory.hasItemById(ITEM.FISHING_ROD) && fsPhase === 'idle' && !gs10.inputBlocked) {
           // Discovery path: player is near water but has no fishing rod — show discovery hint
@@ -1782,11 +1881,25 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
 
         if (canFish && !gs10.inputBlocked && controllerRef.current?.popInteract()) {
           if (fsPhase === 'idle') {
-            // Cast line — open fishing panel
-            fishingSystem.cast()
-            useUiStore.getState().openPanel('fishing')
-            useUiStore.getState().addNotification('Line cast! Watch the fishing panel.', 'info')
-            gs10.setGatherPrompt(null)
+            if (fishingSystem.state.rodDurability <= 0) {
+              useUiStore.getState().addNotification('Your fishing rod is broken! Craft a new one.', 'warning')
+            } else {
+              // Cast line — open fishing panel
+              fishingSystem.cast()
+              useUiStore.getState().openPanel('fishing')
+              useUiStore.getState().addNotification('Line cast! Watch the tension meter.', 'info')
+              gs10.setGatherPrompt(null)
+            }
+          } else if (fsPhase === 'waiting') {
+            // M34: Tension minigame — press F at right moment
+            const tensionResult = fishingSystem.tensionPress()
+            if (tensionResult === 'sweet') {
+              useUiStore.getState().addNotification('Nice timing! Fish on the hook!', 'info')
+            } else if (tensionResult === 'critical') {
+              useUiStore.getState().addNotification('PERFECT timing! Rare fish chance doubled!', 'discovery')
+            } else if (tensionResult === 'miss') {
+              useUiStore.getState().addNotification('Missed! Fish escaped — 5s cooldown.', 'warning')
+            }
           } else if (fsPhase === 'biting') {
             // Player pressed F during bite window — start reeling
             fishingSystem.startReel()
@@ -1796,19 +1909,40 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
           }
         }
 
-        if (fsPhase === 'biting' && !gs10.inputBlocked && controllerRef.current?.popInteract()) {
-          // Already handled above; no-op here to avoid double-consume
-        }
-
         // Tick fishing state machine every frame (pass F-held for reeling)
         if (fsPhase !== 'idle') {
           const result = fishingSystem.tick(dt, fKeyHeld)
           if (result === 'landed') {
             const caught = fishingSystem.state.lastCatch
             if (caught) {
-              inventory.addItem({ itemId: 0, materialId: MAT.FISH, quantity: 1, quality: caught.rarity === 'Rare' ? 1.0 : caught.rarity === 'Uncommon' ? 0.85 : 0.7 })
-              useUiStore.getState().addNotification(`Caught ${caught.rarity} ${caught.name}! Added to inventory.`, 'discovery')
-              skillSystem.addXp('gathering', caught.rarity === 'Rare' ? 50 : caught.rarity === 'Uncommon' ? 30 : 15)
+              // M34: use species materialId instead of generic MAT.FISH
+              const qualityMap: Record<string, number> = {
+                Legendary: 1.0, Rare: 1.0, Uncommon: 0.85, Common: 0.7,
+              }
+              inventory.addItem({
+                itemId: 0,
+                materialId: caught.materialId,
+                quantity: 1,
+                quality: qualityMap[caught.rarity] ?? 0.7,
+              })
+              const xpMap: Record<string, number> = {
+                Legendary: 100, Rare: 50, Uncommon: 30, Common: 15,
+              }
+              skillSystem.addXp('gathering', xpMap[caught.rarity] ?? 15)
+
+              if (caught.isGolden) {
+                // M34: Golden Fish legendary notification
+                useUiStore.getState().addNotification(
+                  'LEGENDARY CATCH! Golden Fish — worth 500 gold!',
+                  'discovery',
+                )
+                window.dispatchEvent(new CustomEvent('golden-fish-caught'))
+              } else {
+                useUiStore.getState().addNotification(
+                  `Caught ${caught.rarity} ${caught.name}! Added to inventory.`,
+                  'discovery',
+                )
+              }
             }
           } else if (result === 'escaped') {
             useUiStore.getState().addNotification('The fish got away! Try again.', 'warning')

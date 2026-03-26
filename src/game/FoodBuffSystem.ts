@@ -63,6 +63,26 @@ const FOOD_BUFFS: Record<number, FoodBuff> = {
     warmthRegenPerSec: 1,
     speedMult: 1.05,
   },
+  // ── M34 Track C: Fish species buffs ───────────────────────────────────────
+  [MAT.COOKED_SARDINE]: {
+    name: 'Well Fed',
+    icon: '🐟',
+    durationMs: 120_000,
+    hpRegenPerSec: 1,
+  },
+  [MAT.COOKED_SALMON]: {
+    name: 'Salmon Feast',
+    icon: '🍣',
+    durationMs: 180_000,
+    hpRegenPerSec: 2,
+  },
+  [MAT.COOKED_TUNA]: {
+    name: 'Tuna Power',
+    icon: '🐠',
+    durationMs: 240_000,
+    hpRegenPerSec: 1.5,
+    speedMult: 1.25,
+  },
 }
 
 // ── Active buff state ─────────────────────────────────────────────────────────

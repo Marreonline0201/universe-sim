@@ -44,7 +44,7 @@ import {
   rebuildResourceNodes,
 } from '../world/ResourceNodeManager'
 
-import { AnimalRenderer, TamedAnimalOverlay, TamedAnimalOverlayDOM, TamedAnimalNamePrompt } from './AnimalRenderer'
+import { AnimalRenderer, TamedAnimalOverlay, TamedAnimalOverlayDOM, TamedAnimalNamePrompt, BossWorldOverlayDOM } from './AnimalRenderer'
 import { ServerNpcsRenderer } from './entities/ServerNpcsRenderer'
 import { LocalNpcsRenderer } from './entities/LocalNpcsRenderer'
 import { PlayerMesh, EquippedItemMesh } from './entities/PlayerRenderer'
@@ -56,6 +56,8 @@ import {
 } from '../ecs/systems/AnimalAISystem'
 import { spawnInitialCreatures } from '../ecs/systems/CreatureSpawner'
 import { GameLoop } from '../game/GameLoop'
+// M34 Track A: Player home cabin renderer
+import { PlayerHomeRenderer } from './PlayerHomeRenderer'
 
 // M10 Track A: Seasonal terrain pass
 import { SeasonalTerrainPass } from './SeasonalTerrainPass'
@@ -68,6 +70,8 @@ import { PostProcessing } from './PostProcessing'
 
 // M10 Track B: Sailing + fishing
 import { SailingRenderer } from './SailingRenderer'
+// M34 Track C: Ocean life — fish schools, dolphin arcs, fishing spot ripples
+import { OceanLifeRenderer } from './OceanLifeRenderer'
 
 // M28 Track B: Raft building + sailing HUD
 import { PlacedRaftsRenderer } from './RaftRenderer'
@@ -542,6 +546,8 @@ export function SceneRoot() {
             <SimGridVisualizer simManager={simManager} />
             <DeathLootDropsRenderer />
             <BedrollMeshRenderer />
+            {/* M34 Track A: Player home cabin */}
+            <PlayerHomeRenderer />
             <SettlementRenderer />
             {/* M11 Track B: Castle walls + watchtowers around civLevel 4+ settlements */}
             <CastleRenderer />
@@ -584,6 +590,8 @@ export function SceneRoot() {
           <BuildingGhost entityId={entityId} />
           {/* M10 Track B: Sailing vessel mesh (only visible when sailing) */}
           <SailingRenderer entityId={entityId} />
+          {/* M34 Track C: Ocean life — fish schools, dolphins, fishing spot ripples */}
+          <OceanLifeRenderer entityId={entityId} />
         </>
       )}
       {/* M10 Track A: Seasonal terrain overlays (spring blossoms, autumn tint, winter snow) */}
@@ -640,6 +648,8 @@ export function SceneRoot() {
     <TamedAnimalOverlayDOM />
     {/* M32 Track B: Pet naming popup — shown after successful taming */}
     <TamedAnimalNamePrompt />
+    {/* M34 Track B: Boss skull + HP bar world overlay */}
+    <BossWorldOverlayDOM />
     </>
   )
 }

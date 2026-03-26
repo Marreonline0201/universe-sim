@@ -330,6 +330,16 @@ export const MAT = {
   HEARTY_STEW: 83,       // cooked_meat + mushroom + berry at campfire — Full Meal buff
   // ── M33 Track C: Cave treasure chests ────────────────────────────────────
   LOCKPICK: 90,          // thin iron pick — opens locked treasure chests; consumed on use
+  // ── M34 Track C: Fish species ────────────────────────────────────────────
+  SARDINE: 91,           // common, small — same buff as cooked fish
+  BASS: 92,              // common, medium
+  SALMON: 93,            // uncommon, large — Salmon Feast buff (2x HP regen, 3 min)
+  TUNA: 94,              // rare, huge — Tuna Power buff (1.25x speed + HP regen, 4 min)
+  GOLDEN_FISH: 95,       // legendary (0.5% chance) — sells for 500 gold
+  CAVE_FISH: 96,         // underground water only, bioluminescent
+  COOKED_SARDINE: 97,    // cooked sardine — same buff as cooked fish
+  COOKED_SALMON: 98,     // cooked salmon — Salmon Feast buff
+  COOKED_TUNA: 99,       // cooked tuna — Tuna Power buff
 } as const
 
 // ── Item IDs ──────────────────────────────────────────────────────────────────
@@ -383,4 +393,6 @@ export const ITEM = {
   // ── M31 Track C: Weapon tier scaling ─────────────────────────────────────
   DIAMOND_BLADE: 71,     // Tier 3 weapon — 55 damage, 0.45s cooldown
   QUANTUM_BLADE: 72,     // Tier 4+ weapon — 80 damage, 0.35s cooldown
+  // ── M34 Track A: Player Housing ──────────────────────────────────────────
+  HOME_DEED: 73,         // deed of ownership — place to create personal home base (recipe 140)
 } as const

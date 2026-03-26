@@ -347,6 +347,7 @@ function handleMessage(ws, msg) {
         settlements:   settlements.getSnapshot(),
         weather:       weather.getSnapshot(),
         season:        seasons.getSnapshot(),
+        agentState:    AgentBus.getState(),
       }))
 
       // Notify others (use getAll() to get serializable player without ws socket)

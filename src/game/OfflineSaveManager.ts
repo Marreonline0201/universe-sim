@@ -46,6 +46,7 @@ import { serializeHousing, deserializeHousing } from './PlayerHousingSystem'
 import { serializeTalents, deserializeTalents } from './TalentTreeSystem'
 import { serializeQuestBoard, deserializeQuestBoard } from './DynamicQuestBoardSystem'
 import { serializeEmotions, deserializeEmotions } from './NPCEmotionSystem'
+import { serializeTradingNetwork, deserializeTradingNetwork } from './ResourceTradingNetwork'
 import { serializeTitles as serializePlayerTitles, deserializeTitles as deserializePlayerTitles } from './PlayerTitleSystem'
 import { serializeScheduler, deserializeScheduler } from './WorldEventSchedulerSystem'
 import { Health, Metabolism, Position } from '../ecs/world'
@@ -180,7 +181,9 @@ export async function saveOffline(): Promise<boolean> {
       talents: serializeTalents(),
       questBoard: serializeQuestBoard(),
       npcEmotions: serializeEmotions(),
+      tradingNetwork: serializeTradingNetwork(),
       playerTitles: serializePlayerTitles(),
+      worldEventScheduler: serializeScheduler(),
     })
     const meta = JSON.stringify({
       timestamp: Date.now(),
@@ -429,9 +432,19 @@ export async function loadOffline(): Promise<boolean> {
       deserializeEmotions(state.npcEmotions)
     }
 
+    // M66 Track C: Restore resource trading network
+    if (state.tradingNetwork) {
+      deserializeTradingNetwork(state.tradingNetwork)
+    }
+
     // M66 Track B: Restore player title system
     if (state.playerTitles) {
       deserializePlayerTitles(state.playerTitles)
+    }
+
+    // M66 Track A: Restore world event scheduler
+    if (state.worldEventScheduler) {
+      deserializeScheduler(state.worldEventScheduler)
     }
 
     // Restore position

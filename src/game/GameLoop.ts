@@ -248,8 +248,12 @@ import { tickSettlementEconomy } from './SettlementEconomySystem'
 import { tickQuestBoard } from './DynamicQuestBoardSystem'
 // M65 Track C: NPC emotion system
 import { tickEmotions } from './NPCEmotionSystem'
+// M66 Track C: Resource Trading Network
+import { tickTradeNetwork } from './ResourceTradingNetwork'
 // M62 Track B: Player journal system
 import { initPlayerJournal } from './PlayerJournalSystem'
+// M66 Track A: World event scheduler
+import { tickScheduler } from './WorldEventSchedulerSystem'
 
 // Register skill system with offline save manager for serialization
 registerSkillSystem(skillSystem)
@@ -397,6 +401,8 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
   const questBoardTimerRef = useRef(0)
   // M65 Track C: NPC emotion decay tick timer — fires every 5s
   const npcEmotionTimerRef = useRef(0)
+  // M66 Track C: Resource trading network tick timer — fires every 10s
+  const tradeNetworkTimerRef = useRef(0)
 
   useFrame((_, delta) => {
     // Cap dt to avoid spiral-of-death on slow frames
@@ -3240,6 +3246,16 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
         tickEmotions(useGameStore.getState().simSeconds)
       }
     }
+
+    // ── M66 Track C: Resource trading network tick (every 10s) ─────────────
+    tradeNetworkTimerRef.current += dt
+    if (tradeNetworkTimerRef.current >= 10) {
+      tradeNetworkTimerRef.current = 0
+      tickTradeNetwork(useGameStore.getState().simSeconds)
+    }
+
+    // ── M66 Track A: World event scheduler tick ───────────────────────────────
+    tickScheduler(useGameStore.getState().simSeconds)
 
     // ── M26 Track B: Tick emote system (cleans expired remote emotes) ────────
     tickEmoteSystem()

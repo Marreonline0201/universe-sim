@@ -40,6 +40,7 @@ import { initDynamicQuestBoard } from './game/DynamicQuestBoardSystem'
 import { initNPCEmotionSystem } from './game/NPCEmotionSystem'
 import { initPlayerTitleSystem } from './game/PlayerTitleSystem'
 import { initWorldEventScheduler } from './game/WorldEventSchedulerSystem'
+import { initResourceTradingNetwork } from './game/ResourceTradingNetwork'
 
 // ── M20: Lazy-load AdminPanel (dev/admin only) ──────────────────────────────
 const AdminPanel = lazy(() => import('./ui/AdminPanel').then(m => ({ default: m.AdminPanel })))
@@ -120,6 +121,7 @@ function DevGame() {
     initNPCEmotionSystem()
     initPlayerTitleSystem()
     initWorldEventScheduler()
+    initResourceTradingNetwork()
   }, [])
 
   return (
@@ -205,6 +207,7 @@ function GameWithSave() {
     initNPCEmotionSystem()
     initPlayerTitleSystem()
     initWorldEventScheduler()
+    initResourceTradingNetwork()
   }, [])
 
   // Load save on first sign-in

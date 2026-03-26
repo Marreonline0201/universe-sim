@@ -16,6 +16,8 @@ import { initMerchantGuildSystem, refreshContracts } from './game/MerchantGuildS
 import { initResourceDepletion } from './game/ResourceDepletionSystem'
 import { initWorldThreatSystem } from './game/WorldThreatSystem'
 import { initTradeRouteSystem } from './game/TradeRouteSystem'
+import { initAchievementShowcase, checkAndUpdateMilestones } from './game/AchievementShowcaseSystem'
+import { initWeatherEffectsSystem } from './game/WeatherEffectsSystem'
 
 // ── M20: Lazy-load AdminPanel (dev/admin only) ──────────────────────────────
 const AdminPanel = lazy(() => import('./ui/AdminPanel').then(m => ({ default: m.AdminPanel })))
@@ -71,6 +73,9 @@ function DevGame() {
     initResourceDepletion()
     initWorldThreatSystem()
     initTradeRouteSystem()
+    initAchievementShowcase()
+    checkAndUpdateMilestones()
+    initWeatherEffectsSystem()
   }, [])
 
   return (
@@ -131,6 +136,9 @@ function GameWithSave() {
     initResourceDepletion()
     initWorldThreatSystem()
     initTradeRouteSystem()
+    initWeatherEffectsSystem()
+    initAchievementShowcase()
+    checkAndUpdateMilestones()
   }, [])
 
   // Load save on first sign-in

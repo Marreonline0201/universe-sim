@@ -72,6 +72,8 @@ const HazardWarning = lazy(() => import('./HazardWarning').then(m => ({ default:
 import { DayNightEventHUD } from './DayNightEventHUD'
 // M53 Track C: Combo streak HUD
 import { ComboHUD } from './ComboHUD'
+// M57 Track C: Weather effects HUD
+import { WeatherEffectsHUD } from './WeatherEffectsHUD'
 
 // ── Armor slot visual constants ────────────────────────────────────────────────
 const STEEL_BLUE = '#4a9eff'
@@ -2736,6 +2738,9 @@ export function HUD() {
 
       {/* ── M52 Track C: Day/night event floating badges (top-right) ── */}
       <DayNightEventHUD />
+
+      {/* ── M57 Track C: Weather effects HUD (top-right, below day/night badges) ── */}
+      <WeatherEffectsHUD />
 
       {/* ── M32 Track C: Fast travel fade-to-black overlay ── */}
       <div style={{

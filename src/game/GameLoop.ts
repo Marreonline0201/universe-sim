@@ -228,6 +228,10 @@ const WORLD_TO_DEPLETION_TYPE: Record<string, string> = {
 }
 // M56 Track A: Dynamic NPC trade routes
 import { tickTradeRoutes } from './TradeRouteSystem'
+// M57 Track A: Achievement Showcase
+import { checkAndUpdateMilestones } from './AchievementShowcaseSystem'
+// M57 Track C: Weather gather multiplier
+import { getWeatherGatherMult } from './WeatherEffectsSystem'
 
 // Register skill system with offline save manager for serialization
 registerSkillSystem(skillSystem)
@@ -323,6 +327,7 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
   // M35 Track C: faction war event timers
   const factionWarTimerRef      = useRef(0)  // seconds since last war check (fires every 60s)
   const factionHealTimerRef     = useRef(0)  // seconds since last settlement health tick (every 60s)
+  const showcaseTimerRef        = useRef(0)  // M57 Track A: seconds since last milestone check (every 30s)
   // M36 Track B: Dungeon room tracking
   const dungeonRoomCheckRef     = useRef(0)  // seconds since last dungeon room respawn check (every 30s)
   const puzzleResetCheckRef     = useRef<Record<string, number>>({}) // roomId → reset timestamp
@@ -930,7 +935,8 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
           gatheredNodeIds.add(nearNode.id)
           NODE_RESPAWN_AT.set(nearNode.id, Date.now() + NODE_RESPAWN_DELAY)
           gs.setGatherPrompt(null)
-          const qty = isOre ? 3 : 1
+          const gatherBonus = getWeatherGatherMult()
+          const qty = Math.max(1, Math.round((isOre ? 3 : 1) * gatherBonus))
           inventory.addItem({ itemId: 0, materialId: nearNode.matId, quantity: qty, quality: 0.8 })
           getWorldSocket()?.send({
             type: 'NODE_DESTROYED',
@@ -3236,6 +3242,13 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
         }
       }
       checkAndUpdateTitles(totalRep, factionReps)
+    }
+
+    // ── M57 Track A: Achievement Showcase milestone check (every 30s) ────────
+    showcaseTimerRef.current += dt
+    if (showcaseTimerRef.current >= 30) {
+      showcaseTimerRef.current = 0
+      checkAndUpdateMilestones()
     }
 
     // ── M24: Tutorial system tick ───────────────────────────────────────────

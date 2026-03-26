@@ -318,56 +318,338 @@ export class AmbientAudioEngine {
       return
     }
 
-    const interval = state.playerRunning ? 0.22 : 0.35  // seconds between steps
+    // Step rhythm tied to movement mode
+    let interval: number
+    if (state.playerCrouching) {
+      interval = 0.75
+    } else if (state.playerRunning) {
+      interval = 0.38
+    } else {
+      interval = 0.55
+    }
+
+    // Surface transition: track terrain changes, fade in new surface over 3 steps
+    if (state.terrainType !== this.lastTerrainType) {
+      this.lastTerrainType = state.terrainType
+      this.terrainTransitionStep = 0
+    }
+
     this.footstepTimer += dt
 
     if (this.footstepTimer >= interval) {
       this.footstepTimer -= interval
-      this.playFootstep(state.terrainType)
+
+      // Crossfade volume factor: ramp from 0.33 -> 0.66 -> 1.0 over 3 steps
+      const crossfade = this.terrainTransitionStep >= 3
+        ? 1.0
+        : (this.terrainTransitionStep + 1) / 3
+
+      // Impact weight: scale by mass (default 70 kg) and speed
+      const speedFactor = clamp01(state.playerSpeed / 12)  // normalise 0-12 m/s
+      const massFactor  = clamp01(state.playerMass / 70)   // normalise to 70 kg base
+      const impactScale = 0.6 + (speedFactor * 0.3 + massFactor * 0.1)
+
+      this.playFootstep(state.terrainType, this.footstepLeftFoot, crossfade * impactScale)
+
+      // Alternate feet and advance transition counter
+      this.footstepLeftFoot = !this.footstepLeftFoot
+      if (this.terrainTransitionStep < 3) this.terrainTransitionStep++
     }
   }
 
-  private playFootstep(terrain: string) {
+  private playFootstep(terrain: string, leftFoot: boolean, volumeScale: number) {
     if (!this.ctx || !this.masterGain) return
 
     const now = this.ctx.currentTime
     const noiseBuffer = getNoiseBuffer(this.ctx)
+    const offset = Math.random() * (noiseBuffer.duration - 0.15)
 
-    // Terrain-dependent filter frequency
-    const freqMap: Record<string, number> = {
-      grass: 800,
-      rock: 2200,
-      sand: 400,
-      snow: 600,
-      water: 500,
+    // Spatial panning: left foot pans left, right foot pans right
+    const panner = this.ctx.createStereoPanner()
+    panner.pan.value = leftFoot ? -0.55 : 0.55
+
+    // Route through panner -> master
+    panner.connect(this.masterGain)
+
+    const cleanup = () => {
+      try { panner.disconnect() } catch { /* noop */ }
     }
-    const freq = freqMap[terrain] ?? 800
 
-    const source = this.ctx.createBufferSource()
-    source.buffer = noiseBuffer
-    // Random start offset for variety
-    const offset = Math.random() * (noiseBuffer.duration - 0.1)
+    switch (terrain) {
+      case 'grass':
+        this.playGrassStep(now, noiseBuffer, offset, volumeScale, panner, cleanup)
+        break
+      case 'rock':
+        this.playRockStep(now, noiseBuffer, offset, volumeScale, panner, cleanup)
+        break
+      case 'sand':
+        this.playSandStep(now, noiseBuffer, offset, volumeScale, panner, cleanup)
+        break
+      case 'snow':
+        this.playSnowStep(now, noiseBuffer, offset, volumeScale, panner, cleanup)
+        break
+      case 'water':
+        this.playWaterStep(now, noiseBuffer, offset, volumeScale, panner, cleanup)
+        break
+      case 'wood':
+        this.playWoodStep(now, noiseBuffer, offset, volumeScale, panner, cleanup)
+        break
+      default:
+        this.playGrassStep(now, noiseBuffer, offset, volumeScale, panner, cleanup)
+    }
+  }
 
-    const bandpass = this.ctx.createBiquadFilter()
-    bandpass.type = 'bandpass'
-    bandpass.frequency.value = freq + Math.random() * 200 - 100
-    bandpass.Q.value = 1.5
+  // ── Terrain step sounds ──────────────────────────────────────────────────────
 
-    const envelope = this.ctx.createGain()
-    envelope.gain.setValueAtTime(0, now)
-    envelope.gain.linearRampToValueAtTime(0.15, now + 0.005)  // 5ms attack
-    envelope.gain.exponentialRampToValueAtTime(0.001, now + 0.06)  // 60ms total
+  // Grass: two-layer (800 Hz body + 200 Hz thud), slight reverb tail
+  private playGrassStep(
+    now: number, buf: AudioBuffer, offset: number,
+    vol: number, out: AudioNode, cleanup: () => void,
+  ) {
+    if (!this.ctx) return
+    const baseVol = 0.14 * vol
 
-    source.connect(bandpass)
-    bandpass.connect(envelope)
-    envelope.connect(this.masterGain)
+    // Layer 1: mid-frequency body
+    const src1 = this.ctx.createBufferSource()
+    src1.buffer = buf
+    const bp1 = this.ctx.createBiquadFilter()
+    bp1.type = 'bandpass'; bp1.frequency.value = 800; bp1.Q.value = 1.2
+    const env1 = this.ctx.createGain()
+    env1.gain.setValueAtTime(0, now)
+    env1.gain.linearRampToValueAtTime(baseVol, now + 0.006)
+    env1.gain.exponentialRampToValueAtTime(0.001, now + 0.07)
+    src1.connect(bp1); bp1.connect(env1); env1.connect(out)
+    src1.start(now, offset, 0.08)
 
-    source.start(now, offset, 0.08)
+    // Layer 2: low thud
+    const src2 = this.ctx.createBufferSource()
+    src2.buffer = buf
+    const lp2 = this.ctx.createBiquadFilter()
+    lp2.type = 'lowpass'; lp2.frequency.value = 200
+    const env2 = this.ctx.createGain()
+    env2.gain.setValueAtTime(0, now)
+    env2.gain.linearRampToValueAtTime(baseVol * 0.6, now + 0.01)
+    env2.gain.exponentialRampToValueAtTime(0.001, now + 0.12)
+    src2.connect(lp2); lp2.connect(env2); env2.connect(out)
+    src2.start(now, offset, 0.13)
 
-    source.onended = () => {
-      source.disconnect()
-      bandpass.disconnect()
-      envelope.disconnect()
+    // Reverb tail: very soft high-pass noise fading slowly
+    const src3 = this.ctx.createBufferSource()
+    src3.buffer = buf
+    const hp3 = this.ctx.createBiquadFilter()
+    hp3.type = 'highpass'; hp3.frequency.value = 1200
+    const env3 = this.ctx.createGain()
+    env3.gain.setValueAtTime(0, now + 0.04)
+    env3.gain.linearRampToValueAtTime(baseVol * 0.15, now + 0.07)
+    env3.gain.exponentialRampToValueAtTime(0.001, now + 0.25)
+    src3.connect(hp3); hp3.connect(env3); env3.connect(out)
+    src3.start(now, offset, 0.26)
+
+    src3.onended = () => {
+      try { src1.disconnect(); bp1.disconnect(); env1.disconnect() } catch { /* noop */ }
+      try { src2.disconnect(); lp2.disconnect(); env2.disconnect() } catch { /* noop */ }
+      try { src3.disconnect(); hp3.disconnect(); env3.disconnect() } catch { /* noop */ }
+      cleanup()
+    }
+  }
+
+  // Rock/stone: sharp attack 2200 Hz + 1800 Hz, metallic resonance
+  private playRockStep(
+    now: number, buf: AudioBuffer, offset: number,
+    vol: number, out: AudioNode, cleanup: () => void,
+  ) {
+    if (!this.ctx) return
+    const baseVol = 0.16 * vol
+
+    // Sharp high crack
+    const src1 = this.ctx.createBufferSource()
+    src1.buffer = buf
+    const bp1 = this.ctx.createBiquadFilter()
+    bp1.type = 'bandpass'; bp1.frequency.value = 2200; bp1.Q.value = 2.5
+    const env1 = this.ctx.createGain()
+    env1.gain.setValueAtTime(0, now)
+    env1.gain.linearRampToValueAtTime(baseVol, now + 0.003)   // very sharp attack
+    env1.gain.exponentialRampToValueAtTime(0.001, now + 0.05)
+    src1.connect(bp1); bp1.connect(env1); env1.connect(out)
+    src1.start(now, offset, 0.06)
+
+    // Metallic resonance at 1800 Hz — delayed slightly, longer ring
+    const src2 = this.ctx.createBufferSource()
+    src2.buffer = buf
+    const bp2 = this.ctx.createBiquadFilter()
+    bp2.type = 'bandpass'; bp2.frequency.value = 1800; bp2.Q.value = 8  // narrow = resonant
+    const env2 = this.ctx.createGain()
+    env2.gain.setValueAtTime(0, now + 0.002)
+    env2.gain.linearRampToValueAtTime(baseVol * 0.5, now + 0.01)
+    env2.gain.exponentialRampToValueAtTime(0.001, now + 0.18)  // long resonance
+    src2.connect(bp2); bp2.connect(env2); env2.connect(out)
+    src2.start(now, offset, 0.2)
+
+    src2.onended = () => {
+      try { src1.disconnect(); bp1.disconnect(); env1.disconnect() } catch { /* noop */ }
+      try { src2.disconnect(); bp2.disconnect(); env2.disconnect() } catch { /* noop */ }
+      cleanup()
+    }
+  }
+
+  // Sand: low 300 Hz + white noise burst, soft attack
+  private playSandStep(
+    now: number, buf: AudioBuffer, offset: number,
+    vol: number, out: AudioNode, cleanup: () => void,
+  ) {
+    if (!this.ctx) return
+    const baseVol = 0.12 * vol
+
+    // Low body thud
+    const src1 = this.ctx.createBufferSource()
+    src1.buffer = buf
+    const lp1 = this.ctx.createBiquadFilter()
+    lp1.type = 'lowpass'; lp1.frequency.value = 300
+    const env1 = this.ctx.createGain()
+    env1.gain.setValueAtTime(0, now)
+    env1.gain.linearRampToValueAtTime(baseVol, now + 0.015)   // soft attack
+    env1.gain.exponentialRampToValueAtTime(0.001, now + 0.1)
+    src1.connect(lp1); lp1.connect(env1); env1.connect(out)
+    src1.start(now, offset, 0.11)
+
+    // White noise burst (all freq) — simulates grains scattering
+    const src2 = this.ctx.createBufferSource()
+    src2.buffer = buf
+    const hp2 = this.ctx.createBiquadFilter()
+    hp2.type = 'highpass'; hp2.frequency.value = 2000
+    const lp2b = this.ctx.createBiquadFilter()
+    lp2b.type = 'lowpass'; lp2b.frequency.value = 8000
+    const env2 = this.ctx.createGain()
+    env2.gain.setValueAtTime(0, now)
+    env2.gain.linearRampToValueAtTime(baseVol * 0.3, now + 0.02)
+    env2.gain.exponentialRampToValueAtTime(0.001, now + 0.08)
+    src2.connect(hp2); hp2.connect(lp2b); lp2b.connect(env2); env2.connect(out)
+    src2.start(now, offset, 0.09)
+
+    src2.onended = () => {
+      try { src1.disconnect(); lp1.disconnect(); env1.disconnect() } catch { /* noop */ }
+      try { src2.disconnect(); hp2.disconnect(); lp2b.disconnect(); env2.disconnect() } catch { /* noop */ }
+      cleanup()
+    }
+  }
+
+  // Snow: 500 Hz muffled + crunch (random pitch ±15%)
+  private playSnowStep(
+    now: number, buf: AudioBuffer, offset: number,
+    vol: number, out: AudioNode, cleanup: () => void,
+  ) {
+    if (!this.ctx) return
+    const baseVol = 0.13 * vol
+    const pitchVar = 0.85 + Math.random() * 0.30   // ±15% pitch randomisation
+
+    // Muffled body
+    const src1 = this.ctx.createBufferSource()
+    src1.buffer = buf
+    src1.playbackRate.value = pitchVar
+    const lp1 = this.ctx.createBiquadFilter()
+    lp1.type = 'lowpass'; lp1.frequency.value = 500
+    const env1 = this.ctx.createGain()
+    env1.gain.setValueAtTime(0, now)
+    env1.gain.linearRampToValueAtTime(baseVol, now + 0.01)
+    env1.gain.exponentialRampToValueAtTime(0.001, now + 0.09)
+    src1.connect(lp1); lp1.connect(env1); env1.connect(out)
+    src1.start(now, offset, 0.1)
+
+    // Crunch: short mid-high burst with own pitch variation
+    const src2 = this.ctx.createBufferSource()
+    src2.buffer = buf
+    src2.playbackRate.value = 0.9 + Math.random() * 0.2
+    const bp2 = this.ctx.createBiquadFilter()
+    bp2.type = 'bandpass'; bp2.frequency.value = 1400 + Math.random() * 400; bp2.Q.value = 1.5
+    const env2 = this.ctx.createGain()
+    env2.gain.setValueAtTime(0, now + 0.005)
+    env2.gain.linearRampToValueAtTime(baseVol * 0.4, now + 0.015)
+    env2.gain.exponentialRampToValueAtTime(0.001, now + 0.055)
+    src2.connect(bp2); bp2.connect(env2); env2.connect(out)
+    src2.start(now, offset, 0.06)
+
+    src2.onended = () => {
+      try { src1.disconnect(); lp1.disconnect(); env1.disconnect() } catch { /* noop */ }
+      try { src2.disconnect(); bp2.disconnect(); env2.disconnect() } catch { /* noop */ }
+      cleanup()
+    }
+  }
+
+  // Water/shallow: 600 Hz splash + 400 Hz slosh, stereo pan already applied externally
+  private playWaterStep(
+    now: number, buf: AudioBuffer, offset: number,
+    vol: number, out: AudioNode, cleanup: () => void,
+  ) {
+    if (!this.ctx) return
+    const baseVol = 0.15 * vol
+
+    // Splash: high-freq burst
+    const src1 = this.ctx.createBufferSource()
+    src1.buffer = buf
+    const bp1 = this.ctx.createBiquadFilter()
+    bp1.type = 'bandpass'; bp1.frequency.value = 600 + Math.random() * 200; bp1.Q.value = 0.8
+    const env1 = this.ctx.createGain()
+    env1.gain.setValueAtTime(0, now)
+    env1.gain.linearRampToValueAtTime(baseVol, now + 0.008)
+    env1.gain.exponentialRampToValueAtTime(0.001, now + 0.1)
+    src1.connect(bp1); bp1.connect(env1); env1.connect(out)
+    src1.start(now, offset, 0.11)
+
+    // Slosh: low rumble following the splash
+    const src2 = this.ctx.createBufferSource()
+    src2.buffer = buf
+    const lp2 = this.ctx.createBiquadFilter()
+    lp2.type = 'lowpass'; lp2.frequency.value = 400
+    const env2 = this.ctx.createGain()
+    env2.gain.setValueAtTime(0, now + 0.04)
+    env2.gain.linearRampToValueAtTime(baseVol * 0.45, now + 0.07)
+    env2.gain.exponentialRampToValueAtTime(0.001, now + 0.22)
+    src2.connect(lp2); lp2.connect(env2); env2.connect(out)
+    src2.start(now, offset, 0.23)
+
+    src2.onended = () => {
+      try { src1.disconnect(); bp1.disconnect(); env1.disconnect() } catch { /* noop */ }
+      try { src2.disconnect(); lp2.disconnect(); env2.disconnect() } catch { /* noop */ }
+      cleanup()
+    }
+  }
+
+  // Wood: 1100 Hz knock + 900 Hz hollow resonance
+  private playWoodStep(
+    now: number, buf: AudioBuffer, offset: number,
+    vol: number, out: AudioNode, cleanup: () => void,
+  ) {
+    if (!this.ctx) return
+    const baseVol = 0.15 * vol
+
+    // Knock: mid-high transient
+    const src1 = this.ctx.createBufferSource()
+    src1.buffer = buf
+    const bp1 = this.ctx.createBiquadFilter()
+    bp1.type = 'bandpass'; bp1.frequency.value = 1100; bp1.Q.value = 2
+    const env1 = this.ctx.createGain()
+    env1.gain.setValueAtTime(0, now)
+    env1.gain.linearRampToValueAtTime(baseVol, now + 0.004)
+    env1.gain.exponentialRampToValueAtTime(0.001, now + 0.055)
+    src1.connect(bp1); bp1.connect(env1); env1.connect(out)
+    src1.start(now, offset, 0.065)
+
+    // Hollow resonance: slightly lower, longer ring
+    const src2 = this.ctx.createBufferSource()
+    src2.buffer = buf
+    const bp2 = this.ctx.createBiquadFilter()
+    bp2.type = 'bandpass'; bp2.frequency.value = 900; bp2.Q.value = 5  // narrower = more resonant
+    const env2 = this.ctx.createGain()
+    env2.gain.setValueAtTime(0, now + 0.003)
+    env2.gain.linearRampToValueAtTime(baseVol * 0.55, now + 0.015)
+    env2.gain.exponentialRampToValueAtTime(0.001, now + 0.15)
+    src2.connect(bp2); bp2.connect(env2); env2.connect(out)
+    src2.start(now, offset, 0.16)
+
+    src2.onended = () => {
+      try { src1.disconnect(); bp1.disconnect(); env1.disconnect() } catch { /* noop */ }
+      try { src2.disconnect(); bp2.disconnect(); env2.disconnect() } catch { /* noop */ }
+      cleanup()
     }
   }
 

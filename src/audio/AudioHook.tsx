@@ -18,7 +18,7 @@ import { terrainHeightAt, SEA_LEVEL, PLANET_RADIUS } from '../world/SpherePlanet
 import type { AudioUpdateState } from './AmbientAudioEngine'
 
 // Terrain type from elevation and slope (matches PlanetTerrain biome logic)
-function getTerrainType(elevation: number, _px: number, _py: number, _pz: number): 'grass' | 'rock' | 'sand' | 'snow' | 'water' {
+function getTerrainType(elevation: number, _px: number, _py: number, _pz: number): 'grass' | 'rock' | 'sand' | 'snow' | 'water' | 'wood' {
   if (elevation < SEA_LEVEL + 0.2) return 'water'
   if (elevation < SEA_LEVEL + 2) return 'sand'
   if (elevation > 35) return 'snow'
@@ -30,6 +30,7 @@ export function AudioHook() {
   const initRef = useRef(false)
   const prevPosRef = useRef({ x: 0, y: 0, z: 0 })
   const movingRef = useRef(false)
+  const speedRef = useRef(0)
 
   // Initialize audio on first user interaction
   useEffect(() => {
@@ -64,6 +65,7 @@ export function AudioHook() {
     const dz = player.z - prevPosRef.current.z
     const speed = Math.sqrt(dx * dx + dy * dy + dz * dz) / Math.max(dt, 0.001)
     prevPosRef.current = { x: player.x, y: player.y, z: player.z }
+    speedRef.current = speed
     movingRef.current = speed > 0.5
 
     // Compute elevation above sea level
@@ -94,8 +96,11 @@ export function AudioHook() {
       playerZ: player.z,
       playerMoving: movingRef.current,
       playerRunning: speed > 8,
+      playerCrouching: false,  // not yet in playerStore; default off
       playerGrounded: elevation > SEA_LEVEL - 0.5,
       playerElevation: elevation,
+      playerSpeed: speedRef.current,
+      playerMass: 70,           // default 70 kg; extend playerStore when character system lands
       terrainType: getTerrainType(elevation, player.x, player.y, player.z),
 
       nearFire: nearestFireDist < 15,

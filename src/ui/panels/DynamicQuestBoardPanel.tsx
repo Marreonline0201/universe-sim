@@ -12,6 +12,8 @@ import {
   type QuestDifficulty,
 } from '../../game/DynamicQuestBoardSystem'
 
+const REFRESH_INTERVAL = 300
+
 // ── Difficulty badge colors ───────────────────────────────────────────────────
 
 const DIFFICULTY_COLOR: Record<QuestDifficulty, { bg: string; text: string; border: string }> = {
@@ -344,5 +346,3 @@ export function DynamicQuestBoardPanel() {
     </div>
   )
 }
-
-const REFRESH_INTERVAL = 300

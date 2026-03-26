@@ -46,6 +46,7 @@ export interface CraftingRecipe {
   knowledgeRequired: string[]  // discovery IDs player must have
   time: number  // seconds to craft
   requiresCampfire?: boolean  // M33: cooking recipes require proximity to a campfire/fire
+  requiresAlchemyTable?: boolean  // M37: alchemy recipes require proximity to an alchemy table
 }
 
 const SLOT_COUNT = 40
@@ -340,6 +341,15 @@ export const MAT = {
   COOKED_SARDINE: 97,    // cooked sardine — same buff as cooked fish
   COOKED_SALMON: 98,     // cooked salmon — Salmon Feast buff
   COOKED_TUNA: 99,       // cooked tuna — Tuna Power buff
+  // ── M37 Track B: Alchemy System ──────────────────────────────────────────
+  POTION_HEALTH: 100,    // Restore 50 HP instantly
+  POTION_SPEED: 101,     // +40% speed for 60s
+  POTION_STRENGTH: 102,  // +50% damage for 45s
+  POTION_INVISIBILITY: 103, // Animals ignore player for 30s
+  POTION_ANTIDOTE: 104,  // Cure poison, remove debuffs
+  POTION_FIRE_RESIST: 105, // Immune to lava/fire damage for 60s
+  ELIXIR_WISDOM: 106,    // 3x XP gain for 120s (rare, expensive)
+  EMPTY_VIAL: 107,       // Required vessel for all potions
 } as const
 
 // ── Item IDs ──────────────────────────────────────────────────────────────────

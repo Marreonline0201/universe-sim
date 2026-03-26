@@ -1213,4 +1213,149 @@ export const CRAFTING_RECIPES: CraftingRecipe[] = [
     output: { itemId: ITEM.HOME_DEED, quantity: 1, isMaterial: false },
     knowledgeRequired: [],
   },
+
+  // ── M37 Track B: Alchemy System ───────────────────────────────────────────
+  // All alchemy recipes require an alchemy table (or home Alchemy Corner upgrade).
+  // Potions use Empty Vials as vessels; vials are craftable from stone (recipe 157).
+  {
+    // id 150 — Health Potion: 3x Berry + 1x Mushroom + 1x Empty Vial → 1x Potion Health
+    // Restores 50 HP instantly on consume.
+    id: 150, name: 'Health Potion', tier: 0, time: 30,
+    inputs: [
+      { materialId: MAT.BERRY,      quantity: 3 },
+      { materialId: MAT.MUSHROOM,   quantity: 1 },
+      { materialId: MAT.EMPTY_VIAL, quantity: 1 },
+    ],
+    output: { itemId: MAT.POTION_HEALTH, quantity: 1, isMaterial: true },
+    knowledgeRequired: [],
+    requiresAlchemyTable: true,
+  },
+  {
+    // id 151 — Speed Potion: 1x Herbal Tea + 1x Alcohol + 1x Empty Vial → 1x Potion Speed
+    // Grants +40% speed for 60 seconds.
+    id: 151, name: 'Speed Potion', tier: 0, time: 30,
+    inputs: [
+      { materialId: MAT.HERBAL_TEA, quantity: 1 },
+      { materialId: MAT.ALCOHOL,    quantity: 1 },
+      { materialId: MAT.EMPTY_VIAL, quantity: 1 },
+    ],
+    output: { itemId: MAT.POTION_SPEED, quantity: 1, isMaterial: true },
+    knowledgeRequired: [],
+    requiresAlchemyTable: true,
+  },
+  {
+    // id 152 — Strength Potion: 2x Iron Ore + 2x Alcohol + 1x Empty Vial → 1x Potion Strength
+    // Grants +50% damage for 45 seconds.
+    id: 152, name: 'Strength Potion', tier: 0, time: 40,
+    inputs: [
+      { materialId: MAT.IRON_ORE,   quantity: 2 },
+      { materialId: MAT.ALCOHOL,    quantity: 2 },
+      { materialId: MAT.EMPTY_VIAL, quantity: 1 },
+    ],
+    output: { itemId: MAT.POTION_STRENGTH, quantity: 1, isMaterial: true },
+    knowledgeRequired: [],
+    requiresAlchemyTable: true,
+  },
+  {
+    // id 153 — Invisibility Potion: 3x Mushroom + 1x Cave Fish + 1x Empty Vial → 1x Potion Invisibility
+    // Animals ignore player for 30 seconds.
+    id: 153, name: 'Invisibility Potion', tier: 0, time: 50,
+    inputs: [
+      { materialId: MAT.MUSHROOM,   quantity: 3 },
+      { materialId: MAT.CAVE_FISH,  quantity: 1 },
+      { materialId: MAT.EMPTY_VIAL, quantity: 1 },
+    ],
+    output: { itemId: MAT.POTION_INVISIBILITY, quantity: 1, isMaterial: true },
+    knowledgeRequired: [],
+    requiresAlchemyTable: true,
+  },
+  {
+    // id 154 — Antidote: 2x Berry + 2x Mushroom + 1x Empty Vial → 1x Potion Antidote
+    // Cures poison and removes active debuffs.
+    id: 154, name: 'Antidote', tier: 0, time: 25,
+    inputs: [
+      { materialId: MAT.BERRY,      quantity: 2 },
+      { materialId: MAT.MUSHROOM,   quantity: 2 },
+      { materialId: MAT.EMPTY_VIAL, quantity: 1 },
+    ],
+    output: { itemId: MAT.POTION_ANTIDOTE, quantity: 1, isMaterial: true },
+    knowledgeRequired: [],
+    requiresAlchemyTable: true,
+  },
+  {
+    // id 155 — Fire Resist Potion: 2x Coal + 1x Mushroom + 1x Empty Vial → 1x Potion Fire Resist
+    // Immune to lava/fire damage for 60 seconds.
+    id: 155, name: 'Fire Resist Potion', tier: 0, time: 35,
+    inputs: [
+      { materialId: MAT.COAL,       quantity: 2 },
+      { materialId: MAT.MUSHROOM,   quantity: 1 },
+      { materialId: MAT.EMPTY_VIAL, quantity: 1 },
+    ],
+    output: { itemId: MAT.POTION_FIRE_RESIST, quantity: 1, isMaterial: true },
+    knowledgeRequired: [],
+    requiresAlchemyTable: true,
+  },
+  {
+    // id 156 — Elixir of Wisdom: 1x Golden Fish + 3x Alcohol + 2x Mushroom + 1x Empty Vial → 1x Elixir Wisdom
+    // 3x XP gain for 120 seconds. Rare and expensive to brew.
+    id: 156, name: 'Elixir of Wisdom', tier: 0, time: 90,
+    inputs: [
+      { materialId: MAT.GOLDEN_FISH, quantity: 1 },
+      { materialId: MAT.ALCOHOL,     quantity: 3 },
+      { materialId: MAT.MUSHROOM,    quantity: 2 },
+      { materialId: MAT.EMPTY_VIAL,  quantity: 1 },
+    ],
+    output: { itemId: MAT.ELIXIR_WISDOM, quantity: 1, isMaterial: true },
+    knowledgeRequired: [],
+    requiresAlchemyTable: true,
+  },
+  {
+    // id 157 — Empty Vial (×3): 3x Stone → 3x Empty Vial
+    // Required vessel for all potion recipes.
+    id: 157, name: 'Empty Vial (×3)', tier: 0, time: 15,
+    inputs: [
+      { materialId: MAT.STONE, quantity: 3 },
+    ],
+    output: { itemId: MAT.EMPTY_VIAL, quantity: 3, isMaterial: true },
+    knowledgeRequired: [],
+    requiresAlchemyTable: true,
+  },
+
+  // ── M37 Track B: Material Transmutation ──────────────────────────────────
+  // Higher-tier alchemy: transmute base materials into refined ones.
+  {
+    // id 160 — Smelt Iron (alchemy): 5x Stone + 2x Coal → 2x Iron Ore
+    // Alchemical reduction — extracts iron from stone through coal reduction.
+    id: 160, name: 'Smelt Iron (Alchemy)', tier: 0, time: 60,
+    inputs: [
+      { materialId: MAT.STONE, quantity: 5 },
+      { materialId: MAT.COAL,  quantity: 2 },
+    ],
+    output: { itemId: MAT.IRON_ORE, quantity: 2, isMaterial: true },
+    knowledgeRequired: [],
+    requiresAlchemyTable: true,
+  },
+  {
+    // id 161 — Purify Alcohol: 3x Alcohol → 1x Mead
+    // Distillation + honey infusion produces higher-quality mead from spirits.
+    id: 161, name: 'Purify Alcohol', tier: 0, time: 45,
+    inputs: [
+      { materialId: MAT.ALCOHOL, quantity: 3 },
+    ],
+    output: { itemId: MAT.MEAD, quantity: 1, isMaterial: true },
+    knowledgeRequired: [],
+    requiresAlchemyTable: true,
+  },
+  {
+    // id 162 — Crystallize: 5x Iron Ore + 3x Coal → 1x Velar Crystal
+    // Advanced transmutation — alchemical pressure crystallizes iron+carbon into Velar Crystal.
+    id: 162, name: 'Crystallize', tier: 0, time: 120,
+    inputs: [
+      { materialId: MAT.IRON_ORE, quantity: 5 },
+      { materialId: MAT.COAL,     quantity: 3 },
+    ],
+    output: { itemId: MAT.VELAR_CRYSTAL, quantity: 1, isMaterial: true },
+    knowledgeRequired: [],
+    requiresAlchemyTable: true,
+  },
 ]

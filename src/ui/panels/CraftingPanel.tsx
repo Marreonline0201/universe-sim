@@ -1,5 +1,6 @@
 // ── CraftingPanel ──────────────────────────────────────────────────────────────
 // M20: Recipe browser with search, tier-grouped sections, and craft animations.
+// M37: Added Alchemy tab for potion brewing, transmutation, and enchanting.
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { inventory, questSystem } from '../../game/GameSingletons'
@@ -9,6 +10,7 @@ import { CRAFTING_RECIPES } from '../../player/CraftingRecipes'
 import { usePlayerStore } from '../../store/playerStore'
 import { useUiStore } from '../../store/uiStore'
 import { useSettlementQuestStore } from '../../store/settlementQuestStore'
+import { ENCHANTS, applyEnchant, activeWeaponEnchant, activeArmorEnchant, type Enchant } from '../../game/EnchantSystem'
 
 const MAT_NAMES: Record<number, string> = Object.fromEntries(
   Object.entries(MAT).map(([k, v]) => [v, k.toLowerCase().replace(/_/g, ' ')])
@@ -40,17 +42,21 @@ function canCraft(recipe: CraftingRecipe): boolean {
   return true
 }
 
+type PanelTab = 'crafting' | 'alchemy'
+
 export function CraftingPanel() {
   const civTier = usePlayerStore(s => s.civTier)
   const addNotification = useUiStore(s => s.addNotification)
   void civTier
   const [, forceRefresh] = useState(0)
+  const [activeTab, setActiveTab] = useState<PanelTab>('crafting')
   const [filter, setFilter] = useState<'all' | 'available'>('available')
   const [search, setSearch] = useState('')
   const [selectedRecipe, setSelectedRecipe] = useState<CraftingRecipe | null>(null)
   const [collapsedTiers, setCollapsedTiers] = useState<Set<number>>(new Set())
   const [craftFlash, setCraftFlash] = useState(false)
   const [floatingText, setFloatingText] = useState<string | null>(null)
+  const [enchantNotice, setEnchantNotice] = useState<string | null>(null)
   const godMode = inventory.isGodMode()
   const effectiveFilter = godMode ? 'available' : filter
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -69,6 +75,9 @@ export function CraftingPanel() {
   }, [search])
 
   const recipes = CRAFTING_RECIPES.filter(r => {
+    // Alchemy tab shows only alchemy recipes; crafting tab excludes them
+    if (activeTab === 'alchemy' && !r.requiresAlchemyTable) return false
+    if (activeTab === 'crafting' && r.requiresAlchemyTable) return false
     if (effectiveFilter === 'available' && !canCraft(r)) return false
     if (debouncedSearch) {
       const q = debouncedSearch.toLowerCase()
@@ -172,10 +181,52 @@ export function CraftingPanel() {
     forceRefresh(r => r + 1)
   }
 
+  function handleEnchant(enchant: Enchant) {
+    const ok = applyEnchant(enchant)
+    if (ok) {
+      const def = ENCHANTS[enchant]
+      setEnchantNotice(`Enchanted: ${def.name} — ${def.effect}`)
+      addNotification(`Enchanted weapon/armor: ${def.name}`, 'info')
+      setTimeout(() => setEnchantNotice(null), 3000)
+      forceRefresh(r => r + 1)
+    } else {
+      addNotification('Not enough materials to enchant', 'warning')
+    }
+  }
+
+  const MAT_NAMES_LOCAL: Record<number, string> = Object.fromEntries(
+    Object.entries(MAT).map(([k, v]) => [v, k.toLowerCase().replace(/_/g, ' ')])
+  )
+
   return (
-    <div style={{ color: '#fff', fontFamily: 'monospace', display: 'flex', gap: 12, height: '100%' }}>
+    <div style={{ color: '#fff', fontFamily: 'monospace', display: 'flex', flexDirection: 'column', gap: 0, height: '100%' }}>
+      {/* Tab header */}
+      <div style={{ display: 'flex', gap: 4, marginBottom: 10 }}>
+        {(['crafting', 'alchemy'] as PanelTab[]).map(tab => (
+          <button
+            key={tab}
+            onClick={() => { setActiveTab(tab); setSelectedRecipe(null) }}
+            style={{
+              background: activeTab === tab ? 'rgba(180,100,220,0.25)' : 'rgba(255,255,255,0.05)',
+              border: `1px solid ${activeTab === tab ? 'rgba(180,100,220,0.7)' : 'rgba(255,255,255,0.1)'}`,
+              borderRadius: 4,
+              color: activeTab === tab ? '#c87dff' : '#888',
+              cursor: 'pointer',
+              padding: '4px 14px',
+              fontSize: 12,
+              fontFamily: 'monospace',
+            }}
+          >
+            {tab === 'crafting' ? 'Crafting' : '🧪 Alchemy'}
+          </button>
+        ))}
+      </div>
+
+      {/* Main content area */}
+      <div style={{ display: 'flex', gap: 12, flex: 1, minHeight: 0 }}>
+
       {/* Recipe list */}
-      <div style={{ flex: 1, minWidth: 0 }}>
+      <div style={{ flex: 1, minWidth: 0, overflowY: 'auto' }}>
         {/* Search + filter */}
         <div style={{ display: 'flex', gap: 6, marginBottom: 12, alignItems: 'center' }}>
           <input
@@ -273,6 +324,9 @@ export function CraftingPanel() {
                             {r.name}
                             {r.requiresCampfire && (
                               <span title="Requires campfire" style={{ fontSize: 10, color: '#f39c12', opacity: 0.85 }}>🔥</span>
+                            )}
+                            {r.requiresAlchemyTable && (
+                              <span title="Requires alchemy table" style={{ fontSize: 10, color: '#c87dff', opacity: 0.85 }}>🧪</span>
                             )}
                           </div>
                           <div style={{ fontSize: 10, color: '#888', marginTop: 2 }}>
@@ -402,6 +456,83 @@ export function CraftingPanel() {
           )}
         </div>
       )}
+
+      {/* Alchemy tab: Enchanting sub-section */}
+      {activeTab === 'alchemy' && (
+        <div style={{
+          width: 170,
+          flexShrink: 0,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 6,
+          overflowY: 'auto',
+        }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: '#c87dff', borderBottom: '1px solid rgba(200,100,255,0.3)', paddingBottom: 4, marginBottom: 4 }}>
+            Enchanting
+          </div>
+
+          {/* Active enchants display */}
+          <div style={{ fontSize: 10, color: '#aaa' }}>Weapon:</div>
+          <div style={{ fontSize: 11, color: activeWeaponEnchant ? '#f1c40f' : '#555', marginBottom: 4 }}>
+            {activeWeaponEnchant
+              ? `${ENCHANTS[activeWeaponEnchant].icon} ${ENCHANTS[activeWeaponEnchant].name}`
+              : 'None'}
+          </div>
+          <div style={{ fontSize: 10, color: '#aaa' }}>Armor:</div>
+          <div style={{ fontSize: 11, color: activeArmorEnchant ? '#f1c40f' : '#555', marginBottom: 8 }}>
+            {activeArmorEnchant
+              ? `${ENCHANTS[activeArmorEnchant].icon} ${ENCHANTS[activeArmorEnchant].name}`
+              : 'None'}
+          </div>
+
+          {enchantNotice && (
+            <div style={{ fontSize: 10, color: '#2ecc71', background: 'rgba(46,204,113,0.1)', border: '1px solid rgba(46,204,113,0.3)', borderRadius: 3, padding: '3px 6px', marginBottom: 4 }}>
+              {enchantNotice}
+            </div>
+          )}
+
+          {/* Enchant selection */}
+          {(Object.entries(ENCHANTS) as [Enchant, typeof ENCHANTS[Enchant]][]).map(([key, def]) => {
+            const canAfford = inventory.isGodMode() || def.materialCost.every(({ matId, qty }) => inventory.countMaterial(matId) >= qty)
+            return (
+              <div key={key} style={{
+                padding: '5px 7px',
+                background: 'rgba(255,255,255,0.04)',
+                border: '1px solid rgba(255,255,255,0.08)',
+                borderRadius: 5,
+              }}>
+                <div style={{ fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 4 }}>
+                  {def.icon} {def.name}
+                  <span style={{ fontSize: 9, color: '#888', marginLeft: 'auto' }}>{def.applyTo}</span>
+                </div>
+                <div style={{ fontSize: 9, color: '#aaa', margin: '2px 0' }}>{def.effect}</div>
+                <div style={{ fontSize: 9, color: '#666', marginBottom: 4 }}>
+                  Cost: {def.materialCost.map(({ matId, qty }) => `${qty}x ${MAT_NAMES_LOCAL[matId] ?? matId}`).join(', ')}
+                </div>
+                <button
+                  onClick={() => handleEnchant(key)}
+                  disabled={!canAfford}
+                  style={{
+                    width: '100%',
+                    background: canAfford ? 'rgba(180,100,220,0.2)' : 'rgba(255,255,255,0.03)',
+                    border: `1px solid ${canAfford ? 'rgba(180,100,220,0.6)' : '#333'}`,
+                    borderRadius: 3,
+                    color: canAfford ? '#c87dff' : '#444',
+                    cursor: canAfford ? 'pointer' : 'not-allowed',
+                    padding: '3px 0',
+                    fontSize: 10,
+                    fontFamily: 'monospace',
+                  }}
+                >
+                  ENCHANT
+                </button>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      </div>{/* end main content area */}
 
       {/* CSS animation for floating craft text */}
       <style>{`

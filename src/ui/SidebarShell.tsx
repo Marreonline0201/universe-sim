@@ -72,6 +72,8 @@ const BountyBoardPanel = lazy(() => import('./panels/BountyBoardPanel').then(m =
 const DiscoveriesPanel = lazy(() => import('./panels/DiscoveriesPanel').then(m => ({ default: m.DiscoveriesPanel })))
 // M54 Track A: Merchant Guild panel
 const MerchantGuildPanel = lazy(() => import('./panels/MerchantGuildPanel').then(m => ({ default: m.MerchantGuildPanel })))
+// M55 Track A: NPC Schedule panel
+const NPCSchedulePanel = lazy(() => import('./panels/NPCSchedulePanel').then(m => ({ default: m.NPCSchedulePanel })))
 
 // M36 Track C: Wrapper resolves nearSettlementId from store so panel has no props
 function BuildingsPanelWrapper() {
@@ -128,6 +130,7 @@ const PANEL_LABEL: Record<PanelId, string> = {
   bountboard:    'BOUNTY BOARD',
   discoveries:   'EXPLORATIONS',
   merchantguild: 'MERCHANT GUILD',
+  npcschedule:   'NPC SCHEDULES',
 }
 
 const PANEL_WIDTH = 480
@@ -166,6 +169,7 @@ const ICON_BUTTONS: Array<{ id: PanelId; icon: string; hint: string }> = [
   { id: 'bountboard',    icon: '📋',   hint: 'Bounties' },
   { id: 'discoveries',   icon: '🗺',   hint: 'Discoveries (D)' },
   { id: 'merchantguild', icon: '🏪',   hint: 'Guild (E)' },
+  { id: 'npcschedule',   icon: '📅',   hint: 'NPC Schedules' },
   { id: 'science',       icon: ' ? ', hint: 'Science Companion (?)' },
   { id: 'settings',    icon: 'SET',  hint: 'Settings (Esc)' },
 ]
@@ -207,6 +211,7 @@ const PANEL_COMPONENTS: Record<PanelId, React.ComponentType> = {
   bountboard:    BountyBoardPanel,
   discoveries:   DiscoveriesPanel,
   merchantguild: MerchantGuildPanel,
+  npcschedule:   NPCSchedulePanel,
 }
 
 export function SidebarShell() {

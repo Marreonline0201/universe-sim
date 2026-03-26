@@ -1,6 +1,7 @@
 // ── MerchantPanel.tsx ────────────────────────────────────────────────────────
 // M27 Track B: NPC merchant trading UI — Buy, Sell, and Market Trends tabs.
 // M35 Track A: Dynamic prices via MarketSystem + trend arrows per item.
+// M43 Track B: Bulk buying (qty 1–10), reputation discounts, negotiation overlay.
 //
 // Buy tab:    Lists items from the merchant's sellList with live market prices.
 // Sell tab:   Lists player inventory. Player clicks to sell items for gold.
@@ -16,6 +17,8 @@ import { usePlayerStore } from '../../store/playerStore'
 import { useUiStore } from '../../store/uiStore'
 import { useDialogueStore } from '../../store/dialogueStore'
 import { MAT, ITEM } from '../../player/Inventory'
+import { getReputationBonus } from '../../store/reputationStore'
+import { NegotiateOverlay, type NegotiateItem } from './NegotiateOverlay'
 
 // ── Name lookup maps ──────────────────────────────────────────────────────────
 
@@ -53,103 +56,200 @@ function priceColor(trend: 'up' | 'down' | 'flat'): string {
 
 // ── Buy Tab ───────────────────────────────────────────────────────────────────
 
-function BuyTab({ archetype, settlementId }: { archetype: MerchantArchetype; settlementId: string }) {
+function BuyTab({ archetype, settlementId, settlementNumId }: {
+  archetype: MerchantArchetype
+  settlementId: string
+  settlementNumId: number
+}) {
   const gold      = usePlayerStore(s => s.gold)
   const addGold   = usePlayerStore(s => s.addGold)
   const spendGold = usePlayerStore(s => s.spendGold)
   const addNotification = useUiStore(s => s.addNotification)
 
+  // M43: per-row quantity selectors (itemIdx → qty)
+  const [quantities, setQuantities] = useState<Record<number, number>>({})
+  // M43: active negotiation overlay state
+  const [negotiating, setNegotiating] = useState<NegotiateItem | null>(null)
+  // Keep a ref to the pending buy info when negotiation opens
+  const [pendingBuy, setPendingBuy] = useState<{
+    itemId: number; materialId: number; name: string; basePrice: number; qty: number
+  } | null>(null)
+
   const sellList = merchantSystem.getSellList(archetype)
 
-  const handleBuy = useCallback((itemId: number, materialId: number, name: string, basePrice: number) => {
-    const livePrice = marketSystem.getPrice(settlementId, materialId, basePrice, itemId)
-    if (!spendGold(livePrice)) {
-      addNotification(`Not enough gold to buy ${name} (need ${livePrice}💰)`, 'warning')
+  // M43: reputation discount for this settlement
+  const repBonus = getReputationBonus(settlementNumId)
+  const repDiscount = repBonus.tradeDiscount
+
+  const executeBuy = useCallback((
+    itemId: number, materialId: number, name: string,
+    paidPrice: number, qty: number,
+  ) => {
+    if (!spendGold(paidPrice)) {
+      addNotification(`Not enough gold to buy ${name} (need ${paidPrice}💰)`, 'warning')
       return
     }
-    const added = inventory.addItem({
-      itemId,
-      materialId,
-      quantity: 1,
-      quality: 0.8,
-      rarity: 0,
-    })
-    if (!added) {
-      // Refund gold — inventory full
-      addGold(livePrice)
-      addNotification('Inventory full — cannot buy item', 'warning')
-      return
+    let allAdded = true
+    for (let i = 0; i < qty; i++) {
+      const added = inventory.addItem({ itemId, materialId, quantity: 1, quality: 0.8, rarity: 0 })
+      if (!added) {
+        // Refund remaining
+        addGold(paidPrice - Math.round((paidPrice / qty) * i))
+        addNotification('Inventory full — purchase stopped', 'warning')
+        allAdded = false
+        break
+      }
     }
-    // Record purchase — demand rises → price up
-    marketSystem.recordPurchase(settlementId, materialId, 1, itemId)
-    addNotification(`Bought ${name} for ${livePrice}💰`, 'info')
+    if (allAdded) {
+      marketSystem.recordPurchase(settlementId, materialId, qty, itemId)
+      addNotification(
+        `Bought ${qty > 1 ? `${qty}× ` : ''}${name} for ${paidPrice}💰`,
+        'info',
+      )
+    }
   }, [settlementId, spendGold, addGold, addNotification])
 
-  return (
-    <div>
-      {sellList.map((item, idx) => {
-        const livePrice = marketSystem.getPrice(settlementId, item.materialId, item.price, item.itemId)
-        const trend     = marketSystem.getTrend(settlementId, item.materialId, item.itemId)
-        const canAfford = gold >= livePrice
-        const label = item.itemId === 0
-          ? capitalize(MAT_NAMES[item.materialId] ?? item.name)
-          : capitalize(ITEM_NAMES[item.itemId] ?? item.name)
+  const handleBuyClick = useCallback((
+    itemId: number, materialId: number, name: string, basePrice: number, idx: number,
+  ) => {
+    const qty = quantities[idx] ?? 1
+    const livePrice = marketSystem.getPrice(settlementId, materialId, basePrice, itemId, repDiscount)
+    const totalPrice = livePrice * qty
+    // Open negotiation overlay
+    setPendingBuy({ itemId, materialId, name, basePrice, qty })
+    setNegotiating({ name, matId: materialId, qty, marketPrice: livePrice })
+  }, [settlementId, quantities, repDiscount])
 
-        return (
-          <div
-            key={idx}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              padding: '7px 10px',
-              marginBottom: 4,
-              background: 'rgba(255,255,255,0.04)',
-              border: '1px solid rgba(255,255,255,0.08)',
-              borderRadius: 5,
-              opacity: canAfford ? 1 : 0.5,
-            }}
-          >
-            <span style={{ fontSize: 12, fontFamily: 'monospace', color: '#ddd', flex: 1 }}>
-              {label}
-            </span>
-            <span style={{
-              fontSize: 12,
-              fontFamily: 'monospace',
-              color: priceColor(trend),
-              marginRight: 6,
-              minWidth: 65,
-              textAlign: 'right',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'flex-end',
-            }}>
-              💰 {livePrice}
-              <TrendArrow trend={trend} />
-            </span>
-            <button
-              disabled={!canAfford}
-              onClick={() => handleBuy(item.itemId, item.materialId, label, item.price)}
+  const handleNegotiateConfirm = useCallback((paidPrice: number) => {
+    if (!pendingBuy) return
+    executeBuy(pendingBuy.itemId, pendingBuy.materialId, pendingBuy.name, paidPrice, pendingBuy.qty)
+    setNegotiating(null)
+    setPendingBuy(null)
+  }, [pendingBuy, executeBuy])
+
+  const handleNegotiateCancel = useCallback(() => {
+    setNegotiating(null)
+    setPendingBuy(null)
+  }, [])
+
+  return (
+    <>
+      {/* M43: Reputation discount banner */}
+      {repDiscount > 0 && (
+        <div style={{
+          padding: '4px 10px',
+          marginBottom: 10,
+          background: 'rgba(46,204,113,0.10)',
+          border: '1px solid rgba(46,204,113,0.3)',
+          borderRadius: 5,
+          fontSize: 10,
+          color: GREEN_COLOR,
+          fontFamily: 'monospace',
+          letterSpacing: 0.5,
+        }}>
+          ★ Reputation discount: -{Math.round(repDiscount * 100)}% on all prices
+        </div>
+      )}
+
+      <div>
+        {sellList.map((item, idx) => {
+          const qty       = quantities[idx] ?? 1
+          const unitPrice = marketSystem.getPrice(settlementId, item.materialId, item.price, item.itemId, repDiscount)
+          const totalPrice = unitPrice * qty
+          const trend      = marketSystem.getTrend(settlementId, item.materialId, item.itemId)
+          const canAfford  = gold >= totalPrice
+          const label = item.itemId === 0
+            ? capitalize(MAT_NAMES[item.materialId] ?? item.name)
+            : capitalize(ITEM_NAMES[item.itemId] ?? item.name)
+
+          return (
+            <div
+              key={idx}
               style={{
-                padding: '3px 10px',
-                fontSize: 11,
-                fontFamily: 'monospace',
-                fontWeight: 700,
-                background: canAfford ? `rgba(205,68,32,0.22)` : 'rgba(80,80,80,0.2)',
-                border: `1px solid ${canAfford ? RUST_ORANGE : '#444'}`,
-                borderRadius: 4,
-                color: canAfford ? RUST_ORANGE : '#666',
-                cursor: canAfford ? 'pointer' : 'not-allowed',
-                letterSpacing: 0.5,
-                transition: 'all 0.12s',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '7px 10px',
+                marginBottom: 4,
+                background: 'rgba(255,255,255,0.04)',
+                border: '1px solid rgba(255,255,255,0.08)',
+                borderRadius: 5,
+                opacity: canAfford ? 1 : 0.5,
+                gap: 6,
               }}
             >
-              BUY
-            </button>
-          </div>
-        )
-      })}
-    </div>
+              <span style={{ fontSize: 12, fontFamily: 'monospace', color: '#ddd', flex: 1 }}>
+                {label}
+              </span>
+
+              {/* M43: Quantity selector */}
+              <select
+                value={qty}
+                onChange={(e) => setQuantities(prev => ({ ...prev, [idx]: Number(e.target.value) }))}
+                style={{
+                  background: 'rgba(255,255,255,0.07)',
+                  border: '1px solid rgba(255,255,255,0.15)',
+                  borderRadius: 4,
+                  color: '#ccc',
+                  fontFamily: 'monospace',
+                  fontSize: 11,
+                  padding: '2px 4px',
+                  cursor: 'pointer',
+                }}
+              >
+                {[1,2,3,4,5,6,7,8,9,10].map(n => (
+                  <option key={n} value={n}>{n}</option>
+                ))}
+              </select>
+
+              <span style={{
+                fontSize: 12,
+                fontFamily: 'monospace',
+                color: priceColor(trend),
+                marginRight: 2,
+                minWidth: 72,
+                textAlign: 'right',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'flex-end',
+              }}>
+                💰 {totalPrice}
+                <TrendArrow trend={trend} />
+              </span>
+              <button
+                disabled={!canAfford}
+                onClick={() => handleBuyClick(item.itemId, item.materialId, label, item.price, idx)}
+                style={{
+                  padding: '3px 8px',
+                  fontSize: 11,
+                  fontFamily: 'monospace',
+                  fontWeight: 700,
+                  background: canAfford ? `rgba(205,68,32,0.22)` : 'rgba(80,80,80,0.2)',
+                  border: `1px solid ${canAfford ? RUST_ORANGE : '#444'}`,
+                  borderRadius: 4,
+                  color: canAfford ? RUST_ORANGE : '#666',
+                  cursor: canAfford ? 'pointer' : 'not-allowed',
+                  letterSpacing: 0.5,
+                  transition: 'all 0.12s',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                BUY ×{qty}
+              </button>
+            </div>
+          )
+        })}
+      </div>
+
+      {/* M43: Negotiation overlay */}
+      {negotiating && (
+        <NegotiateOverlay
+          item={negotiating}
+          onConfirm={handleNegotiateConfirm}
+          onCancel={handleNegotiateCancel}
+        />
+      )}
+    </>
   )
 }
 
@@ -367,6 +467,9 @@ export function MerchantPanel() {
   const archetype: MerchantArchetype = useDialogueStore(s => s.merchantArchetype)
   const settlementId = useDialogueStore(s => s.merchantSettlementId)
 
+  // M43: numeric ID for reputation lookup (settlement IDs may be "12" or "default")
+  const settlementNumId = parseInt(settlementId, 10) || 0
+
   const archetypeLabel = archetype === 'general'
     ? 'General Store'
     : archetype === 'blacksmith'
@@ -423,7 +526,13 @@ export function MerchantPanel() {
       </div>
 
       {/* Tab content */}
-      {tab === 'buy'    && <BuyTab    archetype={archetype} settlementId={settlementId} />}
+      {tab === 'buy'    && (
+        <BuyTab
+          archetype={archetype}
+          settlementId={settlementId}
+          settlementNumId={settlementNumId}
+        />
+      )}
       {tab === 'sell'   && <SellTab   archetype={archetype} settlementId={settlementId} />}
       {tab === 'trends' && <TrendsTab archetype={archetype} settlementId={settlementId} />}
     </div>

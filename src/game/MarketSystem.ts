@@ -32,11 +32,11 @@ export interface SupplyDemand {
 
 // Initial supply/demand values for common goods
 // Food items: abundant (supply 80, demand 20)
-const FOOD_MAT_IDS = new Set([MAT.COOKED_MEAT, MAT.BERRY])
+const FOOD_MAT_IDS: Set<number> = new Set([MAT.COOKED_MEAT, MAT.BERRY])
 // Metal ingots: scarce (supply 30, demand 70)
-const METAL_MAT_IDS = new Set([MAT.IRON_INGOT, MAT.STEEL_INGOT])
+const METAL_MAT_IDS: Set<number> = new Set([MAT.IRON_INGOT, MAT.STEEL_INGOT])
 // Coal: balanced (supply 50, demand 50)
-const BALANCED_MAT_IDS = new Set([MAT.COAL])
+const BALANCED_MAT_IDS: Set<number> = new Set([MAT.COAL])
 
 function _defaultSupplyDemand(materialId: number): SupplyDemand {
   if (FOOD_MAT_IDS.has(materialId)) {

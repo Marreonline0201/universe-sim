@@ -441,7 +441,7 @@ export function AgentControlCenter({ agentState }: Props) {
                 <div key={i} style={{
                   padding: '5px 10px',
                   borderBottom: '1px solid rgba(0,180,255,0.04)',
-                  opacity: Math.max(0.3, 1 - i * 0.05),
+                  opacity: msg.heartbeat ? Math.max(0.2, 0.45 - i * 0.03) : Math.max(0.3, 1 - i * 0.05),
                 }}>
                   <div style={{ fontSize: 10, color: isDirected ? '#ffb830' : 'rgba(100,140,180,0.5)', marginBottom: 2 }}>
                     <span style={{ color: fromMeta?.color ?? '#aaa' }}>{fromMeta?.label ?? msg.from}</span>
@@ -452,7 +452,7 @@ export function AgentControlCenter({ agentState }: Props) {
                       </>
                     )}
                   </div>
-                  <div style={{ fontSize: 11, color: isDirected ? 'rgba(255,200,100,0.8)' : 'rgba(170,200,230,0.65)', lineHeight: 1.45, wordBreak: 'break-word' }}>
+                  <div style={{ fontSize: 11, color: msg.heartbeat ? 'rgba(120,160,200,0.45)' : isDirected ? 'rgba(255,200,100,0.8)' : 'rgba(170,200,230,0.65)', lineHeight: 1.45, wordBreak: 'break-word', fontStyle: msg.heartbeat ? 'italic' : 'normal' }}>
                     {msg.text}
                   </div>
                 </div>

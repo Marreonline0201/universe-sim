@@ -29,6 +29,7 @@ export interface AgentMessage {
   to: string | null
   text: string
   ts: number
+  heartbeat?: boolean
 }
 
 export interface AgentState {

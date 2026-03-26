@@ -13,9 +13,9 @@ const AGENT_IDS = [
   'physics-prof', 'chemistry-prof', 'biology-prof',
 ]
 
-/** @type {Map<string, { status: string, task: string, lastSeen: number }>} */
+/** @type {Map<string, { status: string, task: string, lastSeen: number, lastMessage: number }>} */
 const agents = new Map(
-  AGENT_IDS.map(id => [id, { status: 'idle', task: '', lastSeen: 0 }])
+  AGENT_IDS.map(id => [id, { status: 'idle', task: '', lastSeen: 0, lastMessage: 0 }])
 )
 
 /** @type {Array<{ from: string, to: string|null, text: string, ts: number }>} */
@@ -44,6 +44,7 @@ export function updateAgent(agentId, status, task, message, to) {
   if (message) {
     messages.unshift({ from: agentId, to: to ?? null, text: message, ts: Date.now() })
     if (messages.length > MAX_MESSAGES) messages.length = MAX_MESSAGES
+    entry.lastMessage = Date.now()
   }
 
   return getState()
@@ -99,6 +100,30 @@ export function getState() {
 // 'active'/'blocked' agents clear after 3 min (complex work can be slow).
 const DONE_TIMEOUT_MS   = 30 * 1000
 const ACTIVE_TIMEOUT_MS = 3 * 60 * 1000
+
+/**
+ * Inject "still working…" heartbeat messages for active agents that haven't
+ * sent a message in 60 seconds. Returns true if any messages were added.
+ */
+export function tickHeartbeats() {
+  const now = Date.now()
+  const HEARTBEAT_INTERVAL = 60 * 1000
+  let changed = false
+  for (const [id, entry] of agents.entries()) {
+    if (entry.status !== 'active' && entry.status !== 'blocked') continue
+    if (entry.lastSeen === 0) continue
+    if (now - entry.lastMessage > HEARTBEAT_INTERVAL) {
+      const text = entry.status === 'blocked'
+        ? `⏳ Waiting for approval — ${entry.task || 'blocked'}`
+        : `⚙ Still working — ${entry.task || 'in progress'}`
+      messages.unshift({ from: id, to: null, text, ts: now, heartbeat: true })
+      if (messages.length > MAX_MESSAGES) messages.length = MAX_MESSAGES
+      entry.lastMessage = now
+      changed = true
+    }
+  }
+  return changed
+}
 
 /**
  * Reset any agent that hasn't checked in within its status-appropriate timeout.

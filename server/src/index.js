@@ -390,11 +390,11 @@ ${recentMessages || '  (none)'}`
     console.log(`[server] Listening on port ${PORT} (HTTP + WebSocket)`)
   })
 
-  // ── Agent idle-timeout sweep (every 15 s) ────────────────────────────────────
-  // Agents that haven't reported in 30s are auto-reset to idle and broadcasted.
+  // ── Agent sweep (every 15 s) — idle timeout + heartbeat messages ─────────────
   setInterval(() => {
-    const changed = AgentBus.tickIdleTimeout()
-    if (changed) {
+    const idleChanged      = AgentBus.tickIdleTimeout()
+    const heartbeatChanged = AgentBus.tickHeartbeats()
+    if (idleChanged || heartbeatChanged) {
       const state = AgentBus.getState()
       wss.clients.forEach(client => {
         if (client.readyState === WebSocket.OPEN)

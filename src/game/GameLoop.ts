@@ -1194,14 +1194,16 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
               if (room.bossAlive) {
                 // Spawn boss entity (wolf-body, max stats)
                 if (room.bossEntityId < 0) {
+                  const scaledBossHp = getScaledBossHp()
                   const boss = spawnAnimal('wolf', rPos.x, rPos.y, rPos.z, 0, rPos.x, rPos.y, rPos.z)
-                  boss.health = CAVE_BOSS.maxHp
-                  boss.maxHealth = CAVE_BOSS.maxHp
+                  boss.health = scaledBossHp
+                  boss.maxHealth = scaledBossHp
                   boss.elite = true
                   boss.eliteGlowColor = '#660000'
                   room.bossEntityId = boss.id
-                  room.bossHp = CAVE_BOSS.maxHp
-                  uiSt.addNotification(`⚠ ${CAVE_BOSS.name} awakens!`, 'warning')
+                  room.bossHp = scaledBossHp
+                  room.bossMaxHp = scaledBossHp
+                  uiSt.addNotification(`⚠ ${CAVE_BOSS.name} awakens! (Floor ${useDungeonStore.getState().currentFloor})`, 'warning')
                 }
                 // Sync hp from entity
                 const bossEntity = animalRegistry.get(room.bossEntityId)
@@ -1221,6 +1223,8 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
                   skillSystem.addXp('exploration', 100)
                   uiSt.addNotification(`${CAVE_BOSS.name} defeated! Rare cave loot dropped!`, 'discovery')
                   window.dispatchEvent(new CustomEvent('dungeon-room-cleared', { detail: { type: 'boss_lair', roomId: room.id } }))
+                  // M47 Track C: sync floor store after boss defeat (advanceDungeonFloor already called inside damageBoss/clearDungeonRoom chain)
+                  useDungeonStore.getState().sync()
                 }
               } else if (room.cleared && distToRoom < 2 && gs.gatherPrompt === null) {
                 gs.setGatherPrompt('[F] Collect boss loot')
@@ -1234,9 +1238,12 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
               if (room.miniBossAlive) {
                 // Spawn mini-boss entity if not yet spawned
                 if (room.miniBossEntityId < 0) {
+                  const scaledMbHp = getScaledMiniBossHp()
+                  room.miniBossMaxHp = scaledMbHp
+                  room.miniBossHp = scaledMbHp
                   const mb = spawnAnimal('wolf', rPos.x, rPos.y, rPos.z, 0, rPos.x, rPos.y, rPos.z)
-                  mb.health = room.miniBossMaxHp
-                  mb.maxHealth = room.miniBossMaxHp
+                  mb.health = scaledMbHp
+                  mb.maxHealth = scaledMbHp
                   mb.elite = true
                   mb.eliteGlowColor = '#9933cc'
                   room.miniBossEntityId = mb.id

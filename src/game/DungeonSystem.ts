@@ -17,6 +17,7 @@
 import * as THREE from 'three'
 import { CAVE_SEED, getCaveEntrancePositions } from '../rendering/CaveEntrances'
 import { rollLoot, applyLootToInventory, BOSS_LOOT_TABLES } from './LootSystem'
+import { currentFloor, advanceFloor as advanceDungeonFloor } from './DungeonFloorSystem'
 
 // ── Seeded PRNG (same mulberry32 as rest of cave system) ─────────────────────
 function seededRandom(seed: number): () => number {
@@ -184,6 +185,8 @@ export function damageMiniBoss(amount: number): boolean {
     const drops = rollLoot(BOSS_LOOT_TABLES['dungeon_miniboss'], 2)
     const labels = applyLootToInventory(drops)
     window.dispatchEvent(new CustomEvent('loot-drop', { detail: { drops: labels, source: 'Dungeon Mini-Boss' } }))
+    // M47 Track C: advance dungeon floor when mini-boss is defeated
+    advanceDungeonFloor()
     return true
   }
   return false
@@ -199,9 +202,23 @@ export function damageBoss(room: DungeonRoom, amount: number): boolean {
     const drops = rollLoot(BOSS_LOOT_TABLES['dungeon_boss'], 3)
     const labels = applyLootToInventory(drops)
     window.dispatchEvent(new CustomEvent('loot-drop', { detail: { drops: labels, source: 'Dungeon Boss' } }))
+    // M47 Track C: advance dungeon floor when boss is defeated
+    advanceDungeonFloor()
     return true
   }
   return false
+}
+
+/** Returns the boss max HP scaled to the current dungeon floor (floor scaling: +20% per floor beyond 1). */
+export function getScaledBossHp(): number {
+  const floorMult = 1 + (currentFloor - 1) * 0.2
+  return Math.round(CAVE_BOSS.maxHp * floorMult)
+}
+
+/** Returns the mini-boss max HP scaled to the current dungeon floor. */
+export function getScaledMiniBossHp(): number {
+  const floorMult = 1 + (currentFloor - 1) * 0.2
+  return Math.round(CAVE_STALKER.maxHp * 3 * floorMult)
 }
 
 export function exitDungeon(): void {

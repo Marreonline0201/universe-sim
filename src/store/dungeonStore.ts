@@ -1,10 +1,16 @@
 // ── dungeonStore.ts ───────────────────────────────────────────────────────────
 // M40 Track C: Dungeon Progression — Zustand store that mirrors dungeonState singleton
 // for React component subscriptions.
+// M47 Track C: Floor tracking added.
 
 import { create } from 'zustand'
 import { dungeonState } from '../game/DungeonSystem'
 import type { TrapState } from '../game/DungeonSystem'
+import {
+  currentFloor as getFloorCount,
+  advanceFloor as floorSystemAdvance,
+  resetDungeonProgress,
+} from '../game/DungeonFloorSystem'
 
 interface DungeonStoreState {
   activeDungeon: string | null
@@ -15,6 +21,10 @@ interface DungeonStoreState {
   miniBossMaxHp: number
   miniBossName: string
   activeTraps: TrapState[]
+  // M47 Track C: floor progression
+  currentFloor: number
+  advanceFloor: () => void
+  resetFloor: () => void
   sync: () => void
 }
 
@@ -27,6 +37,17 @@ export const useDungeonStore = create<DungeonStoreState>((set) => ({
   miniBossMaxHp: 0,
   miniBossName: '',
   activeTraps: [],
+  currentFloor: 1,
+
+  advanceFloor: () => {
+    floorSystemAdvance()
+    set({ currentFloor: getFloorCount })
+  },
+
+  resetFloor: () => {
+    resetDungeonProgress()
+    set({ currentFloor: 1 })
+  },
 
   sync: () => {
     set({
@@ -38,6 +59,7 @@ export const useDungeonStore = create<DungeonStoreState>((set) => ({
       miniBossMaxHp: dungeonState.miniBossMaxHp,
       miniBossName: dungeonState.miniBossName,
       activeTraps: [...dungeonState.activeTraps],
+      currentFloor: getFloorCount,
     })
   },
 }))

@@ -145,6 +145,7 @@ export function initWorldEventLogger(): void {
     const category =
       timeWindow === 'night' ? 'combat' :
       timeWindow === 'dusk'  ? 'weather' :
+      timeWindow === 'dawn'  ? 'social' :
       'exploration'
     useWorldEventStore.getState().addEvent({
       category,

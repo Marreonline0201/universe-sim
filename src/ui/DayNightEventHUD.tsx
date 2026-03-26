@@ -28,6 +28,13 @@ export function DayNightEventHUD() {
   if (events.length === 0) return null
 
   return (
+    <>
+      <style>{`
+        @keyframes daynight-fadein {
+          from { opacity: 0; transform: translateX(8px); }
+          to   { opacity: 1; transform: translateX(0);   }
+        }
+      `}</style>
     <div
       style={{
         position: 'fixed',
@@ -44,6 +51,7 @@ export function DayNightEventHUD() {
         <EventBadge key={ev.id} event={ev} />
       ))}
     </div>
+    </>
   )
 }
 

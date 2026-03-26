@@ -44,7 +44,7 @@ function phaseFromIntensity(intensity: number): WarPhase {
 // Call from GameLoop every ~120 sim-seconds
 export function tickFactionWars(simSeconds: number, factionIds: string[]): void {
   // Attempt to start a new war (2% chance, max 3 active)
-  if (activeWars.length < 3 && Math.random() < 0.02) {
+  if (activeWars.length < 3 && Math.random() < 0.06) {
     if (factionIds.length >= 2) {
       const shuffled = [...factionIds].sort(() => Math.random() - 0.5)
       const attackingFactionId = shuffled[0]
@@ -87,8 +87,9 @@ export function tickFactionWars(simSeconds: number, factionIds: string[]): void 
     // Resolve chance: 5% normally, 15% if intensity < 30
     const resolveChance = newIntensity < 30 ? 0.15 : 0.05
     if (Math.random() < resolveChance) {
-      // 50/50 victor
-      const victor = Math.random() < 0.5 ? war.attackingFactionId : 'ceasefire'
+      // Three-way outcome: attacker wins, defender wins, or ceasefire
+      const roll = Math.random()
+      const victor = roll < 0.4 ? war.attackingFactionId : roll < 0.7 ? war.defendingFactionId : 'ceasefire'
       const resolved: FactionWar = {
         ...war,
         intensity: newIntensity,

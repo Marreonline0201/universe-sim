@@ -1,174 +1,271 @@
-// ── HousingUpgradeSystem.ts ─────────────────────────────────────────────────
-// M48 Track A: Player Housing Upgrades
-// Players can purchase upgrades for their home base using gold + materials.
+// ── HousingUpgradeSystem.ts ───────────────────────────────────────────────────
+// M58 Track A: Structured housing upgrade tree — rooms, facilities, and passive bonuses
 
-import { MAT } from '../player/Inventory'
-import { inventory } from './GameSingletons'
 import { usePlayerStore } from '../store/playerStore'
 
-// ── Types ────────────────────────────────────────────────────────────────────
+// ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface HousingUpgrade {
   id: string
   name: string
+  icon: string
   description: string
-  tier: 1 | 2 | 3
-  cost: { gold: number; materials: Array<{ matId: number; qty: number }> }
-  effect: string        // human-readable effect description
-  unlocksTier?: number  // purchasing this upgrade unlocks the given tier
+  tier: 1 | 2 | 3          // 1=basic, 2=expanded, 3=master
+  requires: string[]        // prerequisite upgrade IDs
+  cost: { gold: number; materials?: Array<{ matId: number; qty: number }> }
+  bonus: string             // human-readable bonus description
+  purchased: boolean
 }
 
-// ── Upgrade catalogue ────────────────────────────────────────────────────────
+// ── Upgrade catalogue ─────────────────────────────────────────────────────────
 
-export const HOUSING_UPGRADES: HousingUpgrade[] = [
-  // ── Tier 1 ──────────────────────────────────────────────────────────────
+const UPGRADE_DEFS: HousingUpgrade[] = [
+  // ── Tier 1 (no prerequisites) ─────────────────────────────────────────────
   {
-    id: 'sturdy_walls',
-    name: 'Sturdy Walls',
-    description: 'Reinforce your home walls.',
+    id: 'foundation',
+    name: 'Reinforced Foundation',
+    icon: '🏗',
+    description: 'Your home feels sturdy.',
     tier: 1,
-    cost: { gold: 50, materials: [{ matId: MAT.STONE, qty: 20 }] },
-    effect: '+10% shelter duration',
+    requires: [],
+    cost: { gold: 100 },
+    bonus: '+10 max health while at home',
+    purchased: false,
   },
   {
-    id: 'fireplace',
-    name: 'Fireplace',
-    description: 'Stay warm during cold nights.',
+    id: 'hearth',
+    name: 'Stone Hearth',
+    icon: '🔥',
+    description: 'A warm fireplace to rest by.',
     tier: 1,
-    cost: { gold: 40, materials: [{ matId: MAT.WOOD, qty: 15 }, { matId: MAT.STONE, qty: 10 }] },
-    effect: '+5°C ambient temp while sheltered',
+    requires: [],
+    cost: { gold: 80 },
+    bonus: '+20% health regen rate',
+    purchased: false,
   },
   {
-    id: 'storage_room',
-    name: 'Storage Room',
-    description: 'Expand your inventory capacity.',
+    id: 'storage',
+    name: 'Basic Storage',
+    icon: '📦',
+    description: 'Extra shelving and chests.',
     tier: 1,
-    cost: { gold: 60, materials: [{ matId: MAT.WOOD, qty: 25 }] },
-    effect: '+10 inventory slots',
-    unlocksTier: 2,
+    requires: [],
+    cost: { gold: 60 },
+    bonus: '+5 inventory slots',
+    purchased: false,
   },
-  // ── Tier 2 ──────────────────────────────────────────────────────────────
+
+  // ── Tier 2 ────────────────────────────────────────────────────────────────
   {
     id: 'workshop',
-    name: 'Workshop',
-    description: 'A dedicated crafting space.',
+    name: 'Crafting Workshop',
+    icon: '⚒️',
+    description: 'A dedicated workspace.',
     tier: 2,
-    cost: { gold: 120, materials: [{ matId: MAT.WOOD, qty: 30 }, { matId: MAT.IRON_INGOT, qty: 5 }] },
-    effect: '-10% crafting time',
+    requires: ['foundation', 'storage'],
+    cost: { gold: 200 },
+    bonus: '+15% crafting speed',
+    purchased: false,
   },
   {
-    id: 'alchemy_nook',
-    name: 'Alchemy Nook',
-    description: 'A corner for your potions and reagents.',
+    id: 'garden',
+    name: 'Herb Garden',
+    icon: '🌿',
+    description: 'Grow herbs passively.',
     tier: 2,
-    cost: { gold: 100, materials: [{ matId: MAT.STONE, qty: 20 }, { matId: MAT.MUSHROOM, qty: 10 }] },
-    effect: '+1 alchemy slot, +5% potion potency',
+    requires: ['hearth'],
+    cost: { gold: 150 },
+    bonus: 'Spawns 1 herb every 5 min',
+    purchased: false,
   },
-  {
-    id: 'trophy_room',
-    name: 'Trophy Room',
-    description: 'Display your greatest achievements.',
-    tier: 2,
-    cost: { gold: 80, materials: [{ matId: MAT.WOOD, qty: 20 }] },
-    effect: '+5% XP gain from kills',
-    unlocksTier: 3,
-  },
-  // ── Tier 3 ──────────────────────────────────────────────────────────────
   {
     id: 'vault',
-    name: 'Gold Vault',
-    description: 'A secure vault for your riches.',
-    tier: 3,
-    cost: { gold: 300, materials: [{ matId: MAT.STONE, qty: 50 }, { matId: MAT.IRON_INGOT, qty: 20 }] },
-    effect: '+500 max gold storage',
+    name: 'Secure Vault',
+    icon: '🔒',
+    description: 'Protect your most valuable items.',
+    tier: 2,
+    requires: ['storage', 'foundation'],
+    cost: { gold: 250 },
+    bonus: '+10 inventory slots, protected storage',
+    purchased: false,
   },
   {
-    id: 'grand_hall',
-    name: 'Grand Hall',
-    description: 'An impressive hall befitting a hero.',
+    id: 'study',
+    name: 'Personal Study',
+    icon: '📚',
+    description: 'Books and research materials.',
+    tier: 2,
+    requires: ['hearth', 'storage'],
+    cost: { gold: 180 },
+    bonus: '+10% XP gain from all sources',
+    purchased: false,
+  },
+
+  // ── Tier 3 ────────────────────────────────────────────────────────────────
+  {
+    id: 'forge_room',
+    name: 'Dedicated Forge',
+    icon: '⚙️',
+    description: 'A full smithing station in your home.',
     tier: 3,
-    cost: { gold: 500, materials: [{ matId: MAT.WOOD, qty: 60 }, { matId: MAT.STONE, qty: 40 }] },
-    effect: '+20% faction reputation gain',
+    requires: ['workshop', 'vault'],
+    cost: { gold: 500 },
+    bonus: '-20% smithing material cost',
+    purchased: false,
+  },
+  {
+    id: 'greenhouse',
+    name: 'Glass Greenhouse',
+    icon: '🌱',
+    description: 'Year-round growing conditions.',
+    tier: 3,
+    requires: ['garden', 'workshop'],
+    cost: { gold: 400 },
+    bonus: '+50% herb yield, herbs from all seasons',
+    purchased: false,
+  },
+  {
+    id: 'library',
+    name: 'Grand Library',
+    icon: '🏛️',
+    description: 'Vast knowledge repository.',
+    tier: 3,
+    requires: ['study', 'workshop'],
+    cost: { gold: 600 },
+    bonus: '+20% XP gain, unlock rare recipes',
+    purchased: false,
+  },
+  {
+    id: 'treasury',
+    name: 'Personal Treasury',
+    icon: '💰',
+    description: 'A full bank in your home.',
+    tier: 3,
+    requires: ['vault', 'study'],
+    cost: { gold: 700 },
+    bonus: 'Earn 1% gold interest per game-day',
+    purchased: false,
+  },
+  {
+    id: 'barracks',
+    name: 'Home Barracks',
+    icon: '⚔️',
+    description: 'Training grounds at home.',
+    tier: 3,
+    requires: ['forge_room', 'workshop'],
+    cost: { gold: 800 },
+    bonus: '+15% combat damage at all times',
+    purchased: false,
+  },
+  {
+    id: 'observatory',
+    name: 'Star Observatory',
+    icon: '🔭',
+    description: 'Track celestial events.',
+    tier: 3,
+    requires: ['library', 'greenhouse'],
+    cost: { gold: 900 },
+    bonus: '+25% XP during seasonal events',
+    purchased: false,
+  },
+  {
+    id: 'great_hall',
+    name: 'Great Hall',
+    icon: '🏰',
+    description: 'Impress visitors and host feasts.',
+    tier: 3,
+    requires: ['library', 'treasury'],
+    cost: { gold: 1200 },
+    bonus: '+20 reputation with all factions',
+    purchased: false,
+  },
+  {
+    id: 'sanctum',
+    name: 'Arcane Sanctum',
+    icon: '🔮',
+    description: 'Channel magical energies.',
+    tier: 3,
+    requires: ['observatory', 'great_hall'],
+    cost: { gold: 2000 },
+    bonus: 'Unlock Arcane crafting tier',
+    purchased: false,
   },
 ]
 
-// ── Owned upgrades state ─────────────────────────────────────────────────────
+// ── Module state ──────────────────────────────────────────────────────────────
 
-const _ownedUpgrades = new Set<string>()
+let _upgrades: HousingUpgrade[] = []
+let _initialized = false
 
-// ── API ──────────────────────────────────────────────────────────────────────
+// ── API ───────────────────────────────────────────────────────────────────────
+
+export function initHousingUpgrades(): void {
+  if (_initialized) return
+  _initialized = true
+  _upgrades = UPGRADE_DEFS.map(u => ({ ...u, requires: [...u.requires] }))
+}
+
+export function getUpgrades(): HousingUpgrade[] {
+  return _upgrades.map(u => ({ ...u, requires: [...u.requires] }))
+}
 
 /**
- * Returns true if the player has enough gold and all required materials
- * to afford the given upgrade.
+ * Returns true if all prerequisites are purchased, the upgrade is not yet
+ * purchased, and the player has enough gold.
  */
-export function canAffordUpgrade(
-  upgrade: HousingUpgrade,
-  gold: number,
-  inv: { items: Array<{ matId: number; qty: number }> },
-): boolean {
-  if (gold < upgrade.cost.gold) return false
-  for (const { matId, qty } of upgrade.cost.materials) {
-    const available = inv.items.filter(i => i.matId === matId).reduce((s, i) => s + i.qty, 0)
-    if (available < qty) return false
+export function canPurchase(id: string): boolean {
+  const upgrade = _upgrades.find(u => u.id === id)
+  if (!upgrade || upgrade.purchased) return false
+
+  // Check prerequisites
+  for (const reqId of upgrade.requires) {
+    const req = _upgrades.find(u => u.id === reqId)
+    if (!req || !req.purchased) return false
   }
+
+  // Check gold
+  const playerGold = usePlayerStore.getState().gold
+  return playerGold >= upgrade.cost.gold
+}
+
+/**
+ * Purchase an upgrade. Returns true on success.
+ * Spends gold, marks purchased, and dispatches 'housing-upgrade' event.
+ */
+export function purchaseUpgrade(id: string): boolean {
+  if (!canPurchase(id)) return false
+
+  const upgrade = _upgrades.find(u => u.id === id)!
+  const spent = usePlayerStore.getState().spendGold(upgrade.cost.gold)
+  if (!spent) return false
+
+  upgrade.purchased = true
+
+  window.dispatchEvent(
+    new CustomEvent('housing-upgrade', {
+      detail: { upgradeId: id, upgradeName: upgrade.name },
+    })
+  )
+
   return true
 }
 
-/**
- * Purchase an upgrade: deduct gold + materials, mark as owned, dispatch event.
- * Silently returns if the upgrade is already owned or can't be afforded.
- */
-export function applyUpgrade(upgradeId: string): void {
-  if (_ownedUpgrades.has(upgradeId)) return
+// ── Serialization ─────────────────────────────────────────────────────────────
 
-  const upgrade = HOUSING_UPGRADES.find(u => u.id === upgradeId)
-  if (!upgrade) return
+export function serializeUpgrades(): string {
+  return JSON.stringify(_upgrades.map(u => ({ id: u.id, purchased: u.purchased })))
+}
 
-  const playerState = usePlayerStore.getState()
-
-  // Check gold
-  if (playerState.gold < upgrade.cost.gold) return
-
-  // Check materials
-  for (const { matId, qty } of upgrade.cost.materials) {
-    if (inventory.countMaterial(matId) < qty) return
-  }
-
-  // Deduct gold
-  playerState.spendGold(upgrade.cost.gold)
-
-  // Deduct materials
-  for (const { matId, qty } of upgrade.cost.materials) {
-    let remaining = qty
-    for (let i = 0; i < inventory.slotCount && remaining > 0; i++) {
-      const slot = inventory.getSlot(i)
-      if (slot && slot.itemId === 0 && slot.materialId === matId) {
-        const take = Math.min(slot.quantity, remaining)
-        inventory.removeItem(i, take)
-        remaining -= take
+export function deserializeUpgrades(data: string): void {
+  try {
+    const parsed: Array<{ id: string; purchased: boolean }> = JSON.parse(data)
+    for (const saved of parsed) {
+      const upgrade = _upgrades.find(u => u.id === saved.id)
+      if (upgrade) {
+        upgrade.purchased = saved.purchased ?? false
       }
     }
+  } catch {
+    // Corrupted data — keep defaults
   }
-
-  _ownedUpgrades.add(upgradeId)
-  window.dispatchEvent(new CustomEvent('housing-upgrade', { detail: { upgradeId, upgradeName: upgrade.name } }))
-}
-
-/** Returns array of owned upgrade IDs. */
-export function getOwnedUpgrades(): string[] {
-  return Array.from(_ownedUpgrades)
-}
-
-/** Returns true if the player owns the given upgrade. */
-export function isUpgradeOwned(upgradeId: string): boolean {
-  return _ownedUpgrades.has(upgradeId)
-}
-
-/**
- * Returns all upgrades available for the given unlocked tier (1, 2, or 3).
- * Only tiers <= unlockedTier are returned.
- */
-export function getAvailableUpgrades(unlockedTier: number): HousingUpgrade[] {
-  return HOUSING_UPGRADES.filter(u => u.tier <= unlockedTier)
 }

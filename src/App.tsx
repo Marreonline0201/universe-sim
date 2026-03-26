@@ -19,6 +19,7 @@ import { initTradeRouteSystem } from './game/TradeRouteSystem'
 import { initAchievementShowcase, checkAndUpdateMilestones } from './game/AchievementShowcaseSystem'
 import { initWeatherEffectsSystem } from './game/WeatherEffectsSystem'
 import { initLoreSystem } from './game/LoreSystem'
+import { initHousingUpgrades } from './game/HousingUpgradeSystem'
 
 // ── M20: Lazy-load AdminPanel (dev/admin only) ──────────────────────────────
 const AdminPanel = lazy(() => import('./ui/AdminPanel').then(m => ({ default: m.AdminPanel })))
@@ -78,6 +79,7 @@ function DevGame() {
     checkAndUpdateMilestones()
     initWeatherEffectsSystem()
     initLoreSystem()
+    initHousingUpgrades()
   }, [])
 
   return (
@@ -142,6 +144,7 @@ function GameWithSave() {
     initAchievementShowcase()
     checkAndUpdateMilestones()
     initLoreSystem()
+    initHousingUpgrades()
   }, [])
 
   // Load save on first sign-in

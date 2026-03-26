@@ -30,6 +30,7 @@ import { serializeDiscoveries, deserializeDiscoveries } from './ExplorationDisco
 import { serializeNodes, deserializeNodes } from './ResourceDepletionSystem'
 import { serializeLore, deserializeLore } from './LoreSystem'
 import { serializeMilestones, deserializeMilestones } from './AchievementShowcaseSystem'
+import { serializeUpgrades, deserializeUpgrades } from './HousingUpgradeSystem'
 import { Health, Metabolism, Position } from '../ecs/world'
 import { rapierWorld } from '../physics/RapierWorld'
 import { PLANET_RADIUS } from '../world/SpherePlanet'
@@ -146,6 +147,7 @@ export async function saveOffline(): Promise<boolean> {
       resourceNodes: serializeNodes(),
       achievementShowcase: serializeMilestones(),
       loreCodex: serializeLore(),
+      housingUpgrades: serializeUpgrades(),
     })
     const meta = JSON.stringify({
       timestamp: Date.now(),
@@ -312,6 +314,11 @@ export async function loadOffline(): Promise<boolean> {
     // M57 Track B: Restore lore codex
     if (state.loreCodex) {
       deserializeLore(state.loreCodex)
+    }
+
+    // M58 Track A: Restore housing upgrade tree
+    if (state.housingUpgrades) {
+      deserializeUpgrades(state.housingUpgrades)
     }
 
     // Restore position

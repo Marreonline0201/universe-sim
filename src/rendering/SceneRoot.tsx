@@ -1,6 +1,7 @@
 import * as THREE from 'three'
-import { Canvas } from '@react-three/fiber'
+import { Canvas, useThree, useFrame } from '@react-three/fiber'
 import { PerspectiveCamera } from '@react-three/drei'
+import { setCombatCamera } from '../ui/CombatHUD'
 
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { SimulationEngine } from '../engine/SimulationEngine'
@@ -133,6 +134,13 @@ import { ContextualHints } from '../ui/ContextualHints'
 registerRiverCarveDepth(getRiverCarveDepth)
 
 // spawnInitialCreatures extracted to ../ecs/systems/CreatureSpawner.ts (M18 A8)
+
+// ── CombatCameraSync — runs inside Canvas, exports camera to CombatHUD overlay ──
+function CombatCameraSync() {
+  const { camera } = useThree()
+  useFrame(() => { setCombatCamera(camera) })
+  return null
+}
 
 export function SceneRoot() {
   const engineRef = useRef<SimulationEngine | null>(null)
@@ -450,6 +458,7 @@ export function SceneRoot() {
             <div><span style={{ color: '#fff', fontWeight: 600 }}>Mouse</span> &nbsp;— Look</div>
             <div><span style={{ color: '#fff', fontWeight: 600 }}>Space</span> &nbsp;— Jump</div>
             <div><span style={{ color: '#fff', fontWeight: 600 }}>F</span> &nbsp;— Gather</div>
+            <div><span style={{ color: '#fff', fontWeight: 600 }}>F near water</span> &nbsp;— Fish</div>
             <div><span style={{ color: '#fff', fontWeight: 600 }}>I</span> &nbsp;— Inventory</div>
           </div>
         </div>
@@ -504,6 +513,7 @@ export function SceneRoot() {
       shadows
     >
       <PerspectiveCamera makeDefault fov={70} near={0.5} far={20000} position={[0, PLANET_RADIUS + 200, 0]} />
+      <CombatCameraSync />
       <fogExp2 attach="fog" args={['#c0d8f4', 0.010]} />
       {/* DayNightCycle owns all sky/sun/ambient/hemisphere lighting — replaces static lights */}
       <DayNightCycle onDayAngleChange={setDayAngle} />

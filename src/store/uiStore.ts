@@ -40,6 +40,10 @@ interface UiState {
   setMinimapZoom: (zoom: MinimapZoom) => void
   cycleMinimapZoomIn: () => void
   cycleMinimapZoomOut: () => void
+
+  // Fog of war — visited cells persist across map open/close
+  visitedCells: string[]
+  addVisitedCell: (key: string) => void
 }
 
 export const useUiStore = create<UiState>((set) => ({
@@ -84,5 +88,12 @@ export const useUiStore = create<UiState>((set) => ({
       const idx = MINIMAP_ZOOM_LEVELS.indexOf(s.minimapZoom)
       const next = MINIMAP_ZOOM_LEVELS[Math.min(MINIMAP_ZOOM_LEVELS.length - 1, idx + 1)]
       return { minimapZoom: next }
+    }),
+
+  visitedCells: [],
+  addVisitedCell: (key) =>
+    set((s) => {
+      if (s.visitedCells.includes(key)) return s
+      return { visitedCells: [...s.visitedCells, key] }
     }),
 }))

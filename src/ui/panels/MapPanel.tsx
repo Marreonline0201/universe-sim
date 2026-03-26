@@ -128,7 +128,10 @@ export function MapPanel() {
   const addWaypoint       = useUiStore(s => s.addWaypoint)
   const removeWaypoint    = useUiStore(s => s.removeWaypoint)
 
-  // ── A1: Fog of war visited cells ──────────────────────────────────────────
+  // ── A1: Fog of war visited cells (persisted in uiStore across map closes) ─
+  const visitedCellsList  = useUiStore(s => s.visitedCells)
+  const addVisitedCell    = useUiStore(s => s.addVisitedCell)
+  // Keep a Set reference for O(1) lookup during canvas render
   const visitedCellsRef = useRef<Set<string>>(new Set())
 
   // ── A3: NPC animation pulse time ─────────────────────────────────────────
@@ -142,14 +145,18 @@ export function MapPanel() {
   const [hoveredWpIndex, setHoveredWpIndex] = useState<number>(-1)
   const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number } | null>(null)
 
+  // ── Sync visitedCellsRef Set from the persisted store array ─────────────
+  useEffect(() => {
+    visitedCellsRef.current = new Set(visitedCellsList)
+  }, [visitedCellsList])
+
   // ── Update fog-of-war visited cells as player moves ───────────────────────
   useEffect(() => {
     const key = fogCellKey(px, pz)
     if (!visitedCellsRef.current.has(key)) {
-      visitedCellsRef.current = new Set(visitedCellsRef.current)
-      visitedCellsRef.current.add(key)
+      addVisitedCell(key)
     }
-  }, [px, pz])
+  }, [px, pz, addVisitedCell])
 
   // ── Right-click → place waypoint ─────────────────────────────────────────
   const handleContextMenu = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {

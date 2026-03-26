@@ -1524,6 +1524,10 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
         if (canFish && fsPhase === 'idle' && !isFishingActive() && !gs10.inputBlocked) {
           const fishLabel = '[F] Cast fishing rod'
           if (gs10.gatherPrompt === null) gs10.setGatherPrompt(fishLabel)
+        } else if ((nearWater || nearRiver10) && !inventory.hasItemById(ITEM.FISHING_ROD) && fsPhase === 'idle' && !gs10.inputBlocked) {
+          // Discovery path: player is near water but has no fishing rod — show discovery hint
+          const discoverLabel = '[F] Fish'
+          if (gs10.gatherPrompt === null) gs10.setGatherPrompt(discoverLabel)
         }
 
         if (canFish && !gs10.inputBlocked && controllerRef.current?.popInteract()) {

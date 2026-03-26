@@ -3,7 +3,26 @@
 // Rendered as HTML overlay — positioned via screen-space projection of 3D coords.
 
 import React, { useState, useEffect } from 'react'
+import * as THREE from 'three'
 import { combatSystem } from '../game/GameSingletons'
+
+// ── Module-level camera ref — set by CombatCameraSync inside the R3F canvas ─
+// This lets the HTML overlay project world-space positions to screen-space.
+let _combatCamera: THREE.Camera | null = null
+export function setCombatCamera(cam: THREE.Camera | null): void {
+  _combatCamera = cam
+}
+
+const _projVec = new THREE.Vector3()
+function worldToScreen(x: number, y: number, z: number): { sx: number; sy: number } | null {
+  if (!_combatCamera) return null
+  _projVec.set(x, y, z).project(_combatCamera)
+  const sx = (_projVec.x * 0.5 + 0.5) * window.innerWidth
+  const sy = (-_projVec.y * 0.5 + 0.5) * window.innerHeight
+  // Discard if behind camera
+  if (_projVec.z > 1) return null
+  return { sx, sy }
+}
 
 // ── Combat indicator (bottom-center) ─────────────────────────────────────────
 // Shows: current weapon cooldown arc, combo counter, dodge cooldown.
@@ -133,7 +152,7 @@ function DamageNumbers() {
       {numbers.map(dn => {
         const progress = dn.age / dn.maxAge
         const opacity = 1 - progress
-        // Rise upward from spawn point (screen-space approximation)
+        // Rise upward from spawn point over lifetime
         const yOffset = -progress * 60  // rise 60px over lifetime
 
         // Color: white normal, yellow combo, red critical
@@ -143,12 +162,17 @@ function DamageNumbers() {
 
         const fontSize = dn.isCritical ? 18 : (dn.isCombo ? 15 : 13)
 
+        // Project world position to screen coords; fall back to screen center
+        const screen = worldToScreen(dn.x, dn.y, dn.z)
+        const left = screen ? screen.sx : window.innerWidth * 0.5
+        const top  = screen ? screen.sy : window.innerHeight * 0.4
+
         return (
           <div key={dn.id} style={{
             position: 'absolute',
-            left: '50%',
-            top: '40%',
-            transform: `translate(${(dn.id % 7 - 3) * 20}px, ${yOffset}px)`,
+            left,
+            top,
+            transform: `translate(-50%, ${yOffset}px)`,
             color,
             fontSize,
             fontWeight: 700,

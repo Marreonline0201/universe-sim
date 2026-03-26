@@ -123,7 +123,7 @@ export function AchievementPanel() {
   const unlockedCount = all.filter(a => a.unlocked).length
 
   return (
-    <div style={{ padding: 12, color: '#ccc', fontFamily: 'sans-serif' }}>
+    <div style={{ padding: 12, color: '#ccc', fontFamily: 'monospace' }}>
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
         <span style={{ fontSize: 13, fontWeight: 700, color: '#eee' }}>Achievements</span>

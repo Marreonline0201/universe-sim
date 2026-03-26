@@ -10,6 +10,7 @@ import { initWorldEventLogger } from './game/WorldEventLogger'
 import { initCaveFeatures } from './game/CaveFeatureSystem'
 import { initJournalSystem } from './game/JournalSystem'
 import { initNPCRelationshipSystem } from './game/NPCRelationshipSystem'
+import { initRecipeDiscovery } from './game/RecipeDiscoverySystem'
 
 // ── M20: Lazy-load AdminPanel (dev/admin only) ──────────────────────────────
 const AdminPanel = lazy(() => import('./ui/AdminPanel').then(m => ({ default: m.AdminPanel })))
@@ -58,6 +59,7 @@ function DevGame() {
     initCaveFeatures()
     initJournalSystem()
     initNPCRelationshipSystem()
+    initRecipeDiscovery()
   }, [])
 
   return (
@@ -104,11 +106,13 @@ function GameWithSave() {
   // M50 Track C: Initialize cave features
   // M51 Track A: Initialize player journal system
   // M51 Track B: Initialize NPC relationship system
+  // M52 Track B: Initialize recipe discovery
   useEffect(() => {
     initWorldEventLogger()
     initCaveFeatures()
     initJournalSystem()
     initNPCRelationshipSystem()
+    initRecipeDiscovery()
   }, [])
 
   // Load save on first sign-in

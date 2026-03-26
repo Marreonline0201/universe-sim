@@ -7,6 +7,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { inventory, questSystem, achievementSystem } from '../../game/GameSingletons'
 import { skillSystem } from '../../game/SkillSystem'
 import { isRecipeUnlocked, getUnlockDescription } from '../../game/RecipeUnlockSystem'
+import { isRecipeDiscovered, experimentDiscovery, getDiscoveredCount, getTotalRecipeCount } from '../../game/RecipeDiscoverySystem'
 import { MAT, ITEM, rollCraftRarity, RARITY_NAMES, RARITY_COLORS, type CraftingRecipe, type RarityTier } from '../../player/Inventory'
 import { rarityFromLevel, rarityBadgeStyle, RARITY_LABEL, RARITY_GLOW, RARITY_COLOR } from '../RarityStyles'
 import { CRAFTING_RECIPES } from '../../player/CraftingRecipes'
@@ -79,6 +80,10 @@ export function CraftingPanel() {
   const [selectedRecipe, setSelectedRecipe] = useState<CraftingRecipe | null>(null)
   const [collapsedTiers, setCollapsedTiers] = useState<Set<number>>(new Set())
   const [showUnlockedOnly, setShowUnlockedOnly] = useState(false)
+  const [showDiscoveredOnly, setShowDiscoveredOnly] = useState(false)
+  const [experimentMsg, setExperimentMsg] = useState<string | null>(null)
+  const experimentCooldownRef = useRef<number | null>(null)
+  const [experimentCooldown, setExperimentCooldown] = useState(false)
   const [craftFlash, setCraftFlash] = useState(false)
   const [floatingText, setFloatingText] = useState<string | null>(null)
   const [enchantNotice, setEnchantNotice] = useState<string | null>(null)
@@ -109,6 +114,7 @@ export function CraftingPanel() {
     if (activeTab === 'crafting' && r.requiresAlchemyTable) return false
     if (effectiveFilter === 'available' && !canCraft(r)) return false
     if (showUnlockedOnly && !isRecipeUnlocked(r.id, getSkillLevel)) return false
+    if (showDiscoveredOnly && !isRecipeDiscovered(r.id)) return false
     if (debouncedSearch) {
       const q = debouncedSearch.toLowerCase()
       if (!r.name.toLowerCase().includes(q)) return false
@@ -217,6 +223,26 @@ export function CraftingPanel() {
     forceRefresh(r => r + 1)
   }
 
+  function handleExperiment() {
+    if (experimentCooldown) return
+    const result = experimentDiscovery()
+    if (result.success && result.discoveredId != null) {
+      const recipe = CRAFTING_RECIPES.find(r => String(r.id) === result.discoveredId)
+      const name = recipe ? recipe.name : `Recipe #${result.discoveredId}`
+      setExperimentMsg(`Discovery! You learned: ${name}`)
+    } else {
+      setExperimentMsg('No discovery this time...')
+    }
+    setTimeout(() => setExperimentMsg(null), 3500)
+    // 30-second cooldown
+    setExperimentCooldown(true)
+    experimentCooldownRef.current = window.setTimeout(() => {
+      setExperimentCooldown(false)
+      experimentCooldownRef.current = null
+    }, 30_000)
+    forceRefresh(r => r + 1)
+  }
+
   function handleEnchant(enchant: Enchant) {
     const ok = applyEnchant(enchant)
     if (ok) {
@@ -263,6 +289,47 @@ export function CraftingPanel() {
 
       {/* Recipe list */}
       <div style={{ flex: 1, minWidth: 0, overflowY: 'auto' }}>
+        {/* Experiment button + discovery counter */}
+        {activeTab === 'crafting' && (
+          <div style={{ marginBottom: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+              <button
+                onClick={handleExperiment}
+                disabled={experimentCooldown}
+                title={experimentCooldown ? 'Cooldown: 30s' : 'Spend materials to discover a new recipe (25% chance)'}
+                style={{
+                  background: experimentCooldown ? 'rgba(255,255,255,0.04)' : 'rgba(255,180,50,0.18)',
+                  border: `1px solid ${experimentCooldown ? '#444' : 'rgba(255,180,50,0.55)'}`,
+                  borderRadius: 4,
+                  color: experimentCooldown ? '#555' : '#ffb432',
+                  cursor: experimentCooldown ? 'not-allowed' : 'pointer',
+                  padding: '4px 12px',
+                  fontSize: 11,
+                  fontFamily: 'monospace',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {experimentCooldown ? 'Experiment (cooldown)' : 'Experiment'}
+              </button>
+              <span style={{ fontSize: 10, color: '#666' }}>
+                {getDiscoveredCount()}/{getTotalRecipeCount()} discovered
+              </span>
+            </div>
+            {experimentMsg && (
+              <div style={{
+                fontSize: 11,
+                color: experimentMsg.startsWith('Discovery') ? '#2ecc71' : '#aaa',
+                background: experimentMsg.startsWith('Discovery') ? 'rgba(46,204,113,0.1)' : 'rgba(255,255,255,0.04)',
+                border: `1px solid ${experimentMsg.startsWith('Discovery') ? 'rgba(46,204,113,0.35)' : 'rgba(255,255,255,0.1)'}`,
+                borderRadius: 4,
+                padding: '3px 8px',
+              }}>
+                {experimentMsg}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Search + filter */}
         <div style={{ display: 'flex', gap: 6, marginBottom: 12, alignItems: 'center' }}>
           <input
@@ -313,6 +380,22 @@ export function CraftingPanel() {
           >
             {showUnlockedOnly ? 'Unlocked' : 'All'}
           </button>
+          <button
+            onClick={() => setShowDiscoveredOnly(v => !v)}
+            title={showDiscoveredOnly ? 'Show all recipes including undiscovered ???' : 'Show only discovered recipes'}
+            style={{
+              background: showDiscoveredOnly ? 'rgba(255,180,50,0.2)' : 'rgba(255,255,255,0.05)',
+              border: `1px solid ${showDiscoveredOnly ? 'rgba(255,180,50,0.55)' : 'rgba(255,255,255,0.1)'}`,
+              borderRadius: 4,
+              color: showDiscoveredOnly ? '#ffb432' : '#888',
+              cursor: 'pointer',
+              padding: '4px 8px',
+              fontSize: 11,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {showDiscoveredOnly ? 'Known' : 'All'}
+          </button>
         </div>
 
         {recipes.length === 0 && (
@@ -362,49 +445,61 @@ export function CraftingPanel() {
                     {tierRecipes.map(r => {
                       const craftable = canCraft(r)
                       const unlocked = isRecipeUnlocked(r.id, getSkillLevel)
+                      const discovered = isRecipeDiscovered(r.id)
                       const lockDesc = getUnlockDescription(r.id)
                       const active = selectedRecipe?.id === r.id
                       return (
                         <div
                           key={r.id}
-                          onClick={() => setSelectedRecipe(r)}
+                          onClick={() => discovered ? setSelectedRecipe(r) : undefined}
                           style={{
                             padding: '7px 10px',
-                            background: active
-                              ? craftFlash ? 'rgba(46,204,113,0.3)' : 'rgba(52,152,219,0.2)'
-                              : 'rgba(255,255,255,0.04)',
-                            border: `1px solid ${active ? 'rgba(52,152,219,0.5)' : 'rgba(255,255,255,0.07)'}`,
+                            background: !discovered
+                              ? 'rgba(255,255,255,0.02)'
+                              : active
+                                ? craftFlash ? 'rgba(46,204,113,0.3)' : 'rgba(52,152,219,0.2)'
+                                : 'rgba(255,255,255,0.04)',
+                            border: `1px solid ${!discovered ? 'rgba(255,255,255,0.04)' : active ? 'rgba(52,152,219,0.5)' : 'rgba(255,255,255,0.07)'}`,
                             borderRadius: 6,
-                            cursor: 'pointer',
-                            // Locked recipes are visually dimmed but still visible
-                            opacity: !unlocked ? 0.38 : craftable ? 1 : 0.5,
+                            cursor: discovered ? 'pointer' : 'default',
+                            opacity: !discovered ? 0.45 : !unlocked ? 0.38 : craftable ? 1 : 0.5,
                             transition: 'background 0.3s',
-                            filter: !unlocked ? 'grayscale(0.6)' : undefined,
+                            filter: !discovered ? 'grayscale(1)' : !unlocked ? 'grayscale(0.6)' : undefined,
                           }}
                         >
                           <div style={{ fontSize: 12, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 5 }}>
-                            {!unlocked && (
-                              <span title={lockDesc ?? 'Locked'} style={{ fontSize: 11, color: '#888' }}>🔒</span>
+                            {!discovered ? (
+                              <span style={{ color: '#555', fontStyle: 'italic' }}>???</span>
+                            ) : (
+                              <>
+                                {!unlocked && (
+                                  <span title={lockDesc ?? 'Locked'} style={{ fontSize: 11, color: '#888' }}>🔒</span>
+                                )}
+                                {r.name}
+                                {r.requiresCampfire && (
+                                  <span title="Requires campfire" style={{ fontSize: 10, color: '#f39c12', opacity: 0.85 }}>🔥</span>
+                                )}
+                                {r.requiresAlchemyTable && (
+                                  <span title="Requires alchemy table" style={{ fontSize: 10, color: '#c87dff', opacity: 0.85 }}>🧪</span>
+                                )}
+                                {(() => {
+                                  const badge = getTierBadge(r.tier)
+                                  return badge ? (
+                                    <span title={`Tier ${r.tier} recipe`} style={{
+                                      fontSize: 9, color: badge.color,
+                                      border: `1px solid ${badge.color}`,
+                                      borderRadius: 3, padding: '0 3px', opacity: 0.9,
+                                    }}>{badge.label}</span>
+                                  ) : null
+                                })()}
+                              </>
                             )}
-                            {r.name}
-                            {r.requiresCampfire && (
-                              <span title="Requires campfire" style={{ fontSize: 10, color: '#f39c12', opacity: 0.85 }}>🔥</span>
-                            )}
-                            {r.requiresAlchemyTable && (
-                              <span title="Requires alchemy table" style={{ fontSize: 10, color: '#c87dff', opacity: 0.85 }}>🧪</span>
-                            )}
-                            {(() => {
-                              const badge = getTierBadge(r.tier)
-                              return badge ? (
-                                <span title={`Tier ${r.tier} recipe`} style={{
-                                  fontSize: 9, color: badge.color,
-                                  border: `1px solid ${badge.color}`,
-                                  borderRadius: 3, padding: '0 3px', opacity: 0.9,
-                                }}>{badge.label}</span>
-                              ) : null
-                            })()}
                           </div>
-                          {!unlocked && lockDesc ? (
+                          {!discovered ? (
+                            <div style={{ fontSize: 9, color: '#444', marginTop: 2, fontStyle: 'italic' }}>
+                              Undiscovered Recipe
+                            </div>
+                          ) : !unlocked && lockDesc ? (
                             <div style={{ fontSize: 9, color: '#c87dff', marginTop: 2, opacity: 0.85 }}>
                               {lockDesc}
                             </div>
@@ -452,15 +547,21 @@ export function CraftingPanel() {
           )}
 
           <div style={{ fontSize: 13, fontWeight: 700 }}>
-            {!isRecipeUnlocked(selectedRecipe.id, getSkillLevel) && (
-              <span style={{ marginRight: 4 }}>🔒</span>
+            {!isRecipeDiscovered(selectedRecipe.id) ? (
+              <span style={{ color: '#555', fontStyle: 'italic' }}>???</span>
+            ) : (
+              <>
+                {!isRecipeUnlocked(selectedRecipe.id, getSkillLevel) && (
+                  <span style={{ marginRight: 4 }}>🔒</span>
+                )}
+                {selectedRecipe.name}
+              </>
             )}
-            {selectedRecipe.name}
           </div>
           <div style={{ fontSize: 10, color: '#aaa' }}>
             {TIER_NAMES[selectedRecipe.tier] ?? `Tier ${selectedRecipe.tier}`}
           </div>
-          {!isRecipeUnlocked(selectedRecipe.id, getSkillLevel) && getUnlockDescription(selectedRecipe.id) && (
+          {isRecipeDiscovered(selectedRecipe.id) && !isRecipeUnlocked(selectedRecipe.id, getSkillLevel) && getUnlockDescription(selectedRecipe.id) && (
             <div style={{
               fontSize: 10, color: '#c87dff',
               background: 'rgba(180,100,255,0.1)',
@@ -471,48 +572,56 @@ export function CraftingPanel() {
             </div>
           )}
 
-          <div style={{ fontSize: 11, color: '#ccc', marginTop: 4 }}>Requires:</div>
-          {selectedRecipe.inputs.map((inp, i) => {
-            const have = inventory.countMaterial(inp.materialId)
-            const ok = have >= inp.quantity
-            const biomeSrc = BIOME_MAT_ICONS[inp.materialId]
-            return (
-              <div key={i} style={{ fontSize: 11, color: ok ? '#2ecc71' : '#e74c3c', display: 'flex', alignItems: 'center', gap: 3 }}>
-                {inp.quantity}x {MAT_NAMES[inp.materialId] ?? inp.materialId}
-                {biomeSrc && (
-                  <span title={`Found in: ${biomeSrc.label}`} style={{ fontSize: 10, opacity: 0.85 }}>{biomeSrc.icon}</span>
-                )}
-                <span style={{ color: '#666' }}>({have})</span>
-              </div>
-            )
-          })}
+          {!isRecipeDiscovered(selectedRecipe.id) ? (
+            <div style={{ fontSize: 11, color: '#555', fontStyle: 'italic', marginTop: 8 }}>
+              Experiment at the crafting table to uncover this recipe.
+            </div>
+          ) : (
+            <>
+              <div style={{ fontSize: 11, color: '#ccc', marginTop: 4 }}>Requires:</div>
+              {selectedRecipe.inputs.map((inp, i) => {
+                const have = inventory.countMaterial(inp.materialId)
+                const ok = have >= inp.quantity
+                const biomeSrc = BIOME_MAT_ICONS[inp.materialId]
+                return (
+                  <div key={i} style={{ fontSize: 11, color: ok ? '#2ecc71' : '#e74c3c', display: 'flex', alignItems: 'center', gap: 3 }}>
+                    {inp.quantity}x {MAT_NAMES[inp.materialId] ?? inp.materialId}
+                    {biomeSrc && (
+                      <span title={`Found in: ${biomeSrc.label}`} style={{ fontSize: 10, opacity: 0.85 }}>{biomeSrc.icon}</span>
+                    )}
+                    <span style={{ color: '#666' }}>({have})</span>
+                  </div>
+                )
+              })}
 
-          <div style={{ fontSize: 11, color: '#ccc', marginTop: 4 }}>Produces:</div>
-          {/* M51: Rarity glow on craft output — reflects last crafted rarity */}
-          <div style={{
-            fontSize: 11,
-            color: lastCraftedRarity > 0 ? RARITY_COLORS[lastCraftedRarity] : '#f1c40f',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 5,
-            padding: '3px 6px',
-            borderRadius: 4,
-            border: lastCraftedRarity > 0 ? `1px solid ${RARITY_COLORS[lastCraftedRarity]}60` : '1px solid transparent',
-            boxShadow: lastCraftedRarity > 0 ? RARITY_GLOW[rarityFromLevel(lastCraftedRarity)] : undefined,
-            transition: 'all 0.3s',
-          }}>
-            {selectedRecipe.output.quantity}x {selectedRecipe.output.isMaterial
-              ? (MAT_NAMES[selectedRecipe.output.itemId] ?? `mat:${selectedRecipe.output.itemId}`)
-              : (ITEM_NAMES[selectedRecipe.output.itemId] ?? `item:${selectedRecipe.output.itemId}`)}
-            {lastCraftedRarity > 0 && (
-              <span style={rarityBadgeStyle(rarityFromLevel(lastCraftedRarity))}>
-                {RARITY_LABEL[rarityFromLevel(lastCraftedRarity)]}
-              </span>
-            )}
-          </div>
+              <div style={{ fontSize: 11, color: '#ccc', marginTop: 4 }}>Produces:</div>
+              {/* M51: Rarity glow on craft output — reflects last crafted rarity */}
+              <div style={{
+                fontSize: 11,
+                color: lastCraftedRarity > 0 ? RARITY_COLORS[lastCraftedRarity] : '#f1c40f',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 5,
+                padding: '3px 6px',
+                borderRadius: 4,
+                border: lastCraftedRarity > 0 ? `1px solid ${RARITY_COLORS[lastCraftedRarity]}60` : '1px solid transparent',
+                boxShadow: lastCraftedRarity > 0 ? RARITY_GLOW[rarityFromLevel(lastCraftedRarity)] : undefined,
+                transition: 'all 0.3s',
+              }}>
+                {selectedRecipe.output.quantity}x {selectedRecipe.output.isMaterial
+                  ? (MAT_NAMES[selectedRecipe.output.itemId] ?? `mat:${selectedRecipe.output.itemId}`)
+                  : (ITEM_NAMES[selectedRecipe.output.itemId] ?? `item:${selectedRecipe.output.itemId}`)}
+                {lastCraftedRarity > 0 && (
+                  <span style={rarityBadgeStyle(rarityFromLevel(lastCraftedRarity))}>
+                    {RARITY_LABEL[rarityFromLevel(lastCraftedRarity)]}
+                  </span>
+                )}
+              </div>
+            </>
+          )}
 
           {/* M8: Steel carburization hints */}
-          {(selectedRecipe.id === 71 || selectedRecipe.id === 72 || selectedRecipe.id === 73) && (
+          {isRecipeDiscovered(selectedRecipe.id) && (selectedRecipe.id === 71 || selectedRecipe.id === 72 || selectedRecipe.id === 73) && (
             <div style={{
               marginTop: 6, padding: '4px 6px',
               background: 'rgba(74,158,255,0.08)', border: '1px solid rgba(74,158,255,0.25)',
@@ -524,7 +633,7 @@ export function CraftingPanel() {
               Quench in water within 30s!
             </div>
           )}
-          {(selectedRecipe.id === 74 || selectedRecipe.id === 75) && (
+          {isRecipeDiscovered(selectedRecipe.id) && (selectedRecipe.id === 74 || selectedRecipe.id === 75) && (
             <div style={{
               marginTop: 6, padding: '4px 6px',
               background: 'rgba(160,100,40,0.12)', border: '1px solid rgba(200,120,40,0.3)',
@@ -537,8 +646,9 @@ export function CraftingPanel() {
           )}
 
           {(() => {
+            const recipeDiscovered = isRecipeDiscovered(selectedRecipe.id)
             const recipeUnlocked = isRecipeUnlocked(selectedRecipe.id, getSkillLevel)
-            const craftReady = recipeUnlocked && canCraft(selectedRecipe)
+            const craftReady = recipeDiscovered && recipeUnlocked && canCraft(selectedRecipe)
             return (
               <>
                 <button
@@ -556,7 +666,7 @@ export function CraftingPanel() {
                     fontFamily: 'monospace',
                   }}
                 >
-                  {recipeUnlocked ? 'CRAFT' : 'LOCKED'}
+                  {!recipeDiscovered ? 'UNDISCOVERED' : recipeUnlocked ? 'CRAFT' : 'LOCKED'}
                 </button>
                 {!selectedRecipe.output.isMaterial && (
                   <button

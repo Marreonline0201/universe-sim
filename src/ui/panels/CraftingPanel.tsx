@@ -451,7 +451,7 @@ export function CraftingPanel() {
                       return (
                         <div
                           key={r.id}
-                          onClick={() => discovered ? setSelectedRecipe(r) : undefined}
+                          onClick={() => { if (discovered) { setSelectedRecipe(r); setLastCraftedRarity(0) } }}
                           style={{
                             padding: '7px 10px',
                             background: !discovered

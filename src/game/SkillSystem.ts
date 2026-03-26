@@ -248,6 +248,9 @@ export class SkillSystem {
         `${SKILL_NAMES[skill]} reached level ${s.level}! ${bonus} (+1 skill point)`,
         'discovery'
       )
+
+      // Dispatch window event for Journal and other listeners
+      window.dispatchEvent(new CustomEvent('skill-level-up', { detail: { skillId: skill, newLevel: s.level } }))
     }
 
     this._notify()

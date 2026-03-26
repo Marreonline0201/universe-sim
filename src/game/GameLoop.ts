@@ -1928,6 +1928,7 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
               }
               skillSystem.addXp('combat', 50) // M22: Combat XP on animal kill
               logCombatEvent(killed.species ?? 'Animal', 50) // M48 Track C: Log to world events
+              window.dispatchEvent(new CustomEvent('combat-kill', { detail: { enemyName: killed.species ?? 'creature' } }))
               // M23: Quest progress on kill
               questSystem.onKill(killed.species)
               // M33: Settlement quest board progress on kill

@@ -27,7 +27,9 @@ function relativeTime(ts: number): string {
   const mins = Math.floor(elapsed / 60)
   if (mins < 60)    return `${mins}m ago`
   const hrs = Math.floor(mins / 60)
-  return `${hrs}h ago`
+  if (hrs < 24) return `${hrs}h ago`
+  const days = Math.floor(hrs / 24)
+  return `${days}d ago`
 }
 
 function AffinityBar({ affinity, tier }: { affinity: number; tier: RelationshipTier }) {

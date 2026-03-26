@@ -108,8 +108,9 @@ function BuyTab({ archetype, settlementId, settlementNumId }: {
         `Bought ${unitsAdded > 1 ? `${unitsAdded}× ` : ''}${name} for ${Math.round((paidPrice / qty) * unitsAdded)}💰`,
         'info',
       )
+      window.dispatchEvent(new CustomEvent('npc-trade', { detail: { npcId: `${settlementId}_${archetype}`, npcName: archetype, npcRole: 'merchant' } }))
     }
-  }, [settlementId, spendGold, addGold, addNotification])
+  }, [settlementId, archetype, spendGold, addGold, addNotification])
 
   const handleBuyClick = useCallback((
     itemId: number, materialId: number, name: string, basePrice: number, idx: number,
@@ -286,6 +287,7 @@ function SellTab({ archetype, settlementId }: { archetype: MerchantArchetype; se
       ? capitalize(MAT_NAMES[slot.materialId] ?? `material #${slot.materialId}`)
       : capitalize(ITEM_NAMES[slot.itemId] ?? `item #${slot.itemId}`)
     addNotification(`Sold ${name} for ${livePrice}💰`, 'info')
+    window.dispatchEvent(new CustomEvent('npc-trade', { detail: { npcId: `${settlementId}_${archetype}`, npcName: archetype, npcRole: 'merchant' } }))
     forceRefresh(r => r + 1)
   }, [archetype, settlementId, addGold, addNotification])
 

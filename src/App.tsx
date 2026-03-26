@@ -7,6 +7,7 @@ import { useWorldSocket } from './net/useWorldSocket'
 import { useBootstrapStatus } from './hooks/useBootstrapStatus'
 import { WorldBootstrapScreen } from './ui/WorldBootstrapScreen'
 import { initWorldEventLogger } from './game/WorldEventLogger'
+import { initCaveFeatures } from './game/CaveFeatureSystem'
 
 // ── M20: Lazy-load AdminPanel (dev/admin only) ──────────────────────────────
 const AdminPanel = lazy(() => import('./ui/AdminPanel').then(m => ({ default: m.AdminPanel })))
@@ -52,6 +53,7 @@ function DevGame() {
 
   useEffect(() => {
     initWorldEventLogger()
+    initCaveFeatures()
   }, [])
 
   return (
@@ -95,8 +97,10 @@ function GameWithSave() {
   useWorldSocket()
 
   // M48 Track C: Initialize world event logger once on mount
+  // M50 Track C: Initialize cave features
   useEffect(() => {
     initWorldEventLogger()
+    initCaveFeatures()
   }, [])
 
   // Load save on first sign-in

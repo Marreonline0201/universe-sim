@@ -169,6 +169,7 @@ const PANEL_LABEL: Record<PanelId, string> = {
   titleprogress:   'TITLE PROGRESSION',
   craftmastery:    'CRAFTING MASTERY',
   statsdash:       'PLAYER STATS',
+  worldboss:       'WORLD BOSS',
 }
 
 const PANEL_WIDTH = 480
@@ -220,6 +221,7 @@ const ICON_BUTTONS: Array<{ id: PanelId; icon: string; hint: string }> = [
   { id: 'titleprogress',   icon: '👑',  hint: 'Titles' },
   { id: 'craftmastery',    icon: '⚒',   hint: 'Crafting Mastery' },
   { id: 'statsdash',       icon: '📈',  hint: 'Stats Dashboard' },
+  { id: 'worldboss',       icon: '👹',  hint: 'World Boss' },
   { id: 'science',         icon: ' ? ', hint: 'Science Companion (?)' },
   { id: 'settings',    icon: 'SET',  hint: 'Settings (Esc)' },
 ]
@@ -274,6 +276,7 @@ const PANEL_COMPONENTS: Record<PanelId, React.ComponentType> = {
   titleprogress:   TitleProgressionPanel,
   craftmastery:    CraftingMasteryPanel,
   statsdash:       PlayerStatsDashboard,
+  worldboss:       WorldBossPanel,
 }
 
 export function SidebarShell() {

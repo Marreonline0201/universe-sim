@@ -411,7 +411,7 @@ export function SceneRoot() {
             <div><span style={{ color: '#fff', fontWeight: 600 }}>Mouse</span> &nbsp;— Look</div>
             <div><span style={{ color: '#fff', fontWeight: 600 }}>Space</span> &nbsp;— Jump</div>
             <div><span style={{ color: '#fff', fontWeight: 600 }}>F</span> &nbsp;— Gather</div>
-            <div><span style={{ color: '#fff', fontWeight: 600 }}>E</span> &nbsp;— Open Inventory</div>
+            <div><span style={{ color: '#fff', fontWeight: 600 }}>I</span> &nbsp;— Inventory</div>
           </div>
         </div>
       </div>
@@ -474,7 +474,7 @@ export function SceneRoot() {
         {worldInitialized && (
           <>
             {/* M14/M15: Show destination planet when player has arrived via transit */}
-            {transitPhase === 'arrived' ? <DestinationPlanetSelector /> : <PlanetTerrain key={serverWorldSeed} seed={serverWorldSeed} />}
+            {transitPhase === 'arrived' ? <DestinationPlanetSelector /> : <PlanetTerrain key={serverWorldSeed} seed={serverWorldSeed} dayAngle={dayAngle} />}
             <DigHolesRenderer />
             <ResourceNodes key={serverWorldSeed} />
             <NodeHealthBars />

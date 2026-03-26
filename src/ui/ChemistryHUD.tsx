@@ -20,13 +20,10 @@ export function ChemistryHUD() {
 
   useEffect(() => {
     const id = setInterval(() => {
-      const current = getRecentChemistryEvents()
-      if (current.length > 0 || events.length > 0) {
-        setEvents([...current])
-      }
+      setEvents([...getRecentChemistryEvents()])
     }, 600)
     return () => clearInterval(id)
-  }, [events.length])
+  }, [])
 
   if (events.length === 0) return null
 

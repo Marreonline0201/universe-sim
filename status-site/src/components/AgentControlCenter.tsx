@@ -3,7 +3,7 @@
 // The Director character walks to whichever agent it last communicated with.
 // Speech bubbles show the live message. Blocked agents trigger an approval alert.
 
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useCallback } from 'react'
 import type { AgentState, AgentMessage } from '../hooks/useStatusSocket'
 
 // ── Agent metadata + scene positions (x/y as 0–1 normalized) ─────────────────
@@ -81,11 +81,11 @@ function SpeechBubble({ text, fromId, toId }: { text: string; fromId: string; to
       background: 'rgba(4,8,20,0.96)',
       border: `1px solid ${color}`,
       borderRadius: 6,
-      padding: '5px 10px',
-      fontSize: 8,
+      padding: '6px 12px',
+      fontSize: 11,
       color: 'rgba(220,235,255,0.9)',
       whiteSpace: 'normal',
-      width: 200,
+      width: 220,
       wordBreak: 'break-word',
       lineHeight: 1.5,
       zIndex: 20,
@@ -94,7 +94,7 @@ function SpeechBubble({ text, fromId, toId }: { text: string; fromId: string; to
       animation: 'bubblePop 0.2s ease-out',
     }}>
       {toId && (
-        <span style={{ color, marginRight: 4, fontSize: 7 }}>
+        <span style={{ color, marginRight: 4, fontSize: 10 }}>
           → {AGENTS[toId]?.label ?? toId}:
         </span>
       )}
@@ -117,9 +117,40 @@ function SpeechBubble({ text, fromId, toId }: { text: string; fromId: string; to
 
 interface Props { agentState: AgentState }
 
+const SIDEBAR_MIN = 180
+const SIDEBAR_MAX = 520
+const SIDEBAR_DEFAULT = 300
+
 export function AgentControlCenter({ agentState }: Props) {
-  const sceneRef  = useRef<HTMLDivElement>(null)
-  const lastTsRef = useRef<number>(0)
+  const sceneRef    = useRef<HTMLDivElement>(null)
+  const lastTsRef   = useRef<number>(0)
+  const dragRef     = useRef<{ active: boolean; startX: number; startW: number }>({ active: false, startX: 0, startW: SIDEBAR_DEFAULT })
+  const [sidebarW, setSidebarW] = useState(SIDEBAR_DEFAULT)
+
+  const onDragStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    dragRef.current = { active: true, startX: e.clientX, startW: sidebarW }
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+  }, [sidebarW])
+
+  useEffect(() => {
+    function onMove(e: MouseEvent) {
+      if (!dragRef.current.active) return
+      const delta = dragRef.current.startX - e.clientX  // dragging left = bigger sidebar
+      const next = Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, dragRef.current.startW + delta))
+      setSidebarW(next)
+    }
+    function onUp() {
+      if (!dragRef.current.active) return
+      dragRef.current.active = false
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp) }
+  }, [])
 
   // Director walks to the target of the latest message
   const [dirPos, setDirPos]     = useState({ x: AGENTS['director'].x, y: AGENTS['director'].y })
@@ -202,8 +233,8 @@ export function AgentControlCenter({ agentState }: Props) {
             background: 'rgba(255,160,0,0.15)',
             border: '1px solid rgba(255,160,0,0.6)',
             borderRadius: 4,
-            padding: '3px 12px',
-            fontSize: 9,
+            padding: '4px 14px',
+            fontSize: 11,
             color: '#ffb830',
             letterSpacing: 1.5,
             animation: 'blockedPulse 1.2s ease-in-out infinite',
@@ -309,7 +340,7 @@ export function AgentControlCenter({ agentState }: Props) {
 
                 {/* Label */}
                 <div style={{
-                  fontSize: 7,
+                  fontSize: 10,
                   letterSpacing: 0.8,
                   color: isActive ? meta.color : isBlocked ? '#ffb830' : 'rgba(80,120,180,0.5)',
                   whiteSpace: 'nowrap',
@@ -322,9 +353,9 @@ export function AgentControlCenter({ agentState }: Props) {
                 {/* Task tooltip if active */}
                 {isActive && entry.task && (
                   <div style={{
-                    fontSize: 7,
+                    fontSize: 10,
                     color: 'rgba(160,200,240,0.65)',
-                    maxWidth: 110,
+                    maxWidth: 130,
                     textAlign: 'center',
                     lineHeight: 1.4,
                     overflow: 'hidden',
@@ -353,28 +384,43 @@ export function AgentControlCenter({ agentState }: Props) {
 
           {/* Label bottom-left */}
           <div style={{
-            position: 'absolute', bottom: 5, left: 8,
-            fontSize: 8, letterSpacing: 2,
+            position: 'absolute', bottom: 6, left: 10,
+            fontSize: 10, letterSpacing: 2,
             color: 'rgba(0,180,255,0.2)',
           }}>
             AGENT CONTROL CENTER
           </div>
         </div>
 
+        {/* ── Drag handle ─────────────────────────────────────────────────── */}
+        <div
+          onMouseDown={onDragStart}
+          style={{
+            width: 6,
+            flexShrink: 0,
+            cursor: 'col-resize',
+            background: 'transparent',
+            borderLeft: '1px solid rgba(0,180,255,0.08)',
+            transition: 'background 0.15s',
+            zIndex: 10,
+          }}
+          onMouseEnter={e => (e.currentTarget.style.background = 'rgba(0,180,255,0.12)')}
+          onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+        />
+
         {/* ── Message feed (right strip) ──────────────────────────────────── */}
         <div style={{
-          width: 260,
+          width: sidebarW,
           flexShrink: 0,
           display: 'flex',
           flexDirection: 'column',
-          borderLeft: '1px solid rgba(0,180,255,0.08)',
           background: 'rgba(2,5,14,0.5)',
           overflow: 'hidden',
         }}>
           <div style={{
-            fontSize: 8, letterSpacing: 2,
+            fontSize: 10, letterSpacing: 2,
             color: 'rgba(0,180,255,0.3)',
-            padding: '5px 10px 4px',
+            padding: '6px 12px 5px',
             borderBottom: '1px solid rgba(0,180,255,0.06)',
             flexShrink: 0,
           }}>
@@ -382,7 +428,7 @@ export function AgentControlCenter({ agentState }: Props) {
           </div>
           <div style={{ flex: 1, overflowY: 'auto', padding: '2px 0' }}>
             {agentState.messages.length === 0 ? (
-              <div style={{ fontSize: 9, color: 'rgba(80,110,150,0.3)', padding: '8px 10px', fontStyle: 'italic' }}>
+              <div style={{ fontSize: 11, color: 'rgba(80,110,150,0.3)', padding: '10px 12px', fontStyle: 'italic' }}>
                 No messages yet.
               </div>
             ) : agentState.messages.map((msg: AgentMessage, i: number) => {
@@ -391,11 +437,11 @@ export function AgentControlCenter({ agentState }: Props) {
               const isDirected = !!msg.to
               return (
                 <div key={i} style={{
-                  padding: '3px 8px',
+                  padding: '5px 10px',
                   borderBottom: '1px solid rgba(0,180,255,0.04)',
                   opacity: Math.max(0.3, 1 - i * 0.05),
                 }}>
-                  <div style={{ fontSize: 8, color: isDirected ? '#ffb830' : 'rgba(100,140,180,0.5)', marginBottom: 1 }}>
+                  <div style={{ fontSize: 10, color: isDirected ? '#ffb830' : 'rgba(100,140,180,0.5)', marginBottom: 2 }}>
                     <span style={{ color: fromMeta?.color ?? '#aaa' }}>{fromMeta?.label ?? msg.from}</span>
                     {isDirected && (
                       <>
@@ -404,7 +450,7 @@ export function AgentControlCenter({ agentState }: Props) {
                       </>
                     )}
                   </div>
-                  <div style={{ fontSize: 9, color: isDirected ? 'rgba(255,200,100,0.8)' : 'rgba(170,200,230,0.65)', lineHeight: 1.4, wordBreak: 'break-word' }}>
+                  <div style={{ fontSize: 11, color: isDirected ? 'rgba(255,200,100,0.8)' : 'rgba(170,200,230,0.65)', lineHeight: 1.45, wordBreak: 'break-word' }}>
                     {msg.text}
                   </div>
                 </div>

@@ -859,3 +859,33 @@
 | `ui-worker` | Track A | A1: Add fog of war canvas layer to minimap | director |
 | `interaction` | Track B | B1-B2: Raft building item + mount mechanic | director |
 | `physics-prof` | Track C | C1: Tree/rock distance culling in ResourceNodesRenderer | director |
+
+
+---
+
+## M28 Completion Summary (2026-03-26)
+
+**All 3 Tracks SHIPPED:**
+
+- **Track A (ui-worker): Minimap Upgrades -- DONE** -- Fog of war (32m cell grid, radial reveal via destination-out). Waypoints (right-click gold diamond, up to 5, distance tooltip). Animated NPC dots (green/amber/red, 1Hz pulse). Settlement labels. 3-level zoom (100/200/400m, persisted).
+- **Track B (interaction): Raft Building -- DONE** -- Raft building (20 Wood + 5 Rope, water-only placement). RaftSystem.ts (E to mount, WASD sail 4 m/s, Q/E heading). Buoyancy bob. Shore collision + Too shallow indicator. SailingHUD.tsx (compass, heading, speed). RaftRenderer.tsx.
+- **Track C (physics-prof): Performance Pass -- DONE** -- Tree/rock LOD: full <40m, low-poly 40-80m, hidden >80m (2s update). NPC culling: render off >150m, AI skip >100m. CraftingRecipes.ts extracted. Bundle: 3168 -> 3122 kB (-47 kB).
+
+**Build**: Passes (0 errors).
+
+---
+
+## M29 Sprint Plan -- 3 Parallel Tracks
+
+**Date**: 2026-03-26
+**Status**: IN PROGRESS
+
+### Track A (P0): Underground Cave System
+Assigned to: ui-worker. Cave entrances (5-8 seeded positions, dark depression), CaveTunnelRenderer.tsx (TubeGeometry tunnels + sphere chambers), ore veins (emissive ResourceNodes), bioluminescent lighting (PointLight #4488ff + mushroom meshes #00ff88), underground atmosphere (caveStore, FogExp2 #0a0a12).
+
+### Track B (P1): Weather-Responsive Gameplay
+Assigned to: ai-npc. Warmth stat (0-100, weather drain rates, cold damage, HUD snowflake bar), campfire warmth bonus (+5/s within 8m), rain extinguishes fires (10% per 10s), storm 40% movement penalty + wind indicator, lightning strikes (30-90s during STORM, 50 dmg, fire particle 10s).
+
+### Track C (P0): Multiplayer Presence Improvements
+Assigned to: physics-prof. Name tags above remote players (HTML overlay, fade 30-50m), proximity ring pulse within 15m, PlayerListPanel.tsx (P hotkey, ping indicators), inspect player panel (F within 3m, username/faction/equipment).
+

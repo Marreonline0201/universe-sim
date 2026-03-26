@@ -59,6 +59,8 @@ import { GameLoop } from '../game/GameLoop'
 
 // M10 Track A: Seasonal terrain pass
 import { SeasonalTerrainPass } from './SeasonalTerrainPass'
+// M32 Track A: Seasonal events — meteor showers, aurora, festivals
+import { SeasonalEventsSystem, SeasonalEventsUI } from './SeasonalEventsSystem'
 // M21 Track A: Procedural ambient audio
 import { AudioHook } from '../audio/AudioHook'
 // Post-processing: raw Three.js composer (bloom + vignette)
@@ -584,6 +586,8 @@ export function SceneRoot() {
       )}
       {/* M10 Track A: Seasonal terrain overlays (spring blossoms, autumn tint, winter snow) */}
       <SeasonalTerrainPass />
+      {/* M32 Track A: Seasonal events — meteor showers, aurora borealis, festival bonfires */}
+      <SeasonalEventsSystem dayAngle={dayAngle} />
       {/* Post-processing — bloom on bright emitters + vignette framing */}
       <PostProcessing />
     </Canvas>
@@ -628,6 +632,8 @@ export function SceneRoot() {
     )}
     {/* Interaction: contextual keybind hints — bottom-center, above hotbar */}
     {(pointerLocked || bypassPointerLock) && <ContextualHints />}
+    {/* M32 Track A: Seasonal events HTML overlay — festival banner + XP indicator */}
+    <SeasonalEventsUI />
     </>
   )
 }

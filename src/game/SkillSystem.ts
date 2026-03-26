@@ -8,10 +8,11 @@
 // Singleton pattern matching GameSingletons.ts convention.
 
 import { useUiStore } from '../store/uiStore'
+import { useGameStore } from '../store/gameStore'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-export type SkillId = 'gathering' | 'crafting' | 'combat' | 'survival' | 'exploration' | 'smithing'
+export type SkillId = 'gathering' | 'crafting' | 'combat' | 'survival' | 'exploration' | 'smithing' | 'husbandry'
 
 export interface SkillData {
   xp: number
@@ -33,6 +34,8 @@ export interface SkillBonuses {
   movementSpeedMultiplier: number
   /** Additive quality bonus for smithed items. smithing level 10 = +0.25 */
   smithingQualityBonus: number
+  /** Taming success chance bonus per level (additive). husbandry level 10 = +0.05 per level. */
+  husbandryTameBonus: number
 }
 
 // XP thresholds: exponential curve. Level 1 needs 100 XP, level 10 needs 22,000 cumulative.
@@ -45,6 +48,7 @@ const SKILL_NAMES: Record<SkillId, string> = {
   survival: 'Survival',
   exploration: 'Exploration',
   smithing: 'Smithing',
+  husbandry: 'Husbandry',
 }
 
 const SKILL_ICONS: Record<SkillId, string> = {
@@ -54,6 +58,7 @@ const SKILL_ICONS: Record<SkillId, string> = {
   survival: '[+]',     // heart/cross
   exploration: '[C]',  // compass
   smithing: '[A]',     // anvil
+  husbandry: '[~]',   // paw/animal
 }
 
 const SKILL_COLORS: Record<SkillId, string> = {
@@ -63,6 +68,7 @@ const SKILL_COLORS: Record<SkillId, string> = {
   survival: '#e91e63',
   exploration: '#2196f3',
   smithing: '#9c27b0',
+  husbandry: '#8bc34a',
 }
 
 // ── Skill System class ────────────────────────────────────────────────────────
@@ -75,6 +81,7 @@ export class SkillSystem {
     survival: { xp: 0, level: 0 },
     exploration: { xp: 0, level: 0 },
     smithing: { xp: 0, level: 0 },
+    husbandry: { xp: 0, level: 0 },
   }
 
   // Subscribers notified on any skill change (for React re-renders)
@@ -94,7 +101,9 @@ export class SkillSystem {
   addXp(skill: SkillId, amount: number): void {
     const s = this.skills[skill]
     const prevLevel = s.level
-    s.xp += amount
+    // M32 Track A: apply festival XP multiplier
+    const mult = useGameStore.getState().xpMultiplier
+    s.xp += amount * mult
 
     // Check for level up
     while (s.level < 10 && s.xp >= XP_THRESHOLDS[s.level + 1]) {

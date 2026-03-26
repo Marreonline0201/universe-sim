@@ -47,6 +47,10 @@ interface GameState {
   setDayAngle: (a: number) => void
   setDayCount: (c: number) => void
 
+  // M32 Track A: XP multiplier — 1.0 normally, 2.0 during seasonal festival
+  xpMultiplier: number
+  setXpMultiplier: (v: number) => void
+
   // Admin/dev controls
   flyMode: boolean
   setFlyMode: (v: boolean) => void
@@ -106,6 +110,9 @@ export const useGameStore = create<GameState>((set) => ({
   dayCount: 1,
   setDayAngle: (a) => set({ dayAngle: a }),
   setDayCount: (c) => set({ dayCount: c }),
+
+  xpMultiplier: 1.0,
+  setXpMultiplier: (v) => set({ xpMultiplier: v }),
 
   flyMode: false,
   setFlyMode: (v) => set({ flyMode: v }),

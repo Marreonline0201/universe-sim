@@ -244,6 +244,8 @@ import { tickMarketPrices } from './MarketPriceSystem'
 import { tickWorldBoss } from './WorldBossSystem'
 // M61 Track B: Settlement economy system
 import { tickSettlementEconomy } from './SettlementEconomySystem'
+// M62 Track B: Player journal system
+import { initPlayerJournal } from './PlayerJournalSystem'
 
 // Register skill system with offline save manager for serialization
 registerSkillSystem(skillSystem)
@@ -252,6 +254,8 @@ registerQuestSystem(questSystem)
 // Register achievement + tutorial systems with offline save manager (M24)
 registerAchievementSystem(achievementSystem)
 registerTutorialSystem(tutorialSystem)
+// M62 Track B: Player journal — register event listeners (idempotent)
+initPlayerJournal()
 
 // M40 Track B: Give player starter spells
 spellSystem.learnSpell('fireball')

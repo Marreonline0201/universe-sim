@@ -19,6 +19,8 @@ import { getReactorTemp, isCleanupActive, getCleanupTimeRemaining, SAFE_TEMP_CEL
 import { EmoteWheel } from './EmoteWheel'
 import { getLocalEmote } from '../game/EmoteSystem'
 import { skillSystem, SkillSystem, type SkillId } from '../game/SkillSystem'
+import { RemotePlayerNameTagsOverlay } from './RemotePlayerNameTags'
+import { InspectPlayerOverlay } from './InspectPlayerOverlay'
 
 // ── M20: Lazy-loaded overlays (rarely shown) ─────────────────────────────────
 const FirstContactOverlay = lazy(() => import('./FirstContactOverlay').then(m => ({ default: m.FirstContactOverlay })))
@@ -102,6 +104,56 @@ function RustVitalBar({ value, color, icon, label }: RustVitalBarProps) {
         flexShrink: 0,
       }}>
         {displayValue}
+      </span>
+    </div>
+  )
+}
+
+// ── M29 Track B: Warmth bar ───────────────────────────────────────────────────
+
+function WarmthBar({ warmth }: { warmth: number }) {
+  const clamped = Math.max(0, Math.min(100, warmth))
+  const isLow   = clamped < 20
+  const barColor = isLow ? '#e74c3c' : '#5588ff'
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
+      <span style={{
+        fontSize: 13,
+        width: 16,
+        textAlign: 'center',
+        opacity: isLow ? 1 : 0.75,
+        filter: isLow ? 'drop-shadow(0 0 4px #88bbff)' : 'none',
+        flexShrink: 0,
+        animation: isLow ? 'warmthPulse 1s ease-in-out infinite' : 'none',
+      }}>
+        ❄
+      </span>
+      <div style={{
+        flex: 1,
+        height: 4,
+        background: 'rgba(255,255,255,0.12)',
+        borderRadius: 2,
+        overflow: 'hidden',
+      }}>
+        <div style={{
+          width: `${clamped}%`,
+          height: '100%',
+          background: barColor,
+          borderRadius: 2,
+          transition: 'width 0.3s ease, background 0.3s',
+          animation: isLow ? 'warmthPulse 1s ease-in-out infinite' : 'none',
+        }} />
+      </div>
+      <span style={{
+        fontSize: 9,
+        color: isLow ? '#e74c3c' : '#888',
+        fontFamily: 'monospace',
+        width: 26,
+        textAlign: 'right',
+        flexShrink: 0,
+      }}>
+        {Math.round(clamped)}
       </span>
     </div>
   )
@@ -319,6 +371,37 @@ function WeatherWidget({ state, tempC }: WeatherWidgetProps) {
           {tempC > 0 ? '+' : ''}{tempC.toFixed(0)}°C
         </span>
       </div>
+    </div>
+  )
+}
+
+// ── M29 Track B: Storm wind direction indicator ───────────────────────────────
+
+function StormWindIndicator({ windDir }: { windDir: number }) {
+  // windDir = degrees, 0=north clockwise. Arrow points INTO the wind.
+  const arrowRad = (windDir + 180) * Math.PI / 180
+  const cx = 10, cy = 10, r = 6
+  const tx = cx + Math.sin(arrowRad) * r
+  const ty = cy - Math.cos(arrowRad) * r
+
+  return (
+    <div style={{
+      display: 'flex',
+      alignItems: 'center',
+      gap: 5,
+      background: 'rgba(0,0,0,0.4)',
+      border: '1px solid #ffaa0055',
+      borderRadius: 3,
+      padding: '3px 7px 3px 5px',
+      marginTop: 2,
+    }}>
+      <svg width={20} height={20} viewBox="0 0 20 20" style={{ display: 'block' }}>
+        <line x1={cx} y1={cy} x2={tx} y2={ty} stroke="#ffaa00" strokeWidth="2" strokeLinecap="round" />
+        <circle cx={tx} cy={ty} r="2" fill="#ffaa00" />
+      </svg>
+      <span style={{ fontSize: 8, color: '#ffaa00', fontFamily: 'monospace', letterSpacing: 1, fontWeight: 700 }}>
+        STORM
+      </span>
     </div>
   )
 }
@@ -789,6 +872,15 @@ function SkillXpBar() {
           70%  { opacity: 1; }
           100% { opacity: 0; }
         }
+        @keyframes warmthPulse {
+          0%   { opacity: 1; }
+          50%  { opacity: 0.4; }
+          100% { opacity: 1; }
+        }
+        @keyframes lightningFlash {
+          0%   { opacity: 0.8; }
+          100% { opacity: 0; }
+        }
       `}</style>
     </>
   )
@@ -798,7 +890,7 @@ function SkillXpBar() {
 
 export function HUD() {
   const { paused, simTime, epoch } = useGameStore()
-  const { health, hunger, thirst, energy, fatigue, ambientTemp, equippedSlot, equippedArmorSlot, equipArmor, unequipArmor, wounds, isSleeping, quenchSecondsRemaining } = usePlayerStore()
+  const { health, hunger, thirst, energy, fatigue, ambientTemp, warmth, equippedSlot, equippedArmorSlot, equipArmor, unequipArmor, wounds, isSleeping, quenchSecondsRemaining } = usePlayerStore()
   const { connectionStatus, remotePlayers } = useMultiplayerStore()
   const weatherSectors = useWeatherStore(s => s.sectors)
   const weatherPlayerSectorId = useWeatherStore(s => s.playerSectorId)
@@ -846,6 +938,17 @@ export function HUD() {
   }, [])
 
   const tempColor = ambientTemp < 0 ? '#88bbff' : ambientTemp < 30 ? '#88ff88' : ambientTemp < 50 ? '#ffaa44' : '#ff4444'
+
+  // ── M29 Track B: Lightning flash overlay state ─────────────────────────────
+  const [lightningFlash, setLightningFlash] = useState(false)
+  useEffect(() => {
+    function onLightningFlash() {
+      setLightningFlash(true)
+      setTimeout(() => setLightningFlash(false), 300)
+    }
+    window.addEventListener('lightning-flash', onLightningFlash)
+    return () => window.removeEventListener('lightning-flash', onLightningFlash)
+  }, [])
 
   // ── M13: Velar first-contact overlay state ─────────────────────────────────
   const showFirstContact  = useVelarStore(s => s.showFirstContact)
@@ -959,6 +1062,10 @@ export function HUD() {
           <WeatherWidget state={weatherState} tempC={weatherTemp} />
           {/* ── M10 Track A: Season widget ── */}
           <SeasonWidget season={season} progress={seasonProgress} />
+          {/* ── M29 Track B: Storm wind indicator ── */}
+          {weatherState === 'STORM' && playerWeather && (
+            <StormWindIndicator windDir={playerWeather.windDir} />
+          )}
         </div>
 
         {/* ── Bottom-left: vitals ── */}
@@ -978,6 +1085,8 @@ export function HUD() {
           <RustVitalBar value={1 - thirst}  color="#2980b9" icon="~" label="Water"    />
           <RustVitalBar value={energy}      color="#27ae60" icon="⚡" label="Energy"  />
           <RustVitalBar value={1 - fatigue} color="#8e44ad" icon="●" label="Stamina"  />
+          {/* M29 Track B: Warmth bar */}
+          <WarmthBar warmth={warmth} />
 
           {/* Wound indicators (Slice 5) */}
           {wounds.length > 0 && (
@@ -1272,6 +1381,24 @@ export function HUD() {
 
       {/* ── M26 Track B: Emote wheel (hold T) ── */}
       <EmoteWheel open={emoteWheelOpen} onClose={() => setEmoteWheelOpen(false)} />
+
+      {/* ── M29 Track B: Lightning flash overlay ── */}
+      {lightningFlash && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(255,255,255,0.8)',
+          pointerEvents: 'none',
+          zIndex: 2000,
+          animation: 'lightningFlash 0.3s ease-out forwards',
+        }} />
+      )}
+
+      {/* ── M29 Track C: Remote player name tags (HTML overlay) ── */}
+      <RemotePlayerNameTagsOverlay />
+
+      {/* ── M29 Track C4: Inspect player modal overlay ── */}
+      <InspectPlayerOverlay />
     </>
   )
 }

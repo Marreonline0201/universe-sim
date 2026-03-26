@@ -28,6 +28,7 @@ import { useSeasonStore } from '../store/seasonStore'
 import { useShopStore } from '../store/shopStore'
 import { useTransitStore } from '../store/transitStore'
 import { useVelarStore } from '../store/velarStore'
+import { useInspectPlayerStore } from '../ui/InspectPlayerOverlay'
 
 import {
   world,
@@ -121,6 +122,11 @@ export const DIG_HOLES: DigHole[] = []
 export const MAX_DIG_HOLES = 64
 export const DIG_RADIUS = 1.4   // visual patch radius in metres
 
+// ── M29 Track B: Storm movement multiplier ───────────────────────────────────
+// Set each frame in GameLoop based on current weather. Read by PlayerController.
+export let weatherSpeedMult = 1.0
+export function setWeatherSpeedMult(v: number) { weatherSpeedMult = v }
+
 // Auto-open inventory on the player's first-ever gather so the playtester can
 // immediately inspect the item without knowing to press I.
 let _firstGatherDone = false
@@ -154,6 +160,7 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
   const placementMode       = useGameStore(s => s.placementMode)
   const setPlacementMode    = useGameStore(s => s.setPlacementMode)
   const bumpBuildVersion    = useGameStore(s => s.bumpBuildVersion)
+  const getDayAngle         = () => useGameStore.getState().dayAngle
   // Survival system refs
   const _sleepKeyRef            = useRef(false)
   const evoUnlockedRef          = useRef(-1)  // -1 triggers base stats on first frame
@@ -163,6 +170,11 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
   const fishingStateRef         = useRef<'idle'|'waiting'|'bite'>('idle')  // M10 Track B
   const offlineSaveTimerRef     = useRef(0)    // M22: auto-save every 60s
   const survivalXpTimerRef      = useRef(0)    // M22: passive survival XP every 60s
+  // M29 Track B: Weather gameplay timers
+  const coldDamageTimerRef      = useRef(0)    // 10s cold damage tick when warmth < 20
+  const rainFireTimerRef        = useRef(0)    // 10s rain extinguishes fires check
+  const lightningTimerRef       = useRef(0)    // countdown to next lightning strike
+  const warmthStormMultRef      = useRef(1)    // storm movement speed multiplier
 
   useFrame((_, delta) => {
     // Cap dt to avoid spiral-of-death on slow frames
@@ -295,6 +307,32 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
     const py = Position.y[entityId]
     const pz = Position.z[entityId]
     setPosition(px, py, pz)
+
+    // M29 Track C4: Inspect remote player — F within 3m, prioritised over gather
+    {
+      const inspectStore = useInspectPlayerStore.getState()
+      if (!inspectStore.inspectedPlayer) {
+        const remotePlayers_inspect = useMultiplayerStore.getState().remotePlayers
+        let nearestRemote = null as import('../store/multiplayerStore').RemotePlayer | null
+        let nearestRemoteDist = Infinity
+        for (const rp of remotePlayers_inspect.values()) {
+          const dx = rp.x - px, dy = (rp.y + 0.6) - py, dz = rp.z - pz
+          const d2 = dx * dx + dy * dy + dz * dz
+          if (d2 < 9 && d2 < nearestRemoteDist) { // 3m²=9
+            nearestRemoteDist = d2
+            nearestRemote = rp
+          }
+        }
+        const gs_inspect = useGameStore.getState()
+        if (nearestRemote) {
+          const inspLabel = `[F] Inspect ${nearestRemote.username}`
+          if (gs_inspect.gatherPrompt !== inspLabel) gs_inspect.setGatherPrompt(inspLabel)
+          if (!gs_inspect.inputBlocked && controllerRef.current?.popInteract()) {
+            inspectStore.openInspect(nearestRemote)
+          }
+        }
+      }
+    }
 
     // 5. Resource proximity + gather (3D distance on sphere surface)
     const gs = useGameStore.getState()
@@ -1226,6 +1264,133 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
           const newTemp = storedTemp + (wTemp - storedTemp) * Math.min(1, 0.4 * dt)
           usePlayerStore.getState().setAmbientTemp(newTemp)
         }
+      }
+    }
+
+    // ── M29 Track B: Weather-responsive gameplay ──────────────────────────────
+    {
+      const wStore29   = useWeatherStore.getState()
+      const pw29       = wStore29.getPlayerWeather()
+      const wState29   = pw29?.state ?? 'CLEAR'
+
+      // B4: Storm movement penalty
+      setWeatherSpeedMult(wState29 === 'STORM' ? 0.6 : 1.0)
+
+      // B1: Warmth drain by weather type
+      const dayAngle29 = getDayAngle()
+      const isNight29  = Math.sin(dayAngle29) <= 0
+      const nightMult  = isNight29 ? 2.0 : 1.0
+      const drainRates: Record<string, number> = { CLEAR: 0, CLOUDY: 0.5, RAIN: 1.5, STORM: 3.0 }
+      const drainRate29 = (drainRates[wState29] ?? 0) * nightMult
+      if (drainRate29 > 0 && !inventory.isGodMode()) {
+        usePlayerStore.getState().addWarmth(-drainRate29 * dt)
+      }
+
+      // B2: Campfire warmth bonus (+5/s when within 8m of active campfire)
+      {
+        const CAMPFIRE_IDS = new Set(['campfire_pit', 'campfire'])
+        const buildings29 = buildingSystem.getAllBuildings()
+        let nearFire = false
+        for (const b of buildings29) {
+          if (!CAMPFIRE_IDS.has(b.typeId)) continue
+          const dx = px - b.position[0], dy = py - b.position[1], dz = pz - b.position[2]
+          const dist2 = dx * dx + dy * dy + dz * dz
+          if (dist2 < 64) { // 8m squared
+            // Check if there's actual fire heat from simulation (campfire is lit)
+            const fireTemp = simManagerRef.current
+              ? simManagerRef.current.getTemperatureAt(b.position[0], b.position[1], b.position[2])
+              : 0
+            if (fireTemp > 30) { nearFire = true; break }
+            // Fallback: assume campfire is active if sim not available
+            if (!simManagerRef.current) { nearFire = true; break }
+          }
+        }
+        if (nearFire) {
+          usePlayerStore.getState().addWarmth(5 * dt)
+        }
+      }
+
+      // B1: Cold damage when warmth < 20 — every 10s deal -1 HP
+      if (!inventory.isGodMode()) {
+        const warmth29 = usePlayerStore.getState().warmth
+        if (warmth29 < 20) {
+          coldDamageTimerRef.current += dt
+          if (coldDamageTimerRef.current >= 10) {
+            coldDamageTimerRef.current = 0
+            Health.current[entityId] = Math.max(0, Health.current[entityId] - 1)
+            useUiStore.getState().addNotification('You are freezing! Find warmth or a campfire!', 'warning')
+          }
+        } else {
+          coldDamageTimerRef.current = 0
+        }
+      }
+
+      // B3: Rain/Storm extinguishes campfires every 10s (10% per campfire)
+      if (wState29 === 'RAIN' || wState29 === 'STORM') {
+        rainFireTimerRef.current += dt
+        if (rainFireTimerRef.current >= 10) {
+          rainFireTimerRef.current = 0
+          const campfireBuildings = buildingSystem.getAllBuildings().filter(b =>
+            b.typeId === 'campfire_pit' || b.typeId === 'campfire'
+          )
+          for (const b of campfireBuildings) {
+            if (Math.random() < 0.1) {
+              // Suppress fire at this location
+              if (simManagerRef.current) {
+                simManagerRef.current.suppressFire(b.position[0], b.position[1], b.position[2], 3)
+              }
+              // Notify player if near the campfire
+              const dx = px - b.position[0], dy = py - b.position[1], dz = pz - b.position[2]
+              if (dx * dx + dy * dy + dz * dz < 100) {
+                useUiStore.getState().addNotification('Your campfire was extinguished by the rain!', 'warning')
+              }
+            }
+          }
+        }
+      } else {
+        rainFireTimerRef.current = 0
+      }
+
+      // B5: Lightning strikes during STORM
+      if (wState29 === 'STORM') {
+        if (lightningTimerRef.current <= 0) {
+          // Schedule next strike: 30-90s
+          lightningTimerRef.current = 30 + Math.random() * 60
+        }
+        lightningTimerRef.current -= dt
+        if (lightningTimerRef.current <= 0) {
+          // Fire a lightning strike
+          const angle  = Math.random() * Math.PI * 2
+          const dist   = Math.random() * 100
+          const sx = px + Math.cos(angle) * dist
+          const sz = pz + Math.sin(angle) * dist
+          const sy = py  // approximate
+
+          // Flash overlay
+          window.dispatchEvent(new CustomEvent('lightning-flash'))
+
+          // Damage player if within 3m
+          const dx = px - sx, dz = pz - sz
+          if (dx * dx + dz * dz < 9) {
+            if (!inventory.isGodMode()) {
+              Health.current[entityId] = Math.max(0, Health.current[entityId] - 50)
+              useUiStore.getState().addNotification('⚡ You were struck by lightning! (-50 HP)', 'error')
+            }
+          }
+
+          // Ignite fire at strike position
+          if (simManagerRef.current) {
+            simManagerRef.current.ignite(sx, sy, sz)
+          }
+
+          // Dispatch strike position for Three.js visual (spawned in SceneRoot or separate effect)
+          window.dispatchEvent(new CustomEvent('lightning-strike', { detail: { x: sx, y: sy, z: sz } }))
+
+          // Schedule next strike
+          lightningTimerRef.current = 30 + Math.random() * 60
+        }
+      } else {
+        lightningTimerRef.current = 0
       }
     }
 

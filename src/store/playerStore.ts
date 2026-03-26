@@ -24,6 +24,10 @@ interface PlayerState {
   updateVitals: (v: Partial<Pick<PlayerState, 'hunger' | 'thirst' | 'health' | 'energy' | 'fatigue'>>) => void
   setAmbientTemp: (t: number) => void
 
+  // M29 Track B: Warmth stat (0–100)
+  warmth: number
+  addWarmth: (delta: number) => void
+
   // M27: Gold currency
   gold: number
   addGold: (amount: number) => void
@@ -107,6 +111,10 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   energy: 1,
   fatigue: 0,
   ambientTemp: 15,
+
+  // M29 Track B: Warmth
+  warmth: 80,
+  addWarmth: (delta) => set((s) => ({ warmth: Math.max(0, Math.min(100, s.warmth + delta)) })),
 
   // M27: Gold currency
   gold: 0,

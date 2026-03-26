@@ -16,6 +16,8 @@ import { useGameStore } from '../store/gameStore'
 import { PLANET_RADIUS, SEA_LEVEL, surfaceRadiusAt } from '../world/SpherePlanet'
 import { rapierWorld } from '../physics/RapierWorld'
 import { useJoystickStore } from '../ui/MobileControls'
+// M29 Track B: storm movement penalty (set by GameLoop each frame)
+import { weatherSpeedMult } from '../game/GameLoop'
 
 export type CameraMode = 'first_person' | 'third_person' | 'orbit'
 
@@ -355,7 +357,7 @@ export class PlayerController {
     }
 
     // ── Normal movement (land + water) ───────────────────────────────────────
-    let speed = inWater ? SWIM_SPEED : WALK_SPEED * speedMult
+    let speed = inWater ? SWIM_SPEED : WALK_SPEED * speedMult * weatherSpeedMult
     if (!inWater && inp.sprint) speed *= SPRINT_MULT
     if (!inWater && inp.crouch) speed *= CROUCH_MULT
 

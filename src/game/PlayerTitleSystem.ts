@@ -429,6 +429,7 @@ export function serializeTitles(): PlayerTitleSaveData {
 export function deserializeTitles(data: unknown): void {
   if (!data || typeof data !== 'object') return
   const d = data as Partial<PlayerTitleSaveData>
+  _initialized = true
 
   if (Array.isArray(d.titles)) {
     for (const saved of d.titles) {

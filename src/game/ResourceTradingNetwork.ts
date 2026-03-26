@@ -153,9 +153,8 @@ export function tickTradeNetwork(simSeconds: number): void {
     // Mark as traded
     route.lastTradedAt = simSeconds
 
-    // Fluctuate price ±10%
+    // Fluctuate price within ±20% of base
     const oldPrice = route.pricePerUnit
-    const fluctuation = (Math.random() * 0.2 - 0.1) // -0.10 to +0.10
     const newPrice = Math.max(1, route.basePrice * (0.8 + Math.random() * 0.4)) // keep within ±20% of base
     route.pricePerUnit = Math.round(newPrice * 10) / 10
 

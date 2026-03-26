@@ -315,7 +315,6 @@ function RouteCard({ route, playerGold, onRefresh }: RouteCardProps) {
 export function ResourceTradingNetworkPanel() {
   const [routes, setRoutes] = useState<TradeRoute[]>([])
   const playerGold = usePlayerStore(s => s.gold)
-  const [tick, setTick] = useState(0)
 
   const refresh = useCallback(() => {
     setRoutes([...getTradeRoutes()])
@@ -324,10 +323,7 @@ export function ResourceTradingNetworkPanel() {
   useEffect(() => {
     refresh()
     // Refresh every 2s to show updated prices / profit
-    const id = setInterval(() => {
-      setTick(t => t + 1)
-      refresh()
-    }, 2000)
+    const id = setInterval(refresh, 2000)
     return () => clearInterval(id)
   }, [refresh])
 

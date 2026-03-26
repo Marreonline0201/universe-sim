@@ -15,16 +15,16 @@ import {
 } from '../../game/SkillSpecializationSystem'
 import { skillSystem } from '../../game/SkillSystem'
 
-// Skills that have specializations
-const SPEC_SKILL_IDS = ['combat', 'crafting', 'survival', 'smithing', 'fishing'] as const
+// Skills that have specializations (must match valid SkillId values in SkillSystem.ts)
+const SPEC_SKILL_IDS = ['combat', 'crafting', 'survival', 'smithing', 'gathering'] as const
 type SpecSkillId = typeof SPEC_SKILL_IDS[number]
 
 const SKILL_DISPLAY: Record<SpecSkillId, { name: string; color: string }> = {
-  combat:   { name: 'Combat',   color: '#f44336' },
-  crafting: { name: 'Crafting', color: '#ff9800' },
-  survival: { name: 'Survival', color: '#e91e63' },
-  smithing: { name: 'Smithing', color: '#9c27b0' },
-  fishing:  { name: 'Fishing',  color: '#2196f3' },
+  combat:    { name: 'Combat',    color: '#f44336' },
+  crafting:  { name: 'Crafting',  color: '#ff9800' },
+  survival:  { name: 'Survival',  color: '#e91e63' },
+  smithing:  { name: 'Smithing',  color: '#9c27b0' },
+  gathering: { name: 'Gathering', color: '#4caf50' },
 }
 
 // ── SpecCard ──────────────────────────────────────────────────────────────────

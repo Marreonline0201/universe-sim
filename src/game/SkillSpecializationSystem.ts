@@ -29,9 +29,9 @@ export const SKILL_SPECS: SkillSpec[] = [
   // Smithing specs
   { id: 'weaponsmith', skillId: 'smithing', name: 'Weaponsmith', description: 'Forger of legendary weapons.',      icon: '🔱', bonuses: ['+20% weapon damage bonus from quality', 'Unlock weapon enchants'], requiredLevel: 10 },
   { id: 'armorsmith',  skillId: 'smithing', name: 'Armorsmith',  description: 'Crafter of impenetrable armor.',    icon: '🔩', bonuses: ['+25% armor defense bonus', 'Unlock armor enchants'],        requiredLevel: 10 },
-  // Fishing specs
-  { id: 'deepwater',   skillId: 'fishing',  name: 'Deepwater',   description: 'Hunt the rarest fish.',             icon: '🎣', bonuses: ['+40% rare fish chance', '+1 deep fishing slot'],            requiredLevel: 10 },
-  { id: 'angler_s',    skillId: 'fishing',  name: 'Angler',      description: 'Efficient and consistent catches.', icon: '🐟', bonuses: ['-20% fishing cooldown', '+25% fish quantity per catch'],    requiredLevel: 10 },
+  // Gathering specs
+  { id: 'deepwater',   skillId: 'gathering', name: 'Deepwater',   description: 'Expert forager and hunter.',        icon: '🌿', bonuses: ['+30% resource gather yield', '+15% rare resource chance'], requiredLevel: 10 },
+  { id: 'angler_s',    skillId: 'gathering', name: 'Angler',      description: 'Patient and skilled at fishing.',   icon: '🐟', bonuses: ['-20% fishing cooldown', '+25% fish quantity per catch'],  requiredLevel: 10 },
 ]
 
 // Module-level map: skillId → chosen spec id (one per skill)

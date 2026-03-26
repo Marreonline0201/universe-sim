@@ -58,6 +58,7 @@ import {
 } from '../ecs/systems/AnimalAISystem'
 
 import { inventory, buildingSystem, questSystem, combatSystem, achievementSystem, tutorialSystem, fishingSystem, merchantSystem } from './GameSingletons'
+import { getNPCName } from './NPCScheduleSystem'
 import { SPECIES_LOOT, rollLoot } from './LootTable'
 import { ITEM, MAT, RARITY_NAMES, type RarityTier } from '../player/Inventory'
 import { getItemStats, canHarvest } from '../player/EquipSystem'
@@ -95,6 +96,8 @@ import {
   NODE_HITS_TAKEN,
   NODE_RESPAWN_DELAY,
   getNodeMaxHits,
+  BIOME_EXCLUSIVE_TYPES,
+  BIOME_NODE_LABELS,
 } from '../world/ResourceNodeManager'
 import { surfaceRadiusAt, PLANET_RADIUS, getSurfaceDigMaterials, terrainHeightAt } from '../world/SpherePlanet'
 import { queryNearestRiver } from '../world/RiverSystem'
@@ -307,6 +310,77 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
 
     // M24: Combat system tick (cooldowns, damage numbers, health bar pruning)
     combatSystem.tick(dt)
+
+    // M38 Track B: Stamina regeneration — 10/s when not sprinting or dodging
+    {
+      const ps38 = usePlayerStore.getState()
+      const isSprinting = !!(controllerRef.current as any)?.keys?.has?.('ShiftLeft') ||
+                          !!(controllerRef.current as any)?.keys?.has?.('ShiftRight')
+      const isDodgingNow = combatSystem.isDodging
+      if (!isSprinting && !isDodgingNow && ps38.stamina < ps38.maxStamina) {
+        ps38.addStamina(10 * dt)
+      }
+    }
+
+    // M38 Track B: Dodge roll — check for double-tap dodge request
+    {
+      if (controllerRef.current?.popDodgeRequest()) {
+        const ps38 = usePlayerStore.getState()
+        if (!ps38.drainStamina(20)) {
+          // Not enough stamina — flash warning
+          combatSystem.triggerNoStaminaFlash()
+        } else {
+          const dodged = combatSystem.startDodge()
+          if (!dodged) {
+            // Still on cooldown — refund stamina
+            ps38.addStamina(20)
+          }
+        }
+      }
+    }
+
+    // M38 Track B: Faction ability (X key)
+    {
+      if (controllerRef.current?.popFactionAbility()) {
+        const { playerFaction } = useFactionStore.getState()
+        if (playerFaction) {
+          // Find nearest animal/enemy for targeted abilities
+          let nearestAnimalId: number | null = null
+          let nearestAnimalDist = 15  // within 15m
+          const _px38 = Position.x[entityId], _py38 = Position.y[entityId], _pz38 = Position.z[entityId]
+          for (const [aid, animal] of animalRegistry) {
+            if (animal.behavior === 'DEAD') continue
+            const dx = animal.x - _px38, dy = animal.y - _py38, dz = animal.z - _pz38
+            const dist = Math.sqrt(dx * dx + dy * dy + dz * dz)
+            if (dist < nearestAnimalDist) {
+              nearestAnimalDist = dist
+              nearestAnimalId = aid
+            }
+          }
+          const activated = combatSystem.activateFactionAbility(playerFaction, nearestAnimalId)
+          if (!activated) {
+            useUiStore.getState().addNotification('Ability on cooldown!', 'warning')
+          } else {
+            // Apply AoE stun (Mind Blast) — scholars
+            if (playerFaction === 'scholars' && combatSystem.aoeStunPending) {
+              combatSystem.consumeAoeStun()
+              const stunIds: number[] = []
+              for (const [aid, animal] of animalRegistry) {
+                if (animal.behavior === 'DEAD') continue
+                const dx = animal.x - _px38, dy = animal.y - _py38, dz = animal.z - _pz38
+                const dist = Math.sqrt(dx * dx + dy * dy + dz * dz)
+                if (dist <= 10) stunIds.push(aid)
+              }
+              combatSystem.applyAoeStun(stunIds, 3)
+              useUiStore.getState().addNotification(`Mind Blast! Stunned ${stunIds.length} enemies!`, 'discovery')
+            } else {
+              const ab = combatSystem.getFactionAbility(playerFaction)
+              if (ab) useUiStore.getState().addNotification(`${ab.name} activated!`, 'discovery')
+            }
+          }
+        }
+      }
+    }
 
     // M24: Animal respawn queue tick
     tickRespawnQueue(dt)
@@ -579,16 +653,29 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
       const maxHits = getNodeMaxHits(nearNode.type, harvestPower)
       const hitsSoFar = NODE_HITS_TAKEN.get(nearNode.id) ?? 0
 
-      const label = canGather
-        ? maxHits > 1
-          ? `[F] Gather ${nearNode.label}  ·  Hit ${hitsSoFar + 1}/${maxHits}`
-          : `[F] Gather ${nearNode.label}`
-        : isIronOre
-          ? `[Need Iron Pickaxe] ${nearNode.label}`
-          : `[Need Stone Tool] ${nearNode.label}`
+      // M38 Track C: Biome-exclusive node skill gate (requires Crafting Lv.3)
+      const isBiomeNode = BIOME_EXCLUSIVE_TYPES.has(nearNode.type)
+      const craftingLevel = skillSystem.getLevel('crafting')
+      const hasBiomeSkill = craftingLevel >= 3
+      const biomeLabel = BIOME_NODE_LABELS[nearNode.type]
+
+      let label: string
+      if (isBiomeNode && !hasBiomeSkill) {
+        label = `[Need Crafting Lv.3] ${nearNode.label}${biomeLabel ? ` (${biomeLabel})` : ''}`
+      } else {
+        const biomeTag = biomeLabel ? ` (${biomeLabel})` : ''
+        label = canGather
+          ? maxHits > 1
+            ? `[F] Gather ${nearNode.label}${biomeTag}  ·  Hit ${hitsSoFar + 1}/${maxHits}`
+            : `[F] Gather ${nearNode.label}${biomeTag}`
+          : isIronOre
+            ? `[Need Iron Pickaxe] ${nearNode.label}`
+            : `[Need Stone Tool] ${nearNode.label}`
+      }
+      const canActuallyGather = canGather && (!isBiomeNode || hasBiomeSkill)
       if (gs.gatherPrompt !== label) gs.setGatherPrompt(label)
 
-      if (canGather && !gs.inputBlocked && controllerRef.current?.popInteract()) {
+      if (canActuallyGather && !gs.inputBlocked && controllerRef.current?.popInteract()) {
         const newHits = hitsSoFar + 1
         if (newHits < maxHits) {
           NODE_HITS_TAKEN.set(nearNode.id, newHits)
@@ -984,7 +1071,10 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
           const NPC_ROLES = ['villager', 'guard', 'elder', 'trader', 'artisan', 'scout']
           const npcRole = NPC_ROLES[closestNpc.id % NPC_ROLES.length]
           const isMerchant = npcRole === 'trader'
-          const npcName = `${npcSettlement} ${npcRole.charAt(0).toUpperCase() + npcRole.slice(1)}`
+          // M38: Use seeded NPC names (consistent per settlement+role)
+          const settIdNum = Number(npcSettlementId) || 0
+          const roleIndex = closestNpc.id % NPC_ROLES.length
+          const npcName = getNPCName(settIdNum, npcRole, roleIndex)
           const promptLabel = isMerchant ? `[F] Trade with ${npcName} 🛍` : `[F] Talk to ${npcName}`
           gs.setGatherPrompt(promptLabel)
           if (controllerRef.current?.popInteract()) {

@@ -350,6 +350,14 @@ export const MAT = {
   POTION_FIRE_RESIST: 105, // Immune to lava/fire damage for 60s
   ELIXIR_WISDOM: 106,    // 3x XP gain for 120s (rare, expensive)
   EMPTY_VIAL: 107,       // Required vessel for all potions
+  // ── M38 Track C: Biome-exclusive materials ───────────────────────────────
+  VOLCANIC_GLASS: 110,   // Volcano biome: dark obsidian-like, emissive glow
+  GLACIER_ICE: 111,      // Tundra/polar biome: crystal blue shard
+  DESERT_CRYSTAL: 112,   // Desert biome: amber-tan crystal formation
+  DEEP_CORAL: 113,       // Ocean floor: pink/red coral
+  ANCIENT_WOOD: 114,     // Old-growth forest: gnarled dark wood
+  SHADOW_IRON: 115,      // Cave deep level: dark grey metallic ore
+  LUMINITE: 116,         // Cave bioluminescent zone: emissive cyan crystal
 } as const
 
 // ── Item IDs ──────────────────────────────────────────────────────────────────
@@ -405,4 +413,12 @@ export const ITEM = {
   QUANTUM_BLADE: 72,     // Tier 4+ weapon — 80 damage, 0.35s cooldown
   // ── M34 Track A: Player Housing ──────────────────────────────────────────
   HOME_DEED: 73,         // deed of ownership — place to create personal home base (recipe 140)
+  // ── M38 Track C: Tier 4-5 biome weapons and armor ────────────────────────
+  OBSIDIAN_BLADE: 74,    // Tier 4 weapon — 55 dmg, crafted from Volcanic Glass
+  FROST_AXE: 75,         // Tier 4 weapon — 50 dmg, slows enemies
+  CRYSTAL_STAFF: 76,     // Tier 4 weapon — 45 dmg, AoE knockback
+  VOLCANIC_PLATE: 77,    // Tier 4 armor — -30% fire damage
+  GLACIAL_MANTLE: 78,    // Tier 4 armor — -40% cold damage
+  LUMINITE_DAGGER: 79,   // Tier 5 weapon — 70 dmg + life drain
+  SHADOW_ARMOR: 80,      // Tier 5 armor — -25% all damage + stealth bonus
 } as const

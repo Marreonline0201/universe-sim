@@ -20,10 +20,29 @@ export interface ResourceNode {
   label: string
   matId: number
   color: string
+  emissive?: string   // M38: biome-exclusive nodes may have an emissive glow color
+  biome?: string      // M38: which biome this node belongs to (for crafting panel icons)
   x: number
   y: number
   z: number
 }
+
+// ── M38 Track C: Biome label map for gather prompt display ──────────────────
+export const BIOME_NODE_LABELS: Partial<Record<string, string>> = {
+  'volcanic_glass': 'Volcano',
+  'glacier_ice':    'Tundra',
+  'desert_crystal': 'Desert',
+  'deep_coral':     'Ocean',
+  'ancient_wood':   'Forest',
+  'shadow_iron':    'Cave',
+  'luminite':       'Cave',
+}
+
+// Biome node types that require crafting skill level 3+ to gather
+export const BIOME_EXCLUSIVE_TYPES = new Set([
+  'volcanic_glass', 'glacier_ice', 'desert_crystal', 'deep_coral',
+  'ancient_wood', 'shadow_iron', 'luminite',
+])
 
 export const NODE_TYPES = [
   { type: 'stone',       label: 'Stone',       matId: MAT.STONE,      color: '#888888', count: 20 },
@@ -50,6 +69,14 @@ export const NODE_TYPES = [
   // ── M33 Track B: Cooking ingredients ────────────────────────────────────────
   { type: 'berry',       label: 'Berry',       matId: MAT.BERRY,      color: '#cc3388', count: 10 },
   { type: 'mushroom',    label: 'Mushroom',    matId: MAT.MUSHROOM,   color: '#aa8844', count: 8  },
+  // ── M38 Track C: Biome-exclusive resources ────────────────────────────────
+  { type: 'volcanic_glass',  label: 'Volcanic Glass',  matId: MAT.VOLCANIC_GLASS,  color: '#220011', count: 5,  emissive: '#ff2200', biome: 'volcano'  },
+  { type: 'glacier_ice',     label: 'Glacier Ice',     matId: MAT.GLACIER_ICE,     color: '#88ccff', count: 8,  emissive: '#4488ff', biome: 'polar'    },
+  { type: 'desert_crystal',  label: 'Desert Crystal',  matId: MAT.DESERT_CRYSTAL,  color: '#cc8833', count: 6,  emissive: '#ffaa44', biome: 'desert'   },
+  { type: 'deep_coral',      label: 'Deep Coral',      matId: MAT.DEEP_CORAL,      color: '#cc3366', count: 10, emissive: '',        biome: 'ocean'    },
+  { type: 'ancient_wood',    label: 'Ancient Wood',    matId: MAT.ANCIENT_WOOD,    color: '#2a1a0a', count: 4,  emissive: '',        biome: 'forest'   },
+  { type: 'shadow_iron',     label: 'Shadow Iron',     matId: MAT.SHADOW_IRON,     color: '#2a2a33', count: 5,  emissive: '',        biome: 'cave'     },
+  { type: 'luminite',        label: 'Luminite',        matId: MAT.LUMINITE,        color: '#004422', count: 4,  emissive: '#00ff88', biome: 'cave'     },
 ]
 
 // ── P2-4: Geology-based ore placement ─────────────────────────────────────────
@@ -62,14 +89,22 @@ interface GeologyRule {
 }
 
 export const GEOLOGY_RULES: Partial<Record<string, GeologyRule>> = {
-  copper_ore: { hMin: 60,  hMax: 220, maxDist: 600 },
-  iron_ore:   { hMin: 20,  hMax: 90,  maxDist: 500 },
-  coal:       { hMin: 5,   hMax: 40,  maxDist: 450 },
-  tin_ore:    { hMin: 50,  hMax: 130, maxDist: 550 },
-  sulfur:     { hMin: 70,  hMax: 250, maxDist: 650 },
-  gold:       { hMin: 130, hMax: 250, maxDist: 700 },
-  silver:     { hMin: 100, hMax: 200, maxDist: 650 },
-  uranium:    { hMin: 90,  hMax: 220, maxDist: 750 },
+  copper_ore:     { hMin: 60,  hMax: 220, maxDist: 600 },
+  iron_ore:       { hMin: 20,  hMax: 90,  maxDist: 500 },
+  coal:           { hMin: 5,   hMax: 40,  maxDist: 450 },
+  tin_ore:        { hMin: 50,  hMax: 130, maxDist: 550 },
+  sulfur:         { hMin: 70,  hMax: 250, maxDist: 650 },
+  gold:           { hMin: 130, hMax: 250, maxDist: 700 },
+  silver:         { hMin: 100, hMax: 200, maxDist: 650 },
+  uranium:        { hMin: 90,  hMax: 220, maxDist: 750 },
+  // ── M38 Track C: Biome-exclusive geology rules ─────────────────────────────
+  volcanic_glass: { hMin: 180, hMax: 400, maxDist: 800 }, // high volcanic peaks
+  glacier_ice:    { hMin: 200, hMax: 500, maxDist: 900 }, // polar high altitude
+  desert_crystal: { hMin: 20,  hMax: 120, maxDist: 700 }, // flat warm desert floor
+  deep_coral:     { hMin: 0,   hMax: 10,  maxDist: 500 }, // sea level / ocean shore
+  ancient_wood:   { hMin: 40,  hMax: 180, maxDist: 600 }, // mid-altitude old-growth
+  shadow_iron:    { hMin: 5,   hMax: 60,  maxDist: 550 }, // cave / underground
+  luminite:       { hMin: 5,   hMax: 60,  maxDist: 550 }, // cave bioluminescent zone
 }
 
 export function seededRand(seed: number): () => number {
@@ -189,6 +224,12 @@ export function getNodeMaxHits(nodeType: string, harvestPower = 1): number {
     || nodeType === 'iron_ore' || nodeType === 'coal' || nodeType === 'tin_ore'
     || nodeType === 'sulfur' || nodeType === 'gold' || nodeType === 'silver'
     || nodeType === 'uranium') return 2
+  // M38 Track C: biome-exclusive nodes require 2 hits (hard, crystalline)
+  if (nodeType === 'volcanic_glass' || nodeType === 'glacier_ice'
+    || nodeType === 'desert_crystal' || nodeType === 'shadow_iron'
+    || nodeType === 'luminite') return 2
+  // ancient_wood requires 3 hits like a tree; deep_coral requires 1 hit
+  if (nodeType === 'ancient_wood') return harvestPower >= 5 ? 2 : 3
   return 1
 }
 

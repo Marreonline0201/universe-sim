@@ -241,6 +241,57 @@ const STATS: Partial<Record<number, ItemStats>> = {
     harvestTypes: [],
     range:        3.0,
   },
+
+  // ── M38 Track C: Biome tier 4-5 weapons ─────────────────────────────────
+  [ITEM.OBSIDIAN_BLADE]: {
+    name:         'Obsidian Blade',
+    damage:       55,
+    harvestPower: 4,
+    harvestTypes: ['volcanic_glass'],
+    range:        2.8,
+  },
+  [ITEM.FROST_AXE]: {
+    name:         'Frost Axe',
+    damage:       50,
+    harvestPower: 4,
+    harvestTypes: ['glacier_ice', 'stone', 'coal'],
+    range:        2.8,
+  },
+  [ITEM.CRYSTAL_STAFF]: {
+    name:         'Crystal Staff',
+    damage:       45,
+    harvestPower: 3,
+    harvestTypes: ['desert_crystal'],
+    range:        3.5,
+  },
+  [ITEM.VOLCANIC_PLATE]: {
+    name:         'Volcanic Plate',
+    damage:       0,
+    harvestPower: 1,
+    harvestTypes: [],
+    range:        1.0,
+  },
+  [ITEM.GLACIAL_MANTLE]: {
+    name:         'Glacial Mantle',
+    damage:       0,
+    harvestPower: 1,
+    harvestTypes: [],
+    range:        1.0,
+  },
+  [ITEM.LUMINITE_DAGGER]: {
+    name:         'Luminite Dagger',
+    damage:       70,
+    harvestPower: 5,
+    harvestTypes: ['luminite', 'shadow_iron'],
+    range:        2.5,
+  },
+  [ITEM.SHADOW_ARMOR]: {
+    name:         'Shadow Armor',
+    damage:       0,
+    harvestPower: 1,
+    harvestTypes: [],
+    range:        1.0,
+  },
 }
 
 /** Return stats for the given itemId. Falls back to HAND stats if unknown or 0. */

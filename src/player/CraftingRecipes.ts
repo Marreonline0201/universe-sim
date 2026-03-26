@@ -1358,4 +1358,78 @@ export const CRAFTING_RECIPES: CraftingRecipe[] = [
     knowledgeRequired: [],
     requiresAlchemyTable: true,
   },
+
+  // ── M38 Track C: Biome-exclusive tier 4 weapons & armor ──────────────────
+  {
+    // id 170 — Obsidian Blade: volcanic glass + iron → 55 damage tier-4 sword
+    id: 170, name: 'Obsidian Blade', tier: 4, time: 120,
+    inputs: [
+      { materialId: MAT.VOLCANIC_GLASS, quantity: 3 },
+      { materialId: MAT.IRON_ORE,       quantity: 5 },
+    ],
+    output: { itemId: ITEM.OBSIDIAN_BLADE, quantity: 1 },
+    knowledgeRequired: ['weapon_smithing'],
+  },
+  {
+    // id 171 — Frost Axe: glacier ice + iron → 50 damage, slows enemies
+    id: 171, name: 'Frost Axe', tier: 4, time: 120,
+    inputs: [
+      { materialId: MAT.GLACIER_ICE, quantity: 3 },
+      { materialId: MAT.IRON_ORE,    quantity: 5 },
+    ],
+    output: { itemId: ITEM.FROST_AXE, quantity: 1 },
+    knowledgeRequired: ['weapon_smithing'],
+  },
+  {
+    // id 172 — Crystal Staff: desert crystal + ancient wood → 45 damage, AoE knockback
+    id: 172, name: 'Crystal Staff', tier: 4, time: 150,
+    inputs: [
+      { materialId: MAT.DESERT_CRYSTAL, quantity: 4 },
+      { materialId: MAT.ANCIENT_WOOD,   quantity: 2 },
+    ],
+    output: { itemId: ITEM.CRYSTAL_STAFF, quantity: 1 },
+    knowledgeRequired: ['weapon_smithing'],
+  },
+  {
+    // id 175 — Volcanic Plate: volcanic glass + iron → heavy armor, -30% fire damage
+    id: 175, name: 'Volcanic Plate', tier: 4, time: 200,
+    inputs: [
+      { materialId: MAT.VOLCANIC_GLASS, quantity: 5 },
+      { materialId: MAT.IRON_ORE,       quantity: 8 },
+    ],
+    output: { itemId: ITEM.VOLCANIC_PLATE, quantity: 1 },
+    knowledgeRequired: ['armor_smithing'],
+  },
+  {
+    // id 176 — Glacial Mantle: glacier ice + rope → light armor, -40% cold damage
+    id: 176, name: 'Glacial Mantle', tier: 4, time: 180,
+    inputs: [
+      { materialId: MAT.GLACIER_ICE, quantity: 5 },
+      { materialId: MAT.ROPE,        quantity: 3 },
+    ],
+    output: { itemId: ITEM.GLACIAL_MANTLE, quantity: 1 },
+    knowledgeRequired: ['armor_smithing'],
+  },
+
+  // ── M38 Track C: Tier 5 (legendary) cave-resource equipment ──────────────
+  {
+    // id 180 — Luminite Dagger: luminite + shadow iron → 70 damage + life drain
+    id: 180, name: 'Luminite Dagger', tier: 5, time: 180,
+    inputs: [
+      { materialId: MAT.LUMINITE,    quantity: 5 },
+      { materialId: MAT.SHADOW_IRON, quantity: 5 },
+    ],
+    output: { itemId: ITEM.LUMINITE_DAGGER, quantity: 1 },
+    knowledgeRequired: ['weapon_smithing'],
+  },
+  {
+    // id 181 — Shadow Armor: shadow iron + ancient wood → -25% all damage + stealth bonus
+    id: 181, name: 'Shadow Armor', tier: 5, time: 240,
+    inputs: [
+      { materialId: MAT.SHADOW_IRON, quantity: 10 },
+      { materialId: MAT.ANCIENT_WOOD, quantity: 5 },
+    ],
+    output: { itemId: ITEM.SHADOW_ARMOR, quantity: 1 },
+    knowledgeRequired: ['armor_smithing'],
+  },
 ]

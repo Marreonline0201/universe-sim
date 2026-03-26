@@ -21,6 +21,24 @@ const ITEM_NAMES: Record<number, string> = Object.fromEntries(
   Object.entries(ITEM).map(([k, v]) => [v, k.toLowerCase().replace(/_/g, ' ')])
 )
 
+// ── M38 Track C: Biome source icons for ingredients ─────────────────────────
+const BIOME_MAT_ICONS: Partial<Record<number, { icon: string; label: string }>> = {
+  [MAT.VOLCANIC_GLASS]:  { icon: '🌋', label: 'Volcano' },
+  [MAT.GLACIER_ICE]:     { icon: '🧊', label: 'Tundra'  },
+  [MAT.DESERT_CRYSTAL]:  { icon: '🏜', label: 'Desert'  },
+  [MAT.DEEP_CORAL]:      { icon: '🌊', label: 'Ocean'   },
+  [MAT.ANCIENT_WOOD]:    { icon: '🌲', label: 'Forest'  },
+  [MAT.SHADOW_IRON]:     { icon: '⛏', label: 'Cave'    },
+  [MAT.LUMINITE]:        { icon: '⛏', label: 'Cave'    },
+}
+
+// Tier badge color for recipes
+function getTierBadge(tier: number): { color: string; label: string } | null {
+  if (tier === 4) return { color: '#ffd700', label: 'T4' }
+  if (tier >= 5) return { color: '#cc88ff', label: 'T5' }
+  return null
+}
+
 // ── Tier labels ─────────────────────────────────────────────────────────────
 const TIER_NAMES: Record<number, string> = {
   0: 'Primitive',
@@ -333,6 +351,16 @@ export function CraftingPanel() {
                             {r.requiresAlchemyTable && (
                               <span title="Requires alchemy table" style={{ fontSize: 10, color: '#c87dff', opacity: 0.85 }}>🧪</span>
                             )}
+                            {(() => {
+                              const badge = getTierBadge(r.tier)
+                              return badge ? (
+                                <span title={`Tier ${r.tier} recipe`} style={{
+                                  fontSize: 9, color: badge.color,
+                                  border: `1px solid ${badge.color}`,
+                                  borderRadius: 3, padding: '0 3px', opacity: 0.9,
+                                }}>{badge.label}</span>
+                              ) : null
+                            })()}
                           </div>
                           <div style={{ fontSize: 10, color: '#888', marginTop: 2 }}>
                             {r.inputs.map(inp => `${inp.quantity}x ${MAT_NAMES[inp.materialId] ?? inp.materialId}`).join(', ')}
@@ -384,10 +412,14 @@ export function CraftingPanel() {
           {selectedRecipe.inputs.map((inp, i) => {
             const have = inventory.countMaterial(inp.materialId)
             const ok = have >= inp.quantity
+            const biomeSrc = BIOME_MAT_ICONS[inp.materialId]
             return (
-              <div key={i} style={{ fontSize: 11, color: ok ? '#2ecc71' : '#e74c3c' }}>
+              <div key={i} style={{ fontSize: 11, color: ok ? '#2ecc71' : '#e74c3c', display: 'flex', alignItems: 'center', gap: 3 }}>
                 {inp.quantity}x {MAT_NAMES[inp.materialId] ?? inp.materialId}
-                <span style={{ color: '#666' }}> ({have} owned)</span>
+                {biomeSrc && (
+                  <span title={`Found in: ${biomeSrc.label}`} style={{ fontSize: 10, opacity: 0.85 }}>{biomeSrc.icon}</span>
+                )}
+                <span style={{ color: '#666' }}>({have})</span>
               </div>
             )
           })}

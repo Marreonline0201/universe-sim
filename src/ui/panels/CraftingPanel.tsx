@@ -2,8 +2,9 @@
 // M20: Recipe browser with search, tier-grouped sections, and craft animations.
 
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { inventory } from '../../game/GameSingletons'
-import { CRAFTING_RECIPES, MAT, ITEM, type CraftingRecipe } from '../../player/Inventory'
+import { inventory, questSystem } from '../../game/GameSingletons'
+import { skillSystem } from '../../game/SkillSystem'
+import { CRAFTING_RECIPES, MAT, ITEM, rollCraftRarity, RARITY_NAMES, type CraftingRecipe, type RarityTier } from '../../player/Inventory'
 import { usePlayerStore } from '../../store/playerStore'
 import { useUiStore } from '../../store/uiStore'
 
@@ -100,9 +101,27 @@ export function CraftingPanel() {
     const prevItems = inventory.listItems().map(e => e.index)
     const ok = inventory.craft(selectedRecipe.id, civTier)
     if (ok) {
+      // M23: Roll rarity for the crafted item based on recipe tier + crafting skill
+      const craftLevel = skillSystem.getLevel('crafting')
+      const rarity = rollCraftRarity(selectedRecipe.tier, craftLevel) as RarityTier
+      // Find the newly crafted slot (not in prevItems) and assign rarity
+      if (rarity > 0) {
+        for (let i = 0; i < inventory.slotCount; i++) {
+          if (!prevItems.includes(i)) {
+            const newSlot = inventory.getSlot(i)
+            if (newSlot) { newSlot.rarity = rarity }
+            break
+          }
+        }
+      }
+
+      // M23: Quest progress on craft
+      questSystem.onCraft(selectedRecipe.id)
+
       // Craft flash animation
       setCraftFlash(true)
-      setFloatingText(`+1 ${selectedRecipe.name}`)
+      const rarityLabel = rarity > 0 ? ` [${RARITY_NAMES[rarity]}]` : ''
+      setFloatingText(`+1 ${selectedRecipe.name}${rarityLabel}`)
       setTimeout(() => setCraftFlash(false), 400)
       setTimeout(() => setFloatingText(null), 1200)
 
@@ -113,7 +132,7 @@ export function CraftingPanel() {
           m.skillSystem.addXp('smithing', 20 + selectedRecipe.tier * 5)
         }
       })
-      addNotification(`Crafted: ${selectedRecipe.name}`, 'info')
+      addNotification(`Crafted: ${selectedRecipe.name}${rarityLabel}`, 'info')
       if (andEquip && !selectedRecipe.output.isMaterial) {
         for (let i = 0; i < inventory.slotCount; i++) {
           const slot = inventory.getSlot(i)

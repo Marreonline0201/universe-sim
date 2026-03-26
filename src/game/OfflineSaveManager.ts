@@ -73,6 +73,14 @@ export function registerSkillSystem(sys: { serialize: () => unknown; deserialize
   _skillSystem = sys
 }
 
+// ── Quest system integration ──────────────────────────────────────────────────
+
+let _questSystem: { serialize: () => unknown; deserialize: (d: unknown) => void } | null = null
+
+export function registerQuestSystem(sys: { serialize: () => unknown; deserialize: (d: unknown) => void }) {
+  _questSystem = sys
+}
+
 // ── Save ──────────────────────────────────────────────────────────────────────
 
 export async function saveOffline(): Promise<boolean> {
@@ -98,6 +106,7 @@ export async function saveOffline(): Promise<boolean> {
       smithingXp: ps.smithingXp,
       wounds: ps.wounds,
       skills: _skillSystem ? _skillSystem.serialize() : null,
+      quests: _questSystem ? _questSystem.serialize() : null,
     })
     const meta = JSON.stringify({
       timestamp: Date.now(),
@@ -200,6 +209,11 @@ export async function loadOffline(): Promise<boolean> {
     // Restore skills
     if (state.skills && _skillSystem) {
       _skillSystem.deserialize(state.skills)
+    }
+
+    // Restore quest progress (M23)
+    if (state.quests && _questSystem) {
+      _questSystem.deserialize(state.quests)
     }
 
     // Restore position

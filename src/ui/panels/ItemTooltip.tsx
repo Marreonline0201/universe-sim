@@ -7,8 +7,8 @@
 
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { createPortal } from 'react-dom'
-import type { InventorySlot } from '../../player/Inventory'
-import { MAT, ITEM } from '../../player/Inventory'
+import type { InventorySlot, RarityTier } from '../../player/Inventory'
+import { MAT, ITEM, RARITY_COLORS, RARITY_NAMES } from '../../player/Inventory'
 import { getItemStats, getFoodStats } from '../../player/EquipSystem'
 
 // ── Name lookups ────────────────────────────────────────────────────────────
@@ -122,6 +122,17 @@ function TooltipContent({ slot, anchorRect }: TooltipProps) {
       fontFamily: 'monospace',
       color: '#ccc',
     }}>
+      {/* M23: Rarity badge at the top of the tooltip */}
+      {(slot.rarity ?? 0) > 0 && (
+        <div style={{
+          fontSize: 10, fontWeight: 700,
+          color: RARITY_COLORS[(slot.rarity ?? 0) as RarityTier],
+          marginBottom: 4, letterSpacing: 1,
+        }}>
+          {RARITY_NAMES[(slot.rarity ?? 0) as RarityTier].toUpperCase()}
+        </div>
+      )}
+
       {/* Name */}
       <div style={{ fontSize: 13, fontWeight: 700, color, marginBottom: 4, textTransform: 'capitalize' }}>
         {name}

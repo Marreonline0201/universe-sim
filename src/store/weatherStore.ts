@@ -32,6 +32,11 @@ interface WeatherStoreState {
   // Lightning flash state — toggled by WeatherRenderer ticker
   lightningActive: boolean
   setLightningActive: (v: boolean) => void
+
+  // M23: Wetness factor (0-1) for terrain wet surface darkening
+  // Ramps up during rain, ramps down after rain stops
+  wetness: number
+  setWetness: (v: number) => void
 }
 
 const DEFAULT_SECTOR: SectorWeather = {
@@ -67,4 +72,7 @@ export const useWeatherStore = create<WeatherStoreState>((set, get) => ({
 
   lightningActive: false,
   setLightningActive: (v) => set({ lightningActive: v }),
+
+  wetness: 0,
+  setWetness: (v) => set({ wetness: v }),
 }))

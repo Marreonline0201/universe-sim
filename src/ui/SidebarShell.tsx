@@ -23,6 +23,7 @@ const BuildPanel     = lazy(() => import('./panels/BuildPanel').then(m => ({ def
 const SciencePanel   = lazy(() => import('./panels/SciencePanel').then(m => ({ default: m.SciencePanel })))
 const DialoguePanel  = lazy(() => import('./panels/DialoguePanel').then(m => ({ default: m.DialoguePanel })))
 const SkillTreePanel = lazy(() => import('./panels/SkillTreePanel').then(m => ({ default: m.SkillTreePanel })))
+const QuestPanel     = lazy(() => import('./panels/QuestPanel').then(m => ({ default: m.QuestPanel })))
 
 const PANEL_LABEL: Record<PanelId, string> = {
   inventory: 'INVENTORY',
@@ -35,6 +36,7 @@ const PANEL_LABEL: Record<PanelId, string> = {
   science:   'SCIENCE COMPANION',
   dialogue:  'DIALOGUE',
   skills:    'SKILLS',
+  quests:    'QUESTS',
 }
 
 const PANEL_WIDTH = 480
@@ -48,6 +50,7 @@ const ICON_BUTTONS: Array<{ id: PanelId; icon: string; hint: string }> = [
   { id: 'character',  icon: 'CHR',  hint: 'Character (Tab)' },
   { id: 'map',        icon: 'MAP',  hint: 'Map (M)' },
   { id: 'skills',     icon: 'SKL',  hint: 'Skills (K)' },
+  { id: 'quests',     icon: 'QST',  hint: 'Quests (Q)' },
   { id: 'science',    icon: ' ? ',  hint: 'Science Companion (?)' },
   { id: 'settings',   icon: 'SET',  hint: 'Settings (Esc)' },
 ]
@@ -63,6 +66,7 @@ const PANEL_COMPONENTS: Record<PanelId, React.ComponentType> = {
   science:    SciencePanel,
   dialogue:   DialoguePanel,
   skills:     SkillTreePanel,
+  quests:     QuestPanel,
 }
 
 export function SidebarShell() {
@@ -102,6 +106,7 @@ export function SidebarShell() {
           break
         case 'j': case 'J':   e.preventDefault(); togglePanel('journal');    break
         case 'k': case 'K':   e.preventDefault(); togglePanel('skills');     break
+        case 'q': case 'Q':   e.preventDefault(); togglePanel('quests');     break
         case 'Tab':           e.preventDefault(); togglePanel('character');  break
         case 'm': case 'M':   e.preventDefault(); togglePanel('map');        break
         case '?': case '/':

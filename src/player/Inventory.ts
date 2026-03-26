@@ -3,6 +3,38 @@ export interface InventorySlot {
   materialId: number
   quantity: number
   quality: number  // 0-1
+  rarity?: number  // 0=Common, 1=Uncommon, 2=Rare, 3=Epic, 4=Legendary (defaults to 0)
+}
+
+// ── Rarity System ──────────────────────────────────────────────────────────
+export const RARITY = { COMMON: 0, UNCOMMON: 1, RARE: 2, EPIC: 3, LEGENDARY: 4 } as const
+export type RarityTier = 0 | 1 | 2 | 3 | 4
+
+export const RARITY_NAMES: Record<RarityTier, string> = {
+  0: 'Common', 1: 'Uncommon', 2: 'Rare', 3: 'Epic', 4: 'Legendary',
+}
+
+export const RARITY_COLORS: Record<RarityTier, string> = {
+  0: '#9d9d9d', 1: '#1eff00', 2: '#0070dd', 3: '#a335ee', 4: '#ff8000',
+}
+
+/** Roll rarity for a crafted item based on recipe tier + crafting skill level (0-10). */
+export function rollCraftRarity(recipeTier: number, craftingSkillLevel: number): RarityTier {
+  if (recipeTier <= 1) return 0
+  const r = Math.random() * 100
+  const bonus = craftingSkillLevel * 2 // +2% per skill level to non-Common
+  if (recipeTier <= 3) {
+    // Tier 2-3: 80% Common, 15% Uncommon, 5% Rare (before bonus)
+    if (r < 5 + bonus * 0.5) return 2
+    if (r < 20 + bonus) return 1
+    return 0
+  }
+  // Tier 4+: 50% Common, 30% Uncommon, 15% Rare, 4% Epic, 1% Legendary
+  if (r < 1 + bonus * 0.2) return 4
+  if (r < 5 + bonus * 0.5) return 3
+  if (r < 20 + bonus) return 2
+  if (r < 50 + bonus * 1.5) return 1
+  return 0
 }
 
 export interface CraftingRecipe {
@@ -38,10 +70,10 @@ export class Inventory {
    * Used by craft() to validate output can fit before consuming inputs (B-19 fix).
    */
   canAddItem(slot: InventorySlot): boolean {
-    // Try to stack onto existing matching slot
+    // Try to stack onto existing matching slot (rarity must also match)
     for (let i = 0; i < this.slots.length; i++) {
       const s = this.slots[i]
-      if (s && s.itemId === slot.itemId && s.materialId === slot.materialId && Math.abs(s.quality - slot.quality) < 0.01) {
+      if (s && s.itemId === slot.itemId && s.materialId === slot.materialId && Math.abs(s.quality - slot.quality) < 0.01 && (s.rarity ?? 0) === (slot.rarity ?? 0)) {
         return true  // Can stack
       }
     }
@@ -64,10 +96,10 @@ export class Inventory {
    * Returns true if the item was accepted, false if inventory is full.
    */
   addItem(slot: InventorySlot): boolean {
-    // Try to stack onto existing matching slot
+    // Try to stack onto existing matching slot (rarity must also match)
     for (let i = 0; i < this.slots.length; i++) {
       const s = this.slots[i]
-      if (s && s.itemId === slot.itemId && s.materialId === slot.materialId && Math.abs(s.quality - slot.quality) < 0.01) {
+      if (s && s.itemId === slot.itemId && s.materialId === slot.materialId && Math.abs(s.quality - slot.quality) < 0.01 && (s.rarity ?? 0) === (slot.rarity ?? 0)) {
         s.quantity += slot.quantity
         return true
       }

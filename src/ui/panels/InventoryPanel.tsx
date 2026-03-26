@@ -3,7 +3,7 @@
 
 import { useState, useEffect } from 'react'
 import { inventory } from '../../game/GameSingletons'
-import { MAT, ITEM, type InventorySlot } from '../../player/Inventory'
+import { MAT, ITEM, type InventorySlot, RARITY_COLORS, RARITY_NAMES, type RarityTier } from '../../player/Inventory'
 import { usePlayerStore } from '../../store/playerStore'
 import { getItemStats, getFoodStats } from '../../player/EquipSystem'
 import { Metabolism } from '../../ecs/world'
@@ -29,6 +29,8 @@ function SlotCell({ slot, index, selected, equipped, onSelect, onHoverEnter, onH
   const category = slot ? getItemCategory(slot) : null
   const categoryColor = category ? CATEGORY_COLORS[category] : '#666'
   const categoryLabel = category ? CATEGORY_LABELS[category] : ''
+  const rarity = (slot?.rarity ?? 0) as RarityTier
+  const rarityColor = rarity > 0 ? RARITY_COLORS[rarity] : null
 
   return (
     <div
@@ -47,7 +49,9 @@ function SlotCell({ slot, index, selected, equipped, onSelect, onHoverEnter, onH
           ? '1px solid rgba(52,152,219,0.8)'
           : equipped
             ? '2px solid #22c55e'
-            : '1px solid rgba(255,255,255,0.1)',
+            : rarityColor
+              ? `1px solid ${rarityColor}`
+              : '1px solid rgba(255,255,255,0.1)',
         borderRadius: 6,
         cursor: slot ? 'pointer' : 'default',
         display: 'flex',
@@ -56,6 +60,8 @@ function SlotCell({ slot, index, selected, equipped, onSelect, onHoverEnter, onH
         justifyContent: 'center',
         position: 'relative',
         transition: 'all 0.1s',
+        boxShadow: rarityColor ? `0 0 6px ${rarityColor}40` : undefined,
+        animation: rarity === 4 ? 'legendary-pulse 2s ease-in-out infinite' : undefined,
       }}
     >
       {slot && (
@@ -141,6 +147,14 @@ export function InventoryPanel() {
 
   return (
     <div style={{ color: '#fff', fontFamily: 'monospace' }}>
+      {/* M23: Legendary slot pulse animation */}
+      <style>{`
+        @keyframes legendary-pulse {
+          0%, 100% { box-shadow: 0 0 6px #ff800040; }
+          50% { box-shadow: 0 0 14px #ff8000aa, 0 0 4px #ff800066; }
+        }
+      `}</style>
+
       {/* Tooltip portal — renders outside grid to avoid overflow */}
       {tooltipPortal}
 

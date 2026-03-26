@@ -8,7 +8,7 @@ import * as THREE from 'three'
 import { Position } from '../ecs/world'
 import { BUILDING_TYPES } from '../civilization/BuildingSystem'
 import { surfaceRadiusAt, PLANET_RADIUS } from '../world/SpherePlanet'
-import { inventory, buildingSystem } from './GameSingletons'
+import { inventory, buildingSystem, questSystem } from './GameSingletons'
 import { activateReactor } from './NuclearReactorSystem'
 import { useGameStore } from '../store/gameStore'
 import { useUiStore } from '../store/uiStore'
@@ -82,6 +82,8 @@ export function tickBuildingPlacement(
       if (placementMode === 'nuclear_reactor_small' || placementMode === 'nuclear_reactor') {
         activateReactor(ghostBuildPos)
       }
+      // M23: Quest progress on building placement
+      questSystem.onBuild(0)
       bumpBuildVersion()
       setPlacementMode(null)
       gs.setGatherPrompt(null)

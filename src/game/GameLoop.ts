@@ -43,8 +43,9 @@ import {
   tickEcosystemBalance,
 } from '../ecs/systems/AnimalAISystem'
 
-import { inventory, buildingSystem } from './GameSingletons'
-import { ITEM, MAT } from '../player/Inventory'
+import { inventory, buildingSystem, questSystem } from './GameSingletons'
+import { SPECIES_LOOT, rollLoot } from './LootTable'
+import { ITEM, MAT, RARITY_NAMES, type RarityTier } from '../player/Inventory'
 import { getItemStats, canHarvest } from '../player/EquipSystem'
 import { BUILDING_TYPES } from '../civilization/BuildingSystem'
 import {
@@ -101,10 +102,12 @@ import type { LocalSimManager } from '../engine/LocalSimManager'
 import { tickChemistryGameplay } from './ChemistryGameplay'
 import { CreatureBody } from '../ecs/world'
 import { skillSystem } from './SkillSystem'
-import { saveOffline, registerSkillSystem } from './OfflineSaveManager'
+import { saveOffline, registerSkillSystem, registerQuestSystem } from './OfflineSaveManager'
 
 // Register skill system with offline save manager for serialization
 registerSkillSystem(skillSystem)
+// Register quest system with offline save manager for serialization (M23)
+registerQuestSystem(questSystem)
 
 // ── Dig holes ─────────────────────────────────────────────────────────────────
 export interface DigHole { x: number; y: number; z: number; r: number }
@@ -358,6 +361,8 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
           }
           // M22: Gathering XP (10-30 based on ore vs basic)
           skillSystem.addXp('gathering', isOre ? 25 : 15)
+          // M23: Quest progress on gather
+          questSystem.onGather(nearNode.matId, qty)
           const addNotification = useUiStore.getState().addNotification
           addNotification(
             `✓ Gathered ${qty > 1 ? qty + '× ' : ''}${nearNode.label} — [I] to view items`,
@@ -779,14 +784,33 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
             const { killed, loot } = animalHit
             if (killed) {
               const speciesName = killed.species.charAt(0).toUpperCase() + killed.species.slice(1)
-              for (const drop of loot) {
-                inventory.addItem({ itemId: 0, materialId: drop.materialId, quantity: drop.quantity, quality: 0.8 })
+              // M23: Use loot table system for rarity-aware drops
+              const speciesTable = SPECIES_LOOT[killed.species]
+              if (speciesTable) {
+                const lootDrops = rollLoot(speciesTable)
+                for (const drop of lootDrops) {
+                  inventory.addItem(drop)
+                }
+                const lootSummary = lootDrops.map(l => {
+                  const rarityName = l.rarity && l.rarity > 0 ? ` [${RARITY_NAMES[(l.rarity ?? 0) as RarityTier]}]` : ''
+                  return `${l.quantity}x item${rarityName}`
+                }).join(', ')
+                useUiStore.getState().addNotification(
+                  `${speciesName} killed — ${lootSummary}`, 'discovery'
+                )
+              } else {
+                // Fallback to old loot system for unknown species
+                for (const drop of loot) {
+                  inventory.addItem({ itemId: 0, materialId: drop.materialId, quantity: drop.quantity, quality: 0.8 })
+                }
+                const lootSummary = loot.map(l => `${l.quantity}x ${l.label}`).join(', ')
+                useUiStore.getState().addNotification(
+                  `${speciesName} killed — ${lootSummary} collected!`, 'discovery'
+                )
               }
               skillSystem.addXp('combat', 50) // M22: Combat XP on animal kill
-              const lootSummary = loot.map(l => `${l.quantity}x ${l.label}`).join(', ')
-              useUiStore.getState().addNotification(
-                `${speciesName} killed — ${lootSummary} collected!`, 'discovery'
-              )
+              // M23: Quest progress on kill
+              questSystem.onKill(killed.species)
             } else {
               useUiStore.getState().addNotification(
                 `Hit animal for ${stats.damage} dmg!`, 'warning'
@@ -1284,6 +1308,14 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
     if (survivalXpTimerRef.current >= 60) {
       survivalXpTimerRef.current = 0
       skillSystem.addXp('survival', 5)
+    }
+
+    // ── M23: Quest day-tick + tier-check ────────────────────────────────────
+    {
+      const dayCount = useGameStore.getState().dayCount ?? 1
+      questSystem.onDayTick(dayCount)
+      const currentTier = usePlayerStore.getState().civTier ?? 0
+      questSystem.onTierReached(currentTier)
     }
 
     // ── M7 T2: NPC guard aggro ────────────────────────────────────────────────

@@ -21,6 +21,7 @@ import {
 } from '../world/SpherePlanet'
 import { createOceanMaterial, applyOceanCaustics, type OceanMaterialHandle } from './shaders/OceanShader'
 import { makeAtmosphereShader, updateAtmosphereUniforms } from './shaders/AtmosphereShader'
+import { useWeatherStore } from '../store/weatherStore'
 
 // Sun orbit radius — must match DayNightCycle.tsx constant
 const SUN_ORBIT_R_PT = 8000
@@ -106,6 +107,8 @@ function makeTerrainMaterial(): THREE.MeshStandardMaterial {
   mat.onBeforeCompile = (shader) => {
     // Pass sea-level radius as a uniform so the GLSL can compute elevation
     shader.uniforms.uSeaRadius = { value: seaRadius }
+    // M23: Wetness factor from weather system (0-1)
+    shader.uniforms.uWetness = { value: 0.0 }
 
     // Inject world-position varying into vertex shader.
     // Use #include <project_vertex> as the injection point — always present in
@@ -118,7 +121,7 @@ function makeTerrainMaterial(): THREE.MeshStandardMaterial {
     )
 
     // Inject detail noise + wet-edge darkening into fragment shader color step
-    shader.fragmentShader = 'varying vec3 vTerrainWorldPos;\nuniform float uSeaRadius;\n' + DETAIL_NOISE_GLSL + shader.fragmentShader
+    shader.fragmentShader = 'varying vec3 vTerrainWorldPos;\nuniform float uSeaRadius;\nuniform float uWetness;\n' + DETAIL_NOISE_GLSL + shader.fragmentShader
     shader.fragmentShader = shader.fragmentShader.replace(
       '#include <color_fragment>',
       `#include <color_fragment>
@@ -133,7 +136,10 @@ function makeTerrainMaterial(): THREE.MeshStandardMaterial {
       // Smooth ramp: 1.0 at sea level, 0.0 at 20m above
       float _wetFactor = clamp(1.0 - _elev / 20.0, 0.0, 1.0);
       // Darken albedo by up to 0.15 (wet sand/rock absorbs more light)
-      diffuseColor.rgb *= 1.0 - _wetFactor * 0.15;`
+      diffuseColor.rgb *= 1.0 - _wetFactor * 0.15;
+
+      // M23: Rain wetness — darken terrain albedo by up to 30% when wet
+      diffuseColor.rgb *= 1.0 - uWetness * 0.30;`
     )
 
     // ── Biome-dependent roughness + wet edge roughness (C2) ───────────────────
@@ -172,8 +178,14 @@ function makeTerrainMaterial(): THREE.MeshStandardMaterial {
         // Wet edge: increase roughness near sea level
         float _wetR = clamp(1.0 - _elev2 / 20.0, 0.0, 1.0);
         roughnessFactor = clamp(roughnessFactor + _wetR * 0.20, 0.0, 1.0);
+
+        // M23: Rain wetness — reduce roughness by up to 0.3 when wet (shinier surfaces)
+        roughnessFactor = clamp(roughnessFactor - uWetness * 0.30, 0.0, 1.0);
       }`
     )
+
+    // M23: Store shader reference for per-frame wetness uniform updates
+    ;(mat as any)._terrainShader = shader
 
     // ── Tri-planar procedural normal mapping (C1) ─────────────────────────────
     // Perturb the shading normal after <normal_fragment_maps> to add surface bumps.
@@ -294,6 +306,12 @@ export function PlanetTerrain({ seed, dayAngle = Math.PI * 0.6 }: PlanetTerrainP
     const causticUpdate = (terrainMat as unknown as Record<string, unknown>)._causticUpdate
     if (typeof causticUpdate === 'function') {
       (causticUpdate as (elapsed: number) => void)(t)
+    }
+
+    // M23: Update wetness uniform from weather store
+    const terrainShader = (terrainMat as any)._terrainShader
+    if (terrainShader?.uniforms?.uWetness) {
+      terrainShader.uniforms.uWetness.value = useWeatherStore.getState().wetness
     }
 
     // Atmosphere: update sun direction uniform + smooth twilight opacity

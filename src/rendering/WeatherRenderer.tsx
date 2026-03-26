@@ -1,14 +1,20 @@
 // ── WeatherRenderer.tsx ────────────────────────────────────────────────────────
 // M8 Track 1: Photorealistic weather visual effects.
+// M23 Track A: Enhanced weather VFX — rain splashes, wet surfaces, snow
+//              accumulation, lightning bolt geometry, weather fog density.
 //
 // Renders into the R3F Canvas (must be mounted inside <Canvas>).
 //
 // Systems:
-//   Rain    — 2000 instanced line segments, velocity = windDir + gravity
-//   Snow    — 800 instanced billboard quads, slow spiral descent (temp < 0°C)
-//   Storm   — random lightning flash (15-45s interval), bright directional flash
-//   Wind    — 300 dust/leaf sprites flying horizontally (CLEAR/CLOUDY only)
-//   Clouds  — billboard quad mesh slightly above horizon, opacity = f(state)
+//   Rain       — 2000 instanced line segments, velocity = windDir + gravity
+//   Snow       — 800 instanced billboard quads, slow spiral descent (temp < 0°C)
+//   Storm      — random lightning flash (15-45s interval), bright directional flash
+//   Wind       — 300 dust/leaf sprites flying horizontally (CLEAR/CLOUDY only)
+//   Clouds     — billboard quad mesh slightly above horizon, opacity = f(state)
+//   Splashes   — 150 instanced rings at ground level during rain (M23)
+//   Snow Cover — translucent white disc on ground during snowfall (M23)
+//   Lightning  — jagged branching line bolt geometry (M23)
+//   Wetness    — ramps up during rain, darkens terrain via weatherStore (M23)
 //
 // Performance budget: all geometry is instanced. No allocations per frame.
 // Particle positions stored in Float32Array and uploaded via buffer update.
@@ -25,12 +31,20 @@ import { PLANET_RADIUS } from '../world/SpherePlanet'
 const RAIN_COUNT   = 2000
 const SNOW_COUNT   = 800
 const WIND_COUNT   = 300
-const RAIN_HEIGHT  = 60     // metres above player — rain spawns here and falls
-const RAIN_SPREAD  = 80     // horizontal spread radius in metres
-const RAIN_SPEED   = 18     // metres/sec downward velocity
-const SNOW_SPEED   = 2.0    // metres/sec downward velocity
-const WIND_SPEED_BASE = 6   // multiplied by sector windSpeed for wind particles
-const CLOUD_Y_OFFSET  = 200 // metres above planet surface (relative to player)
+const SPLASH_COUNT = 150        // M23: rain splash rings
+const RAIN_HEIGHT  = 60         // metres above player — rain spawns here and falls
+const RAIN_SPREAD  = 80         // horizontal spread radius in metres
+const RAIN_SPEED   = 18         // metres/sec downward velocity
+const SNOW_SPEED   = 2.0        // metres/sec downward velocity
+const WIND_SPEED_BASE = 6       // multiplied by sector windSpeed for wind particles
+const CLOUD_Y_OFFSET  = 200     // metres above planet surface (relative to player)
+
+// M23: Lightning bolt segments
+const BOLT_SEGMENTS = 8
+
+// M23: Wetness ramp rates (seconds to ramp 0→1 and 1→0)
+const WETNESS_RAMP_UP_S   = 30
+const WETNESS_RAMP_DOWN_S = 60
 
 // Wind direction in degrees → unit vector in world XZ plane
 function windDirToVec(degrees: number): THREE.Vector3 {
@@ -53,6 +67,7 @@ export function WeatherRenderer({ playerX, playerY, playerZ }: WeatherRendererPr
   const weatherPlayerSectorId = useWeatherStore(s => s.playerSectorId)
   const weather = weatherSectors.find(s => s.sectorId === weatherPlayerSectorId) ?? weatherSectors[0] ?? null
   const setLightning = useWeatherStore(s => s.setLightningActive)
+  const setWetness   = useWeatherStore(s => s.setWetness)
 
   const state     = weather?.state     ?? 'CLEAR'
   const windDir   = weather?.windDir   ?? 0
@@ -94,6 +109,25 @@ export function WeatherRenderer({ playerX, playerY, playerZ }: WeatherRendererPr
   const windPositions    = useMemo(() => new Float32Array(WIND_COUNT * 3), [])
   const windPhases       = useMemo(() => new Float32Array(WIND_COUNT), [])
 
+  // ── M23: Rain splash rings ────────────────────────────────────────────────
+  const splashMeshRef    = useRef<THREE.InstancedMesh | null>(null)
+  // Each splash: [x, y, z, timer] — timer counts from 0 to 1 (lifetime)
+  const splashData       = useMemo(() => new Float32Array(SPLASH_COUNT * 4), [])
+  const _splashScale     = useMemo(() => new THREE.Vector3(), [])
+  const _splashQuat      = useMemo(() => new THREE.Quaternion(), [])
+
+  // ── M23: Snow ground cover ────────────────────────────────────────────────
+  const snowGroundRef    = useRef<THREE.Mesh | null>(null)
+  const snowCoverOpacity = useRef(0)   // 0–0.4
+
+  // ── M23: Lightning bolt line ──────────────────────────────────────────────
+  const boltLineRef      = useRef<THREE.Line | null>(null)
+  const boltPositions    = useMemo(() => new Float32Array(BOLT_SEGMENTS * 3), [])
+  const boltTimerRef     = useRef(0)   // countdown for bolt visibility (150ms)
+
+  // ── M23: Wetness tracking ─────────────────────────────────────────────────
+  const wetnessRef       = useRef(0)
+
   // Initialise particle positions randomly around origin (will be offset to player each frame)
   useEffect(() => {
     for (let i = 0; i < RAIN_COUNT; i++) {
@@ -113,7 +147,31 @@ export function WeatherRenderer({ playerX, playerY, playerZ }: WeatherRendererPr
       windPositions[i * 3 + 2] = (Math.random() - 0.5) * RAIN_SPREAD * 2
       windPhases[i] = Math.random() * Math.PI * 2
     }
-  }, [rainPositions, snowPositions, snowAngles, windPositions, windPhases])
+    // M23: Init splash timers to random spread so they don't all spawn at once
+    for (let i = 0; i < SPLASH_COUNT; i++) {
+      splashData[i * 4 + 0] = (Math.random() - 0.5) * 60  // x offset
+      splashData[i * 4 + 1] = 0                            // y offset (ground)
+      splashData[i * 4 + 2] = (Math.random() - 0.5) * 60  // z offset
+      splashData[i * 4 + 3] = Math.random()                // timer (0-1 lifecycle)
+    }
+  }, [rainPositions, snowPositions, snowAngles, windPositions, windPhases, splashData])
+
+  // ── M23: Create bolt line geometry + material + object once ─────────────────
+  const boltGeometry = useMemo(() => {
+    const geo = new THREE.BufferGeometry()
+    geo.setAttribute('position', new THREE.BufferAttribute(boltPositions, 3))
+    return geo
+  }, [boltPositions])
+
+  const boltMaterial = useMemo(() => new THREE.LineBasicMaterial({
+    color: 0xeeeeff,
+    linewidth: 2,
+    transparent: true,
+    opacity: 1.0,
+    depthWrite: false,
+  }), [])
+
+  const boltLineObject = useMemo(() => new THREE.Line(boltGeometry, boltMaterial), [boltGeometry, boltMaterial])
 
   useFrame((_, delta) => {
     const dt = Math.min(delta, 0.1)
@@ -203,9 +261,9 @@ export function WeatherRenderer({ playerX, playerY, playerZ }: WeatherRendererPr
         const wz = playerZ + sz
 
         rainMatrix.compose(
-          new THREE.Vector3(wx, wy, wz),
-          rainQuat,  // no rotation — snow flakes face camera (billboarding handled by material side)
-          new THREE.Vector3(0.15, 0.15, 0.15),
+          _posVec.set(wx, wy, wz),
+          rainQuat,  // no rotation — snow flakes face camera
+          _scaleVec.set(0.15, 0.15, 0.15),
         )
         mesh.setMatrixAt(i, rainMatrix)
       }
@@ -243,9 +301,9 @@ export function WeatherRenderer({ playerX, playerY, playerZ }: WeatherRendererPr
         windPositions[i * 3 + 2] = wz2
 
         rainMatrix.compose(
-          new THREE.Vector3(playerX + wx2, playerY + wy2, playerZ + wz2),
-          new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), windPhases[i]),
-          new THREE.Vector3(0.06, 0.06, 0.3),
+          _posVec.set(playerX + wx2, playerY + wy2, playerZ + wz2),
+          _splashQuat.setFromAxisAngle(_upRef, windPhases[i]),
+          _scaleVec.set(0.06, 0.06, 0.3),
         )
         mesh.setMatrixAt(i, rainMatrix)
       }
@@ -254,6 +312,70 @@ export function WeatherRenderer({ playerX, playerY, playerZ }: WeatherRendererPr
       mesh.visible = true
     } else if (windMeshRef.current) {
       windMeshRef.current.visible = false
+    }
+
+    // ── M23: Rain splash rings at ground level ──────────────────────────────
+    if (splashMeshRef.current && isRain && !isSnow) {
+      const mesh = splashMeshRef.current
+      const splashLifetime = 0.3  // seconds for one splash cycle
+
+      for (let i = 0; i < SPLASH_COUNT; i++) {
+        let t = splashData[i * 4 + 3]
+        t += dt / splashLifetime
+
+        if (t >= 1.0) {
+          // Recycle splash at a new random position
+          splashData[i * 4 + 0] = (Math.random() - 0.5) * 60
+          splashData[i * 4 + 1] = 0.1  // slightly above ground to prevent z-fight
+          splashData[i * 4 + 2] = (Math.random() - 0.5) * 60
+          t = 0
+        }
+
+        splashData[i * 4 + 3] = t
+
+        // Scale expands from 0 to 1, opacity fades from 0.6 to 0
+        const scale = t * 1.0
+        const opacity = (1 - t) * 0.6
+
+        _posVec.set(
+          playerX + splashData[i * 4 + 0],
+          playerY + splashData[i * 4 + 1],
+          playerZ + splashData[i * 4 + 2],
+        )
+        _splashScale.set(scale, scale * 0.3, scale)
+        rainMatrix.compose(_posVec, _splashQuat.identity(), _splashScale)
+        mesh.setMatrixAt(i, rainMatrix)
+
+        // Modulate instance color for opacity effect via the color attribute
+        // (instancedMesh with transparent material — opacity is global,
+        //  but we scale the mesh to 0 when faded to simulate disappearance)
+        if (t > 0.95) {
+          // Nearly invisible — scale to zero
+          rainMatrix.compose(_posVec, _splashQuat.identity(), _scaleVec.set(0, 0, 0))
+          mesh.setMatrixAt(i, rainMatrix)
+        }
+      }
+
+      mesh.instanceMatrix.needsUpdate = true
+      mesh.visible = true
+    } else if (splashMeshRef.current) {
+      splashMeshRef.current.visible = false
+    }
+
+    // ── M23: Snow ground accumulation ────────────────────────────────────────
+    if (snowGroundRef.current) {
+      if (isSnow) {
+        // Ramp opacity up during snowfall (max 0.4)
+        snowCoverOpacity.current = Math.min(0.4, snowCoverOpacity.current + dt / 60)
+      } else {
+        // Fade out over 120s after snow stops
+        snowCoverOpacity.current = Math.max(0, snowCoverOpacity.current - dt / 120)
+      }
+      const mat = snowGroundRef.current.material as THREE.MeshStandardMaterial
+      mat.opacity = snowCoverOpacity.current
+      snowGroundRef.current.visible = snowCoverOpacity.current > 0.01
+      // Follow player
+      snowGroundRef.current.position.set(playerX, playerY + 0.05, playerZ)
     }
 
     // ── Lightning ─────────────────────────────────────────────────────────
@@ -272,7 +394,7 @@ export function WeatherRenderer({ playerX, playerY, playerZ }: WeatherRendererPr
 
       if (lightningTimerRef.current <= 0) {
         // Trigger a new flash
-        lightningFlashRef.current = 0.1    // 100ms flash
+        lightningFlashRef.current = 0.15   // 150ms flash (M23: extended from 100ms)
         lightningTimerRef.current = 15 + Math.random() * 30  // next flash in 15-45s
         setLightning(true)
         if (lightDirRef.current) {
@@ -285,11 +407,73 @@ export function WeatherRenderer({ playerX, playerY, playerZ }: WeatherRendererPr
             playerZ + Math.sin(angle) * 50,
           )
         }
+
+        // ── M23: Generate jagged bolt line geometry ───────────────────────
+        boltTimerRef.current = 0.15  // bolt visible for 150ms
+        const boltAngle = Math.random() * Math.PI * 2
+        const startX = playerX + Math.cos(boltAngle) * (10 + Math.random() * 20)
+        const startY = playerY + 60
+        const startZ = playerZ + Math.sin(boltAngle) * (10 + Math.random() * 20)
+        const endX   = playerX + Math.cos(boltAngle) * (5 + Math.random() * 10)
+        const endY   = playerY
+        const endZ   = playerZ + Math.sin(boltAngle) * (5 + Math.random() * 10)
+
+        for (let s = 0; s < BOLT_SEGMENTS; s++) {
+          const t2 = s / (BOLT_SEGMENTS - 1)
+          // Lerp from start to end with random lateral jitter
+          const jitterX = (s > 0 && s < BOLT_SEGMENTS - 1) ? (Math.random() - 0.5) * 8 : 0
+          const jitterZ = (s > 0 && s < BOLT_SEGMENTS - 1) ? (Math.random() - 0.5) * 8 : 0
+          boltPositions[s * 3 + 0] = startX + (endX - startX) * t2 + jitterX
+          boltPositions[s * 3 + 1] = startY + (endY - startY) * t2
+          boltPositions[s * 3 + 2] = startZ + (endZ - startZ) * t2 + jitterZ
+        }
+        if (boltLineRef.current) {
+          const geo = boltLineRef.current.geometry
+          const attr = geo.getAttribute('position') as THREE.BufferAttribute
+          attr.needsUpdate = true
+        }
       }
     } else {
       // Not storming — ensure lightning is off
       if (lightDirRef.current && lightDirRef.current.intensity > 0) {
         lightDirRef.current.intensity = 0
+      }
+    }
+
+    // ── M23: Bolt line visibility countdown ──────────────────────────────────
+    if (boltLineRef.current) {
+      if (boltTimerRef.current > 0) {
+        boltTimerRef.current -= dt
+        boltLineRef.current.visible = true
+        boltMaterial.opacity = Math.max(0, boltTimerRef.current / 0.15)
+      } else {
+        boltLineRef.current.visible = false
+      }
+    }
+
+    // ── M23: Wetness ramp ────────────────────────────────────────────────────
+    if (isRain && !isSnow) {
+      wetnessRef.current = Math.min(1, wetnessRef.current + dt / WETNESS_RAMP_UP_S)
+    } else {
+      wetnessRef.current = Math.max(0, wetnessRef.current - dt / WETNESS_RAMP_DOWN_S)
+    }
+    setWetness(wetnessRef.current)
+
+    // ── M23: Weather-dependent fog density ──────────────────────────────────
+    // Multiply with existing time-of-day fog (don't replace it).
+    // We adjust the scene fog density by lerping toward the target.
+    if (scene.fog instanceof THREE.FogExp2) {
+      const baseDensity = scene.fog.density
+      const weatherTarget =
+        state === 'STORM'  ? 0.0030 :
+        state === 'RAIN'   ? 0.0020 :
+        state === 'CLOUDY' ? 0.0012 : 0.0008
+      // Gentle lerp toward target (5-second transition)
+      const lerpRate = Math.min(1, dt / 5)
+      // We only modulate if the weather target is higher than current
+      // (DayNightCycle controls the base; we add weather on top)
+      if (baseDensity < weatherTarget) {
+        scene.fog.density = baseDensity + (weatherTarget - baseDensity) * lerpRate
       }
     }
   })
@@ -299,11 +483,6 @@ export function WeatherRenderer({ playerX, playerY, playerZ }: WeatherRendererPr
     state === 'STORM'  ? 0.85 :
     state === 'RAIN'   ? 0.65 :
     state === 'CLOUDY' ? 0.40 : 0.0
-
-  // Rain drop color: slightly blue-tinted transparent streaks
-  const rainColor  = new THREE.Color(0x88aaccff)
-  const snowColor  = new THREE.Color(0xeef4ffff)
-  const windColor  = new THREE.Color(0x998866ff)
 
   return (
     <>
@@ -383,6 +562,47 @@ export function WeatherRenderer({ playerX, playerY, playerZ }: WeatherRendererPr
           depthWrite={false}
         />
       </instancedMesh>
+
+      {/* ── M23: Rain splash rings at ground level ───────────────────────── */}
+      <instancedMesh
+        ref={splashMeshRef}
+        args={[undefined, undefined, SPLASH_COUNT]}
+        frustumCulled={false}
+        visible={false}
+      >
+        <torusGeometry args={[0.3, 0.02, 4, 12]} />
+        <meshBasicMaterial
+          color={0xaaccee}
+          transparent
+          opacity={0.5}
+          depthWrite={false}
+        />
+      </instancedMesh>
+
+      {/* ── M23: Snow ground accumulation disc ───────────────────────────── */}
+      <mesh
+        ref={snowGroundRef}
+        visible={false}
+        rotation={[-Math.PI / 2, 0, 0]}
+      >
+        <circleGeometry args={[80, 32]} />
+        <meshStandardMaterial
+          color={0xeef4ff}
+          transparent
+          opacity={0}
+          roughness={0.25}
+          metalness={0.0}
+          depthWrite={false}
+          side={THREE.DoubleSide}
+        />
+      </mesh>
+
+      {/* ── M23: Lightning bolt line ─────────────────────────────────────── */}
+      <primitive
+        ref={boltLineRef}
+        object={boltLineObject}
+        visible={false}
+      />
     </>
   )
 }

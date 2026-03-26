@@ -1,7 +1,7 @@
 # Director Plan -- Universe Sim
 
 **Date**: 2026-03-26
-**Sprint**: M22
+**Sprint**: M23
 **Status**: SHIPPED -- All 3 Tracks Complete
 
 ---
@@ -451,13 +451,104 @@
 
 ---
 
-## Priority Queue (After M22)
+## M23 Sprint Plan -- 3 Parallel Tracks
+
+### Track A (P0): Weather Visual Effects Enhancement
+**Assigned to**: `director` (self-execute)
+**Duration**: Full sprint
+**Goal**: Upgrade the WeatherRenderer with ground-level visual effects: rain splash impacts on terrain, wet surface darkening, snow ground accumulation, enhanced lightning bolt visual (branching line geometry + screen flash overlay), and weather-dependent fog density. The existing particle systems (rain/snow/wind/cloud) stay; we ADD ground-level immersion.
+
+| Task | Description | Technical Spec |
+|------|-------------|---------------|
+| A1 | Rain splash impacts | Add 200 instanced small ring meshes (TorusGeometry r=0.3, tube=0.02) at ground level around the player. Each splash: spawn at random XZ within 30m, Y = terrain height, expand from scale 0 to 1.0 over 300ms, fade opacity from 0.6 to 0 simultaneously. Recycle when fade completes. Only active during RAIN/STORM. Zero per-frame allocation (pre-allocated Float32Array for positions + lifecycle timers). |
+| A2 | Wet surface darkening | When state is RAIN or STORM, set a shared `wetness` uniform (0.0 to 1.0, ramps up over 30s of rain, ramps down over 60s after rain stops) on the terrain material via `onBeforeCompile`. Wetness multiplies terrain albedo by 0.7 (darker) and reduces roughness by 0.3 (shinier). This makes the world look wet during rain. |
+| A3 | Snow ground accumulation | When state is RAIN and temp < 0 (snow), render a semi-transparent white ground plane (large disc, radius 80m, centered on player, y = terrain height + 0.05) with noise-based alpha to simulate patchy snow cover. Opacity ramps up during snowfall (max 0.4), fades over 120s after snow stops. Roughness 0.25 for icy sheen. |
+| A4 | Lightning bolt geometry | Replace the simple directional-light flash with a visible branching line bolt. Use THREE.Line with a jagged path: start point 60m above player + random offset, end point on ground. 6-8 segments with random lateral jitter (2-5m). Bolt visible for 150ms, emissive white material (intensity 10). Keep the existing directional light flash as fill. Add a brief screen-white overlay (CSS div, opacity flash 0.3 to 0 over 200ms) triggered from weatherStore.lightningActive. |
+| A5 | Weather fog density | Modulate scene fog density based on weather: CLEAR=0.0008, CLOUDY=0.0012, RAIN=0.0020, STORM=0.0030. Smooth lerp over 5 seconds on state change. Read from weatherStore in DayNightCycle.tsx where fog is already managed. Multiply with existing time-of-day fog, don't replace it. |
+
+**Quality gate**: (a) Rain splashes visible on ground during rain, (b) terrain visibly darker/shinier during rain, (c) white snow patches appear on ground during snowfall, (d) lightning bolt line visible in sky during storms, (e) fog thickens during rain/storm, (f) all effects fade gracefully on weather transition, (g) build passes, (h) no framerate regression >5%.
+
+---
+
+### Track B (P0): Quest System + Quest Journal
+**Assigned to**: `director` (self-execute)
+**Duration**: Full sprint
+**Goal**: Build a quest system on top of the existing DiscoveryJournal. Define trackable quests with objectives, progress tracking, completion rewards (XP, items, recipes), and a Quest Log panel. Quests auto-trigger from gameplay milestones (first craft, first kill, reach civTier 1, etc.).
+
+| Task | Description | Technical Spec |
+|------|-------------|---------------|
+| B1 | Create `QuestSystem.ts` | New singleton at `src/game/QuestSystem.ts`. Defines `Quest` interface: `{ id: string, title: string, description: string, category: 'tutorial' | 'exploration' | 'crafting' | 'combat' | 'civilization', objectives: Objective[], rewards: Reward[], status: 'locked' | 'active' | 'complete', progress: number[] }`. `Objective`: `{ description: string, type: 'gather' | 'craft' | 'kill' | 'discover' | 'reach_tier' | 'build' | 'explore', target: number, current: number }`. `Reward`: `{ type: 'xp' | 'item' | 'recipe', skillName?: string, amount?: number, itemId?: number, materialId?: number, recipeId?: number }`. Methods: `checkProgress()`, `completeQuest(id)`, `getActiveQuests()`, `getCompletedQuests()`, `serialize()`, `deserialize()`. |
+| B2 | Define 15 starter quests | Tutorial chain: "First Steps" (gather 5 wood), "Tool Time" (craft stone axe), "Hunter" (kill 1 animal), "Home Base" (build 1 structure), "Iron Will" (reach civTier 2). Exploration: "Cartographer" (reveal 50% of map), "Deep Diver" (go below sea level), "Peak Climber" (reach highest terrain point). Crafting: "Master Smith" (craft 10 metal items), "Alchemist" (craft 5 chemical items). Combat: "Big Game Hunter" (kill 5 animals), "Survivor" (survive 10 in-game days). Civilization: "Mayor" (reach civTier 3), "Space Age" (reach civTier 5), "First Contact" (discover Velar). |
+| B3 | Quest progress hooks | In GameLoop.ts: on resource harvest, call `questSystem.onGather(materialId, qty)`. On craft, call `questSystem.onCraft(recipeId)`. On animal kill, call `questSystem.onKill(species)`. On discovery, call `questSystem.onDiscover(discoveryId)`. On civTier change, call `questSystem.onTierReached(tier)`. On build, call `questSystem.onBuild(buildingType)`. Each hook checks all active quests and updates matching objectives. |
+| B4 | Quest completion rewards | When all objectives met, auto-complete the quest. Award rewards: XP via SkillSystem.addXp(), items via inventory.addItem(), recipes via inventory.learnRecipe(). Show notification "[Quest Complete] Title - reward description". Unlock next quest in chain if applicable. |
+| B5 | Create `QuestPanel.tsx` | New panel at `src/ui/panels/QuestPanel.tsx`. Shows active quests at top (expandable cards with objective checklist + progress bars), completed quests below (collapsed, greyed). Each quest card: title, description, objectives with checkmarks, reward preview, progress percentage. Styled matching dark-translucent UI. |
+| B6 | Register QuestPanel | Add `'quests'` to PanelId in uiStore. Register in SidebarShell with lazy import. Add 'Q' hotkey. Add 'QST' icon to sidebar strip. Persist quest state in OfflineSaveManager and cloud save. |
+
+**Quality gate**: (a) Tutorial quests auto-activate on game start, (b) gathering wood increments "First Steps" progress, (c) quest completion shows notification + awards rewards, (d) Q key opens quest panel, (e) quest progress persists across save/load, (f) 15 quests defined with clear objectives, (g) build passes.
+
+---
+
+### Track C (P1): Loot System + Item Rarity
+**Assigned to**: `director` (self-execute)
+**Duration**: Full sprint
+**Goal**: Add item rarity tiers (Common/Uncommon/Rare/Epic/Legendary) to the inventory system, loot tables for animal kills and special resource nodes, rarity-colored item names in all UI, and a visible loot drop pickup with rarity glow.
+
+| Task | Description | Technical Spec |
+|------|-------------|---------------|
+| C1 | Add rarity to InventorySlot | Extend `InventorySlot` interface with `rarity: 0 | 1 | 2 | 3 | 4` (0=Common, 1=Uncommon, 2=Rare, 3=Epic, 4=Legendary). Default all existing items to rarity 0. Rarity affects quality: Common 0.5-0.7, Uncommon 0.65-0.8, Rare 0.75-0.9, Epic 0.85-0.95, Legendary 0.95-1.0. Colors: Common=#9d9d9d (grey), Uncommon=#1eff00 (green), Rare=#0070dd (blue), Epic=#a335ee (purple), Legendary=#ff8000 (orange). |
+| C2 | Create `LootTable.ts` | New file at `src/game/LootTable.ts`. Defines loot tables as arrays of `{ itemId: number, materialId: number, quantity: [min, max], rarity: number, weight: number }`. Tables: `DEER_LOOT` (leather, raw meat, antler rare), `WOLF_LOOT` (fur, fangs uncommon, wolf pelt rare), `BOAR_LOOT` (tusks uncommon, hide, raw meat). `TREASURE_LOOT` (gems rare, gold epic, ancient artifact legendary). `rollLoot(table): InventorySlot[]` — weighted random selection, 1-3 items per roll. Higher rarity = lower weight. |
+| C3 | Wire loot to animal kills | In AnimalAISystem.ts or GameLoop.ts where animal death is handled: on animal kill, call `rollLoot(speciesTable)` and either add directly to inventory or spawn as world loot drops (reuse DEATH_LOOT_DROPS pattern from DeathSystem). Show floating text for each item with rarity color. |
+| C4 | Rarity colors in inventory UI | In InventoryPanel.tsx, color the item name text and slot border by rarity. Common: no border highlight. Uncommon: green glow border (box-shadow). Rare: blue glow. Epic: purple glow. Legendary: orange glow + subtle pulse animation. In ItemTooltip.tsx, show rarity name in color at the top of the tooltip. |
+| C5 | Rarity on crafted items | When crafting, output rarity is determined by: base recipe tier + crafting skill level + random roll. Tier 0-1 recipes: always Common. Tier 2-3: 80% Common, 15% Uncommon, 5% Rare. Tier 4+: 50% Common, 30% Uncommon, 15% Rare, 4% Epic, 1% Legendary. Crafting skill adds +2% to each non-Common tier per skill level. |
+| C6 | Persist rarity | Ensure rarity field is included in save/load for both offline (OfflineSaveManager) and cloud save. Backwards compatible: if rarity is undefined, default to 0. |
+
+**Quality gate**: (a) Killing a deer drops 1-3 items with correct rarity distribution, (b) inventory slots show rarity-colored borders, (c) tooltip displays rarity name in color, (d) crafted items have rarity based on tier + skill, (e) rarity persists across save/load, (f) legendary items are visually distinct (orange glow), (g) build passes.
+
+---
+
+## Architecture Decisions (M23)
+
+| Decision | Rationale |
+|----------|-----------|
+| Rain splashes as instanced torus, not sprite particles | Consistent with existing instanced mesh pattern; torus gives a water-ring visual; better than flat sprites |
+| Wetness via onBeforeCompile uniform, not separate material | Avoids replacing the terrain material entirely; surgical injection of one uniform + 2 lines of shader code |
+| Quest system as singleton class, not Zustand store | Matches SkillSystem/Inventory pattern; complex logic doesn't belong in a store; store used only for UI reactivity |
+| Rarity as numeric 0-4, not string enum | Compact for serialization; easy to compare; maps directly to color array index |
+| Loot tables as weighted arrays | Simple, performant, easily tunable; no need for complex probability distributions |
+| Quest progress hooks in GameLoop | Central location for all gameplay events; avoids scattering quest checks across 10 different systems |
+
+---
+
+## Risk Register (M23)
+
+| Risk | Likelihood | Impact | Mitigation |
+|------|-----------|--------|------------|
+| Rain splashes z-fight with terrain | Medium | Low | Offset splash Y +0.1m above terrain; use depthWrite=false |
+| Wetness uniform injection breaks on Three.js update | Low | Medium | Guard with try/catch in onBeforeCompile; fallback to no wetness |
+| Snow ground plane visible edges at 80m radius | Medium | Low | Use noise-based alpha fade at edges (last 10m radius = fade to 0) |
+| Quest system adds too many hooks to GameLoop | Medium | Medium | Single questSystem.tick() call that internally routes events; keep GameLoop additions minimal |
+| Rarity field breaks existing save data | Medium | High | Default undefined rarity to 0 on deserialize; backwards compatible |
+| Loot drops flood inventory | Low | Medium | Cap at 3 items per kill; show "inventory full" if overflow |
+
+---
+
+## Agent Dispatch Plan (M23)
+
+| Agent | Track | First Task | Report To |
+|-------|-------|-----------|-----------|
+| `director` | Track A | A1-A5: Weather VFX enhancement | self |
+| `director` | Track B | B1-B6: Quest system + panel | self |
+| `director` | Track C | C1-C6: Loot system + rarity | self |
+
+---
+
+## Priority Queue (After M23)
 
 | Priority | Item | Status |
 |----------|------|--------|
-| P1 | Tree LOD (instanced low-poly at distance) | Queued for M23 |
-| P1 | LLM integration for dialogue (connect DialoguePanel to real LLMBridge) | Queued for M23 |
-| P1 | Mobile/touch controls | Queued for M23 |
+| P1 | Tree LOD (instanced low-poly at distance) | Queued for M24 |
+| P1 | LLM integration for dialogue (connect DialoguePanel to real LLMBridge) | Queued for M24 |
+| P1 | Mobile/touch controls | Queued for M24 |
 | P2 | Species divergence notifications in journal | Queued |
 | P2 | Subsurface scattering for creature skin | Queued |
 | P2 | Volumetric fog (ray-marched, density from weather system) | Queued |
@@ -465,3 +556,15 @@
 | P2 | Drag-drop inventory reordering | Queued |
 | P2 | Combat system improvements (blocking, dodge) | Queued |
 | P2 | Multiplayer improvements (player names, positions visible) | Queued |
+
+---
+
+## M23 Completion Summary (2026-03-26)
+
+**All 3 Tracks SHIPPED:**
+
+- **Track A -- Weather VFX Enhancement: DONE** -- WeatherRenderer.tsx enhanced (490 lines, up from 388): 150 instanced torus rain splashes at ground level (0.3s lifecycle, expand+fade), wet surface darkening (uWetness uniform injected into terrain shader via onBeforeCompile, albedo *=0.7, roughness -=0.3, 30s ramp up/60s ramp down), snow ground accumulation (80m radius white disc, opacity ramps to 0.4 during snowfall, roughness 0.25 for icy sheen), lightning bolt geometry (8-segment jagged THREE.Line with random lateral jitter 2-8m, 150ms visibility, emissive white), weather-dependent fog density (CLEAR 0.0008, CLOUDY 0.0012, RAIN 0.002, STORM 0.003, 5s lerp transition). Wetness field added to weatherStore.
+- **Track B -- Quest System + Quest Journal: DONE** -- QuestSystem.ts (250 lines): 15 quests across 5 categories (tutorial/exploration/crafting/combat/civilization), prerequisite chains, progress hooks (onGather/onCraft/onKill/onDiscover/onTierReached/onBuild), auto-completion with XP rewards via SkillSystem. QuestPanel.tsx (130 lines): expandable quest cards with progress bars, category colors, completed section. Q hotkey, lazy-loaded. Wired into GameSingletons + GameLoop.
+- **Track C -- Loot System + Item Rarity: DONE** -- LootTable.ts (107 lines): weighted loot tables for deer/wolf/boar + treasure. 5 rarity tiers (Common/Uncommon/Rare/Epic/Legendary) with quality ranges and color coding. rollLoot() weighted random selection (1-3 items per kill). RARITY enum + colors in Inventory.ts. LootPickup.ts wired for death drop pickups. Rarity-colored borders in InventoryPanel + ItemTooltip.
+
+**Build**: Passes (0 errors). Main chunk: 3067 kB (from 3041 kB, +26 kB for all 3 features).

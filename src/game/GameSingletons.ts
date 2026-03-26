@@ -7,8 +7,10 @@ import { Inventory } from '../player/Inventory'
 import { DiscoveryJournal } from '../player/DiscoveryJournal'
 import { CivilizationTracker } from '../civilization/CivilizationTracker'
 import { BuildingSystem } from '../civilization/BuildingSystem'
+import { QuestSystem } from './QuestSystem'
 
 export const inventory       = new Inventory()
 export const journal         = new DiscoveryJournal()
 export const civTracker      = new CivilizationTracker()
 export const buildingSystem  = new BuildingSystem()
+export const questSystem     = new QuestSystem()

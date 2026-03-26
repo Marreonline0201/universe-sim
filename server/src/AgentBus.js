@@ -95,18 +95,22 @@ export function getState() {
 }
 
 // ── Auto-idle timeout ───────────────────────────────────────────────────────
-// Agents that haven't reported in 5 minutes are reset to idle automatically.
-const IDLE_TIMEOUT_MS = 30 * 1000
+// 'done' agents clear after 30s (they've finished, just need to flush the UI).
+// 'active'/'blocked' agents clear after 3 min (complex work can be slow).
+const DONE_TIMEOUT_MS   = 30 * 1000
+const ACTIVE_TIMEOUT_MS = 3 * 60 * 1000
 
 /**
- * Reset any agent that hasn't checked in within IDLE_TIMEOUT_MS.
+ * Reset any agent that hasn't checked in within its status-appropriate timeout.
  * Returns true if any agents were reset (caller should broadcast).
  */
 export function tickIdleTimeout() {
   const now = Date.now()
   let changed = false
   for (const [, entry] of agents.entries()) {
-    if (entry.status !== 'idle' && entry.lastSeen > 0 && now - entry.lastSeen > IDLE_TIMEOUT_MS) {
+    if (entry.status === 'idle' || entry.lastSeen === 0) continue
+    const timeout = entry.status === 'done' ? DONE_TIMEOUT_MS : ACTIVE_TIMEOUT_MS
+    if (now - entry.lastSeen > timeout) {
       entry.status = 'idle'
       entry.task   = ''
       changed = true

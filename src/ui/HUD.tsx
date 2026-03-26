@@ -18,6 +18,7 @@ import { useVelarStore } from '../store/velarStore'
 import { getReactorTemp, isCleanupActive, getCleanupTimeRemaining, SAFE_TEMP_CELSIUS, MELT_THRESHOLD_C } from '../game/NuclearReactorSystem'
 import { EmoteWheel } from './EmoteWheel'
 import { getLocalEmote } from '../game/EmoteSystem'
+import { skillSystem, SkillSystem, type SkillId } from '../game/SkillSystem'
 
 // ── M20: Lazy-loaded overlays (rarely shown) ─────────────────────────────────
 const FirstContactOverlay = lazy(() => import('./FirstContactOverlay').then(m => ({ default: m.FirstContactOverlay })))
@@ -599,6 +600,200 @@ function ReactorWidget() {
   )
 }
 
+// ── M27 Track A: Skill XP bar (bottom-center, above hotbar) ──────────────────
+
+function SkillXpBar() {
+  const [, setTick] = useState(0)
+  const [levelUpFlash, setLevelUpFlash] = useState<{ skillId: SkillId; level: number } | null>(null)
+  const [xpToasts, setXpToasts] = useState<Array<{ id: number; msg: string }>>([])
+
+  useEffect(() => {
+    // Track previous levels and xp to detect changes
+    const prevLevels: Record<SkillId, number> = {} as Record<SkillId, number>
+    const prevXp: Record<SkillId, number>     = {} as Record<SkillId, number>
+    for (const id of SkillSystem.getAllSkillIds()) {
+      prevLevels[id] = skillSystem.getLevel(id)
+      prevXp[id]     = skillSystem.getXp(id)
+    }
+    let toastKey = 0
+
+    const unsub = skillSystem.subscribe(() => {
+      for (const id of SkillSystem.getAllSkillIds()) {
+        const newLevel = skillSystem.getLevel(id)
+        const newXp    = skillSystem.getXp(id)
+        const gained   = newXp - prevXp[id]
+
+        if (newLevel > prevLevels[id]) {
+          // Level-up flash (overrides any existing flash)
+          setLevelUpFlash({ skillId: id, level: newLevel })
+          setTimeout(() => setLevelUpFlash(f => (f?.skillId === id && f.level === newLevel ? null : f)), 2500)
+          prevLevels[id] = newLevel
+        }
+
+        if (gained > 0) {
+          // XP gain toast — bottom-left, auto-dismiss 2s
+          const key = ++toastKey
+          const name = SkillSystem.getSkillName(id)
+          const msg = `+${gained} ${name} XP`
+          setXpToasts(prev => [...prev.slice(-4), { id: key, msg }])
+          setTimeout(() => setXpToasts(prev => prev.filter(t => t.id !== key)), 2000)
+          prevXp[id] = newXp
+        }
+      }
+      setTick(t => t + 1)
+    })
+    return unsub
+  }, [])
+
+  // Dismiss level-up flash on click
+  const dismissFlash = () => setLevelUpFlash(null)
+
+  // Pick the most interesting skill to display in the XP bar:
+  // highest total XP (most recently active approximation)
+  const skillIds = SkillSystem.getAllSkillIds()
+  let displaySkill: SkillId = skillIds[0]
+  let maxXp = -1
+  for (const id of skillIds) {
+    const xp = skillSystem.getXp(id)
+    if (xp > maxXp) { maxXp = xp; displaySkill = id }
+  }
+
+  const skill    = skillSystem.getSkill(displaySkill)
+  const progress = skillSystem.getXpProgress(displaySkill)
+  const color    = SkillSystem.getSkillColor(displaySkill)
+  const name     = SkillSystem.getSkillName(displaySkill)
+  const isMaxed  = skill.level >= 10
+
+  return (
+    <>
+      {/* XP bar strip — bottom-center, just above hotbar */}
+      {!isMaxed && (
+        <div style={{
+          position: 'absolute',
+          bottom: 80,
+          left: '50%',
+          transform: 'translateX(-50%)',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          gap: 3,
+          pointerEvents: 'none',
+        }}>
+          <div style={{
+            fontSize: 8,
+            color: 'rgba(255,255,255,0.45)',
+            fontFamily: 'monospace',
+            letterSpacing: 1,
+            textTransform: 'uppercase',
+          }}>
+            {name} — Level {skill.level}
+          </div>
+          <div style={{
+            width: 300,
+            height: 6,
+            background: 'rgba(0,0,0,0.55)',
+            border: '1px solid rgba(255,255,255,0.10)',
+            borderRadius: 3,
+            overflow: 'hidden',
+          }}>
+            <div style={{
+              width: `${progress * 100}%`,
+              height: '100%',
+              background: color,
+              borderRadius: 3,
+              transition: 'width 0.5s ease',
+            }} />
+          </div>
+        </div>
+      )}
+
+      {/* Level-up flash — screen-center toast */}
+      {levelUpFlash && (
+        <div
+          onClick={dismissFlash}
+          style={{
+            position: 'fixed',
+            top: '38%',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 900,
+            pointerEvents: 'auto',
+            textAlign: 'center',
+            fontFamily: 'monospace',
+            animation: 'skillLevelUpFade 2.5s ease-out forwards',
+          }}
+        >
+          <div style={{
+            background: 'rgba(10,8,2,0.90)',
+            border: '1px solid #f1c40f',
+            borderRadius: 4,
+            padding: '12px 32px',
+            boxShadow: '0 0 40px rgba(241,196,15,0.35)',
+          }}>
+            <div style={{ fontSize: 10, color: '#f1c40f', letterSpacing: 4, marginBottom: 4 }}>
+              LEVEL UP
+            </div>
+            <div style={{ fontSize: 20, color: '#f1c40f', fontWeight: 900, letterSpacing: 2 }}>
+              {SkillSystem.getSkillName(levelUpFlash.skillId)}
+            </div>
+            <div style={{ fontSize: 13, color: '#ffe082', marginTop: 4, letterSpacing: 1 }}>
+              Lv. {levelUpFlash.level - 1} &rarr; Lv. {levelUpFlash.level}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* XP gain toasts — bottom-left stack */}
+      {xpToasts.length > 0 && (
+        <div style={{
+          position: 'fixed',
+          bottom: 160,
+          left: 20,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 4,
+          zIndex: 310,
+          pointerEvents: 'none',
+        }}>
+          {xpToasts.map(t => (
+            <div key={t.id} style={{
+              background: 'rgba(14,14,14,0.88)',
+              border: '1px solid rgba(205,68,32,0.35)',
+              borderLeft: '3px solid #cd4420',
+              borderRadius: 2,
+              padding: '4px 10px',
+              fontFamily: 'monospace',
+              fontSize: 10,
+              color: '#cd4420',
+              fontWeight: 700,
+              letterSpacing: 0.5,
+              animation: 'xpToastFade 2s ease-out forwards',
+            }}>
+              {t.msg}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* CSS keyframes */}
+      <style>{`
+        @keyframes skillLevelUpFade {
+          0%   { opacity: 0; transform: translateX(-50%) translateY(-10px); }
+          15%  { opacity: 1; transform: translateX(-50%) translateY(0); }
+          70%  { opacity: 1; }
+          100% { opacity: 0; transform: translateX(-50%) translateY(-6px); }
+        }
+        @keyframes xpToastFade {
+          0%   { opacity: 0; transform: translateX(-6px); }
+          10%  { opacity: 1; transform: translateX(0); }
+          70%  { opacity: 1; }
+          100% { opacity: 0; }
+        }
+      `}</style>
+    </>
+  )
+}
+
 // ── Main HUD ──────────────────────────────────────────────────────────────────
 
 export function HUD() {
@@ -976,6 +1171,9 @@ export function HUD() {
             <HotbarSlot key={i} index={i} active={equippedSlot === i} tick={hotbarTick} />
           ))}
         </div>
+
+        {/* ── M27 Track A: Skill XP bar + level-up flash ── */}
+        <SkillXpBar />
 
         {/* ── Top-right: Science Companion button ── */}
         <a

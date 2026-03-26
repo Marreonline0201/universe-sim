@@ -23,7 +23,7 @@ const SettingsPanel  = lazy(() => import('./panels/SettingsPanel').then(m => ({ 
 const BuildPanel     = lazy(() => import('./panels/BuildPanel').then(m => ({ default: m.BuildPanel })))
 const SciencePanel   = lazy(() => import('./panels/SciencePanel').then(m => ({ default: m.SciencePanel })))
 const DialoguePanel  = lazy(() => import('./panels/DialoguePanel').then(m => ({ default: m.DialoguePanel })))
-const SkillTreePanel = lazy(() => import('./panels/SkillTreePanel').then(m => ({ default: m.SkillTreePanel })))
+const SkillTreePanel = lazy(() => import('./panels/SkillPanel').then(m => ({ default: m.SkillTreePanel })))
 const QuestPanel       = lazy(() => import('./panels/QuestPanel').then(m => ({ default: m.QuestPanel })))
 const AchievementPanel = lazy(() => import('./panels/AchievementPanel').then(m => ({ default: m.AchievementPanel })))
 const FishingPanel     = lazy(() => import('./panels/FishingPanel').then(m => ({ default: m.FishingPanel })))

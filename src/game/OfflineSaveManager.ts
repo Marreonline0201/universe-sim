@@ -40,6 +40,7 @@ import { serializeFactions, deserializeFactions } from './FactionReputationSyste
 import { serializeBlueprints, deserializeBlueprints } from './BlueprintUnlockSystem'
 import { serializeMemories, deserializeMemories } from './NPCMemorySystem'
 import { serializeChronicle, deserializeChronicle } from './WorldChronicleSystem'
+import { serializeSeasons, deserializeSeasons } from './SeasonalEventSystem'
 import { serializeJournal, deserializeJournal } from './PlayerJournalSystem'
 import { serializeHousing, deserializeHousing } from './PlayerHousingSystem'
 import { Health, Metabolism, Position } from '../ecs/world'
@@ -168,6 +169,7 @@ export async function saveOffline(): Promise<boolean> {
       blueprints: serializeBlueprints(),
       npcMemories: serializeMemories(),
       worldChronicle: serializeChronicle(),
+      seasonalEvents: serializeSeasons(),
       playerJournal: serializeJournal(),
       playerHousing: serializeHousing(),
     })
@@ -386,6 +388,11 @@ export async function loadOffline(): Promise<boolean> {
     // M63 Track C: Restore world chronicle
     if (state.worldChronicle) {
       deserializeChronicle(state.worldChronicle)
+    }
+
+    // M64 Track A: Restore seasonal events state
+    if (state.seasonalEvents) {
+      deserializeSeasons(state.seasonalEvents)
     }
 
     // M62 Track B: Restore player journal

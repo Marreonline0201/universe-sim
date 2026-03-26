@@ -33,6 +33,7 @@ import { initFactionReputationSystem } from './game/FactionReputationSystem'
 import { initBlueprintSystem } from './game/BlueprintUnlockSystem'
 import { initNPCMemorySystem } from './game/NPCMemorySystem'
 import { initWorldChronicle } from './game/WorldChronicleSystem'
+import { initSeasonalEventSystem } from './game/SeasonalEventSystem'
 import { initPlayerHousing } from './game/PlayerHousingSystem'
 
 // ── M20: Lazy-load AdminPanel (dev/admin only) ──────────────────────────────
@@ -108,6 +109,7 @@ function DevGame() {
     initNPCMemorySystem()
     initWorldChronicle()
     initPlayerHousing()
+    initSeasonalEventSystem()
   }, [])
 
   return (
@@ -186,6 +188,7 @@ function GameWithSave() {
     initBlueprintSystem()
     initNPCMemorySystem()
     initWorldChronicle()
+    initSeasonalEventSystem()
     initPlayerHousing()
   }, [])
 

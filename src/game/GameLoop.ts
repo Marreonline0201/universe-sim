@@ -3013,7 +3013,7 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
         const normSeason53 = normaliseSeasonName(serverSeason53)
         onSeasonChange(normSeason53, simSecs53)
       }
-      tickSeasonalEvents(simSecs53)
+      tickSeasonalEvents(simSecs53, dt)
     }
 
     // ── M10 Track B: Sailing + fishing ────────────────────────────────────────

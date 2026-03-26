@@ -1927,7 +1927,9 @@ export function DisasterWarningOverlay() {
 function HomeIndicatorWidget() {
   const homeSet      = usePlayerStore(s => s.homeSet)
   const homePosition = usePlayerStore(s => s.homePosition)
-  const { x: px, y: py, z: pz } = usePlayerStore(s => s)
+  const px = usePlayerStore(s => s.x)
+  const py = usePlayerStore(s => s.y)
+  const pz = usePlayerStore(s => s.z)
   const togglePanel  = useUiStore(s => s.togglePanel)
 
   if (!homeSet || !homePosition) return null
@@ -2099,9 +2101,27 @@ function QuestTrackerWidget() {
 // ── Main HUD ──────────────────────────────────────────────────────────────────
 
 export function HUD() {
-  const { paused, simTime, epoch } = useGameStore()
-  const { health, hunger, thirst, energy, fatigue, ambientTemp, warmth, equippedSlot, equippedArmorSlot, equipArmor, unequipArmor, wounds, isSleeping, quenchSecondsRemaining, stamina, maxStamina } = usePlayerStore()
-  const { connectionStatus, remotePlayers } = useMultiplayerStore()
+  const paused = useGameStore(s => s.paused)
+  const simTime = useGameStore(s => s.simTime)
+  const epoch = useGameStore(s => s.epoch)
+  const health = usePlayerStore(s => s.health)
+  const hunger = usePlayerStore(s => s.hunger)
+  const thirst = usePlayerStore(s => s.thirst)
+  const energy = usePlayerStore(s => s.energy)
+  const fatigue = usePlayerStore(s => s.fatigue)
+  const ambientTemp = usePlayerStore(s => s.ambientTemp)
+  const warmth = usePlayerStore(s => s.warmth)
+  const equippedSlot = usePlayerStore(s => s.equippedSlot)
+  const equippedArmorSlot = usePlayerStore(s => s.equippedArmorSlot)
+  const equipArmor = usePlayerStore(s => s.equipArmor)
+  const unequipArmor = usePlayerStore(s => s.unequipArmor)
+  const wounds = usePlayerStore(s => s.wounds)
+  const isSleeping = usePlayerStore(s => s.isSleeping)
+  const quenchSecondsRemaining = usePlayerStore(s => s.quenchSecondsRemaining)
+  const stamina = usePlayerStore(s => s.stamina)
+  const maxStamina = usePlayerStore(s => s.maxStamina)
+  const connectionStatus = useMultiplayerStore(s => s.connectionStatus)
+  const remotePlayers = useMultiplayerStore(s => s.remotePlayers)
   const weatherSectors = useWeatherStore(s => s.sectors)
   const weatherPlayerSectorId = useWeatherStore(s => s.playerSectorId)
   const playerWeather = weatherSectors.find(s => s.sectorId === weatherPlayerSectorId) ?? weatherSectors[0] ?? null

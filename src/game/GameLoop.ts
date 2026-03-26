@@ -3126,12 +3126,13 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
       const totalRep = Object.values(repSettlements).reduce(
         (acc, s) => acc + Math.max(0, s.points), 0
       )
-      const playerFactionId = useFactionStore.getState().playerFaction
+      const factionStore = useFactionStore.getState()
       const factionReps: Record<string, number> = {}
-      if (playerFactionId) {
-        factionReps[playerFactionId] = Object.values(repSettlements).reduce(
-          (acc, s) => acc + Math.max(0, s.points), 0
-        )
+      for (const s of Object.values(repSettlements)) {
+        const fid = factionStore.getSettlementFaction?.(s.settlementId) ?? null
+        if (fid) {
+          factionReps[fid] = (factionReps[fid] ?? 0) + Math.max(0, s.points)
+        }
       }
       checkAndUpdateTitles(totalRep, factionReps)
     }

@@ -101,10 +101,9 @@ function FeatureRow({ feature, tick: _tick, onHarvest }: FeatureRowProps) {
       {/* Loot preview */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
         {feature.lootTable
-          .filter((row, i, arr) => arr.findIndex(r => r.matId === row.matId) === i)  // deduplicate
-          .map(row => (
+          .map((row, i) => (
             <span
-              key={row.matId}
+              key={`${row.matId}_${i}`}
               style={{
                 background: 'rgba(255,255,255,0.06)',
                 border: '1px solid #333',

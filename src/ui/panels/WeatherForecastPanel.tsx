@@ -94,10 +94,11 @@ export function WeatherForecastPanel() {
   const forecasts     = getForecasts()
   const accuracy      = forecastState.accuracy
 
-  // Refresh local render when the panel is open
+  // Refresh local render every 5 seconds (forecastState is a plain module object, not reactive)
   useEffect(() => {
-    forceUpdate(n => n + 1)
-  }, [forecastState.lastUpdated])
+    const id = setInterval(() => forceUpdate(n => n + 1), 5_000)
+    return () => clearInterval(id)
+  }, [])
 
   function handleCheckForecast() {
     updateForecasts(simSeconds, currentState)

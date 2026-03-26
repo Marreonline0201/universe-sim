@@ -493,6 +493,6 @@ export const ITEM = {
   CRYSTAL_STAFF: 76,     // Tier 4 weapon — 45 dmg, AoE knockback
   VOLCANIC_PLATE: 77,    // Tier 4 armor — -30% fire damage
   GLACIAL_MANTLE: 78,    // Tier 4 armor — -40% cold damage
-  LUMINITE_DAGGER: 79,   // Tier 5 weapon — 70 dmg + life drain
-  SHADOW_ARMOR: 80,      // Tier 5 armor — -25% all damage + stealth bonus
+  LUMINITE_DAGGER: 81,   // Tier 5 weapon — 70 dmg + life drain (79 reserved for MAT.MUSHROOM_SOUP)
+  SHADOW_ARMOR: 82,      // Tier 5 armor — -25% all damage + stealth bonus
 } as const

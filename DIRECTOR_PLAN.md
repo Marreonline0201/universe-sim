@@ -2,7 +2,31 @@
 
 **Date**: 2026-03-25
 **Sprint**: M18
-**Status**: Active -- Sprint Planning Complete
+**Status**: COMPLETE -- All 3 Tracks Shipped
+
+---
+
+## M18 Results Summary
+
+**Track A -- SceneRoot Decomposition: DONE**
+- SceneRoot reduced from 2189 to 575 lines (target was 600)
+- 9 extraction files created: HumanoidFigure, ServerNpcsRenderer, LocalNpcsRenderer, PlayerRenderer, ResourceNodesRenderer, BuildingsRenderer, MiscRenderers, CreatureSpawner
+- All builds pass, no behavioral changes
+- Commit: `99eac0f`
+
+**Track B -- PostProcessing Pipeline: DONE**
+- SSAO: 8-tap golden-angle spiral, depth texture per-frame refresh
+- Cinematic color grading: ASC CDL lift/gamma/gain, saturation, temperature shift
+- ACES filmic tonemapping (Narkowicz 2015 fit)
+- sRGB gamma in shader (renderer set to LinearSRGB for HDR compositing)
+- Commit: `840a8b0`
+
+**Track C -- Chemistry-to-Gameplay Bridge: DONE**
+- ChemistryGameplay.ts: 2Hz sampler detects fermentation, acid rain, photosynthesis, combustion heat
+- Acid rain/heat damage player health; photosynthesis heals
+- ChemistryHUD.tsx: bottom-left notification badges with intensity bars
+- Wired into GameLoop tick
+- Commit: `840a8b0`
 
 ---
 

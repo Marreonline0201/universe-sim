@@ -1488,7 +1488,7 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
 
       // Home placement mode active — show hint and place on left-click
       if (homePlacementModeRef.current && !gs.inputBlocked) {
-        const placeLabel = '[Click] Place cabin here  [B] Cancel'
+        const placeLabel = '[F] Place cabin here  [B] Cancel'
         if (gs.gatherPrompt !== placeLabel) gs.setGatherPrompt(placeLabel)
 
         // Confirm placement on F (interact) key — consistent with building system

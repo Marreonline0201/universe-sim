@@ -889,3 +889,49 @@ Assigned to: ai-npc. Warmth stat (0-100, weather drain rates, cold damage, HUD s
 ### Track C (P0): Multiplayer Presence Improvements
 Assigned to: physics-prof. Name tags above remote players (HTML overlay, fade 30-50m), proximity ring pulse within 15m, PlayerListPanel.tsx (P hotkey, ping indicators), inspect player panel (F within 3m, username/faction/equipment).
 
+
+---
+
+## M30 Completion Summary (2026-03-26)
+
+**All 3 Tracks SHIPPED:**
+
+- **Track A (ui-worker): Combat Improvements — DONE** — Weapon tier table (Fists→Quantum), improved crits (5%+2%/level+15% backstab, 2.5× mult), damage numbers project to screen space via camera sync ref
+- **Track B (ai-npc): Dialogue + Skill System — DONE** — 6 NPC role pools, SkillPanel (K hotkey), 6 skills with XP bars, level-up flash, XP gain toasts, achievement panel fix
+- **Track C (physics-prof): Merchant System — DONE** — 3 merchant archetypes, buy/sell tabs, gold balance, archetype stored in dialogueStore (not window global)
+
+---
+
+## M31 Completion Summary (2026-03-26)
+
+**All 3 Tracks SHIPPED:**
+
+- **Track A (ui-worker): Biome Visual Effects — DONE** — uBiomeFlags uniform (volcano/tundra/desert), lava crack shader, tundra ice, desert dunes, summit point lights, ash/sand particles
+- **Track B (biology-prof): Advanced Lighting — DONE** — CampfireLightPass.tsx (flicker PointLight, shadow, torch support), moon glow, sunrise/sunset tints, tier-based settlement lights
+- **Track C (interaction): Advanced Mining + Crafting — DONE** — Cave entrances (6 seeded markers), CaveTunnelRenderer.tsx (TubeGeometry tunnels, chambers, ore nodes, bioluminescent mushrooms, PointLights), UndergroundAtmosphere.tsx (FogExp2, ambient dim)
+
+---
+
+## M32 Completion Summary (2026-03-26)
+
+**All 3 Tracks SHIPPED:**
+
+- **Track A (ui-worker): Seasonal Events — DONE** — Meteor showers (8–15 streak meshes, 7-day cycle, iron ore + Velar crystal loot on crater impact), Aurora Borealis (3 GLSL ribbon shaders, polar zones, night only), Seasonal Festivals (30-day cycle, 2× XP multiplier 3 days, bonfire mesh at settlement, banner overlay)
+- **Track B (biology-prof): Animal Taming — DONE** — AnimalAISystem.ts tame mechanic, named companions, companion loyalty, follow behavior, AnimalRenderer.tsx companion indicators
+- **Track C (interaction): Fast Travel — DONE** — Settlement discovery within 150m, undiscovered = "???" grey markers, map-click fast travel dialog, gold cost (5g/100 units, min 10g), fade-to-black teleport, HUD fade overlay
+
+---
+
+## M33 Sprint Plan — 3 Parallel Tracks
+
+**Date**: 2026-03-26
+**Status**: IN PROGRESS
+
+### Track A (P0): Quest Board System
+Assigned to: ui-worker. Settlement quests (4 types: gather/hunt/explore/craft), quest panel (Q hotkey), accept/abandon, progress tracking in GameLoop, completion toast (+XP +gold), HUD quest tracker widget.
+
+### Track B (P1): Cooking & Food Buffs
+Assigned to: biology-prof. 6 new food MAT items (cooked fish/meat, mushroom soup, berry jam, herbal tea, hearty stew), campfire recipes, FoodBuffSystem.ts (temp speed/HP regen/warmth buffs), HUD buff bar with countdown.
+
+### Track C (P0): Cave Treasure Chests
+Assigned to: interaction. ChestSystem.ts (3 tiers: common/rare/legendary), lockpick item + recipe, chest rendering in cave chambers (BoxGeometry, tier glow), E-key loot interaction, loot popup, map chest markers.

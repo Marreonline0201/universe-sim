@@ -5,10 +5,12 @@
 //   A2 — Rough sphere chamber at tunnel end
 //   A3 — Iron / crystal / coal resource meshes in chamber
 //   A4 — PointLights + glowing mushroom meshes in chamber
+// M33 Track C: Treasure chest meshes in chambers (common/rare/legendary tiers)
 
-import { useMemo } from 'react'
+import { useMemo, useEffect, useState } from 'react'
 import * as THREE from 'three'
 import { getCaveEntrancePositions, CAVE_SEED } from './CaveEntrances'
+import { generateAllCaveChests, isChestAvailable, type TreasureChest } from '../game/ChestSystem'
 
 // ── Seeded PRNG ───────────────────────────────────────────────────────────────
 function seededRandom(seed: number): () => number {
@@ -94,6 +96,13 @@ const ORE_TYPES = [
 export function CaveTunnelRenderer() {
   const entrances = useMemo(() => getCaveEntrancePositions(), [])
 
+  // ── M33 Track C: Re-render chests when opened/respawned (poll every 2s) ──
+  const [chestTick, setChestTick] = useState(0)
+  useEffect(() => {
+    const id = setInterval(() => setChestTick(t => t + 1), 2000)
+    return () => clearInterval(id)
+  }, [])
+
   // ── Materials (shared across all caves) ──────────────────────────────────
   const tunnelMat = useMemo(
     () => new THREE.MeshStandardMaterial({ color: 0x1a1008, roughness: 0.9, metalness: 0.1, side: THREE.BackSide }),
@@ -125,9 +134,41 @@ export function CaveTunnelRenderer() {
     [],
   )
 
+  // ── M33 Track C: Chest materials ─────────────────────────────────────────
+  const chestCommonMat = useMemo(
+    () => new THREE.MeshStandardMaterial({ color: 0x6b3a1f, roughness: 0.9, metalness: 0.05 }),
+    [],
+  )
+  const chestCommonOpenMat = useMemo(
+    () => new THREE.MeshStandardMaterial({ color: 0x3a2010, roughness: 0.9, metalness: 0.05, transparent: true, opacity: 0.5 }),
+    [],
+  )
+  const chestRareMat = useMemo(
+    () => new THREE.MeshStandardMaterial({ color: 0x5a5a60, roughness: 0.6, metalness: 0.6, emissive: 0xffaa00, emissiveIntensity: 0.12 }),
+    [],
+  )
+  const chestRareOpenMat = useMemo(
+    () => new THREE.MeshStandardMaterial({ color: 0x2a2a2e, roughness: 0.6, metalness: 0.4, transparent: true, opacity: 0.4 }),
+    [],
+  )
+  const chestLegendaryMat = useMemo(
+    () => new THREE.MeshStandardMaterial({ color: 0x1a0a2a, roughness: 0.5, metalness: 0.7, emissive: 0xaa00ff, emissiveIntensity: 0.35 }),
+    [],
+  )
+  const chestLegendaryOpenMat = useMemo(
+    () => new THREE.MeshStandardMaterial({ color: 0x0a0010, roughness: 0.5, metalness: 0.3, transparent: true, opacity: 0.35 }),
+    [],
+  )
+
   // ── Geometry (shared) ────────────────────────────────────────────────────
-  const stemGeo = useMemo(() => new THREE.CylinderGeometry(0.15, 0.18, 0.6, 7), [])
-  const capGeo  = useMemo(() => new THREE.ConeGeometry(0.5, 0.45, 7), [])
+  const stemGeo  = useMemo(() => new THREE.CylinderGeometry(0.15, 0.18, 0.6, 7), [])
+  const capGeo   = useMemo(() => new THREE.ConeGeometry(0.5, 0.45, 7), [])
+  const chestGeo    = useMemo(() => new THREE.BoxGeometry(0.5, 0.4, 0.4), [])
+  const lockGeo     = useMemo(() => new THREE.BoxGeometry(0.1, 0.1, 0.05), [])
+  const lockMat     = useMemo(
+    () => new THREE.MeshStandardMaterial({ color: 0xffcc00, emissive: 0xffcc00, emissiveIntensity: 0.5 }),
+    [],
+  )
 
   // ── Per-cave data ────────────────────────────────────────────────────────
   const caves = useMemo(() => {
@@ -185,6 +226,10 @@ export function CaveTunnelRenderer() {
     })
   }, [entrances])
 
+  // ── M33 Track C: Chest data — regenerated when chestTick changes (open/respawn) ─
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const allChests: TreasureChest[] = useMemo(() => generateAllCaveChests(), [chestTick])
+
   return (
     <group name="cave-tunnels">
       {caves.map((cave, i) => (
@@ -226,6 +271,38 @@ export function CaveTunnelRenderer() {
               distance={10}
             />
           ))}
+
+          {/* M33 Track C: Treasure chests */}
+          {allChests
+            .filter(c => c.caveIndex === i)
+            .map(chest => {
+              const available = isChestAvailable(chest)
+              let mat: THREE.MeshStandardMaterial
+              if (chest.tier === 'legendary') {
+                mat = available ? chestLegendaryMat : chestLegendaryOpenMat
+              } else if (chest.tier === 'rare') {
+                mat = available ? chestRareMat : chestRareOpenMat
+              } else {
+                mat = available ? chestCommonMat : chestCommonOpenMat
+              }
+              return (
+                <group key={chest.id} position={chest.position}>
+                  <mesh geometry={chestGeo} material={mat} />
+                  {/* Glow light for rare/legendary */}
+                  {available && chest.tier === 'rare' && (
+                    <pointLight color="#ffaa00" intensity={0.3} distance={2} />
+                  )}
+                  {available && chest.tier === 'legendary' && (
+                    <pointLight color="#aa00ff" intensity={0.3} distance={2} />
+                  )}
+                  {/* Lock indicator for locked chests */}
+                  {chest.locked && available && (
+                    <mesh position={[0, 0.35, 0.2]} geometry={lockGeo} material={lockMat} />
+                  )}
+                </group>
+              )
+            })
+          }
         </group>
       ))}
     </group>

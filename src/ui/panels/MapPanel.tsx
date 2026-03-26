@@ -24,6 +24,8 @@ import { useWeatherStore } from '../../store/weatherStore'
 import { useUiStore, MINIMAP_ZOOM_LEVELS, computeFastTravelCost, type FastTravelTarget } from '../../store/uiStore'
 import { RESOURCE_NODES } from '../../world/ResourceNodeManager'
 import { terrainHeightAt, biomeColor } from '../../world/SpherePlanet'
+import { useCaveStore } from '../../store/caveStore'
+import { generateAllCaveChests, isChestAvailable } from '../../game/ChestSystem'
 
 const SETTLEMENT_DISCOVERY_RADIUS = 150   // world units — player must be within this to discover
 
@@ -154,6 +156,8 @@ export function MapPanel() {
   const spendGold             = usePlayerStore(s => s.spendGold)
   const setPosition           = usePlayerStore(s => s.setPosition)
   const py                    = usePlayerStore(s => s.y)
+  // ── M33 Track C: Underground state for chest markers ─────────────────────
+  const underground           = useCaveStore(s => s.underground)
 
   // ── A3: NPC animation pulse time ─────────────────────────────────────────
   const startTimeRef = useRef(performance.now())
@@ -486,6 +490,21 @@ export function MapPanel() {
         drawDiamond(ctx, cx, cy, isHovered ? 8 : 6, '#ffd700', isHovered ? '#fff' : 'rgba(255,200,0,0.7)')
       }
 
+      // ── M33 Track C: Chest markers (shown when underground) ───────────────
+      if (underground) {
+        const allChests = generateAllCaveChests()
+        ctx.font = '11px monospace'
+        ctx.textAlign = 'center'
+        for (const chest of allChests) {
+          const [cx, cy] = worldToCanvas(chest.position.x, chest.position.z, px, pz, worldRange)
+          if (cx < -16 || cx > MAP_SIZE + 16 || cy < -16 || cy > MAP_SIZE + 16) continue
+          const available = isChestAvailable(chest)
+          ctx.globalAlpha = available ? 1.0 : 0.35
+          ctx.fillText(available ? '📦' : '📭', cx, cy + 4)
+        }
+        ctx.globalAlpha = 1.0
+      }
+
       // ── Player direction arrow (triangle, always on top) ──────────────────
       const arrowSize = 8
       const centerX   = MAP_SIZE / 2
@@ -558,7 +577,7 @@ export function MapPanel() {
       cancelled = true
       cancelAnimationFrame(animFrameRef.current)
     }
-  }, [px, py, pz, remotePlayers, remoteNpcs, settlements, weather, worldRange, waypoints, hoveredWpIndex, discoveredSettlements])
+  }, [px, py, pz, remotePlayers, remoteNpcs, settlements, weather, worldRange, waypoints, hoveredWpIndex, discoveredSettlements, underground])
 
   // ── Waypoint hover distance helper ────────────────────────────────────────
   const hoveredWp = hoveredWpIndex >= 0 ? waypoints[hoveredWpIndex] : null

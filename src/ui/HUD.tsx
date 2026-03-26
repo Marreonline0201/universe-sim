@@ -70,6 +70,8 @@ const RestockEventBanner = lazy(() => import('./panels/RestockEventBanner').then
 const HazardWarning = lazy(() => import('./HazardWarning').then(m => ({ default: m.HazardWarning })))
 // M52 Track C: Day/night event HUD badges
 import { DayNightEventHUD } from './DayNightEventHUD'
+// M53 Track C: Combo streak HUD
+import { ComboHUD } from './ComboHUD'
 
 // ── Armor slot visual constants ────────────────────────────────────────────────
 const STEEL_BLUE = '#4a9eff'
@@ -2574,6 +2576,8 @@ export function HUD() {
 
       {/* ── M24: Combat HUD (damage numbers, health bars, combat indicator) ── */}
       <CombatHUD />
+      {/* ── M53 Track C: Combo streak HUD ── */}
+      <ComboHUD />
       {/* ── M24: Tutorial onboarding overlay ── */}
       <TutorialOverlay />
 

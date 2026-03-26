@@ -164,6 +164,18 @@ export function initWorldEventLogger(): void {
       detail: detail.description ?? 'A seasonal event has begun.',
     })
   })
+
+  // combo-milestone — M53 Track C: combo streak milestones
+  window.addEventListener('combo-milestone', (e: Event) => {
+    const detail = (e as CustomEvent).detail ?? {}
+    const count: number = detail.count ?? 0
+    useWorldEventStore.getState().addEvent({
+      category: 'combat',
+      icon: '⚔️',
+      title: 'Combo Milestone',
+      detail: `Achieved a ×${count} combo!`,
+    })
+  })
 }
 
 // ── Helper functions for game systems ────────────────────────────────────────

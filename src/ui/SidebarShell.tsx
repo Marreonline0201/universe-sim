@@ -46,6 +46,8 @@ const TradePostPanel = lazy(() => import('./panels/TradePostPanel').then(m => ({
 const ForgePanel = lazy(() => import('./panels/ForgePanel').then(m => ({ default: m.ForgePanel })))
 // M44 Track B: Housing & furniture panel
 const HousingPanel = lazy(() => import('./panels/HousingPanel').then(m => ({ default: m.HousingPanel })))
+// M45 Track A: Pet & companion panel
+const PetPanel = lazy(() => import('./panels/PetPanel').then(m => ({ default: m.PetPanel })))
 
 // M36 Track C: Wrapper resolves nearSettlementId from store so panel has no props
 function BuildingsPanelWrapper() {
@@ -89,6 +91,7 @@ const PANEL_LABEL: Record<PanelId, string> = {
   tradepost:    'TRADE POST',
   forge:        'FORGE',
   housing:      'PLAYER HOUSING',
+  pet:          'PET & COMPANIONS',
 }
 
 const PANEL_WIDTH = 480
@@ -107,7 +110,8 @@ const ICON_BUTTONS: Array<{ id: PanelId; icon: string; hint: string }> = [
   { id: 'progression', icon: 'TTL',  hint: 'Progression & Titles (X)' },
   { id: 'fishing',     icon: 'FSH',  hint: 'Fishing (F near water)' },
   { id: 'home',        icon: 'HME',  hint: 'Home Base (H)' },
-  { id: 'players',     icon: 'PLR',  hint: 'Players Online (P)' },
+  { id: 'players',     icon: 'PLR',  hint: 'Players Online' },
+  { id: 'pet',         icon: '🐾',   hint: 'Pet & Companions (P)' },
   { id: 'factions',    icon: 'FCT',  hint: 'Factions (G)' },
   { id: 'buildings',   icon: 'STL',  hint: 'Settlement Buildings (U)' },
   { id: 'alchemy',     icon: 'ALK',  hint: 'Alchemy (Y)' },
@@ -142,6 +146,7 @@ const PANEL_COMPONENTS: Record<PanelId, React.ComponentType> = {
   tradepost:     TradePostPanel,
   forge:         ForgePanel,
   housing:       HousingPanel,
+  pet:           PetPanel,
 }
 
 export function SidebarShell() {
@@ -196,7 +201,7 @@ export function SidebarShell() {
         case 'g': case 'G':   e.preventDefault(); togglePanel('factions');  break
         case 'u': case 'U':   e.preventDefault(); togglePanel('buildings'); break
         case 'h': case 'H':   e.preventDefault(); togglePanel('home'); break
-        case 'p': case 'P':   e.preventDefault(); togglePanel('players');     break
+        case 'p': case 'P':   e.preventDefault(); togglePanel('pet');          break
         case 'x': case 'X':   e.preventDefault(); togglePanel('progression'); break
         case 'y': case 'Y':   e.preventDefault(); togglePanel('alchemy');     break
         case 't': case 'T':   e.preventDefault(); togglePanel('tradepost');  break

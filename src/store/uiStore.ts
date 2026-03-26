@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 
-export type PanelId = 'inventory' | 'crafting' | 'journal' | 'character' | 'map' | 'settings' | 'build' | 'science' | 'dialogue' | 'skills' | 'quests' | 'achievements' | 'fishing' | 'merchant' | 'players' | 'home' | 'factions' | 'buildings' | 'progression' | 'alchemy' | 'tradepost' | 'forge' | 'housing'
+export type PanelId = 'inventory' | 'crafting' | 'journal' | 'character' | 'map' | 'settings' | 'build' | 'science' | 'dialogue' | 'skills' | 'quests' | 'achievements' | 'fishing' | 'merchant' | 'players' | 'home' | 'factions' | 'buildings' | 'progression' | 'alchemy' | 'tradepost' | 'forge' | 'housing' | 'pet'
 
 // ── M32 Track C: Fast travel ──────────────────────────────────────────────────
 export interface FastTravelTarget {
@@ -80,6 +80,10 @@ interface UiState {
   // M44 Track B: Housing panel
   housingOpen: boolean
   toggleHousing: () => void
+
+  // M45 Track A: Pet panel
+  petOpen: boolean
+  togglePet: () => void
 }
 
 export const useUiStore = create<UiState>((set) => ({
@@ -157,4 +161,9 @@ export const useUiStore = create<UiState>((set) => ({
   housingOpen: false,
   toggleHousing: () =>
     set((s) => ({ activePanel: s.activePanel === 'housing' ? null : 'housing', housingOpen: s.activePanel !== 'housing' })),
+
+  // M45 Track A: Pet panel
+  petOpen: false,
+  togglePet: () =>
+    set((s) => ({ activePanel: s.activePanel === 'pet' ? null : 'pet', petOpen: s.activePanel !== 'pet' })),
 }))

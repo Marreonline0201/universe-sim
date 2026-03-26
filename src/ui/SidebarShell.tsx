@@ -106,6 +106,10 @@ const SkillComboPanel = lazy(() => import('./panels/SkillComboPanel').then(m => 
 const DungeonDelvePanel = lazy(() => import('./panels/DungeonDelvePanel').then(m => ({ default: m.DungeonDelvePanel })))
 // M61 Track B: Settlement economy panel
 const SettlementEconomyPanel = lazy(() => import('./panels/SettlementEconomyPanel').then(m => ({ default: m.SettlementEconomyPanel })))
+// M62 Track A: Faction reputation panel
+const FactionReputationPanel = lazy(() => import('./panels/FactionReputationPanel').then(m => ({ default: m.FactionReputationPanel })))
+// M62 Track C: Achievement trophy room
+const AchievementTrophyPanel = lazy(() => import('./panels/AchievementTrophyPanel').then(m => ({ default: m.AchievementTrophyPanel })))
 
 // M36 Track C: Wrapper resolves nearSettlementId from store so panel has no props
 function BuildingsPanelWrapper() {
@@ -179,6 +183,8 @@ const PANEL_LABEL: Record<PanelId, string> = {
   combos:          'SKILL COMBOS',
   dungeon:         'DUNGEON DELVE',
   economy:         'SETTLEMENT ECONOMY',
+  factionrep:      'FACTION REPUTATION',
+  trophies:        'TROPHY ROOM',
 }
 
 const PANEL_WIDTH = 480
@@ -235,7 +241,9 @@ const ICON_BUTTONS: Array<{ id: PanelId; icon: string; hint: string }> = [
   { id: 'dungeon',         icon: '⚔️',  hint: 'Dungeon Delve' },
   { id: 'economy',         icon: '🏦',   hint: 'Settlement Economy' },
   { id: 'science',         icon: ' ? ', hint: 'Science Companion (?)' },
+  { id: 'trophies',     icon: '🏆',   hint: 'Trophies (F2)' },
   { id: 'settings',    icon: 'SET',  hint: 'Settings (Esc)' },
+  { id: 'factionrep',  icon: '🏅',   hint: 'Faction Reputation (F)' },
 ]
 
 const PANEL_COMPONENTS: Record<PanelId, React.ComponentType> = {
@@ -292,6 +300,8 @@ const PANEL_COMPONENTS: Record<PanelId, React.ComponentType> = {
   combos:          SkillComboPanel,
   dungeon:         DungeonDelvePanel,
   economy:         SettlementEconomyPanel,
+  factionrep:      FactionReputationPanel,
+  trophies:        AchievementTrophyPanel,
 }
 
 export function SidebarShell() {
@@ -355,6 +365,7 @@ export function SidebarShell() {
         case 'w': case 'W':   e.preventDefault(); togglePanel('factionwars');  break
         case 's': case 'S':   e.preventDefault(); togglePanel('seasonal');     break
         case 'a': case 'A':   e.preventDefault(); togglePanel('threats');     break
+        case 'f': case 'F':   e.preventDefault(); togglePanel('factionrep'); break
         case 'Tab':           e.preventDefault(); togglePanel('character');  break
         case 'm': case 'M':   e.preventDefault(); togglePanel('map');        break
         case '?': case '/':
@@ -378,6 +389,8 @@ export function SidebarShell() {
           e.preventDefault()
           spellSystem.castEquippedSpell(parseInt(e.key) - 1)
           break
+        case 'F2':
+          e.preventDefault(); togglePanel('trophies'); break
         case 'Escape':
           e.preventDefault()
           if (isFishingActive()) { cancelFishing(); useGameStore.getState().setGatherPrompt(null) }

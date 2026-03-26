@@ -29,6 +29,7 @@ import { initWorldBossSystem } from './game/WorldBossSystem'
 import { initSettlementEconomy } from './game/SettlementEconomySystem'
 import { initSkillComboSystem } from './game/SkillComboSystem'
 import { initDungeonDelveSystem } from './game/DungeonDelveSystem'
+import { initFactionReputationSystem } from './game/FactionReputationSystem'
 
 // ── M20: Lazy-load AdminPanel (dev/admin only) ──────────────────────────────
 const AdminPanel = lazy(() => import('./ui/AdminPanel').then(m => ({ default: m.AdminPanel })))
@@ -98,6 +99,7 @@ function DevGame() {
     initSkillComboSystem()
     initDungeonDelveSystem()
     initSettlementEconomy()
+    initFactionReputationSystem()
   }, [])
 
   return (
@@ -172,6 +174,7 @@ function GameWithSave() {
     initSkillComboSystem()
     initDungeonDelveSystem()
     initSettlementEconomy()
+    initFactionReputationSystem()
   }, [])
 
   // Load save on first sign-in

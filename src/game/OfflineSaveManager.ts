@@ -36,6 +36,7 @@ import { serializePet, deserializePet } from './PetAdvancementSystem'
 import { serializeGiftCooldowns, deserializeGiftCooldowns } from './NPCGiftSystem'
 import { serializeMastery, deserializeMastery } from './CraftingMasterySystem'
 import { serializeEconomies, deserializeEconomies } from './SettlementEconomySystem'
+import { serializeFactions, deserializeFactions } from './FactionReputationSystem'
 import { Health, Metabolism, Position } from '../ecs/world'
 import { rapierWorld } from '../physics/RapierWorld'
 import { PLANET_RADIUS } from '../world/SpherePlanet'
@@ -158,6 +159,7 @@ export async function saveOffline(): Promise<boolean> {
       titleProgression: serializeTitles(),
       craftMastery: serializeMastery(),
       settlementEconomy: serializeEconomies(),
+      factions: serializeFactions(),
     })
     const meta = JSON.stringify({
       timestamp: Date.now(),
@@ -354,6 +356,11 @@ export async function loadOffline(): Promise<boolean> {
     // M61 Track B: Restore settlement economy state
     if (state.settlementEconomy) {
       deserializeEconomies(state.settlementEconomy)
+    }
+
+    // M62 Track A: Restore faction reputation standings
+    if (state.factions) {
+      deserializeFactions(state.factions)
     }
 
     // Restore position

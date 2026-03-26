@@ -154,7 +154,7 @@ export function HousingUpgradePanel() {
   // When a higher tier gets unlocked, jump to it
   useEffect(() => {
     if (activeTab === 2 && !tier2Unlocked) setActiveTab(1)
-    if (activeTab === 3 && !tier3Unlocked) setActiveTab(2)
+    if (activeTab === 3 && !tier3Unlocked) setActiveTab(1)
   }, [tier2Unlocked, tier3Unlocked, activeTab])
 
   function handlePurchase(upgradeId: string) {

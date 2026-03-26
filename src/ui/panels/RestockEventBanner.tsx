@@ -32,7 +32,7 @@ export function RestockEventBanner() {
     pollRef.current = setInterval(() => {
       const remaining = getRestockTimeRemaining()
       setTimeRemaining(remaining)
-      if (remaining <= 0 || (pendingRestockEvent?.claimed)) {
+      if (remaining <= 0 || (pendingRestockEvent?.claimedIds.size === pendingRestockEvent?.stockedItemIds.length)) {
         setEvent(null)
         if (pollRef.current) {
           clearInterval(pollRef.current)
@@ -159,7 +159,7 @@ export function RestockEventBanner() {
               </div>
 
               {/* Buy buttons */}
-              {!event.claimed ? (
+              {!event.claimedIds.has(matId) ? (
                 <div style={{ display: 'flex', gap: 4 }}>
                   <button
                     onClick={() => handleBuy(matId, 1)}
@@ -200,7 +200,7 @@ export function RestockEventBanner() {
         })}
       </div>
 
-      {event.claimed && (
+      {event.claimedIds.size === event.stockedItemIds.length && (
         <div style={{
           marginTop: 8,
           textAlign: 'center',
@@ -208,7 +208,7 @@ export function RestockEventBanner() {
           color: '#6ee7b7',
           fontStyle: 'italic',
         }}>
-          Deal claimed!
+          All items purchased!
         </div>
       )}
     </div>

@@ -61,6 +61,7 @@ import {
 
 import { inventory, buildingSystem, questSystem, combatSystem, achievementSystem, tutorialSystem, fishingSystem, merchantSystem } from './GameSingletons'
 import { checkAchievements, getPlayerStats } from './AchievementSystem'
+import { checkAndUpdateTitles } from './ReputationTitleSystem'
 import { getNPCName } from './NPCScheduleSystem'
 import { SPECIES_LOOT, rollLoot } from './LootTable'
 import { ITEM, MAT, RARITY_NAMES, type RarityTier } from '../player/Inventory'
@@ -3103,6 +3104,20 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
     if (achievementCheckTimerRef.current >= 30) {
       achievementCheckTimerRef.current = 0
       checkAchievements(getPlayerStats())
+
+      // M50 Track A: Reputation titles check
+      const repSettlements = useReputationStore.getState().settlements
+      const totalRep = Object.values(repSettlements).reduce(
+        (acc, s) => acc + Math.max(0, s.points), 0
+      )
+      const playerFactionId = useFactionStore.getState().playerFaction
+      const factionReps: Record<string, number> = {}
+      if (playerFactionId) {
+        factionReps[playerFactionId] = Object.values(repSettlements).reduce(
+          (acc, s) => acc + Math.max(0, s.points), 0
+        )
+      }
+      checkAndUpdateTitles(totalRep, factionReps)
     }
 
     // ── M24: Tutorial system tick ───────────────────────────────────────────
@@ -3270,7 +3285,7 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
 
     // ── M48 Track B: Merchant restock event tick + trigger (every 5 minutes) ──
     {
-      tickRestockEvent(dt * 1000)
+      tickRestockEvent()
       const RESTOCK_TRIGGER_INTERVAL = 300  // seconds
       restockTriggerTimerRef.current += dt
       if (restockTriggerTimerRef.current >= RESTOCK_TRIGGER_INTERVAL) {

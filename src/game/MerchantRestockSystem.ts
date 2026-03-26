@@ -16,7 +16,7 @@ export interface RestockEvent {
   stockedItemIds: number[]     // MAT ids that will be restocked
   discountPct: number          // e.g. 15 = 15% off
   expiresAt: number            // Date.now() + duration
-  claimed: boolean
+  claimedIds: Set<number>      // per-item claimed tracking
 }
 
 // ── Curated item pool + base prices ──────────────────────────────────────────
@@ -65,7 +65,7 @@ export function triggerRestockEvent(settlementId: number, merchantName: string):
     stockedItemIds: chosen,
     discountPct,
     expiresAt: Date.now() + 120_000,  // 120 seconds
-    claimed: false,
+    claimedIds: new Set(),
   }
 
   window.dispatchEvent(new CustomEvent('restock-event', { detail: pendingRestockEvent }))
@@ -75,7 +75,7 @@ export function triggerRestockEvent(settlementId: number, merchantName: string):
 
 export function claimRestockDeal(matId: number, qty: number): boolean {
   if (!pendingRestockEvent) return false
-  if (pendingRestockEvent.claimed) return false
+  if (pendingRestockEvent.claimedIds.has(matId)) return false
   if (Date.now() >= pendingRestockEvent.expiresAt) return false
   if (!pendingRestockEvent.stockedItemIds.includes(matId)) return false
 
@@ -94,14 +94,14 @@ export function claimRestockDeal(matId: number, qty: number): boolean {
   // Add items to inventory
   inventory.addItem({ itemId: 0, materialId: matId, quantity: qty, quality: 1 })
 
-  pendingRestockEvent.claimed = true
+  pendingRestockEvent.claimedIds.add(matId)
   window.dispatchEvent(new CustomEvent('restock-claimed', { detail: { matId, qty } }))
   return true
 }
 
 // ── tickRestockEvent ──────────────────────────────────────────────────────────
 
-export function tickRestockEvent(dtMs: number): void {
+export function tickRestockEvent(): void {
   if (!pendingRestockEvent) return
   if (Date.now() >= pendingRestockEvent.expiresAt) {
     pendingRestockEvent = null

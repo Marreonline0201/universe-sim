@@ -1,7 +1,7 @@
 // ── WorldEventsPanel ─────────────────────────────────────────────────────────
 // M48 Track C: Scrollable feed of notable world events with category filtering.
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useWorldEventStore, type WorldEventCategory } from '../../store/worldEventStore'
 
 type FilterTab = 'all' | WorldEventCategory
@@ -39,6 +39,13 @@ export function WorldEventsPanel() {
   const events = useWorldEventStore(s => s.events)
   const clearEvents = useWorldEventStore(s => s.clearEvents)
   const [activeTab, setActiveTab] = useState<FilterTab>('all')
+  const [, setTick] = useState(0)
+
+  // Refresh timestamps every 15 seconds
+  useEffect(() => {
+    const id = setInterval(() => setTick(t => t + 1), 15_000)
+    return () => clearInterval(id)
+  }, [])
 
   const filtered = activeTab === 'all' ? events : events.filter(e => e.category === activeTab)
 

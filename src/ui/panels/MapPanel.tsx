@@ -203,6 +203,10 @@ export function MapPanel() {
       if (dist <= SETTLEMENT_DISCOVERY_RADIUS) {
         discoverSettlement(id)
         addNotification(`Discovered ${s.name}!`, 'discovery')
+        // Complete active explore quests on new settlement discovery
+        useSettlementQuestStore.getState().activeQuests
+          .filter(q => q.type === 'explore' && !q.completed)
+          .forEach(q => useSettlementQuestStore.getState().updateProgress(q.id, 1))
       }
     }
   }, [px, pz, settlements, discoveredSettlements, discoverSettlement, addNotification])

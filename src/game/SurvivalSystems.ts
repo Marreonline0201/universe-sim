@@ -197,7 +197,8 @@ export function tryEatFood(inv: Inventory, entityId: number): boolean {
   // ── M33 Track B: Cooked buff foods ───────────────────────────────────────
   // Check for buff foods before falling through to plain cooked meat.
   // consumeFood is imported lazily to avoid circular dependency concerns.
-  const buffFoodOrder = [MAT.HEARTY_STEW, MAT.HERBAL_TEA, MAT.BERRY_JAM, MAT.MUSHROOM_SOUP, MAT.COOKED_FISH]
+  const buffFoodOrder = [MAT.HEARTY_STEW, MAT.HERBAL_TEA, MAT.BERRY_JAM, MAT.MUSHROOM_SOUP, MAT.COOKED_FISH,
+    MAT.COOKED_TUNA, MAT.COOKED_SALMON, MAT.COOKED_SARDINE]
   for (const fid of buffFoodOrder) {
     const bSlot = inv.findItem(fid)
     if (bSlot >= 0) {

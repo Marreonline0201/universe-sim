@@ -30,8 +30,10 @@ import { serializeDiscoveries, deserializeDiscoveries } from './ExplorationDisco
 import { serializeNodes, deserializeNodes } from './ResourceDepletionSystem'
 import { serializeLore, deserializeLore } from './LoreSystem'
 import { serializeMilestones, deserializeMilestones } from './AchievementShowcaseSystem'
+import { serializeTitles, deserializeTitles } from './TitleProgressionSystem'
 import { serializeUpgrades, deserializeUpgrades } from './HousingUpgradeSystem'
 import { serializePet, deserializePet } from './PetAdvancementSystem'
+import { serializeGiftCooldowns, deserializeGiftCooldowns } from './NPCGiftSystem'
 import { Health, Metabolism, Position } from '../ecs/world'
 import { rapierWorld } from '../physics/RapierWorld'
 import { PLANET_RADIUS } from '../world/SpherePlanet'
@@ -150,6 +152,8 @@ export async function saveOffline(): Promise<boolean> {
       loreCodex: serializeLore(),
       housingUpgrades: serializeUpgrades(),
       petAdvancement: serializePet(),
+      giftCooldowns: serializeGiftCooldowns(),
+      titleProgression: serializeTitles(),
     })
     const meta = JSON.stringify({
       timestamp: Date.now(),
@@ -326,6 +330,16 @@ export async function loadOffline(): Promise<boolean> {
     // M58 Track C: Restore pet advancement state
     if (state.petAdvancement) {
       deserializePet(state.petAdvancement)
+    }
+
+    // M58 Track B: Restore NPC gift cooldowns
+    if (state.giftCooldowns) {
+      deserializeGiftCooldowns(state.giftCooldowns)
+    }
+
+    // M59 Track B: Restore title progression state
+    if (state.titleProgression) {
+      deserializeTitles(state.titleProgression)
     }
 
     // Restore position

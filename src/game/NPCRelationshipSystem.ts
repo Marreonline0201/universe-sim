@@ -118,14 +118,14 @@ export function initNPCRelationshipSystem(): void {
     addAffinity(npcId, 5, 'Traded goods')
   })
 
-  // npc-gift: +15
+  // npc-gift: award computed affection from event detail (amount set by NPCGiftSystem)
   window.addEventListener('npc-gift', (e: Event) => {
-    const { npcId, npcName = 'Unknown', npcRole = 'villager' } = (e as CustomEvent).detail ?? {}
+    const { npcId, npcName = 'Unknown', npcRole = 'villager', affectionGained = 15 } = (e as CustomEvent).detail ?? {}
     if (!npcId) return
     getOrCreateRelationship(npcId, npcName, npcRole)
     const rel = _relationships.get(npcId)!
     rel.interactions++
-    addAffinity(npcId, 15, 'Received a gift')
+    addAffinity(npcId, affectionGained, 'Received a gift')
   })
 
   // npc-attacked: -20

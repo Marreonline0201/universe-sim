@@ -262,7 +262,8 @@ export function deserializePet(data: string): void {
   try {
     const parsed = JSON.parse(data)
     if (parsed && typeof parsed === 'object') {
-      _petState = parsed as PetState
+      // Merge with defaults so new fields (skills, skillPoints, bond) survive old saves
+      _petState = { ...makeDefaultPetState(), ...parsed }
       _initialized = true
     }
   } catch {

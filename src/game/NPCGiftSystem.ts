@@ -3,7 +3,7 @@
 
 import { MAT } from '../player/Inventory'
 import { inventory } from './GameSingletons'
-import { getOrCreateRelationship, addAffinity } from './NPCRelationshipSystem'
+import { getOrCreateRelationship } from './NPCRelationshipSystem'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -127,9 +127,8 @@ export function giveGift(
   const isPreferred = rolePrefs.includes(matId)
   const affectionGained = Math.round(giftItem.baseAffection * (isPreferred ? 1.5 : 1.0))
 
-  // Ensure relationship exists and add affinity
+  // Ensure relationship exists (affinity is applied by NPCRelationshipSystem's npc-gift listener)
   getOrCreateRelationship(npcId, npcName, npcRole)
-  addAffinity(npcId, affectionGained, `Received ${giftItem.name}`)
 
   // Set cooldown
   _cooldowns.set(npcId, Date.now())
@@ -159,4 +158,19 @@ export function giveGift(
  */
 export function getGiftHistory(): GiftRecord[] {
   return _giftHistory.slice(-20)
+}
+
+export function serializeGiftCooldowns(): string {
+  return JSON.stringify(Object.fromEntries(_cooldowns))
+}
+
+export function deserializeGiftCooldowns(data: string): void {
+  try {
+    const parsed: Record<string, number> = JSON.parse(data)
+    for (const [npcId, ts] of Object.entries(parsed)) {
+      _cooldowns.set(npcId, ts)
+    }
+  } catch {
+    // corrupted — ignore
+  }
 }

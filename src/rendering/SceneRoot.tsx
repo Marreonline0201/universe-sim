@@ -148,6 +148,7 @@ import { VelarResponsePanel } from '../ui/VelarResponsePanel'
 import { useVelarStore } from '../store/velarStore'
 import { useUniverseSync } from '../store/universeStore'
 import { ITEM as _ITEM } from '../player/Inventory'
+import { ContextualHints } from '../ui/ContextualHints'
 
 // M9: Register river valley carving with the terrain height function.
 // Must happen before any geometry is generated (before generatePlanetGeometry is called).
@@ -809,10 +810,14 @@ export function SceneRoot() {
           border: '1px solid rgba(255,255,255,0.15)',
           borderRadius: 10,
         }}>
-          <div style={{ fontSize: 22, fontWeight: 700, marginBottom: 6 }}>CLICK TO PLAY</div>
-          <div style={{ fontSize: 11, color: '#aaa' }}>WASD — Move &nbsp;·&nbsp; Mouse — Look &nbsp;·&nbsp; Space — Jump &nbsp;·&nbsp; F — Interact &nbsp;·&nbsp; G — Dig</div>
-          <div style={{ fontSize: 11, color: '#aaa', marginTop: 4 }}>E — Eat (in-game) / Evolution panel (menu) &nbsp;·&nbsp; H — Herb &nbsp;·&nbsp; Z — Sleep &nbsp;·&nbsp; Q — Attack</div>
-          <div style={{ fontSize: 11, color: '#aaa', marginTop: 4 }}>ESC — Settings &nbsp;·&nbsp; I — Inventory &nbsp;·&nbsp; C — Craft &nbsp;·&nbsp; B — Build &nbsp;·&nbsp; T/J/Tab/M/? — Panels</div>
+          <div style={{ fontSize: 22, fontWeight: 700, marginBottom: 8 }}>CLICK TO PLAY</div>
+          <div style={{ fontSize: 12, color: '#ccc', lineHeight: 1.7 }}>
+            <div><span style={{ color: '#fff', fontWeight: 600 }}>WASD</span> &nbsp;— Move</div>
+            <div><span style={{ color: '#fff', fontWeight: 600 }}>Mouse</span> &nbsp;— Look</div>
+            <div><span style={{ color: '#fff', fontWeight: 600 }}>Space</span> &nbsp;— Jump</div>
+            <div><span style={{ color: '#fff', fontWeight: 600 }}>F</span> &nbsp;— Gather</div>
+            <div><span style={{ color: '#fff', fontWeight: 600 }}>E</span> &nbsp;— Open Inventory</div>
+          </div>
         </div>
       </div>
     )}
@@ -961,6 +966,8 @@ export function SceneRoot() {
         onDecoded={() => setVelarRespOpen(false)}
       />
     )}
+    {/* Interaction: contextual keybind hints — bottom-center, above hotbar */}
+    {(pointerLocked || bypassPointerLock) && <ContextualHints />}
     </>
   )
 }

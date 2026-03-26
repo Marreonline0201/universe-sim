@@ -568,3 +568,98 @@
 - **Track C -- Loot System + Item Rarity: DONE** -- LootTable.ts (107 lines): weighted loot tables for deer/wolf/boar + treasure. 5 rarity tiers (Common/Uncommon/Rare/Epic/Legendary) with quality ranges and color coding. rollLoot() weighted random selection (1-3 items per kill). RARITY enum + colors in Inventory.ts. LootPickup.ts wired for death drop pickups. Rarity-colored borders in InventoryPanel + ItemTooltip.
 
 **Build**: Passes (0 errors). Main chunk: 3067 kB (from 3041 kB, +26 kB for all 3 features).
+
+---
+
+## M24 Sprint Plan -- 3 Parallel Tracks
+
+**Date**: 2026-03-26
+**Status**: IN PROGRESS -- Workers spawning
+
+### Track A (P0): Combat System Enhancement
+**Assigned to**: `ui-worker`
+**Duration**: Full sprint
+**Goal**: Upgrade the basic click-to-attack into a proper combat system with melee swing animation, attack cooldown UI, enemy aggro/retaliation, damage numbers floating text, health bars on enemies, and creature respawn timers.
+
+| Task | Description | Technical Spec |
+|------|-------------|---------------|
+| A1 | Create `CombatSystem.ts` | New singleton at `src/game/CombatSystem.ts`. Manages: attack cooldowns per weapon type (fist 0.8s, stone axe 1.2s, iron sword 0.6s, musket 8s — read from weapon stats), combo counter (3-hit combo: 1x, 1.2x, 1.5x damage multiplier, resets after 2s idle), dodge mechanic (Shift key, 0.3s iframe, 2s cooldown, player velocity burst in move direction), block mechanic (Right-click hold, 50% damage reduction while active, drains stamina 5/s). Methods: `startAttack()`, `canAttack()`, `startDodge()`, `isBlocking()`, `getComboMultiplier()`, `tick(dt)`. |
+| A2 | Floating damage numbers | Create `DamageNumberRenderer.tsx` at `src/rendering/entities/DamageNumberRenderer.tsx`. When damage is dealt (to animal/creature/player), spawn a floating text at hit position. Text shows damage amount, color-coded: white for normal, yellow for combo hit, red for critical (10% chance, 2x damage). Text rises 2m over 1s, fades opacity from 1 to 0. Use instanced sprites or HTML overlay divs positioned via CSS3DRenderer or simple screen-space projection. Max 20 active numbers (ring buffer). |
+| A3 | Enemy health bars | Create `HealthBarRenderer.tsx` at `src/rendering/entities/HealthBarRenderer.tsx`. Render a small HP bar above any animal/creature that has been damaged. Bar: 1m wide, positioned 0.5m above entity. Green when >50%, yellow 25-50%, red <25%. Fades after 5s of no damage. Only render for entities within 30m of player. Use instanced quads or HTML overlay. |
+| A4 | Creature aggro + retaliation | In `AnimalAISystem.ts`, add aggro behavior: when a wolf/boar takes damage, it enters AGGRO state targeting the attacker. AGGRO wolf: chase at 1.5x normal speed, attack when within 2m (deal 15 damage per bite, 1.5s cooldown). AGGRO boar: charge at 2x speed, deal 25 damage on collision, 3s cooldown. Deer always flee (no aggro). Aggro drops after 30s or if target moves >50m away. |
+| A5 | Creature respawn | Add respawn timer to AnimalAISystem: when an animal dies, record its spawn position + species. After 120s (2 min), respawn a new animal of same species at original position. Max respawns per chunk = original spawn count. Track in a `respawnQueue: Array<{pos, species, timer}>`. |
+| A6 | Combat HUD indicator | In HUD.tsx, add a small combat indicator (bottom-center): shows current weapon icon (text), attack cooldown arc (circular progress), combo counter (x1/x2/x3), and dodge cooldown. Only visible when player has attacked in last 10s. Compact: 120x40px. |
+
+**Quality gate**: (a) Attack has visible cooldown that prevents spam-clicking, (b) floating damage numbers appear on hit, (c) enemy HP bars show when damaged, (d) wolves/boars chase and attack player after being hit, (e) dead animals respawn after 2 min, (f) combat HUD shows cooldown + combo, (g) build passes, (h) no framerate regression >5%.
+
+---
+
+### Track B (P1): Achievement System
+**Assigned to**: `ai-npc`
+**Duration**: Full sprint
+**Goal**: Create an achievement system that tracks player milestones, displays toast notifications on unlock, and provides an Achievement Gallery panel. Achievements persist across sessions via save system.
+
+| Task | Description | Technical Spec |
+|------|-------------|---------------|
+| B1 | Create `AchievementSystem.ts` | New singleton at `src/game/AchievementSystem.ts`. Defines `Achievement` interface: `{ id: string, title: string, description: string, icon: string (emoji text), category: 'exploration' | 'combat' | 'crafting' | 'survival' | 'civilization' | 'secret', unlocked: boolean, unlockedAt: number | null, progress: number, target: number }`. Methods: `check(event, data)`, `unlock(id)`, `getUnlocked()`, `getAll()`, `serialize()`, `deserialize()`. |
+| B2 | Define 25 achievements | Exploration: "First Steps" (move 100m), "Globetrotter" (visit all biomes), "Spelunker" (go below sea level), "Summit" (reach highest point), "Cartographer" (reveal 80% map). Combat: "First Blood" (kill 1 animal), "Big Game" (kill 25 animals), "Untouchable" (dodge 10 attacks), "Overkill" (deal 100+ damage in one hit), "Survivor" (survive with <10% HP). Crafting: "Toolmaker" (craft 10 tools), "Master Chef" (craft 20 food items), "Blacksmith" (craft 10 metal items), "Alchemist" (craft 5 chemical items), "Legendary Crafter" (craft a legendary item). Survival: "10 Days" (survive 10 days), "100 Days" (survive 100 days), "Iron Stomach" (eat 50 items), "Night Owl" (spend 10 nights active), "Firekeeper" (build 20 fires). Civilization: "Settler" (reach civTier 1), "Mayor" (reach civTier 3), "Space Age" (reach civTier 5), "First Contact" (meet Velar), "Multiverse" (use gateway). |
+| B3 | Achievement progress hooks | Wire into GameLoop events: on animal kill, call `achievementSystem.check('kill', {species})`. On craft, `check('craft', {recipeId, rarity})`. On civTier change, `check('tier', {tier})`. On movement tick, accumulate distance for exploration achievements. On day change, increment survival day counter. On dodge, increment dodge counter. Keep hook calls minimal in GameLoop — one `achievementSystem.tick(dt, gameState)` call that reads current state. |
+| B4 | Achievement toast notification | When achievement unlocks, show a special toast notification (distinct from regular notifications): gold border, achievement icon, title "Achievement Unlocked!", achievement name + description. Toast slides in from top-right, stays 4s, slides out. Use existing notification system but add an `'achievement'` type with special styling. |
+| B5 | Create `AchievementPanel.tsx` | New panel at `src/ui/panels/AchievementPanel.tsx`. Grid of achievement cards (4 columns). Each card: icon, title, description, progress bar (if not yet unlocked), unlock timestamp (if unlocked). Locked achievements: greyed out with "?" icon. Categories as filter tabs at top. Show "X/25 Unlocked" counter. Styled matching dark-translucent UI. |
+| B6 | Register panel + persistence | Add `'achievements'` to PanelId in uiStore. Register in SidebarShell with lazy import. Add 'H' hotkey (for "Hall of Fame"). Add 'ACH' icon to sidebar strip. Persist achievement state in OfflineSaveManager and cloud save (serialize unlocked set + progress counters). |
+
+**Quality gate**: (a) Killing first animal triggers "First Blood" achievement toast, (b) H key opens achievement gallery, (c) progress bars update in real-time, (d) locked achievements show as "?" until unlocked, (e) achievements persist across save/load, (f) 25 achievements defined, (g) build passes.
+
+---
+
+### Track C (P1): Tutorial / Onboarding Flow
+**Assigned to**: `interaction`
+**Duration**: Full sprint
+**Goal**: Create a guided tutorial for the first 5 minutes of gameplay. Contextual hint arrows and text boxes guide the player through: movement, camera, gathering, crafting, building, and combat. Tutorial state persists so it doesn't repeat. Skippable at any time.
+
+| Task | Description | Technical Spec |
+|------|-------------|---------------|
+| C1 | Create `TutorialSystem.ts` | New singleton at `src/game/TutorialSystem.ts`. Defines tutorial steps as a state machine: `MOVE` (WASD prompt), `CAMERA` (mouse look prompt), `GATHER` (walk to tree + left-click prompt), `CRAFT` (open crafting panel + craft stone axe), `EQUIP` (equip the axe from inventory), `BUILD` (open build panel + place campfire), `COMBAT` (find and attack an animal), `COMPLETE`. Each step has: `id`, `message`, `triggerCondition` (function returning boolean), `highlightElement` (optional CSS selector for UI highlight), `worldPosition` (optional 3D position for arrow). Methods: `tick()`, `getCurrentStep()`, `advance()`, `skip()`, `isComplete()`, `serialize()`, `deserialize()`. |
+| C2 | Tutorial HUD overlay | Create `TutorialOverlay.tsx` at `src/ui/TutorialOverlay.tsx`. Renders: (a) instruction text box at bottom-center (dark bg, white text, max 300px wide, shows current step message), (b) directional arrow pointing toward objective (if worldPosition set — project 3D pos to screen, show arrow from screen center toward that point), (c) UI highlight glow (if highlightElement set — add pulsing gold border to that CSS selector via portal/overlay), (d) "Skip Tutorial" button (top-right, small, subtle). |
+| C3 | Step trigger conditions | MOVE: player has moved >5m from spawn. CAMERA: player has rotated camera >90 degrees total. GATHER: inventory contains any wood (materialId for wood). CRAFT: inventory contains stone axe (check by itemId). EQUIP: equipped weapon is stone axe. BUILD: any campfire building exists within 20m. COMBAT: any animal has been damaged. COMPLETE: all previous steps done. |
+| C4 | Tutorial messages | MOVE: "Use WASD to move around. Explore your surroundings!" CAMERA: "Move the mouse to look around. Click to lock the pointer." GATHER: "Walk up to a tree and Left-Click to gather wood." CRAFT: "Press C to open Crafting. Find 'Stone Axe' and craft it." EQUIP: "Press I to open Inventory. Click the Stone Axe to equip it." BUILD: "Press B to open Building. Place a Campfire — you'll need it at night!" COMBAT: "Find an animal nearby and Left-Click to attack it. Watch your health!" COMPLETE: "Tutorial complete! The world is yours to explore. Good luck!" (fade after 5s). |
+| C5 | Persist tutorial state | Add `tutorialStep: string` to OfflineSaveManager and cloud save. On load, resume from saved step. If step is 'COMPLETE', never show tutorial again. New players start at 'MOVE'. |
+| C6 | Wire into App bootstrap | In GameLoop or App.tsx init: if tutorialStep !== 'COMPLETE', create TutorialSystem and mount TutorialOverlay. Call `tutorialSystem.tick()` each frame to check step advancement. On skip, set step to 'COMPLETE' and persist. |
+
+**Quality gate**: (a) New game shows movement tutorial immediately, (b) completing each action advances to next step, (c) directional arrow points toward nearest tree during GATHER step, (d) UI highlights pulse on crafting/inventory panels when those steps are active, (e) "Skip Tutorial" works, (f) tutorial does not show again after completion or skip, (g) build passes.
+
+---
+
+## Architecture Decisions (M24)
+
+| Decision | Rationale |
+|----------|-----------|
+| CombatSystem as singleton, not ECS component | Combat state is player-centric; only one player exists client-side; ECS overhead unnecessary |
+| Floating damage numbers as screen-space divs, not 3D text | Avoids 3D text rendering complexity; CSS transitions handle fade/rise cheaply; ring buffer caps memory |
+| Achievement check via single tick() call, not scattered hooks | Minimizes GameLoop modification; achievement system reads game state internally |
+| Tutorial as state machine, not quest-based | Tutorial is linear and mandatory; quest system is open-ended; separate concern avoids coupling |
+| Creature aggro as FSM state in AnimalAISystem | Minimal new code; leverages existing movement/targeting logic; aggro is just another behavior state |
+| Creature respawn queue, not instant respawn | More realistic; prevents exploit of farming same spot; queue pattern is O(n) scan per tick |
+
+---
+
+## Risk Register (M24)
+
+| Risk | Likelihood | Impact | Mitigation |
+|------|-----------|--------|------------|
+| Floating damage numbers cause GC pressure | Medium | Medium | Ring buffer with pre-allocated divs; no new DOM elements per hit |
+| Creature aggro creates unfair difficulty | Medium | Medium | Cap aggro chase at 30s timeout; aggro only for wolves/boars, not deer |
+| Tutorial overlay blocks gameplay input | Medium | High | Tutorial overlay has pointer-events: none except on buttons; never captures mouse |
+| Achievement toast spam on rapid unlocks | Low | Medium | Queue toasts with 1s delay between each; max 3 queued |
+| Health bars reduce FPS with many damaged creatures | Low | Medium | Only render for entities within 30m; max 10 bars (nearest damaged) |
+| Tutorial skip doesn't persist | Low | High | persist immediately on skip; guard check on every boot |
+
+---
+
+## Agent Dispatch Plan (M24)
+
+| Agent | Track | First Task | Report To |
+|-------|-------|-----------|-----------|
+| `ui-worker` | Track A | A1-A6: Combat system + VFX + HUD | director |
+| `ai-npc` | Track B | B1-B6: Achievement system + panel | director |
+| `interaction` | Track C | C1-C6: Tutorial onboarding flow | director |

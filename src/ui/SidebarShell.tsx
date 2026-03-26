@@ -23,7 +23,8 @@ const BuildPanel     = lazy(() => import('./panels/BuildPanel').then(m => ({ def
 const SciencePanel   = lazy(() => import('./panels/SciencePanel').then(m => ({ default: m.SciencePanel })))
 const DialoguePanel  = lazy(() => import('./panels/DialoguePanel').then(m => ({ default: m.DialoguePanel })))
 const SkillTreePanel = lazy(() => import('./panels/SkillTreePanel').then(m => ({ default: m.SkillTreePanel })))
-const QuestPanel     = lazy(() => import('./panels/QuestPanel').then(m => ({ default: m.QuestPanel })))
+const QuestPanel       = lazy(() => import('./panels/QuestPanel').then(m => ({ default: m.QuestPanel })))
+const AchievementPanel = lazy(() => import('./panels/AchievementPanel').then(m => ({ default: m.AchievementPanel })))
 
 const PANEL_LABEL: Record<PanelId, string> = {
   inventory: 'INVENTORY',
@@ -36,7 +37,8 @@ const PANEL_LABEL: Record<PanelId, string> = {
   science:   'SCIENCE COMPANION',
   dialogue:  'DIALOGUE',
   skills:    'SKILLS',
-  quests:    'QUESTS',
+  quests:       'QUESTS',
+  achievements: 'ACHIEVEMENTS',
 }
 
 const PANEL_WIDTH = 480

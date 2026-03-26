@@ -41,9 +41,10 @@ import {
   attackNearestAnimal,
   pendingLoot,
   tickEcosystemBalance,
+  tickRespawnQueue,
 } from '../ecs/systems/AnimalAISystem'
 
-import { inventory, buildingSystem, questSystem } from './GameSingletons'
+import { inventory, buildingSystem, questSystem, combatSystem } from './GameSingletons'
 import { SPECIES_LOOT, rollLoot } from './LootTable'
 import { ITEM, MAT, RARITY_NAMES, type RarityTier } from '../player/Inventory'
 import { getItemStats, canHarvest } from '../player/EquipSystem'
@@ -196,8 +197,11 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
         playerMurderCount: ps9.murderCount,
         playerCrouching: !!(controllerRef.current as any)?.keys?.has?.('ControlLeft'),
         onPlayerDamaged: (dmg) => {
-          Health.current[entityId] = Math.max(0, Health.current[entityId] - dmg)
-          inflictWound(dmg / 100)
+          // M24: Apply combat system damage reduction (dodge iframe, block)
+          const effectiveDmg = dmg * combatSystem.getIncomingDamageMultiplier()
+          if (effectiveDmg <= 0) return  // dodged!
+          Health.current[entityId] = Math.max(0, Health.current[entityId] - effectiveDmg)
+          inflictWound(effectiveDmg / 100)
           markCombatDamage()
         },
         onAnimalKilled: () => { /* handled via return value of attackNearestAnimal */ },
@@ -208,6 +212,12 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
         inventory.addItem({ itemId: 0, materialId: drop.materialId, quantity: drop.quantity, quality: 0.8 })
       }
     }
+
+    // M24: Combat system tick (cooldowns, damage numbers, health bar pruning)
+    combatSystem.tick(dt)
+
+    // M24: Animal respawn queue tick
+    tickRespawnQueue(dt)
 
     // 2d. M9 Ecosystem balance — respawn animals every 10s if below 50% cap
     ecosystemTimerRef.current += dt
@@ -743,6 +753,16 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
 
       // ── Check creatures / harvest (skip for musket/fire-item) ───────────────
       if (!_isMusket && !_isFireItem) {
+        // M24: Check combat system cooldown before allowing attack
+        if (!combatSystem.canAttack()) {
+          // Attack on cooldown — skip
+        } else {
+        // M24: Start attack — get combo multiplier and apply cooldown
+        const comboMult = combatSystem.startAttack(stats.name)
+        const isCritical = Math.random() < 0.1  // 10% crit chance
+        const critMult = isCritical ? 2.0 : 1.0
+        const totalDamage = stats.damage * comboMult * critMult
+
         let hitCreature = false
         let nearestCreatureEid = -1
         let nearestCreatureDist = Infinity
@@ -758,9 +778,20 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
         }
         if (nearestCreatureEid >= 0) {
           hitCreature = true
-          Health.current[nearestCreatureEid] = Math.max(0, Health.current[nearestCreatureEid] - stats.damage)
+          Health.current[nearestCreatureEid] = Math.max(0, Health.current[nearestCreatureEid] - totalDamage)
           const hp = Health.current[nearestCreatureEid]
           const maxHp2 = Health.max[nearestCreatureEid] || 100
+          // M24: Spawn damage number
+          combatSystem.spawnDamageNumber(
+            Position.x[nearestCreatureEid], Position.y[nearestCreatureEid] + 1.5, Position.z[nearestCreatureEid],
+            totalDamage, isCritical
+          )
+          // M24: Update health bar
+          combatSystem.updateEnemyHealth(
+            nearestCreatureEid, 'creature',
+            Position.x[nearestCreatureEid], Position.y[nearestCreatureEid], Position.z[nearestCreatureEid],
+            hp, maxHp2
+          )
           if (hp <= 0) {
             inventory.addItem({ itemId: 0, materialId: MAT.RAW_MEAT, quantity: 1 + Math.floor(CreatureBody.size[nearestCreatureEid] * 2), quality: 0.8 })
             inventory.addItem({ itemId: 0, materialId: MAT.HIDE,     quantity: 1, quality: 0.7 })
@@ -770,7 +801,7 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
             useUiStore.getState().addNotification('Creature killed — raw meat + hide collected!', 'discovery')
           } else {
             useUiStore.getState().addNotification(
-              `Hit creature for ${stats.damage} dmg (${hp.toFixed(0)}/${maxHp2} HP remaining)`,
+              `Hit creature for ${Math.round(totalDamage)} dmg (${hp.toFixed(0)}/${maxHp2} HP remaining)`,
               'warning'
             )
           }
@@ -778,10 +809,18 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
 
         // ── M9: Check if player hit a deer/wolf/boar ─────────────────────────
         if (!hitCreature) {
-          const animalHit = attackNearestAnimal(px, py, pz, stats.damage, stats.range)
+          const animalHit = attackNearestAnimal(px, py, pz, totalDamage, stats.range)
           if (animalHit) {
             hitCreature = true
-            const { killed, loot } = animalHit
+            const { killed, hit, loot, effectiveDamage } = animalHit
+            // M24: Spawn damage number at hit position
+            if (hit) {
+              combatSystem.spawnDamageNumber(hit.x, hit.y + 1.5, hit.z, effectiveDamage, isCritical)
+              // M24: Update health bar for surviving animals
+              if (!killed) {
+                combatSystem.updateEnemyHealth(hit.id, hit.species, hit.x, hit.y, hit.z, hit.health, hit.maxHealth)
+              }
+            }
             if (killed) {
               const speciesName = killed.species.charAt(0).toUpperCase() + killed.species.slice(1)
               // M23: Use loot table system for rarity-aware drops
@@ -813,7 +852,7 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
               questSystem.onKill(killed.species)
             } else {
               useUiStore.getState().addNotification(
-                `Hit animal for ${stats.damage} dmg!`, 'warning'
+                `Hit animal for ${Math.round(effectiveDamage)} dmg!`, 'warning'
               )
             }
           }
@@ -929,6 +968,7 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
           }
         }
       } // end if (!_isMusket && !_isFireItem)
+      } // end if (combatSystem.canAttack()) else
     }
 
     // ── Eat (E key) ───────────────────────────────────────────────────────────

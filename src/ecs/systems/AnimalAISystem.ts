@@ -71,6 +71,7 @@ export type AnimalBehavior =
   | 'ATTACKING_PLAYER'
   | 'ROAMING'
   | 'CHARGING'
+  | 'AGGRO'    // M24: retaliation state — wolves/boars chase attacker
   | 'DEAD'
 
 // ── Data types ─────────────────────────────────────────────────────────────────
@@ -121,6 +122,22 @@ export interface LootDrop {
 let _nextId = 1
 export const animalRegistry = new Map<number, AnimalEntity>()
 export const pendingLoot: LootDrop[] = []
+
+// ── M24: Respawn queue ────────────────────────────────────────────────────────
+interface RespawnEntry {
+  species: AnimalSpecies
+  x: number; y: number; z: number
+  timer: number  // seconds remaining until respawn
+  packId: number
+  patrolCx: number; patrolCy: number; patrolCz: number
+}
+const respawnQueue: RespawnEntry[] = []
+const RESPAWN_DELAY = 120  // 2 minutes
+
+// ── M24: Aggro timer tracking (per animal) ──────────────────────────────────
+const aggroTimers = new Map<number, number>()  // animalId → seconds remaining
+const AGGRO_TIMEOUT = 30  // disengage after 30s
+const AGGRO_DISENGAGE_DIST = 50  // disengage if player >50m away
 
 // Population caps
 const CAP_DEER  = 20
@@ -681,6 +698,14 @@ function tickWolf(
   } else if (a.behavior === 'ATTACKING_PLAYER') {
     // Disengage if player flees beyond 50m
     if (playerDist > 50) a.behavior = 'PATROLLING'
+  } else if (a.behavior === 'AGGRO') {
+    // M24: Aggro retaliation — chase player who attacked
+    const aggroTimeLeft = aggroTimers.get(a.id) ?? 0
+    if (aggroTimeLeft <= 0 || playerDist > AGGRO_DISENGAGE_DIST) {
+      a.behavior = 'PATROLLING'
+      a.stateTimer = 0
+      aggroTimers.delete(a.id)
+    }
   }
 
   // ── Behavior execution ────────────────────────────────────────────────────
@@ -769,6 +794,26 @@ function tickWolf(
     }
   }
 
+  // M24: AGGRO behavior — chase at 1.5x speed, attack at melee range
+  if (a.behavior === 'AGGRO') {
+    const aggroSpeed = huntSpeed * 1.5
+    if (playerDist > 0.1) {
+      const invD = 1 / playerDist
+      a.vx = dpx * invD * aggroSpeed
+      a.vz = dpz * invD * aggroSpeed
+    }
+    if (playerDist < WOLF_ATTACK_RADIUS) {
+      const cooldown = wolfAttackCooldowns.get(a.id) ?? 0
+      if (cooldown <= 0) {
+        onPlayerDamaged(Math.round(attackDamage * 1.2))  // aggro bonus damage
+        wolfAttackCooldowns.set(a.id, WOLF_ATTACK_COOLDOWN)
+      }
+    }
+    // Tick aggro timer
+    const t = aggroTimers.get(a.id) ?? 0
+    aggroTimers.set(a.id, t - dt)
+  }
+
   // armorReduction: wolf's own armor reduces incoming damage (applied in attackNearestAnimal).
   // Log wolf phenotype once per state entry for developer verification.
   if (a.stateTimer < 0.05) {
@@ -835,6 +880,14 @@ function tickBoar(
       a.stateTimer = 0
       a.vx = 0; a.vz = 0
     }
+  } else if (a.behavior === 'AGGRO') {
+    // M24: Aggro retaliation — disengage conditions
+    const aggroTimeLeft = aggroTimers.get(a.id) ?? 0
+    if (aggroTimeLeft <= 0 || playerDist > AGGRO_DISENGAGE_DIST) {
+      a.behavior = 'ROAMING'
+      a.stateTimer = 0
+      aggroTimers.delete(a.id)
+    }
   }
 
   // ── Roaming ───────────────────────────────────────────────────────────────
@@ -868,6 +921,25 @@ function tickBoar(
         boarAttackCooldowns.set(a.id, 1.5)
       }
     }
+  }
+
+  // M24: AGGRO behavior — charge at 2x speed, deal damage on contact
+  if (a.behavior === 'AGGRO') {
+    const aggroChargeSpeed = BOAR_CHARGE_SPEED * speedMult * 1.2
+    if (playerDist > 0.1) {
+      const invD = 1 / playerDist
+      a.vx = dpx * invD * aggroChargeSpeed
+      a.vz = dpz * invD * aggroChargeSpeed
+    }
+    if (playerDist < 2.5) {
+      const cd2 = boarAttackCooldowns.get(a.id) ?? 0
+      if (cd2 <= 0) {
+        onPlayerDamaged(Math.round(attackDamage * 1.3))  // aggro bonus damage
+        boarAttackCooldowns.set(a.id, 1.5)
+      }
+    }
+    const t = aggroTimers.get(a.id) ?? 0
+    aggroTimers.set(a.id, t - dt)
   }
 
   // Suppress unused variable warning (armorReduction is applied in attackNearestAnimal)
@@ -916,7 +988,7 @@ export function attackNearestAnimal(
   px: number, py: number, pz: number,
   damage: number,
   range: number,
-): { killed: AnimalEntity | null; loot: AnimalKillLoot[] } | null {
+): { killed: AnimalEntity | null; hit: AnimalEntity | null; loot: AnimalKillLoot[]; effectiveDamage: number } | null {
   let nearest: AnimalEntity | null = null
   let nearestDist = range
 
@@ -938,13 +1010,40 @@ export function attackNearestAnimal(
     `effectiveDamage=${effectiveDamage.toFixed(1)} hp=${nearest.health.toFixed(1)}/${nearest.maxHealth}`
   )
   nearest.health -= effectiveDamage
-  if (nearest.health > 0) return { killed: null, loot: [] }  // hit but survived
 
-  // Animal died
+  // M24: Trigger aggro on hit (wolves and boars retaliate, deer flee)
+  if (nearest.health > 0) {
+    if (nearest.species === 'wolf' || nearest.species === 'boar') {
+      // Enter AGGRO state — chase and attack the player who hit them
+      if (nearest.behavior !== 'AGGRO' && nearest.behavior !== 'ATTACKING_PLAYER') {
+        nearest.behavior = 'AGGRO'
+        nearest.stateTimer = 0
+        aggroTimers.set(nearest.id, AGGRO_TIMEOUT)
+      }
+    } else if (nearest.species === 'deer') {
+      // Deer flee when hit
+      if (nearest.behavior !== 'FLEEING') {
+        nearest.behavior = 'FLEEING'
+        nearest.stateTimer = 0
+      }
+    }
+    return { killed: null, hit: nearest, loot: [], effectiveDamage }
+  }
+
+  // Animal died — queue respawn
   nearest.behavior = 'DEAD'
   nearest.deadTimer = 0
+  respawnQueue.push({
+    species: nearest.species,
+    x: nearest.x, y: nearest.y, z: nearest.z,
+    timer: RESPAWN_DELAY,
+    packId: nearest.packId,
+    patrolCx: nearest.patrolCx,
+    patrolCy: nearest.patrolCy,
+    patrolCz: nearest.patrolCz,
+  })
   const loot = ANIMAL_LOOT[nearest.species]
-  return { killed: nearest, loot }
+  return { killed: nearest, hit: nearest, loot, effectiveDamage }
 }
 
 // ── Ecosystem respawn (call periodically from GameLoop) ───────────────────────
@@ -1053,6 +1152,31 @@ export function tickEcosystemBalance(
     if (pos) {
       const genome = reproduceGenome('boar')
       spawnAnimal('boar', pos[0], pos[1], pos[2], 0, pos[0], pos[1], pos[2], genome)
+    }
+  }
+}
+
+// ── M24: Tick respawn queue (call from GameLoop each frame) ─────────────────
+
+export function tickRespawnQueue(dt: number): void {
+  for (let i = respawnQueue.length - 1; i >= 0; i--) {
+    respawnQueue[i].timer -= dt
+    if (respawnQueue[i].timer <= 0) {
+      const entry = respawnQueue[i]
+      // Only respawn if below population cap
+      const count = countSpecies(entry.species)
+      const cap = entry.species === 'deer' ? CAP_DEER
+                : entry.species === 'wolf' ? CAP_WOLF
+                : CAP_BOAR
+      if (count < cap) {
+        spawnAnimal(
+          entry.species,
+          entry.x, entry.y, entry.z,
+          entry.packId,
+          entry.patrolCx, entry.patrolCy, entry.patrolCz,
+        )
+      }
+      respawnQueue.splice(i, 1)
     }
   }
 }

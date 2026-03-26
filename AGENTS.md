@@ -1,117 +1,111 @@
 # Agent Team Session — Universe Sim
 
-## Overview
+## Hierarchy
 
-Six specialized Claude agents work simultaneously on different game domains.
-Each agent owns a slice of the codebase and can communicate with other agents
-by calling `reportStatus()`, which broadcasts to the companion status site in real time.
-
----
-
-## Domain Agents
-
-| Agent ID       | Domain              | Key Files / Directories                          |
-|----------------|---------------------|--------------------------------------------------|
-| `chemistry`    | Elements, reactions, molecules, materials | `src/chemistry/` |
-| `biology`      | Genome, mutation, species, ecosystem | `src/biology/` |
-| `physics`      | Grid, fluid, thermal, rigid-body workers | `src/engine/workers/` |
-| `civilization` | Buildings, diplomacy, settlements, trade | `src/civilization/` |
-| `ai`           | NPC behavior, GOAP, emotions, pathfinding | `src/ai/` |
-| `world`        | Planet, weather, rivers, seasons, terrain | `src/world/` |
-
----
-
-## Spawning Agents (Claude Code team session)
-
-Open a separate terminal for each domain and run:
-
-```bash
-claude --agent chemistry   "Work on the chemistry domain: see AGENTS.md for your scope"
-claude --agent biology     "Work on the biology domain: see AGENTS.md for your scope"
-claude --agent physics     "Work on the physics domain: see AGENTS.md for your scope"
-claude --agent civilization "Work on the civilization domain: see AGENTS.md for your scope"
-claude --agent ai          "Work on the AI domain: see AGENTS.md for your scope"
-claude --agent world       "Work on the world domain: see AGENTS.md for your scope"
+```
+                        DIRECTOR (game-dev-director)
+                               │
+          ┌────────────────────┼────────────────────┐
+     status-worker          gp-agent          knowledge-director
+    (status site)        (game playtester)      (science lead)
+                               │                      │
+              ┌────────────────┼──────────┐    ┌──────┼──────┐
+          ui-worker     interaction    ai-npc  physics chemistry biology
+         (rendering)    (controls)   (NPC AI)   prof     prof     prof
 ```
 
-Or use Claude Code's built-in team session interface if available.
+Independent (report to Director):
+- `cqa` — code quality auditor
+- `car` — comprehensive app reporter
+
+---
+
+## Agents
+
+| Agent ID            | Role                        | Key Files / Directories                  |
+|---------------------|-----------------------------|------------------------------------------|
+| `director`          | Game Dev Director — plans sprints, spawns agents | — |
+| `status-worker`     | Status site maintenance     | `status-site/`                           |
+| `gp-agent`          | Game Playtester — tests like a real player, no cheats | — |
+| `knowledge-director`| Science lead — coordinates professors | — |
+| `cqa`               | Code Quality Auditor        | repo-wide                                |
+| `car`               | Comprehensive App Reporter  | `report.md`                              |
+| `ui-worker`         | Rendering & visual polish   | `src/rendering/`                         |
+| `interaction`       | Player controls & input     | `src/player/`, `src/game/`               |
+| `ai-npc`            | NPC AI developer            | `src/ai/`                                |
+| `physics-prof`      | Physics & sim workers       | `src/engine/workers/`                    |
+| `chemistry-prof`    | Chemistry reactions         | `src/chemistry/`                         |
+| `biology-prof`      | Genome, species, ecosystem  | `src/biology/`, `src/ecs/systems/`       |
 
 ---
 
 ## Communication Protocol
 
-Each agent should call `reportStatus()` at key moments:
+Each agent reports status via `reportStatus()`:
 
 ```typescript
 import { reportStatus } from './src/utils/agentBus'
 
 // On start
-await reportStatus('chemistry', 'active', 'Adding H2SO4 + H2O reaction chain')
+await reportStatus('biology-prof', 'active', 'Wiring genome to AnimalAISystem')
 
-// When sending a message to another agent
-await reportStatus('chemistry', 'active',
+// Directed message to another agent
+await reportStatus('chemistry-prof', 'active',
   'Finalizing acid reactions',
-  'Acid rain reactions ready — biology should update plant damage model',
-  'biology'   // directed to biology agent
+  'Acid rain ready — biology should update plant damage model',
+  'biology-prof'
 )
 
 // On completion
-await reportStatus('chemistry', 'done', 'H2SO4 reactions complete')
+await reportStatus('ui-worker', 'done', 'PostProcessing shipped')
 
-// When blocked
-await reportStatus('chemistry', 'blocked', 'Waiting for physics worker API')
-
-// When idle
-await reportStatus('chemistry', 'idle')
+// When blocked / needs user approval
+await reportStatus('gp-agent', 'blocked', 'Cannot test — game crashes on spawn')
 ```
 
-### Message guidelines
+### Field reference
 
-- `task` — what you're currently working on (short, appears in the agent card)
-- `message` — a note for the feed (optional; use when handing off or notifying another agent)
-- `to` — set to the target agent ID when the message is directed; omit for broadcast
+- `task` — short description of current work (shown on agent card)
+- `message` — note for the feed (optional; use for handoffs or alerts)
+- `to` — target agent ID for directed messages; omit for broadcast
 
 ---
 
 ## Inter-Agent Dependencies
 
 ```
-physics  ─────────────────────────────────► all agents (fluid/thermal primitives)
-chemistry ──────────────────────────────► biology (molecules → biochemistry)
-biology ─────────────────────────────────► world (species → ecosystem)
-world ───────────────────────────────────► civilization (terrain → settlement placement)
-civilization ────────────────────────────► ai (settlements → NPC goals)
-ai ──────────────────────────────────────► world (NPC actions → world state changes)
+physics-prof  ──────────────────────────► all agents (fluid/thermal primitives)
+chemistry-prof ─────────────────────────► biology-prof (molecules → biochemistry)
+biology-prof ───────────────────────────► knowledge-director (species → ecosystem)
+knowledge-director ─────────────────────► director (science status)
+ui-worker ──────────────────────────────► gp-agent (rendering → playtester validates)
+gp-agent ───────────────────────────────► director (bug reports, friction points)
 ```
-
-When your work produces output that another agent depends on, send a directed message.
-
----
-
-## Viewing Agent Activity
-
-The companion status site shows the **Agent Control Center** panel:
-- Six domain cards — one per agent — showing status (ACTIVE / IDLE / BLOCKED / DONE)
-- Live message feed with directed messages highlighted in amber
-
-The server URL is set via `VITE_WS_URL` in `.env.local`. The `reportStatus()` utility
-derives the HTTP endpoint from this automatically.
 
 ---
 
 ## File Ownership
 
-Agents should only modify files within their domain. Cross-domain changes require
-coordination via the message feed.
+| Pattern                      | Owner           |
+|------------------------------|-----------------|
+| `status-site/**`             | status-worker   |
+| `src/rendering/**`           | ui-worker       |
+| `src/ai/**`                  | ai-npc          |
+| `src/chemistry/**`           | chemistry-prof  |
+| `src/biology/**`             | biology-prof    |
+| `src/ecs/systems/Animal*`    | biology-prof    |
+| `src/engine/workers/**`      | physics-prof    |
+| `src/civilization/**`        | (shared)        |
+| `src/player/**`              | interaction     |
+| `src/game/**`                | interaction     |
+| `src/ui/**`                  | (shared)        |
+| `src/store/**`               | (shared)        |
 
-| Pattern              | Owner         |
-|----------------------|---------------|
-| `src/chemistry/**`   | chemistry     |
-| `src/biology/**`     | biology       |
-| `src/engine/workers/**` | physics    |
-| `src/civilization/**` | civilization |
-| `src/ai/**`          | ai            |
-| `src/world/**`       | world         |
-| `src/player/**`      | (shared)      |
-| `src/ui/**`          | (shared)      |
-| `src/store/**`       | (shared)      |
+---
+
+## Viewing Agent Activity
+
+The companion status site shows the **Agent Control Center** panel with the 12-agent
+hierarchy, walking Director character, speech bubbles, and live message feed.
+
+The server URL is set via `VITE_WS_URL` in `.env.local`.

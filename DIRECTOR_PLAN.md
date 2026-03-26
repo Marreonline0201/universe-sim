@@ -24,7 +24,7 @@ However, the project has a critical architectural problem and several gameplay g
 - Performance optimization is blind -- cannot profile individual systems
 - New developers cannot onboard to any subsystem without reading 3800+ lines
 
-**Assigned to**: `gp-agent` (gameplay programmer)
+**Assigned to**: `gp-agent` (game playtester)
 
 **Deliverables**:
 1. Extract `GameLoop` into `src/game/GameLoop.ts` -- pure function taking (dt, entityId, refs)

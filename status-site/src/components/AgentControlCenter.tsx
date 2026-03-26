@@ -21,7 +21,7 @@ interface AgentMeta {
 const AGENTS: Record<string, AgentMeta> = {
   'director':           { icon: '👑', label: 'DIRECTOR',       color: '#ffd700', x: 0.50, y: 0.07, level: 1, parent: null },
   'status-worker':      { icon: '🖥', label: 'STATUS',         color: '#60cdcc', x: 0.14, y: 0.42, level: 2, parent: 'director' },
-  'gp-agent':           { icon: '🎮', label: 'GP AGENT',       color: '#a78bfa', x: 0.50, y: 0.42, level: 2, parent: 'director' },
+  'gp-agent':           { icon: '🎮', label: 'PLAYTESTER',       color: '#a78bfa', x: 0.50, y: 0.42, level: 2, parent: 'director' },
   'knowledge-director': { icon: '📚', label: 'KNOWLEDGE',      color: '#f472b6', x: 0.86, y: 0.42, level: 2, parent: 'director' },
   'cqa':                { icon: '🔍', label: 'CQA',            color: '#94a3b8', x: 0.06, y: 0.80, level: 3, parent: 'director' },
   'car':                { icon: '📊', label: 'CAR',            color: '#94a3b8', x: 0.20, y: 0.80, level: 3, parent: 'director' },

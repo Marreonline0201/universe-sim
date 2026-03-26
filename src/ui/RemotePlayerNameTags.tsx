@@ -5,7 +5,7 @@
 // - Opacity fade: 1.0 at <30m, lerp to 0 at 50m, hidden beyond 50m
 // - C5: Ping dot next to name (green/yellow/red/grey)
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useThree, useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { useMultiplayerStore } from '../store/multiplayerStore'
@@ -53,7 +53,8 @@ function NameTagsOverlayInner({
 
   const tmpVec = useRef(new THREE.Vector3())
   const now = Date.now()
-  const partyMemberIds = usePartyStore(s => s.party?.members.map(m => m.userId) ?? [])
+  const partyMembers = usePartyStore(s => s.party?.members)
+  const partyMemberIds = useMemo(() => partyMembers?.map(m => m.userId) ?? [], [partyMembers])
 
   useFrame(() => {
     const tags: NameTagData[] = []

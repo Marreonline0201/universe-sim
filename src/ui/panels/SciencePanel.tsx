@@ -3,6 +3,7 @@
 // Uses the Anthropic Claude API server-side (with static fallback when key absent).
 
 import React, { useState, useRef, useEffect } from 'react'
+import { setForecastAccuracy, forecastState, type ForecastAccuracy } from '../../game/WeatherForecastSystem'
 
 interface Message {
   role: 'user' | 'assistant'
@@ -84,6 +85,9 @@ export function SciencePanel() {
       }}>
         Physics Engine Explainer
       </div>
+
+      {/* Meteorology Research Section */}
+      <MeteorologyResearch />
 
       {/* Message thread */}
       <div style={{
@@ -237,6 +241,95 @@ export function SciencePanel() {
         >
           {loading ? '...' : 'Ask'}
         </button>
+      </div>
+    </div>
+  )
+}
+
+// ── Meteorology Research ─────────────────────────────────────────────────────
+// M50 Track B: Inline research card that upgrades WeatherForecast accuracy.
+
+const METEO_TIERS: Array<{ accuracy: ForecastAccuracy; label: string; desc: string; color: string }> = [
+  { accuracy: 'approximate', label: 'Meteorology I',  desc: 'Unlock approximate forecasts (70% accuracy). Time shown as ±1h.', color: '#e6b93a' },
+  { accuracy: 'accurate',    label: 'Meteorology II', desc: 'Unlock accurate forecasts (95% accuracy). Exact weather and timing.', color: '#2ecc71' },
+]
+
+const ACCURACY_ORDER: Record<ForecastAccuracy, number> = { vague: 0, approximate: 1, accurate: 2 }
+
+function MeteorologyResearch() {
+  const [, forceUpdate] = useState(0)
+  const currentAccuracy = forecastState.accuracy
+  const currentOrder = ACCURACY_ORDER[currentAccuracy]
+
+  return (
+    <div style={{
+      marginBottom: 12,
+      padding: '10px 12px',
+      background: 'rgba(255,255,255,0.03)',
+      border: '1px solid #2a2a2a',
+      borderRadius: 8,
+    }}>
+      <div style={{ fontSize: 10, color: '#555', fontFamily: 'monospace', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 8 }}>
+        Meteorology Research
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {METEO_TIERS.map(tier => {
+          const tierOrder = ACCURACY_ORDER[tier.accuracy]
+          const isUnlocked = currentOrder >= tierOrder
+          const canUnlock = currentOrder === tierOrder - 1
+
+          return (
+            <div
+              key={tier.accuracy}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                padding: '8px 10px',
+                background: isUnlocked ? `${tier.color}11` : 'transparent',
+                border: `1px solid ${isUnlocked ? tier.color + '44' : '#222'}`,
+                borderRadius: 6,
+              }}
+            >
+              <span style={{ fontSize: 14, flexShrink: 0 }}>{isUnlocked ? '✅' : '🔒'}</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 11, color: isUnlocked ? tier.color : '#666', fontFamily: 'monospace', fontWeight: 700, marginBottom: 2 }}>
+                  {tier.label}
+                </div>
+                <div style={{ fontSize: 10, color: '#555', fontFamily: 'sans-serif', lineHeight: 1.4 }}>
+                  {tier.desc}
+                </div>
+              </div>
+              {!isUnlocked && (
+                <button
+                  onClick={() => {
+                    if (canUnlock) {
+                      setForecastAccuracy(tier.accuracy)
+                      forceUpdate(n => n + 1)
+                    }
+                  }}
+                  disabled={!canUnlock}
+                  style={{
+                    background: canUnlock ? `${tier.color}22` : 'transparent',
+                    border: `1px solid ${canUnlock ? tier.color + '66' : '#333'}`,
+                    borderRadius: 6,
+                    color: canUnlock ? tier.color : '#444',
+                    fontSize: 10,
+                    fontFamily: 'monospace',
+                    fontWeight: 700,
+                    padding: '5px 10px',
+                    cursor: canUnlock ? 'pointer' : 'default',
+                    flexShrink: 0,
+                    transition: 'all 0.15s',
+                    letterSpacing: 0.5,
+                  }}
+                >
+                  Unlock
+                </button>
+              )}
+            </div>
+          )
+        })}
       </div>
     </div>
   )

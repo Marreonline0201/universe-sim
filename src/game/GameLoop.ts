@@ -2472,6 +2472,18 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
       }
     }
 
+    // ── M50 Track B: Weather forecast refresh (every 60 game-seconds) ───────────
+    {
+      forecastTimerRef.current += dt
+      if (forecastTimerRef.current >= 60) {
+        forecastTimerRef.current = 0
+        const simSecs = useGameStore.getState().simSeconds
+        const wStoreFc = useWeatherStore.getState()
+        const fcWeather = wStoreFc.getPlayerWeather()?.state ?? 'CLEAR'
+        updateForecasts(simSecs, fcWeather)
+      }
+    }
+
     // ── M42 Track B: Shelter update (every 2s) ────────────────────────────────
     {
       shelterUpdateTimerRef.current += dt

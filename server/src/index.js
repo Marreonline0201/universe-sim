@@ -304,11 +304,25 @@ async function main() {
             // Fire-and-forget async Claude call
             ;(async () => {
               try {
+                const agentState = AgentBus.getState()
+                const agentSummary = Object.entries(agentState.agents)
+                  .map(([id, a]) => `  ${id}: ${a.status}${a.task ? ' — ' + a.task : ''}`)
+                  .join('\n')
+                const recentMessages = agentState.messages.slice(0, 5)
+                  .map(m => `  [${m.from}${m.to ? '→' + m.to : ''}] ${m.text}`)
+                  .join('\n')
+                const systemPrompt = `You are Claude, an AI assistant embedded in a game development workflow for Universe Sim — a scientifically-grounded open-world survival game on a sphere planet. You help the developer (communicating via Telegram) with game development questions, agent status, and decisions. Be concise since this is a mobile chat interface.
+
+Current agent states:
+${agentSummary}
+
+Recent agent messages:
+${recentMessages || '  (none)'}`
                 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
                 const response = await anthropic.messages.create({
                   model: 'claude-sonnet-4-6',
                   max_tokens: 1024,
-                  system: 'You are Claude, an AI assistant embedded in a game development workflow for Universe Sim — a scientifically-grounded open-world survival game on a sphere planet. You help the developer (communicating via Telegram) with game development questions, agent status, and decisions. Be concise since this is a mobile chat interface.',
+                  system: systemPrompt,
                   messages: [{ role: 'user', content: userText }],
                 })
                 const reply = response.content[0]?.text ?? 'No response.'

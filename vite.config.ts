@@ -26,6 +26,9 @@ export default defineConfig({
         // M20: Split vendor libraries into separate chunks for better caching
         manualChunks(id) {
           if (id.includes('node_modules')) {
+            // React MUST be first — every other chunk shares this single instance.
+            // Without it, @clerk gets its own React copy → "removeChild: node is not a child" crash.
+            if (id.includes('/react/') || id.includes('/react-dom/') || id.includes('/scheduler/')) return 'vendor-react'
             if (id.includes('three') || id.includes('@react-three')) return 'vendor-3d'
             if (id.includes('@clerk')) return 'vendor-auth'
             if (id.includes('framer-motion')) return 'vendor-ui'

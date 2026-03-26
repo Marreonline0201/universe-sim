@@ -52,6 +52,8 @@ const PetPanel = lazy(() => import('./panels/PetPanel').then(m => ({ default: m.
 const WorldEventsPanel = lazy(() => import('./panels/WorldEventsPanel').then(m => ({ default: m.WorldEventsPanel })))
 // M49 Track B: Trading routes panel
 const TradingRoutesPanel = lazy(() => import('./panels/TradingRoutesPanel').then(m => ({ default: m.TradingRoutesPanel })))
+// M49 Track C: Bestiary panel
+const BestiaryPanel = lazy(() => import('./panels/BestiaryPanel').then(m => ({ default: m.BestiaryPanel })))
 
 // M36 Track C: Wrapper resolves nearSettlementId from store so panel has no props
 function BuildingsPanelWrapper() {
@@ -98,6 +100,7 @@ const PANEL_LABEL: Record<PanelId, string> = {
   pet:          'PET & COMPANIONS',
   worldevents:  'WORLD EVENTS LOG',
   traderoutes:  'TRADING ROUTES',
+  bestiary:     'BESTIARY',
 }
 
 const PANEL_WIDTH = 480
@@ -126,6 +129,7 @@ const ICON_BUTTONS: Array<{ id: PanelId; icon: string; hint: string }> = [
   { id: 'housing',     icon: 'HSE',  hint: 'Housing (N)' },
   { id: 'worldevents', icon: '📜',   hint: 'World Events (E)' },
   { id: 'traderoutes', icon: '💹',   hint: 'Trading Routes' },
+  { id: 'bestiary',    icon: '📖',   hint: 'Bestiary' },
   { id: 'science',     icon: ' ? ',  hint: 'Science Companion (?)' },
   { id: 'settings',    icon: 'SET',  hint: 'Settings (Esc)' },
 ]
@@ -157,6 +161,7 @@ const PANEL_COMPONENTS: Record<PanelId, React.ComponentType> = {
   pet:           PetPanel,
   worldevents:   WorldEventsPanel,
   traderoutes:   TradingRoutesPanel,
+  bestiary:      BestiaryPanel,
 }
 
 export function SidebarShell() {

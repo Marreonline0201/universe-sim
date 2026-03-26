@@ -383,7 +383,7 @@ export function AchievementTrophyPanel() {
   // For a cleaner progress display we derive from the unlocked flag.
   function getStatValue(m: ShowcaseMilestone): number {
     if (m.unlocked) return m.requirement.value
-    return (stats as Record<string, number>)[m.requirement.stat] ?? 0
+    return (stats as unknown as Record<string, number>)[m.requirement.stat] ?? 0
   }
 
   return (

@@ -112,7 +112,7 @@ function BrowseTab() {
     const result = useTradePostStore.getState().buyListing(listing.id, Infinity)
     if (!result.success) {
       // Listing gone — refund the gold we already deducted
-      usePlayerStore.getState().earnGold(totalCost)
+      usePlayerStore.getState().addGold(totalCost)
       addNotification('Listing no longer available.', 'warning')
       return
     }

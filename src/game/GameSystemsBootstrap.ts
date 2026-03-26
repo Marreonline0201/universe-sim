@@ -44,20 +44,27 @@ import { initSettlementRelations } from './SettlementRelationsSystem'
 import { initRecipeBook } from './RecipeBookSystem'
 import { initExpeditionSystem } from './ExpeditionSystem'
 import { initNPCScheduleSystem } from './NPCScheduleSystem'
+import { useGameStore } from '../store/gameStore'
 
 /**
  * Initialize all game systems. Called once after the game scene mounts.
- * @param civTier - current civilization tier for tier-gated systems
+ * @param civTier - current civilization tier for tier-gated systems (unused here;
+ *   tier-gated reads come from playerStore at runtime inside each system)
  */
-export function bootstrapGameSystems(civTier: number = 0): void {
+export function bootstrapGameSystems(_civTier: number = 0): void {
+  // Read the authoritative simSeconds from the game store so time-seeded systems
+  // (bounty board, merchant contracts, quest board) generate content relative to
+  // the actual world clock rather than always seeding from 0.
+  const simSeconds = useGameStore.getState().simSeconds
+
   initWorldEventLogger()
   initCaveFeatures()
   initJournalSystem()
   initNPCRelationshipSystem()
   initRecipeDiscovery()
-  initBountyBoard(civTier)
+  initBountyBoard(simSeconds)
   initMerchantGuildSystem()
-  refreshContracts(civTier)
+  refreshContracts(simSeconds)
   initResourceDepletion()
   initWorldThreatSystem()
   initTradeRouteSystem()
@@ -82,7 +89,7 @@ export function bootstrapGameSystems(civTier: number = 0): void {
   initSeasonalEventSystem()
   initPlayerHousing()
   initTalentTree()
-  initDynamicQuestBoard(civTier)
+  initDynamicQuestBoard(simSeconds)
   initNPCEmotionSystem()
   initPlayerTitleSystem()
   initWorldEventScheduler()

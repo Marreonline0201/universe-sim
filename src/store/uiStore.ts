@@ -86,7 +86,7 @@ interface UiState {
   togglePet: () => void
 }
 
-export const useUiStore = create<UiState>((set) => ({
+export const useUiStore = create<UiState>((set, get) => ({
   activePanel: null,
   openPanel: (id) => set({ activePanel: id }),
   closePanel: () => set({ activePanel: null }),
@@ -147,7 +147,7 @@ export const useUiStore = create<UiState>((set) => ({
       return { discoveredSettlements: next }
     }),
   isSettlementDiscovered: (id) =>
-    useUiStore.getState().discoveredSettlements.has(id),
+    get().discoveredSettlements.has(id),
 
   // M32 Track C: Fast travel dialog
   fastTravelTarget: null,

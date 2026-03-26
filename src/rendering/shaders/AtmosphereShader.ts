@@ -225,6 +225,7 @@ const fragmentShader = /* glsl */`
 // ── AtmosphereShader class ────────────────────────────────────────────────────
 
 export interface AtmosphereUniforms {
+  [key: string]: THREE.IUniform<any>
   uSunDirection: THREE.IUniform<THREE.Vector3>
   uPlanetRadius: THREE.IUniform<number>
   uAtmoRadius:   THREE.IUniform<number>

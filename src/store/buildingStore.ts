@@ -14,6 +14,7 @@ import {
 import { inventory } from '../game/GameSingletons'
 // M42 Track C: Reputation gain on donation
 import { useReputationStore } from './reputationStore'
+import { getWorldSocket } from '../net/useWorldSocket'
 
 // ── Announcement queue ─────────────────────────────────────────────────────────
 
@@ -131,7 +132,6 @@ export const useBuildingStore = create<BuildingState>((set, get) => ({
       const { usePartyStore } = require('../store/partyStore') as typeof import('./partyStore')
       const party = usePartyStore.getState().party
       if (party && party.members.length >= 2) {
-        recordPartyDonation(key)
         const bAfter = get().buildings.get(key)
         if (bAfter) {
           const totalNeeded = def.donationRequirements.reduce((s, r) => s + r.qty, 0)

@@ -225,9 +225,9 @@ export function MapPanel() {
         usePlayerStatsStore.getState().incrementStat('settlementsDiscovered')
         checkNewTitles()
         // Complete active explore quests on new settlement discovery
-        useSettlementQuestStore.getState().activeQuests
-          .filter(q => q.type === 'explore' && !q.completed)
-          .forEach(q => useSettlementQuestStore.getState().updateProgress(q.id, 1))
+        useSettlementQuestStore.getState().getActiveQuests()
+          .filter((q: { type: string; completed: boolean }) => q.type === 'explore' && !q.completed)
+          .forEach((q: { id: string }) => useSettlementQuestStore.getState().updateProgress(q.id, 1))
       }
     }
   }, [px, pz, settlements, discoveredSettlements, discoverSettlement, addNotification])

@@ -194,24 +194,21 @@ import { tickRestockEvent, triggerRestockEvent } from './MerchantRestockSystem'
 import { logCombatEvent } from './WorldEventLogger'
 // M49 Track B: Trading routes
 import { tickRoutes } from './TradingRouteSystem'
-// M50 Track B: Weather forecast system
-import { updateForecasts } from './WeatherForecastSystem'
+// M70: updateForecasts moved to GameLoopPeriodicTasks
 // M52 Track C: Day/night event system
 import { onTimeTransition, tickDayNightEvents } from './DayNightEventSystem'
-// M52 Track A: Faction war events
-import { tickFactionWars } from './FactionWarSystem'
+// M70: tickFactionWars moved to GameLoopPeriodicTasks
 // M53 Track A: Seasonal events
 import { onSeasonChange, tickSeasonalEvents, normaliseSeasonName } from './SeasonalEventSystem'
 // M53 Track C: Combo system
 import { onHit, tickCombo, getDamageMultiplier } from './ComboSystem'
-// M54 Track A: Merchant guild periodic refresh
-import { refreshContracts } from './MerchantGuildSystem'
-// M54 Track B: Bounty board
-import { onKill as bountyOnKill, tickBountyBoard } from './BountyBoardSystem'
+// M70: refreshContracts moved to GameLoopPeriodicTasks
+// M54 Track B: Bounty board (bountyOnKill still used in combat; tickBountyBoard moved to scheduler)
+import { onKill as bountyOnKill } from './BountyBoardSystem'
 // M54 Track C: Exploration discovery system
 import { checkDiscoveries } from './ExplorationDiscoverySystem'
-// M55 Track B: Resource depletion & respawn system
-import { tickResourceRespawn, harvestNode as depleteNode, getNearbyNodes, recordDepletedAt } from './ResourceDepletionSystem'
+// M55 Track B: Resource depletion (tickResourceRespawn moved to scheduler)
+import { harvestNode as depleteNode, getNearbyNodes, recordDepletedAt } from './ResourceDepletionSystem'
 
 // M55 Track B: Map world node types to ResourceDepletionSystem types for harvest linking
 const WORLD_TO_DEPLETION_TYPE: Record<string, string> = {
@@ -226,40 +223,16 @@ const WORLD_TO_DEPLETION_TYPE: Record<string, string> = {
   volcanic_glass: 'stone_deposit',
   mushroom: 'mushroom_ring',
 }
-// M56 Track A: Dynamic NPC trade routes
-import { tickTradeRoutes } from './TradeRouteSystem'
-// M57 Track A: Achievement Showcase
-import { checkAndUpdateMilestones } from './AchievementShowcaseSystem'
-// M57 Track C: Weather gather multiplier
+// M57 Track C: Weather gather multiplier (used in harvest tick)
 import { getWeatherGatherMult } from './WeatherEffectsSystem'
-// M59 Track A: Weather event system
-import { tickWeatherEvents } from './WeatherEventSystem'
-// M58 Track C: Pet advancement
-import { addPetXp } from './PetAdvancementSystem'
-// M59 Track B: Title progression
-import { checkTitles } from './TitleProgressionSystem'
-// M59 Track C: Market price system
-import { tickMarketPrices } from './MarketPriceSystem'
-// M60 Track B: World boss spawn system
-import { tickWorldBoss } from './WorldBossSystem'
-// M61 Track B: Settlement economy system
-import { tickSettlementEconomy } from './SettlementEconomySystem'
-// M65 Track B: Dynamic quest board
-import { tickQuestBoard } from './DynamicQuestBoardSystem'
-// M65 Track C: NPC emotion system
-import { tickEmotions } from './NPCEmotionSystem'
-// M66 Track C: Resource Trading Network
-import { tickTradeNetwork } from './ResourceTradingNetwork'
-// M62 Track B: Player journal system
+// M70: 17 dead imports removed — all moved to GameLoopPeriodicTasks.ts
+// M70: Scheduler-based periodic ticks (replaces 25+ useRef timers)
+import { gameLoopScheduler } from './GameLoopScheduler'
+import { registerPeriodicTasks } from './GameLoopPeriodicTasks'
 import { initPlayerJournal } from './PlayerJournalSystem'
-// M66 Track A: World event scheduler
-import { tickScheduler } from './WorldEventSchedulerSystem'
-// M67 Track C: Settlement relations system
-import { tickRelations } from './SettlementRelationsSystem'
-// M68 Track C: Expedition system
-import { tickExpeditions } from './ExpeditionSystem'
-// M68 Track B: NPC Daily Schedule System
-import { tickSchedule } from './NPCScheduleSystem'
+
+// M70: Register all periodic tasks once at module load
+registerPeriodicTasks()
 
 // Register skill system with offline save manager for serialization
 registerSkillSystem(skillSystem)
@@ -357,11 +330,8 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
   // M35 Track C: faction war event timers
   const factionWarTimerRef      = useRef(0)  // seconds since last war check (fires every 60s)
   const factionHealTimerRef     = useRef(0)  // seconds since last settlement health tick (every 60s)
-  const showcaseTimerRef        = useRef(0)  // M57 Track A: seconds since last milestone check (every 30s)
-  const petXpTimerRef           = useRef(0)  // M58 Track C: pet XP award every 30s
-  const titleTimerRef           = useRef(0)  // M59 Track B: title progression check every 30s
-  const bossTimerRef            = useRef(0)  // M60 Track B: world boss tick every 30s
-  const totalSimSecondsRef      = useRef(0)  // M60 Track B: cumulative sim seconds for boss system
+  // M70: showcaseTimerRef, petXpTimerRef, titleTimerRef, bossTimerRef, totalSimSecondsRef
+  // moved to GameLoopScheduler (see GameLoopPeriodicTasks.ts)
   // M36 Track B: Dungeon room tracking
   const dungeonRoomCheckRef     = useRef(0)  // seconds since last dungeon room respawn check (every 30s)
   const puzzleResetCheckRef     = useRef<Record<string, number>>({}) // roomId → reset timestamp
@@ -379,47 +349,28 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
   const siegeTriggerTimerRef = useRef(0)
   // M48 Track B: Merchant restock trigger timer — check every 300s (5 minutes)
   const restockTriggerTimerRef = useRef(0)
-  // M50 Track B: Weather forecast refresh timer — every 60 game-seconds
-  const forecastTimerRef = useRef(0)
   // M52 Track C: Last known time period for transition detection
   const lastTimePeriodRef = useRef<'dawn' | 'day' | 'dusk' | 'night' | null>(null)
-  // M52 Track A: Faction war system tick timer — fires every 120 sim-seconds
-  const warTimerRef = useRef(0)
   // M53 Track A: Last known season for seasonal-event change detection
   const lastSeasonRef = useRef<string | null>(null)
-  // M54 Track A: Merchant guild contract refresh timer — fires every 60s
-  const guildTimerRef = useRef(0)
-  // M54 Track B: Bounty board tick timer — fires every 60s
-  const bountyTimerRef = useRef(0)
-  // M54 Track C: Exploration discovery check timer — fires every 2s
+  // M54 Track C: Exploration discovery check timer — fires every 2s (needs player pos)
   const discoveryTimerRef = useRef(0)
-  // M55 Track B: Resource respawn tick timer — fires every 5s
-  const resourceRespawnTimerRef = useRef(0)
-  // M56 Track A: NPC trade route tick timer — fires every 30s
-  const tradeRouteTimerRef = useRef(0)
-  // M59 Track C: Market price tick timer — fires every 20s
-  const marketTimerRef = useRef(0)
-  // M59 Track A: Weather event tick timer — fires every 15s
-  const weatherEventsTimerRef = useRef(0)
-  // M61 Track B: Settlement economy tick timer — fires every 60s
-  const economyTimerRef = useRef(0)
-  // M67 Track C: Settlement relations tick timer — fires every 10s
-  const relationsTimerRef = useRef(0)
-  // M65 Track B: Dynamic quest board tick timer — fires every 60s
-  const questBoardTimerRef = useRef(0)
-  // M65 Track C: NPC emotion decay tick timer — fires every 5s
-  const npcEmotionTimerRef = useRef(0)
-  // M66 Track C: Resource trading network tick timer — fires every 10s
-  const tradeNetworkTimerRef = useRef(0)
-  // M68 Track C: Expedition tick timer — fires every 10s
-  const expeditionTimerRef = useRef(0)
-  // M68 Track B: NPC schedule tick timer — fires every 10s
-  const npcScheduleTimerRef = useRef(0)
+  // M70: forecastTimerRef, warTimerRef, guildTimerRef, bountyTimerRef,
+  // resourceRespawnTimerRef, tradeRouteTimerRef, marketTimerRef, weatherEventsTimerRef
+  // moved to GameLoopScheduler (see GameLoopPeriodicTasks.ts)
+  // M70: economyTimerRef, relationsTimerRef, questBoardTimerRef, npcEmotionTimerRef,
+  // tradeNetworkTimerRef, expeditionTimerRef, npcScheduleTimerRef
+  // moved to GameLoopScheduler (see GameLoopPeriodicTasks.ts)
+
+  // M70: Error throttle — suppress console spam after 5 errors of the same type
+  const frameErrorCountRef = useRef<Record<string, number>>({})
+  const FRAME_ERROR_LIMIT = 5
 
   useFrame((_, delta) => {
     // Cap dt to avoid spiral-of-death on slow frames
     const dt = Math.min(delta, 0.1)
 
+    try {
     // M5: Reset damage-source flags at frame start so this frame's damage is tracked fresh
     resetDamageFlags()
 
@@ -2604,17 +2555,7 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
       }
     }
 
-    // ── M50 Track B: Weather forecast refresh (every 60 game-seconds) ───────────
-    {
-      forecastTimerRef.current += dt
-      if (forecastTimerRef.current >= 60) {
-        forecastTimerRef.current = 0
-        const simSecs = useGameStore.getState().simSeconds
-        const wStoreFc = useWeatherStore.getState()
-        const fcWeather = wStoreFc.getPlayerWeather()?.state ?? 'CLEAR'
-        updateForecasts(simSecs, fcWeather)
-      }
-    }
+    // M70: Weather forecast refresh moved to GameLoopScheduler ('weather-forecast')
 
     // ── M42 Track B: Shelter update (every 2s) ────────────────────────────────
     {
@@ -3228,46 +3169,8 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
       saveOffline().catch(() => {})
     }
 
-    // ── M54 Track A: Merchant guild contract refresh every 60s ───────────────
-    guildTimerRef.current += dt
-    if (guildTimerRef.current >= 60) {
-      guildTimerRef.current = 0
-      refreshContracts(useGameStore.getState().simSeconds)
-    }
-
-    // ── M54 Track B: Bounty board tick every 60s ─────────────────────────────
-    bountyTimerRef.current += dt
-    if (bountyTimerRef.current >= 60) {
-      bountyTimerRef.current = 0
-      const bountySimSecs = useGameStore.getState().simSeconds
-      tickBountyBoard(bountySimSecs)
-    }
-
-    // ── M65 Track B: Dynamic quest board tick every 60s ───────────────────────
-    questBoardTimerRef.current += dt
-    if (questBoardTimerRef.current >= 60) {
-      questBoardTimerRef.current = 0
-      tickQuestBoard(useGameStore.getState().simSeconds)
-    }
-
-    // ── M65 Track C: NPC emotion decay tick (every 5s) ───────────────────────
-    {
-      npcEmotionTimerRef.current += dt
-      if (npcEmotionTimerRef.current >= 5) {
-        npcEmotionTimerRef.current = 0
-        tickEmotions(useGameStore.getState().simSeconds)
-      }
-    }
-
-    // ── M66 Track C: Resource trading network tick (every 10s) ─────────────
-    tradeNetworkTimerRef.current += dt
-    if (tradeNetworkTimerRef.current >= 10) {
-      tradeNetworkTimerRef.current = 0
-      tickTradeNetwork(useGameStore.getState().simSeconds)
-    }
-
-    // ── M66 Track A: World event scheduler tick ───────────────────────────────
-    tickScheduler(useGameStore.getState().simSeconds)
+    // M70: Guild, bounty, quest board, emotion, trade network, event scheduler
+    // all moved to GameLoopScheduler (see GameLoopPeriodicTasks.ts)
 
     // ── M26 Track B: Tick emote system (cleans expired remote emotes) ────────
     tickEmoteSystem()
@@ -3322,34 +3225,7 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
       checkAndUpdateTitles(totalRep, factionReps)
     }
 
-    // ── M57 Track A: Achievement Showcase milestone check (every 30s) ────────
-    showcaseTimerRef.current += dt
-    if (showcaseTimerRef.current >= 30) {
-      showcaseTimerRef.current = 0
-      checkAndUpdateMilestones()
-    }
-
-    // ── M58 Track C: Pet XP award (every 30s when pet is active) ─────────────
-    petXpTimerRef.current += dt
-    if (petXpTimerRef.current >= 30) {
-      petXpTimerRef.current = 0
-      addPetXp(10)
-    }
-
-    // ── M59 Track B: Title progression check (every 30s) ─────────────────────
-    titleTimerRef.current += dt
-    if (titleTimerRef.current >= 30) {
-      titleTimerRef.current = 0
-      checkTitles()
-    }
-
-    // ── M60 Track B: World boss tick (every 30s) ──────────────────────────────
-    totalSimSecondsRef.current += dt
-    bossTimerRef.current += dt
-    if (bossTimerRef.current >= 30) {
-      bossTimerRef.current = 0
-      tickWorldBoss(totalSimSecondsRef.current)
-    }
+    // M70: Showcase, pet XP, title, world boss timers moved to GameLoopScheduler
 
     // ── M24: Tutorial system tick ───────────────────────────────────────────
     if (tutorialSystem && !tutorialSystem.isComplete) {
@@ -3475,15 +3351,7 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
       }
     }
 
-    // ── M52 Track A: Faction war system — tick every 120 sim-seconds ────────
-    {
-      warTimerRef.current += dt
-      if (warTimerRef.current >= 120) {
-        warTimerRef.current = 0
-        const simSecs52 = useGameStore.getState().simSeconds
-        tickFactionWars(simSecs52, FACTION_IDS)
-      }
-    }
+    // M70: Faction war system tick moved to GameLoopScheduler ('faction-wars')
 
     // ── M46 Track B: Siege system tick + trigger ──────────────────────────────
     {
@@ -3626,77 +3494,8 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
       }
     }
 
-    // ── M55 Track B: Resource respawn tick (every 5s) ────────────────────────
-    {
-      resourceRespawnTimerRef.current += dt
-      if (resourceRespawnTimerRef.current >= 5) {
-        resourceRespawnTimerRef.current = 0
-        tickResourceRespawn(useGameStore.getState().simSeconds)
-      }
-    }
-
-    // ── M56 Track A: NPC trade route tick (every 30s) ────────────────────────
-    {
-      tradeRouteTimerRef.current += dt
-      if (tradeRouteTimerRef.current >= 30) {
-        tradeRouteTimerRef.current = 0
-        tickTradeRoutes(useGameStore.getState().simSeconds)
-      }
-    }
-
-    // ── M59 Track A: Weather event system tick (every 15s) ───────────────────
-    {
-      weatherEventsTimerRef.current += dt
-      if (weatherEventsTimerRef.current >= 15) {
-        weatherEventsTimerRef.current = 0
-        tickWeatherEvents(useGameStore.getState().simSeconds)
-      }
-    }
-
-    // ── M59 Track C: Market price tick (every 20s) ───────────────────────────
-    {
-      marketTimerRef.current += dt
-      if (marketTimerRef.current >= 20) {
-        marketTimerRef.current = 0
-        tickMarketPrices(useGameStore.getState().simSeconds)
-      }
-    }
-
-    // ── M61 Track B: Settlement economy tick (every 60s) ─────────────────────
-    {
-      economyTimerRef.current += dt
-      if (economyTimerRef.current >= 60) {
-        economyTimerRef.current = 0
-        tickSettlementEconomy(useGameStore.getState().simSeconds)
-      }
-    }
-
-    // ── M67 Track C: Settlement relations tick (every 10s) ────────────────────
-    {
-      relationsTimerRef.current += dt
-      if (relationsTimerRef.current >= 10) {
-        relationsTimerRef.current = 0
-        tickRelations(useGameStore.getState().simSeconds, 10)
-      }
-    }
-
-    // ── M68 Track C: Expedition tick (every 10s) ──────────────────────────────
-    {
-      expeditionTimerRef.current += dt
-      if (expeditionTimerRef.current >= 10) {
-        expeditionTimerRef.current = 0
-        tickExpeditions(useGameStore.getState().simSeconds)
-      }
-    }
-
-    // ── M68 Track B: NPC schedule tick (every 10s) ───────────────────────────
-    {
-      npcScheduleTimerRef.current += dt
-      if (npcScheduleTimerRef.current >= 10) {
-        npcScheduleTimerRef.current = 0
-        tickSchedule(useGameStore.getState().simSeconds)
-      }
-    }
+    // ── M70: Scheduler-based periodic ticks (replaces 15+ timer blocks) ──────
+    gameLoopScheduler.update(dt, useGameStore.getState().simSeconds)
 
     // ── M7 T2: NPC guard aggro ────────────────────────────────────────────────
     {
@@ -3718,6 +3517,19 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
               break
             }
           }
+        }
+      }
+    }
+
+    } catch (err: any) {
+      // M70: Catch frame errors to prevent game crash. Throttle identical errors.
+      const key = err?.message?.slice(0, 80) || 'unknown'
+      const count = (frameErrorCountRef.current[key] || 0) + 1
+      frameErrorCountRef.current[key] = count
+      if (count <= FRAME_ERROR_LIMIT) {
+        console.error(`[GameLoop] Frame error (${count}/${FRAME_ERROR_LIMIT}):`, err)
+        if (count === FRAME_ERROR_LIMIT) {
+          console.warn(`[GameLoop] Suppressing further "${key}" errors.`)
         }
       }
     }

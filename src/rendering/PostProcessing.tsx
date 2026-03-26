@@ -223,8 +223,8 @@ export function PostProcessing() {
       depthTexture: new THREE.DepthTexture(size.width, size.height),
       depthBuffer: true,
     })
-    depthRT.depthTexture.format = THREE.DepthFormat
-    depthRT.depthTexture.type = THREE.UnsignedIntType
+    depthRT.depthTexture!.format = THREE.DepthFormat
+    depthRT.depthTexture!.type = THREE.UnsignedIntType
 
     const composer = new EffectComposer(gl)
 

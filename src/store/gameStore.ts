@@ -47,6 +47,10 @@ interface GameState {
   setDayAngle: (a: number) => void
   setDayCount: (c: number) => void
 
+  // M24: Current biome identifier (set by terrain/zone detection, read by achievement system)
+  currentBiome: string
+  setCurrentBiome: (b: string) => void
+
   // M32 Track A: XP multiplier — 1.0 normally, 2.0 during seasonal festival
   xpMultiplier: number
   setXpMultiplier: (v: number) => void
@@ -124,6 +128,9 @@ export const useGameStore = create<GameState>((set) => ({
   dayCount: 1,
   setDayAngle: (a) => set({ dayAngle: a }),
   setDayCount: (c) => set({ dayCount: c }),
+
+  currentBiome: '',
+  setCurrentBiome: (b) => set({ currentBiome: b }),
 
   xpMultiplier: 1.0,
   setXpMultiplier: (v) => set({ xpMultiplier: v }),

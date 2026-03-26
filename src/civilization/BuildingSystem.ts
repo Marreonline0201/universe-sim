@@ -174,7 +174,7 @@ export class BuildingSystem {
     this.nextId = buildings.reduce((max, b) => Math.max(max, b.id + 1), 1)
     // Re-activate any nuclear reactor that was in place when the game was saved
     const reactor = buildings.find(b => REACTOR_TYPE_IDS.has(b.typeId))
-    if (reactor) _activateReactor?.(reactor.position)
+    if (reactor) _activateReactor?.({ x: reactor.position[0], y: reactor.position[1], z: reactor.position[2] })
   }
 }
 

@@ -106,7 +106,7 @@ export function AlchemyPanel() {
       // Grant the mutation potion item
       const outputMat = mutation === 'fireball' ? MAT.POTION_FIRE_RESIST : MAT.POTION_SPEED
       const outputName = mutation === 'fireball' ? 'Fire Explosion Potion' : 'Shock Potion'
-      inventory.addMaterial(outputMat, 1)
+      inventory.addItem({ itemId: 0, materialId: outputMat, quantity: 1, quality: 1 })
       // Record discovery (only here, not during preview render)
       addDiscovery(`${outputName} discovered!`)
       addNotification(`${outputName} created!`, 'discovery')

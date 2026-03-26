@@ -240,6 +240,8 @@ import { addPetXp } from './PetAdvancementSystem'
 import { checkTitles } from './TitleProgressionSystem'
 // M59 Track C: Market price system
 import { tickMarketPrices } from './MarketPriceSystem'
+// M60 Track B: World boss spawn system
+import { tickWorldBoss } from './WorldBossSystem'
 
 // Register skill system with offline save manager for serialization
 registerSkillSystem(skillSystem)
@@ -338,6 +340,8 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
   const showcaseTimerRef        = useRef(0)  // M57 Track A: seconds since last milestone check (every 30s)
   const petXpTimerRef           = useRef(0)  // M58 Track C: pet XP award every 30s
   const titleTimerRef           = useRef(0)  // M59 Track B: title progression check every 30s
+  const bossTimerRef            = useRef(0)  // M60 Track B: world boss tick every 30s
+  const totalSimSecondsRef      = useRef(0)  // M60 Track B: cumulative sim seconds for boss system
   // M36 Track B: Dungeon room tracking
   const dungeonRoomCheckRef     = useRef(0)  // seconds since last dungeon room respawn check (every 30s)
   const puzzleResetCheckRef     = useRef<Record<string, number>>({}) // roomId → reset timestamp
@@ -3277,6 +3281,14 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
     if (titleTimerRef.current >= 30) {
       titleTimerRef.current = 0
       checkTitles()
+    }
+
+    // ── M60 Track B: World boss tick (every 30s) ──────────────────────────────
+    totalSimSecondsRef.current += dt
+    bossTimerRef.current += dt
+    if (bossTimerRef.current >= 30) {
+      bossTimerRef.current = 0
+      tickWorldBoss(totalSimSecondsRef.current)
     }
 
     // ── M24: Tutorial system tick ───────────────────────────────────────────

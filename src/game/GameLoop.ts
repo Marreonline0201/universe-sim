@@ -236,6 +236,10 @@ import { getWeatherGatherMult } from './WeatherEffectsSystem'
 import { tickWeatherEvents } from './WeatherEventSystem'
 // M58 Track C: Pet advancement
 import { addPetXp } from './PetAdvancementSystem'
+// M59 Track B: Title progression
+import { checkTitles } from './TitleProgressionSystem'
+// M59 Track C: Market price system
+import { tickMarketPrices } from './MarketPriceSystem'
 
 // Register skill system with offline save manager for serialization
 registerSkillSystem(skillSystem)
@@ -333,6 +337,7 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
   const factionHealTimerRef     = useRef(0)  // seconds since last settlement health tick (every 60s)
   const showcaseTimerRef        = useRef(0)  // M57 Track A: seconds since last milestone check (every 30s)
   const petXpTimerRef           = useRef(0)  // M58 Track C: pet XP award every 30s
+  const titleTimerRef           = useRef(0)  // M59 Track B: title progression check every 30s
   // M36 Track B: Dungeon room tracking
   const dungeonRoomCheckRef     = useRef(0)  // seconds since last dungeon room respawn check (every 30s)
   const puzzleResetCheckRef     = useRef<Record<string, number>>({}) // roomId → reset timestamp
@@ -368,6 +373,8 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
   const resourceRespawnTimerRef = useRef(0)
   // M56 Track A: NPC trade route tick timer — fires every 30s
   const tradeRouteTimerRef = useRef(0)
+  // M59 Track C: Market price tick timer — fires every 20s
+  const marketTimerRef = useRef(0)
   // M59 Track A: Weather event tick timer — fires every 15s
   const weatherEventsTimerRef = useRef(0)
 
@@ -3265,6 +3272,13 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
       addPetXp(10)
     }
 
+    // ── M59 Track B: Title progression check (every 30s) ─────────────────────
+    titleTimerRef.current += dt
+    if (titleTimerRef.current >= 30) {
+      titleTimerRef.current = 0
+      checkTitles()
+    }
+
     // ── M24: Tutorial system tick ───────────────────────────────────────────
     if (tutorialSystem && !tutorialSystem.isComplete) {
       const hasWood = inventory.listItems().some((it: any) => it.materialId === 1 && it.quantity > 0)
@@ -3564,6 +3578,15 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
       if (weatherEventsTimerRef.current >= 15) {
         weatherEventsTimerRef.current = 0
         tickWeatherEvents(useGameStore.getState().simSeconds)
+      }
+    }
+
+    // ── M59 Track C: Market price tick (every 20s) ───────────────────────────
+    {
+      marketTimerRef.current += dt
+      if (marketTimerRef.current >= 20) {
+        marketTimerRef.current = 0
+        tickMarketPrices(useGameStore.getState().simSeconds)
       }
     }
 

@@ -23,6 +23,7 @@ import { initLoreSystem } from './game/LoreSystem'
 import { initHousingUpgrades } from './game/HousingUpgradeSystem'
 import { initPetAdvancement } from './game/PetAdvancementSystem'
 import { initTitleProgressionSystem } from './game/TitleProgressionSystem'
+import { initMarketPriceSystem } from './game/MarketPriceSystem'
 
 // ── M20: Lazy-load AdminPanel (dev/admin only) ──────────────────────────────
 const AdminPanel = lazy(() => import('./ui/AdminPanel').then(m => ({ default: m.AdminPanel })))
@@ -85,6 +86,8 @@ function DevGame() {
     initLoreSystem()
     initHousingUpgrades()
     initPetAdvancement()
+    initTitleProgressionSystem()
+    initMarketPriceSystem()
   }, [])
 
   return (
@@ -152,6 +155,8 @@ function GameWithSave() {
     initLoreSystem()
     initHousingUpgrades()
     initPetAdvancement()
+    initTitleProgressionSystem()
+    initMarketPriceSystem()
   }, [])
 
   // Load save on first sign-in

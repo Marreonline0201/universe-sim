@@ -35,6 +35,7 @@ import { serializeUpgrades, deserializeUpgrades } from './HousingUpgradeSystem'
 import { serializePet, deserializePet } from './PetAdvancementSystem'
 import { serializeGiftCooldowns, deserializeGiftCooldowns } from './NPCGiftSystem'
 import { serializeMastery, deserializeMastery } from './CraftingMasterySystem'
+import { serializeEconomies, deserializeEconomies } from './SettlementEconomySystem'
 import { Health, Metabolism, Position } from '../ecs/world'
 import { rapierWorld } from '../physics/RapierWorld'
 import { PLANET_RADIUS } from '../world/SpherePlanet'
@@ -156,6 +157,7 @@ export async function saveOffline(): Promise<boolean> {
       giftCooldowns: serializeGiftCooldowns(),
       titleProgression: serializeTitles(),
       craftMastery: serializeMastery(),
+      settlementEconomy: serializeEconomies(),
     })
     const meta = JSON.stringify({
       timestamp: Date.now(),
@@ -347,6 +349,11 @@ export async function loadOffline(): Promise<boolean> {
     // M60 Track A: Restore crafting mastery state
     if (state.craftMastery) {
       deserializeMastery(state.craftMastery)
+    }
+
+    // M61 Track B: Restore settlement economy state
+    if (state.settlementEconomy) {
+      deserializeEconomies(state.settlementEconomy)
     }
 
     // Restore position

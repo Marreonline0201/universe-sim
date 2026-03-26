@@ -242,6 +242,8 @@ import { checkTitles } from './TitleProgressionSystem'
 import { tickMarketPrices } from './MarketPriceSystem'
 // M60 Track B: World boss spawn system
 import { tickWorldBoss } from './WorldBossSystem'
+// M61 Track B: Settlement economy system
+import { tickSettlementEconomy } from './SettlementEconomySystem'
 
 // Register skill system with offline save manager for serialization
 registerSkillSystem(skillSystem)
@@ -381,6 +383,8 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
   const marketTimerRef = useRef(0)
   // M59 Track A: Weather event tick timer — fires every 15s
   const weatherEventsTimerRef = useRef(0)
+  // M61 Track B: Settlement economy tick timer — fires every 60s
+  const economyTimerRef = useRef(0)
 
   useFrame((_, delta) => {
     // Cap dt to avoid spiral-of-death on slow frames
@@ -3599,6 +3603,15 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
       if (marketTimerRef.current >= 20) {
         marketTimerRef.current = 0
         tickMarketPrices(useGameStore.getState().simSeconds)
+      }
+    }
+
+    // ── M61 Track B: Settlement economy tick (every 60s) ─────────────────────
+    {
+      economyTimerRef.current += dt
+      if (economyTimerRef.current >= 60) {
+        economyTimerRef.current = 0
+        tickSettlementEconomy(useGameStore.getState().simSeconds)
       }
     }
 

@@ -178,6 +178,8 @@ import { marketSystem } from './MarketSystem'
 import { useExplorationStore } from '../store/explorationStore'
 // M46 Track B: Settlement siege events
 import { tickSiege, startSiege, activeSiege } from './SiegeSystem'
+// M46 Track C: Recipe unlock — skill milestone discoveries
+import { discoverRecipe } from './RecipeUnlockSystem'
 
 // Register skill system with offline save manager for serialization
 registerSkillSystem(skillSystem)
@@ -865,6 +867,16 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
           }
           // M22: Gathering XP (10-30 based on ore vs basic)
           skillSystem.addXp('gathering', isOre ? 25 : 15)
+          // M46 Track C: Unlock recipe discoveries at gathering milestones
+          {
+            const gatherLv = skillSystem.getLevel('gathering')
+            if (gatherLv >= 3) {
+              discoverRecipe(34)  // Gunpowder — gathering Lv.3 milestone
+            }
+            if (gatherLv >= 5) {
+              discoverRecipe(58)  // Charcoal Powder — gathering Lv.5 milestone
+            }
+          }
           // M37 Track C: Track gather stat
           usePlayerStatsStore.getState().incrementStat('resourcesGathered', qty)
           checkNewTitles()
@@ -1770,6 +1782,10 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
             creatureWander.delete(nearestCreatureEid)
             removeEntity(world, nearestCreatureEid)
             skillSystem.addXp('combat', 40) // M22: Combat XP on creature kill
+            // M46 Track C: Combat milestone discovery — Steel Sword recipe at combat Lv.3
+            if (skillSystem.getLevel('combat') >= 3) {
+              discoverRecipe(71)  // Steel Sword (M8) — combat milestone
+            }
             useUiStore.getState().addNotification('Creature killed — raw meat + hide collected!', 'discovery')
           } else {
             useUiStore.getState().addNotification(

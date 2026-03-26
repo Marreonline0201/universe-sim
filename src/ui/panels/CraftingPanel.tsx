@@ -1,10 +1,12 @@
 // ── CraftingPanel ──────────────────────────────────────────────────────────────
 // M20: Recipe browser with search, tier-grouped sections, and craft animations.
 // M37: Added Alchemy tab for potion brewing, transmutation, and enchanting.
+// M46: Recipe unlock system — skill-gated and discovery-gated recipes shown dimmed.
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { inventory, questSystem } from '../../game/GameSingletons'
 import { skillSystem } from '../../game/SkillSystem'
+import { isRecipeUnlocked, getUnlockDescription } from '../../game/RecipeUnlockSystem'
 import { MAT, ITEM, rollCraftRarity, RARITY_NAMES, type CraftingRecipe, type RarityTier } from '../../player/Inventory'
 import { CRAFTING_RECIPES } from '../../player/CraftingRecipes'
 import { usePlayerStore } from '../../store/playerStore'
@@ -74,6 +76,7 @@ export function CraftingPanel() {
   const [search, setSearch] = useState('')
   const [selectedRecipe, setSelectedRecipe] = useState<CraftingRecipe | null>(null)
   const [collapsedTiers, setCollapsedTiers] = useState<Set<number>>(new Set())
+  const [showUnlockedOnly, setShowUnlockedOnly] = useState(false)
   const [craftFlash, setCraftFlash] = useState(false)
   const [floatingText, setFloatingText] = useState<string | null>(null)
   const [enchantNotice, setEnchantNotice] = useState<string | null>(null)
@@ -94,11 +97,15 @@ export function CraftingPanel() {
     return () => { if (searchTimerRef.current) clearTimeout(searchTimerRef.current) }
   }, [search])
 
+  // Skill level getter to pass into isRecipeUnlocked
+  const getSkillLevel = (skillId: string): number => skillSystem.getLevel(skillId as Parameters<typeof skillSystem.getLevel>[0])
+
   const recipes = CRAFTING_RECIPES.filter(r => {
     // Alchemy tab shows only alchemy recipes; crafting tab excludes them
     if (activeTab === 'alchemy' && !r.requiresAlchemyTable) return false
     if (activeTab === 'crafting' && r.requiresAlchemyTable) return false
     if (effectiveFilter === 'available' && !canCraft(r)) return false
+    if (showUnlockedOnly && !isRecipeUnlocked(r.id, getSkillLevel)) return false
     if (debouncedSearch) {
       const q = debouncedSearch.toLowerCase()
       if (!r.name.toLowerCase().includes(q)) return false
@@ -284,6 +291,22 @@ export function CraftingPanel() {
               {f === 'available' ? 'Craftable' : 'All'}
             </button>
           ))}
+          <button
+            onClick={() => setShowUnlockedOnly(v => !v)}
+            title={showUnlockedOnly ? 'Show all recipes (including locked)' : 'Hide locked recipes'}
+            style={{
+              background: showUnlockedOnly ? 'rgba(200,100,255,0.25)' : 'rgba(255,255,255,0.05)',
+              border: `1px solid ${showUnlockedOnly ? 'rgba(200,100,255,0.6)' : 'rgba(255,255,255,0.1)'}`,
+              borderRadius: 4,
+              color: showUnlockedOnly ? '#c87dff' : '#888',
+              cursor: 'pointer',
+              padding: '4px 8px',
+              fontSize: 11,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {showUnlockedOnly ? 'Unlocked' : 'All'}
+          </button>
         </div>
 
         {recipes.length === 0 && (
@@ -326,6 +349,8 @@ export function CraftingPanel() {
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                     {tierRecipes.map(r => {
                       const craftable = canCraft(r)
+                      const unlocked = isRecipeUnlocked(r.id, getSkillLevel)
+                      const lockDesc = getUnlockDescription(r.id)
                       const active = selectedRecipe?.id === r.id
                       return (
                         <div
@@ -339,11 +364,16 @@ export function CraftingPanel() {
                             border: `1px solid ${active ? 'rgba(52,152,219,0.5)' : 'rgba(255,255,255,0.07)'}`,
                             borderRadius: 6,
                             cursor: 'pointer',
-                            opacity: craftable ? 1 : 0.5,
+                            // Locked recipes are visually dimmed but still visible
+                            opacity: !unlocked ? 0.38 : craftable ? 1 : 0.5,
                             transition: 'background 0.3s',
+                            filter: !unlocked ? 'grayscale(0.6)' : undefined,
                           }}
                         >
                           <div style={{ fontSize: 12, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 5 }}>
+                            {!unlocked && (
+                              <span title={lockDesc ?? 'Locked'} style={{ fontSize: 11, color: '#888' }}>🔒</span>
+                            )}
                             {r.name}
                             {r.requiresCampfire && (
                               <span title="Requires campfire" style={{ fontSize: 10, color: '#f39c12', opacity: 0.85 }}>🔥</span>
@@ -362,9 +392,15 @@ export function CraftingPanel() {
                               ) : null
                             })()}
                           </div>
-                          <div style={{ fontSize: 10, color: '#888', marginTop: 2 }}>
-                            {r.inputs.map(inp => `${inp.quantity}x ${MAT_NAMES[inp.materialId] ?? inp.materialId}`).join(', ')}
-                          </div>
+                          {!unlocked && lockDesc ? (
+                            <div style={{ fontSize: 9, color: '#c87dff', marginTop: 2, opacity: 0.85 }}>
+                              {lockDesc}
+                            </div>
+                          ) : (
+                            <div style={{ fontSize: 10, color: '#888', marginTop: 2 }}>
+                              {r.inputs.map(inp => `${inp.quantity}x ${MAT_NAMES[inp.materialId] ?? inp.materialId}`).join(', ')}
+                            </div>
+                          )}
                         </div>
                       )
                     })}
@@ -403,10 +439,25 @@ export function CraftingPanel() {
             </div>
           )}
 
-          <div style={{ fontSize: 13, fontWeight: 700 }}>{selectedRecipe.name}</div>
+          <div style={{ fontSize: 13, fontWeight: 700 }}>
+            {!isRecipeUnlocked(selectedRecipe.id, getSkillLevel) && (
+              <span style={{ marginRight: 4 }}>🔒</span>
+            )}
+            {selectedRecipe.name}
+          </div>
           <div style={{ fontSize: 10, color: '#aaa' }}>
             {TIER_NAMES[selectedRecipe.tier] ?? `Tier ${selectedRecipe.tier}`}
           </div>
+          {!isRecipeUnlocked(selectedRecipe.id, getSkillLevel) && getUnlockDescription(selectedRecipe.id) && (
+            <div style={{
+              fontSize: 10, color: '#c87dff',
+              background: 'rgba(180,100,255,0.1)',
+              border: '1px solid rgba(180,100,255,0.3)',
+              borderRadius: 3, padding: '3px 6px', marginTop: 2,
+            }}>
+              {getUnlockDescription(selectedRecipe.id)}
+            </div>
+          )}
 
           <div style={{ fontSize: 11, color: '#ccc', marginTop: 4 }}>Requires:</div>
           {selectedRecipe.inputs.map((inp, i) => {
@@ -456,41 +507,49 @@ export function CraftingPanel() {
             </div>
           )}
 
-          <button
-            onClick={() => handleCraft(false)}
-            disabled={!canCraft(selectedRecipe)}
-            style={{
-              marginTop: 8,
-              background: canCraft(selectedRecipe) ? 'rgba(46,204,113,0.2)' : 'rgba(255,255,255,0.05)',
-              border: `1px solid ${canCraft(selectedRecipe) ? '#2ecc71' : '#444'}`,
-              borderRadius: 4,
-              color: canCraft(selectedRecipe) ? '#2ecc71' : '#555',
-              cursor: canCraft(selectedRecipe) ? 'pointer' : 'not-allowed',
-              padding: '6px 0',
-              fontSize: 12,
-              fontFamily: 'monospace',
-            }}
-          >
-            CRAFT
-          </button>
-          {!selectedRecipe.output.isMaterial && (
-            <button
-              onClick={() => handleCraft(true)}
-              disabled={!canCraft(selectedRecipe)}
-              style={{
-                background: canCraft(selectedRecipe) ? 'rgba(52,152,219,0.25)' : 'rgba(255,255,255,0.05)',
-                border: `1px solid ${canCraft(selectedRecipe) ? '#3498db' : '#444'}`,
-                borderRadius: 4,
-                color: canCraft(selectedRecipe) ? '#3498db' : '#555',
-                cursor: canCraft(selectedRecipe) ? 'pointer' : 'not-allowed',
-                padding: '6px 0',
-                fontSize: 11,
-                fontFamily: 'monospace',
-              }}
-            >
-              CRAFT + EQUIP
-            </button>
-          )}
+          {(() => {
+            const recipeUnlocked = isRecipeUnlocked(selectedRecipe.id, getSkillLevel)
+            const craftReady = recipeUnlocked && canCraft(selectedRecipe)
+            return (
+              <>
+                <button
+                  onClick={() => handleCraft(false)}
+                  disabled={!craftReady}
+                  style={{
+                    marginTop: 8,
+                    background: craftReady ? 'rgba(46,204,113,0.2)' : 'rgba(255,255,255,0.05)',
+                    border: `1px solid ${craftReady ? '#2ecc71' : '#444'}`,
+                    borderRadius: 4,
+                    color: craftReady ? '#2ecc71' : '#555',
+                    cursor: craftReady ? 'pointer' : 'not-allowed',
+                    padding: '6px 0',
+                    fontSize: 12,
+                    fontFamily: 'monospace',
+                  }}
+                >
+                  {recipeUnlocked ? 'CRAFT' : 'LOCKED'}
+                </button>
+                {!selectedRecipe.output.isMaterial && (
+                  <button
+                    onClick={() => handleCraft(true)}
+                    disabled={!craftReady}
+                    style={{
+                      background: craftReady ? 'rgba(52,152,219,0.25)' : 'rgba(255,255,255,0.05)',
+                      border: `1px solid ${craftReady ? '#3498db' : '#444'}`,
+                      borderRadius: 4,
+                      color: craftReady ? '#3498db' : '#555',
+                      cursor: craftReady ? 'pointer' : 'not-allowed',
+                      padding: '6px 0',
+                      fontSize: 11,
+                      fontFamily: 'monospace',
+                    }}
+                  >
+                    CRAFT + EQUIP
+                  </button>
+                )}
+              </>
+            )
+          })()}
         </div>
       )}
 

@@ -2,9 +2,17 @@
 // Minigame UI for the fishing state machine.
 // M25 Track C — base minigame
 // M34 Track C — tension meter, catch history, rod durability, golden fish overlay
+// M45 Track C — depth selector, rare fish notification, depth-tagged recent catches
 
 import { useEffect, useState, useCallback } from 'react'
 import { fishingSystem, type FishingSystemState, ROD_MAX_DURABILITY } from '../../game/FishingSystem'
+import {
+  type FishDepth,
+  type FishEntry,
+  currentDepth as getInitialDepth,
+  setFishingDepth,
+  rollFish,
+} from '../../game/FishingDepthSystem'
 
 const mono: React.CSSProperties = { fontFamily: 'monospace' }
 
@@ -32,6 +40,12 @@ if (typeof document !== 'undefined' && !document.getElementById(STYLE_ID)) {
       20%  { opacity: 1; transform: scale(1.05); }
       80%  { opacity: 1; transform: scale(1); }
       100% { opacity: 0; transform: scale(1); }
+    }
+    @keyframes rare-catch-in {
+      0%   { opacity: 0; transform: translateY(-12px) scale(0.9); }
+      20%  { opacity: 1; transform: translateY(0px)  scale(1.04); }
+      80%  { opacity: 1; transform: translateY(0px)  scale(1); }
+      100% { opacity: 0; transform: translateY(4px)  scale(0.97); }
     }
   `
   document.head.appendChild(s)
@@ -153,12 +167,171 @@ function TensionMeter({
 // ── Catch history ─────────────────────────────────────────────────────────────
 
 const FISH_ICONS: Record<string, string> = {
-  Sardine:     '🐟',
-  Bass:        '🐟',
-  Salmon:      '🍣',
-  Tuna:        '🐠',
-  'Golden Fish': '⭐',
-  'Cave Fish': '💙',
+  Sardine:             '🐟',
+  Bass:                '🐟',
+  Salmon:              '🍣',
+  Tuna:                '🐠',
+  'Golden Fish':       '⭐',
+  'Cave Fish':         '💙',
+  'River Trout':       '🐟',
+  Minnow:              '🐟',
+  'Silver Perch':      '🐟',
+  'Deep Tuna':         '🐠',
+  'Ancient Leviathan': '🐉',
+  'Abyssal Eel':       '🌊',
+}
+
+// ── Depth selector ────────────────────────────────────────────────────────────
+
+const DEPTH_LABELS: Record<FishDepth, string> = {
+  shallow: 'SHALLOW',
+  medium:  'MEDIUM',
+  deep:    'DEEP',
+}
+
+const DEPTH_COLORS: Record<FishDepth, string> = {
+  shallow: '#7ec8e3',
+  medium:  '#4a90e2',
+  deep:    '#5533aa',
+}
+
+function DepthSelector({ depth, onChange }: { depth: FishDepth; onChange: (d: FishDepth) => void }) {
+  const depths: FishDepth[] = ['shallow', 'medium', 'deep']
+  return (
+    <div style={{
+      display: 'flex',
+      gap: 4,
+      padding: '8px 16px',
+      borderBottom: '1px solid #2a2a2a',
+    }}>
+      <span style={{ color: '#555', fontSize: 10, alignSelf: 'center', marginRight: 4, letterSpacing: 0.5 }}>
+        DEPTH
+      </span>
+      {depths.map(d => {
+        const active = d === depth
+        const color  = DEPTH_COLORS[d]
+        return (
+          <button
+            key={d}
+            onClick={() => onChange(d)}
+            style={{
+              flex: 1,
+              padding: '4px 0',
+              fontSize: 10,
+              fontFamily: 'monospace',
+              letterSpacing: 1,
+              cursor: 'pointer',
+              border: `1px solid ${active ? color : '#333'}`,
+              borderRadius: 4,
+              background: active ? `${color}22` : 'transparent',
+              color: active ? color : '#555',
+              fontWeight: active ? 700 : 400,
+              transition: 'all 0.15s',
+            }}
+          >
+            {DEPTH_LABELS[d]}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+// ── Rare catch notification ───────────────────────────────────────────────────
+
+interface RareCatch {
+  name: string
+  key: number
+}
+
+function RareCatchNotification({ catch: rc, onDone }: { catch: RareCatch; onDone: () => void }) {
+  useEffect(() => {
+    const t = setTimeout(onDone, 3500)
+    return () => clearTimeout(t)
+  }, [onDone, rc.key])
+
+  return (
+    <div style={{
+      position: 'absolute',
+      top: 12,
+      left: '50%',
+      transform: 'translateX(-50%)',
+      zIndex: 100,
+      pointerEvents: 'none',
+      animation: 'rare-catch-in 3.5s ease-in-out forwards',
+      whiteSpace: 'nowrap',
+    }}>
+      <div style={{
+        background: 'rgba(12, 8, 0, 0.97)',
+        border: '1px solid #ffaa00',
+        borderRadius: 6,
+        padding: '7px 16px',
+        boxShadow: '0 0 24px rgba(255, 170, 0, 0.5)',
+        fontFamily: 'monospace',
+        textAlign: 'center',
+      }}>
+        <span style={{ color: '#ffcc44', fontSize: 10, letterSpacing: 3 }}>[ RARE CATCH ]</span>
+        <span style={{ color: '#ff8000', fontSize: 13, fontWeight: 900, marginLeft: 8 }}>
+          {rc.name}!
+        </span>
+      </div>
+    </div>
+  )
+}
+
+// ── Recent catches with depth info ────────────────────────────────────────────
+
+interface DepthCatchEntry {
+  name: string
+  depth: FishDepth
+  rare: boolean
+}
+
+function RecentDepthCatches({ catches }: { catches: DepthCatchEntry[] }) {
+  if (catches.length === 0) return null
+  return (
+    <div style={{ marginTop: 10, borderTop: '1px solid #1e1e1e', paddingTop: 8 }}>
+      <div style={{ color: '#555', fontSize: 10, marginBottom: 5, letterSpacing: 0.5 }}>
+        RECENT CATCHES (DEPTH)
+      </div>
+      {catches.map((c, i) => (
+        <div key={i} style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          marginBottom: 3,
+          opacity: 1 - i * 0.15,
+        }}>
+          <span style={{ fontSize: 12 }}>{FISH_ICONS[c.name] ?? '🐟'}</span>
+          <span style={{ color: c.rare ? '#ffaa00' : '#bbb', fontSize: 11, flex: 1 }}>
+            {c.name}
+          </span>
+          <span style={{
+            fontSize: 9,
+            color: DEPTH_COLORS[c.depth],
+            padding: '1px 5px',
+            border: `1px solid ${DEPTH_COLORS[c.depth]}55`,
+            borderRadius: 3,
+            letterSpacing: 0.5,
+          }}>
+            {DEPTH_LABELS[c.depth]}
+          </span>
+          {c.rare && (
+            <span style={{
+              fontSize: 9,
+              color: '#ffaa00',
+              padding: '1px 5px',
+              border: '1px solid #ffaa0044',
+              borderRadius: 3,
+              letterSpacing: 0.5,
+            }}>
+              RARE
+            </span>
+          )}
+        </div>
+      ))}
+    </div>
+  )
 }
 
 function CatchHistory({ history }: { history: FishingSystemState['catchHistory'] }) {
@@ -439,6 +612,15 @@ export function FishingPanel() {
   const [state, setState] = useState<FishingSystemState>(() => ({ ...fishingSystem.state }))
   const [showGolden, setShowGolden] = useState(false)
 
+  // M45: depth selector state
+  const [depth, setDepth] = useState<FishDepth>(() => getInitialDepth)
+
+  // M45: rare catch banner (null = hidden)
+  const [rareCatch, setRareCatch] = useState<{ name: string; key: number } | null>(null)
+
+  // M45: recent depth-tagged catches (last 5)
+  const [depthCatches, setDepthCatches] = useState<DepthCatchEntry[]>([])
+
   useEffect(() => {
     const unsub = fishingSystem.subscribe(setState)
     return unsub
@@ -451,13 +633,47 @@ export function FishingPanel() {
     return () => window.removeEventListener('golden-fish-caught', handler)
   }, [])
 
-  const hideGolden = useCallback(() => setShowGolden(false), [])
+  // M45: intercept landed phase to roll a depth-tier fish and show rare notifications
+  useEffect(() => {
+    if (state.phase !== 'landed' || !state.lastCatch) return
+
+    // Roll using the depth system to decide rare overlays
+    const hasFishingRod = true  // player always has a rod if they're fishing
+    const rolled: FishEntry | null = rollFish(depth, hasFishingRod)
+
+    if (rolled?.rare) {
+      setRareCatch({ name: rolled.name, key: Date.now() })
+    }
+
+    // Record catch with depth tag
+    setDepthCatches(prev => {
+      const entry: DepthCatchEntry = {
+        name:  rolled ? rolled.name : state.lastCatch!.name,
+        depth,
+        rare:  rolled ? rolled.rare : false,
+      }
+      return [entry, ...prev].slice(0, 5)
+    })
+  }, [state.phase, state.lastCatch, depth])
+
+  const hideGolden   = useCallback(() => setShowGolden(false), [])
+  const hideRareCatch = useCallback(() => setRareCatch(null), [])
+
+  const handleDepthChange = useCallback((d: FishDepth) => {
+    setDepth(d)
+    setFishingDepth(d)
+  }, [])
 
   return (
     <>
       {showGolden && <GoldenFishOverlay onDone={hideGolden} />}
 
-      <div style={{ color: '#ccc', ...mono, display: 'flex', flexDirection: 'column', minHeight: 260 }}>
+      <div style={{ color: '#ccc', ...mono, display: 'flex', flexDirection: 'column', minHeight: 260, position: 'relative' }}>
+        {/* Rare catch banner (absolute, inside panel) */}
+        {rareCatch && (
+          <RareCatchNotification catch={rareCatch} onDone={hideRareCatch} />
+        )}
+
         {/* Header */}
         <div style={{
           padding: '10px 16px',
@@ -473,6 +689,9 @@ export function FishingPanel() {
             <span style={{ color: '#ff8000', fontSize: 10, fontWeight: 700 }}>CRITICAL!</span>
           )}
         </div>
+
+        {/* M45: Depth selector */}
+        <DepthSelector depth={depth} onChange={handleDepthChange} />
 
         {/* Phase view */}
         <div style={{ flex: 1 }}>
@@ -490,6 +709,8 @@ export function FishingPanel() {
           <DurabilityBar durability={state.rodDurability} />
           <BestCatch best={state.bestCatch} />
           <CatchHistory history={state.catchHistory} />
+          {/* M45: depth-tagged recent catches */}
+          <RecentDepthCatches catches={depthCatches} />
         </div>
 
         {/* Footer */}
@@ -500,7 +721,7 @@ export function FishingPanel() {
           fontSize: 10,
           letterSpacing: 0.5,
         }}>
-          ESC to cancel · Press F at sweet spot (tension meter) · Longer waits = rarer fish
+          ESC to cancel · Press F at sweet spot (tension meter) · Deeper = rarer fish
         </div>
       </div>
     </>

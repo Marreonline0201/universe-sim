@@ -421,7 +421,7 @@ Rules:
     // GET /agent-approval?agentId=xxx — agents poll this to check if approved/rejected
     // GET /agent-status — full agent state for external polling (watchdog, CLI)
     if (req.method === 'GET' && normalizedPath === '/agent-status') {
-      res.writeHead(200, { 'Content-Type': 'application/json', ...corsHeaders })
+      res.writeHead(200, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify(AgentBus.getState()))
       return
     }
@@ -429,7 +429,7 @@ Rules:
     if (req.method === 'GET' && normalizedPath === '/agent-approval') {
       const agentId = new URL(req.url, 'http://localhost').searchParams.get('agentId')
       const approval = agentId ? AgentBus.checkApproval(agentId) : null
-      res.writeHead(200, { 'Content-Type': 'application/json', ...corsHeaders })
+      res.writeHead(200, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify({ approval }))
       return
     }
@@ -437,7 +437,7 @@ Rules:
     // GET /pending-triggers — Claude Code polls this to pick up Telegram launch requests
     if (req.method === 'GET' && normalizedPath === '/pending-triggers') {
       const triggers = consumeTriggers()
-      res.writeHead(200, { 'Content-Type': 'application/json', ...corsHeaders })
+      res.writeHead(200, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify({ triggers }))
       return
     }

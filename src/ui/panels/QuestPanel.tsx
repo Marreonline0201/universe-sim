@@ -4,12 +4,13 @@
 //
 // Hotkey: Q. Registered in SidebarShell as lazy-loaded panel.
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { questSystem } from '../../game/GameSingletons'
 import type { Quest, QuestCategory } from '../../game/QuestSystem'
 import { useSettlementQuestStore } from '../../store/settlementQuestStore'
 import { useSettlementStore } from '../../store/settlementStore'
 import type { BoardQuest, BoardQuestType } from '../../store/settlementQuestStore'
+import { generateQuestsForSettlement } from '../../game/QuestGenerator'
 
 // ── Milestone quest styles ────────────────────────────────────────────────────
 
@@ -51,10 +52,15 @@ type Tab = 'board' | 'active' | 'log'
 
 // ── Main QuestPanel ───────────────────────────────────────────────────────────
 
+// 5-minute cooldown in ms
+const GENERATE_COOLDOWN_MS = 5 * 60 * 1000
+
 export function QuestPanel() {
   const [tab, setTab] = useState<Tab>('board')
   const [, forceRefresh] = useState(0)
   const [expandedId, setExpandedId] = useState<string | null>(null)
+  // Track last generation time per settlement id
+  const [lastGenerated, setLastGenerated] = useState<Record<number, number>>({})
 
   // Poll every 500ms for quest progress updates
   useEffect(() => {
@@ -65,11 +71,23 @@ export function QuestPanel() {
   const activeLog = questSystem.getActiveQuests()
   const completedLog = questSystem.getCompletedQuests()
 
-  const { quests: boardQuests, getActiveQuests: getBoardActive, acceptQuest, abandonQuest } = useSettlementQuestStore()
+  const { quests: boardQuests, getActiveQuests: getBoardActive, acceptQuest, abandonQuest, addQuests } = useSettlementQuestStore()
   const boardActive = getBoardActive()
   const settlements = useSettlementStore(s => s.settlements)
   const nearSettlementId = useSettlementStore(s => s.nearSettlementId)
   const ensureQuests = useSettlementQuestStore(s => s.ensureSettlementQuests)
+
+  const handleGenerateQuests = useCallback(() => {
+    if (nearSettlementId == null) return
+    const s = settlements.get(nearSettlementId)
+    if (!s) return
+    const now = Date.now()
+    const last = lastGenerated[nearSettlementId] ?? 0
+    if (now - last < GENERATE_COOLDOWN_MS) return
+    const newQuests = generateQuestsForSettlement(s.id, s.name, s.civLevel ?? 0, 3)
+    addQuests(newQuests)
+    setLastGenerated(prev => ({ ...prev, [nearSettlementId]: now }))
+  }, [nearSettlementId, settlements, lastGenerated, addQuests])
 
   // Generate quests for nearby settlement when panel opens
   useEffect(() => {
@@ -130,12 +148,21 @@ export function QuestPanel() {
       <div style={{ flex: 1, overflowY: 'auto', paddingRight: 2 }}>
         {/* ── Board tab: available settlement quests ── */}
         {tab === 'board' && (
-          <BoardTab
-            available={availableForBoard}
-            completed={completedBoardQuests}
-            nearSettlement={nearSettlement?.name ?? null}
-            onAccept={acceptQuest}
-          />
+          <>
+            {nearSettlementId != null && (
+              <GenerateQuestsBar
+                settlementId={nearSettlementId}
+                lastGenerated={lastGenerated}
+                onGenerate={handleGenerateQuests}
+              />
+            )}
+            <BoardTab
+              available={availableForBoard}
+              completed={completedBoardQuests}
+              nearSettlement={nearSettlement?.name ?? null}
+              onAccept={acceptQuest}
+            />
+          </>
         )}
 
         {/* ── Active tab: accepted board quests ── */}
@@ -156,6 +183,64 @@ export function QuestPanel() {
           />
         )}
       </div>
+    </div>
+  )
+}
+
+// ── Generate quests bar ───────────────────────────────────────────────────────
+
+function GenerateQuestsBar({
+  settlementId,
+  lastGenerated,
+  onGenerate,
+}: {
+  settlementId: number
+  lastGenerated: Record<number, number>
+  onGenerate: () => void
+}) {
+  const now = Date.now()
+  const last = lastGenerated[settlementId] ?? 0
+  const elapsed = now - last
+  const onCooldown = elapsed < GENERATE_COOLDOWN_MS
+  const secondsLeft = onCooldown ? Math.ceil((GENERATE_COOLDOWN_MS - elapsed) / 1000) : 0
+  const minutesLeft = Math.floor(secondsLeft / 60)
+  const secsLeft = secondsLeft % 60
+  const cooldownLabel = minutesLeft > 0
+    ? `${minutesLeft}m ${secsLeft}s`
+    : `${secsLeft}s`
+
+  return (
+    <div style={{
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      padding: '6px 8px',
+      background: 'rgba(205,68,32,0.06)',
+      border: '1px solid rgba(205,68,32,0.2)',
+      borderRadius: 4,
+      marginBottom: 8,
+    }}>
+      <span style={{ fontSize: 10, color: '#888', fontFamily: 'monospace' }}>
+        {onCooldown ? `Next refresh in ${cooldownLabel}` : 'New quests available'}
+      </span>
+      <button
+        onClick={onGenerate}
+        disabled={onCooldown}
+        style={{
+          padding: '3px 10px',
+          fontSize: 10,
+          fontFamily: 'monospace',
+          fontWeight: 700,
+          background: onCooldown ? 'rgba(255,255,255,0.04)' : 'rgba(205,68,32,0.18)',
+          border: onCooldown ? '1px solid #333' : '1px solid rgba(205,68,32,0.5)',
+          borderRadius: 3,
+          color: onCooldown ? '#555' : '#cd4420',
+          cursor: onCooldown ? 'not-allowed' : 'pointer',
+          letterSpacing: 0.5,
+        }}
+      >
+        GENERATE QUESTS
+      </button>
     </div>
   )
 }

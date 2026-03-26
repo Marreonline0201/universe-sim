@@ -126,6 +126,7 @@ import { CreatureBody } from '../ecs/world'
 import { skillSystem } from './SkillSystem'
 import { saveOffline, registerSkillSystem, registerQuestSystem, registerAchievementSystem, registerTutorialSystem } from './OfflineSaveManager'
 import { useSettlementQuestStore } from '../store/settlementQuestStore'
+import { generateQuestsForSettlement } from './QuestGenerator'
 import { useCivStore } from '../store/civStore'
 import { checkAndFireMilestones } from './CivMilestoneSystem'
 // M33 Track B: Food buff system
@@ -2278,6 +2279,19 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
         // M35 Track C: ensure all settlements have faction assignments
         const settlementIds = Array.from(settlementStore.settlements.keys())
         useFactionStore.getState().assignSettlementFactions(settlementIds)
+        // M45 Track B: auto-generate quests for settlements that have reached civLevel >= 1 and have no quests yet
+        {
+          const questStore = useSettlementQuestStore.getState()
+          for (const s of settlementStore.settlements.values()) {
+            if ((s.civLevel ?? 0) >= 1) {
+              const existing = Object.values(questStore.quests).some(q => q.settlementId === s.id)
+              if (!existing) {
+                const generated = generateQuestsForSettlement(s.id, s.name, s.civLevel ?? 1, 3)
+                questStore.addQuests(generated)
+              }
+            }
+          }
+        }
         // M39 Track C: sync civilization tier from settlement civLevels
         civTierTimerRef.current += dt
         if (civTierTimerRef.current >= 5) {

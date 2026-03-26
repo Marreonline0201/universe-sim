@@ -208,6 +208,9 @@ interface SettlementQuestState {
 
   /** Mark a quest as completed */
   completeQuest: (questId: string) => void
+
+  /** Add multiple dynamically-generated quests to the store at once */
+  addQuests: (quests: BoardQuest[]) => void
 }
 
 export const useSettlementQuestStore = create<SettlementQuestState>((set, get) => ({
@@ -264,6 +267,14 @@ export const useSettlementQuestStore = create<SettlementQuestState>((set, get) =
       const q = s.quests[questId]
       if (!q) return s
       return { quests: { ...s.quests, [questId]: { ...q, completed: true, accepted: false } } }
+    })
+  },
+
+  addQuests: (quests) => {
+    set((s) => {
+      const next = { ...s.quests }
+      for (const q of quests) next[q.id] = q
+      return { quests: next }
     })
   },
 }))

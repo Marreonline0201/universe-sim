@@ -40,6 +40,7 @@ import { serializeFactions, deserializeFactions } from './FactionReputationSyste
 import { serializeBlueprints, deserializeBlueprints } from './BlueprintUnlockSystem'
 import { serializeMemories, deserializeMemories } from './NPCMemorySystem'
 import { serializeChronicle, deserializeChronicle } from './WorldChronicleSystem'
+import { serializeJournal, deserializeJournal } from './PlayerJournalSystem'
 import { Health, Metabolism, Position } from '../ecs/world'
 import { rapierWorld } from '../physics/RapierWorld'
 import { PLANET_RADIUS } from '../world/SpherePlanet'
@@ -166,6 +167,7 @@ export async function saveOffline(): Promise<boolean> {
       blueprints: serializeBlueprints(),
       npcMemories: serializeMemories(),
       worldChronicle: serializeChronicle(),
+      playerJournal: serializeJournal(),
     })
     const meta = JSON.stringify({
       timestamp: Date.now(),
@@ -382,6 +384,11 @@ export async function loadOffline(): Promise<boolean> {
     // M63 Track C: Restore world chronicle
     if (state.worldChronicle) {
       deserializeChronicle(state.worldChronicle)
+    }
+
+    // M62 Track B: Restore player journal
+    if (state.playerJournal) {
+      deserializeJournal(state.playerJournal)
     }
 
     // Restore position

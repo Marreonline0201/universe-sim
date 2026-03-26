@@ -253,7 +253,7 @@ const ICON_BUTTONS: Array<{ id: PanelId; icon: string; hint: string }> = [
   { id: 'trophies',     icon: '🏆',   hint: 'Trophies (F2)' },
   { id: 'blueprints',  icon: '📐',   hint: 'Blueprint Tree (F3)' },
   { id: 'npcmemory',   icon: '🧠',   hint: 'NPC Memory (F4)' },
-  { id: 'chronicle',   icon: '📜',   hint: 'Chronicle (F5)' },
+  { id: 'chronicle',   icon: '📰',   hint: 'Chronicle (F5)' },
   { id: 'settings',    icon: 'SET',  hint: 'Settings (Esc)' },
   { id: 'factionrep',  icon: '🏅',   hint: 'Faction Reputation (F)' },
 ]

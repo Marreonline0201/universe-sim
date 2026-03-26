@@ -69,6 +69,17 @@ export function getJournalEntry(id: string): JournalEntry | undefined {
   return _entries.find(e => e.id === id)
 }
 
+export function serializeJournal(): string {
+  return JSON.stringify(_entries)
+}
+
+export function deserializeJournal(data: string): void {
+  try {
+    const parsed = JSON.parse(data) as JournalEntry[]
+    if (Array.isArray(parsed)) _entries = parsed.slice(0, MAX_ENTRIES)
+  } catch { /* corrupted — skip */ }
+}
+
 // ── Event listeners ───────────────────────────────────────────────────────────
 
 function onBossSpawned(e: Event): void {

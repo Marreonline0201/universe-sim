@@ -14,7 +14,6 @@ export type MemoryType =
   | 'helped'       // player helped this NPC (quest/task)
   | 'met_famous'   // player has killed a boss — NPCs remember you as "boss slayer"
   | 'seen_storm'   // both player and NPC were in a storm together
-  | 'saw_crime'    // NPC witnessed player do something bad
 
 export interface NPCMemory {
   npcId: string

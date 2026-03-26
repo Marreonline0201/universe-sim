@@ -18,11 +18,22 @@ let _serverUrl: string | null = null
 
 function getServerUrl(): string | null {
   if (_serverUrl) return _serverUrl
-  // Derive HTTP base URL from VITE_WS_URL (ws://... → http://..., wss://... → https://...)
-  const wsUrl = (import.meta as any).env?.VITE_WS_URL as string | undefined
-  if (!wsUrl) return null
-  _serverUrl = wsUrl.replace(/^ws:/, 'http:').replace(/^wss:/, 'https:').replace(/\/$/, '')
-  return _serverUrl
+  // Support both Vite browser context (import.meta.env) and Node.js/Claude Code agent context (process.env)
+  const wsUrl =
+    (import.meta as any).env?.VITE_WS_URL as string | undefined ||
+    (typeof process !== 'undefined' ? process.env?.VITE_WS_URL : undefined)
+  if (wsUrl) {
+    _serverUrl = wsUrl.replace(/^ws:/, 'http:').replace(/^wss:/, 'https:').replace(/\/$/, '')
+    return _serverUrl
+  }
+  // Fallback: direct HTTP URL for Node.js agents
+  const httpUrl =
+    (typeof process !== 'undefined' ? process.env?.AGENT_BUS_URL : undefined)
+  if (httpUrl) {
+    _serverUrl = httpUrl.replace(/\/$/, '')
+    return _serverUrl
+  }
+  return null
 }
 
 /**

@@ -109,3 +109,22 @@ The companion status site shows the **Agent Control Center** panel with the 12-a
 hierarchy, walking Director character, speech bubbles, and live message feed.
 
 The server URL is set via `VITE_WS_URL` in `.env.local`.
+
+### Reporting status from Claude Code agents (terminal context)
+
+Claude Code agents run in Node.js, not a browser — `import.meta.env` is unavailable.
+Set one of these env vars so `reportStatus()` can reach the Railway server:
+
+```bash
+# Option A — same var as the status site
+export VITE_WS_URL=wss://questions-production-63a2.up.railway.app
+
+# Option B — plain HTTP URL
+export AGENT_BUS_URL=https://questions-production-63a2.up.railway.app
+```
+
+Add either line to your shell profile or `.env.local`, or prefix your agent command:
+
+```bash
+AGENT_BUS_URL=https://questions-production-63a2.up.railway.app npx tsx your-agent.ts
+```

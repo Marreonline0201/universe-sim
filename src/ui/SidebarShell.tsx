@@ -74,6 +74,10 @@ const DiscoveriesPanel = lazy(() => import('./panels/DiscoveriesPanel').then(m =
 const MerchantGuildPanel = lazy(() => import('./panels/MerchantGuildPanel').then(m => ({ default: m.MerchantGuildPanel })))
 // M55 Track A: NPC Schedule panel
 const NPCSchedulePanel = lazy(() => import('./panels/NPCSchedulePanel').then(m => ({ default: m.NPCSchedulePanel })))
+// M55 Track B: Resource tracker panel
+const ResourceTrackerPanel = lazy(() => import('./panels/ResourceTrackerPanel').then(m => ({ default: m.ResourceTrackerPanel })))
+// M55 Track C: World threat tracker panel
+const WorldThreatPanel = lazy(() => import('./panels/WorldThreatPanel').then(m => ({ default: m.WorldThreatPanel })))
 
 // M36 Track C: Wrapper resolves nearSettlementId from store so panel has no props
 function BuildingsPanelWrapper() {
@@ -131,6 +135,8 @@ const PANEL_LABEL: Record<PanelId, string> = {
   discoveries:   'EXPLORATIONS',
   merchantguild: 'MERCHANT GUILD',
   npcschedule:   'NPC SCHEDULES',
+  resources:     'RESOURCE TRACKER',
+  threats:       'WORLD THREAT TRACKER',
 }
 
 const PANEL_WIDTH = 480
@@ -170,6 +176,8 @@ const ICON_BUTTONS: Array<{ id: PanelId; icon: string; hint: string }> = [
   { id: 'discoveries',   icon: '🗺',   hint: 'Discoveries (D)' },
   { id: 'merchantguild', icon: '🏪',   hint: 'Guild (E)' },
   { id: 'npcschedule',   icon: '📅',   hint: 'NPC Schedules' },
+  { id: 'resources',     icon: '🌲',   hint: 'Resources' },
+  { id: 'threats',       icon: '⚠️',   hint: 'World Threats (A)' },
   { id: 'science',       icon: ' ? ', hint: 'Science Companion (?)' },
   { id: 'settings',    icon: 'SET',  hint: 'Settings (Esc)' },
 ]
@@ -212,6 +220,8 @@ const PANEL_COMPONENTS: Record<PanelId, React.ComponentType> = {
   discoveries:   DiscoveriesPanel,
   merchantguild: MerchantGuildPanel,
   npcschedule:   NPCSchedulePanel,
+  resources:     ResourceTrackerPanel,
+  threats:       WorldThreatPanel,
 }
 
 export function SidebarShell() {
@@ -274,6 +284,7 @@ export function SidebarShell() {
         case 'r': case 'R':   e.preventDefault(); togglePanel('relationships'); break
         case 'w': case 'W':   e.preventDefault(); togglePanel('factionwars');  break
         case 's': case 'S':   e.preventDefault(); togglePanel('seasonal');     break
+        case 'a': case 'A':   e.preventDefault(); togglePanel('threats');     break
         case 'Tab':           e.preventDefault(); togglePanel('character');  break
         case 'm': case 'M':   e.preventDefault(); togglePanel('map');        break
         case '?': case '/':

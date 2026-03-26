@@ -243,6 +243,20 @@ export function initWorldEventLogger(): void {
       detail: `Fulfilled "${name}" — +${gold} gold, +${xp} guild XP`,
     })
   })
+
+  // resource-depleted — M55 Track B: resource node fully harvested
+  window.addEventListener('resource-depleted', (e: Event) => {
+    const detail = (e as CustomEvent).detail ?? {}
+    const icon: string     = detail.icon ?? '🌲'
+    const nodeName: string = detail.nodeName ?? 'Resource Node'
+    const nodeType: string = detail.nodeType ?? 'resource'
+    useWorldEventStore.getState().addEvent({
+      category: 'exploration',
+      icon,
+      title: 'Resource Depleted',
+      detail: `${nodeName} (${nodeType.replace('_', ' ')}) has been fully harvested.`,
+    })
+  })
 }
 
 // ── Helper functions for game systems ────────────────────────────────────────

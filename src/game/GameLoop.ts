@@ -208,6 +208,8 @@ import { onHit, tickCombo, getDamageMultiplier } from './ComboSystem'
 import { onKill as bountyOnKill, tickBountyBoard } from './BountyBoardSystem'
 // M54 Track C: Exploration discovery system
 import { checkDiscoveries } from './ExplorationDiscoverySystem'
+// M55 Track B: Resource depletion & respawn system
+import { tickResourceRespawn } from './ResourceDepletionSystem'
 
 // Register skill system with offline save manager for serialization
 registerSkillSystem(skillSystem)
@@ -332,6 +334,8 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
   const bountyTimerRef = useRef(0)
   // M54 Track C: Exploration discovery check timer — fires every 2s
   const discoveryTimerRef = useRef(0)
+  // M55 Track B: Resource respawn tick timer — fires every 5s
+  const resourceRespawnTimerRef = useRef(0)
 
   useFrame((_, delta) => {
     // Cap dt to avoid spiral-of-death on slow frames
@@ -3460,6 +3464,15 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
       if (discoveryTimerRef.current >= 2) {
         discoveryTimerRef.current = 0
         checkDiscoveries(px, pz, useGameStore.getState().simSeconds)
+      }
+    }
+
+    // ── M55 Track B: Resource respawn tick (every 5s) ────────────────────────
+    {
+      resourceRespawnTimerRef.current += dt
+      if (resourceRespawnTimerRef.current >= 5) {
+        resourceRespawnTimerRef.current = 0
+        tickResourceRespawn(useGameStore.getState().simSeconds)
       }
     }
 

@@ -27,6 +27,7 @@ import { serializeRoutes, deserializeRoutes } from './TradingRouteSystem'
 import { serializeRepTitles, deserializeRepTitles } from './ReputationTitleSystem'
 import { serializeDiscovery, deserializeDiscovery } from './RecipeDiscoverySystem'
 import { serializeDiscoveries, deserializeDiscoveries } from './ExplorationDiscoverySystem'
+import { serializeNodes, deserializeNodes } from './ResourceDepletionSystem'
 import { Health, Metabolism, Position } from '../ecs/world'
 import { rapierWorld } from '../physics/RapierWorld'
 import { PLANET_RADIUS } from '../world/SpherePlanet'
@@ -140,6 +141,7 @@ export async function saveOffline(): Promise<boolean> {
       recipeDiscovery: serializeDiscovery(),
       homeCustomization: serializeHome(),
       explorationDiscoveries: serializeDiscoveries(),
+      resourceNodes: serializeNodes(),
     })
     const meta = JSON.stringify({
       timestamp: Date.now(),
@@ -291,6 +293,11 @@ export async function loadOffline(): Promise<boolean> {
     // M54 Track C: Restore exploration discoveries
     if (state.explorationDiscoveries) {
       deserializeDiscoveries(state.explorationDiscoveries)
+    }
+
+    // M55 Track B: Restore resource node depletion state
+    if (state.resourceNodes) {
+      deserializeNodes(state.resourceNodes)
     }
 
     // Restore position

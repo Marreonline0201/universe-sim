@@ -30,6 +30,7 @@ const FishingPanel     = lazy(() => import('./panels/FishingPanel').then(m => ({
 const MerchantPanel    = lazy(() => import('./panels/MerchantPanel').then(m => ({ default: m.MerchantPanel })))
 const PlayerListPanel  = lazy(() => import('./panels/PlayerListPanel').then(m => ({ default: m.PlayerListPanel })))
 const HomePanel        = lazy(() => import('./panels/HomePanel').then(m => ({ default: m.HomePanel })))
+const FactionPanel     = lazy(() => import('./panels/FactionPanel').then(m => ({ default: m.FactionPanel })))
 
 const PANEL_LABEL: Record<PanelId, string> = {
   inventory: 'INVENTORY',
@@ -48,6 +49,7 @@ const PANEL_LABEL: Record<PanelId, string> = {
   merchant:     'MERCHANT',
   players:      'PLAYERS ONLINE',
   home:         'HOME BASE',
+  factions:     'FACTIONS',
 }
 
 const PANEL_WIDTH = 480
@@ -66,6 +68,7 @@ const ICON_BUTTONS: Array<{ id: PanelId; icon: string; hint: string }> = [
   { id: 'fishing',    icon: 'FSH',  hint: 'Fishing (F near water)' },
   { id: 'home',       icon: 'HME',  hint: 'Home Base (H)' },
   { id: 'players',    icon: 'PLR',  hint: 'Players Online (P)' },
+  { id: 'factions',   icon: 'FCT',  hint: 'Factions (G)' },
   { id: 'science',    icon: ' ? ',  hint: 'Science Companion (?)' },
   { id: 'settings',   icon: 'SET',  hint: 'Settings (Esc)' },
 ]
@@ -87,6 +90,7 @@ const PANEL_COMPONENTS: Record<PanelId, React.ComponentType> = {
   merchant:     MerchantPanel,
   players:      PlayerListPanel,
   home:         HomePanel,
+  factions:     FactionPanel,
 }
 
 export function SidebarShell() {
@@ -127,6 +131,7 @@ export function SidebarShell() {
         case 'j': case 'J':   e.preventDefault(); togglePanel('journal');    break
         case 'k': case 'K':   e.preventDefault(); togglePanel('skills');     break
         case 'q': case 'Q':   e.preventDefault(); togglePanel('quests');     break
+        case 'g': case 'G':   e.preventDefault(); togglePanel('factions'); break
         case 'h': case 'H':   e.preventDefault(); togglePanel('home'); break
         case 'p': case 'P':   e.preventDefault(); togglePanel('players');     break
         case 'Tab':           e.preventDefault(); togglePanel('character');  break

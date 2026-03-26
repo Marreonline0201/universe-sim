@@ -3,6 +3,8 @@
 // Populated from WORLD_SNAPSHOT on join, updated by SETTLEMENT_UPDATE messages.
 
 import { create } from 'zustand'
+import type { FactionId } from '../game/FactionSystem'
+import { getFactionForSettlementIndex } from '../game/FactionSystem'
 
 export interface SettlementSnapshot {
   id:          number
@@ -13,6 +15,7 @@ export interface SettlementSnapshot {
   civLevel:    number
   npcCount:    number
   resourceInv: Record<string, number>
+  factionId:   FactionId   // M35 Track C: assigned on load
 }
 
 export interface TradeOffer {
@@ -51,7 +54,12 @@ export const useSettlementStore = create<SettlementState>((set) => ({
   settlements: new Map(),
   setSettlements: (list) => {
     const map = new Map<number, SettlementSnapshot>()
-    for (const s of list) map.set(s.id, s)
+    list.forEach((s, index) => {
+      const withFaction: SettlementSnapshot = s.factionId
+        ? s
+        : { ...s, factionId: getFactionForSettlementIndex(index) }
+      map.set(s.id, withFaction)
+    })
     set({ settlements: map })
   },
   upsertSettlement: (s) =>

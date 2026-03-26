@@ -10,6 +10,9 @@
 import { useState, useRef, useEffect } from 'react'
 import { useDialogueStore } from '../../store/dialogueStore'
 import type { EmotionState } from '../../ai/EmotionModel'
+import { useFactionStore } from '../../store/factionStore'
+import { useSettlementStore } from '../../store/settlementStore'
+import { FACTIONS, getFactionRelationship } from '../../game/FactionSystem'
 
 // ── Procedural fallback dialogue (no LLM key) ──────────────────────────────
 
@@ -261,10 +264,41 @@ export function DialoguePanel() {
     }
   }, [])
 
+  // Derive faction relationship for greeting override
+  const playerFaction = useFactionStore(s => s.playerFaction)
+  const settlements   = useSettlementStore(s => s.settlements)
+
+  function getFactionGreeting(): string | null {
+    if (!playerFaction || !targetSettlement) return null
+    // Find the settlement that matches this NPC's settlement name
+    for (const s of settlements.values()) {
+      if (s.name === targetSettlement && s.factionId) {
+        const npcFaction = s.factionId
+        const rel = getFactionRelationship(playerFaction, npcFaction)
+        if (rel === 'ally' && npcFaction !== playerFaction) {
+          return `A friend of our allies. What can I do for you?`
+        }
+        if (rel === 'war') {
+          return `I don't trust your kind. State your business.`
+        }
+        if (npcFaction === playerFaction) {
+          return `Welcome, fellow ${FACTIONS[playerFaction].name}! What brings you here?`
+        }
+      }
+    }
+    return null
+  }
+
   // Send NPC greeting on first open
   useEffect(() => {
     if (!hasGreeted.current && targetNpcName) {
       hasGreeted.current = true
+      // M35: Faction-aware greeting override
+      const factionGreeting = getFactionGreeting()
+      if (factionGreeting) {
+        addMessage('npc', factionGreeting)
+        return
+      }
       const roleKey = normaliseRole(targetNpcRole)
       let greeting: string
       if (roleKey) {
@@ -275,6 +309,7 @@ export function DialoguePanel() {
       }
       addMessage('npc', greeting)
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [targetNpcName, targetNpcRole, addMessage])
 
   function handleSend() {

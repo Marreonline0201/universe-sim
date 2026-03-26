@@ -30,6 +30,7 @@ import { useCaveStore } from '../../store/caveStore'
 import { generateAllCaveChests, isChestAvailable } from '../../game/ChestSystem'
 import { marketSystem } from '../../game/MarketSystem'
 import { merchantSystem } from '../../game/MerchantSystem'
+import { useSettlementQuestStore } from '../../store/settlementQuestStore'
 
 const SETTLEMENT_DISCOVERY_RADIUS = 150   // world units — player must be within this to discover
 

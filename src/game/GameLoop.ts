@@ -256,6 +256,8 @@ import { initPlayerJournal } from './PlayerJournalSystem'
 import { tickScheduler } from './WorldEventSchedulerSystem'
 // M67 Track C: Settlement relations system
 import { tickRelations } from './SettlementRelationsSystem'
+// M68 Track C: Expedition system
+import { tickExpeditions } from './ExpeditionSystem'
 
 // Register skill system with offline save manager for serialization
 registerSkillSystem(skillSystem)
@@ -407,6 +409,8 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
   const npcEmotionTimerRef = useRef(0)
   // M66 Track C: Resource trading network tick timer — fires every 10s
   const tradeNetworkTimerRef = useRef(0)
+  // M68 Track C: Expedition tick timer — fires every 10s
+  const expeditionTimerRef = useRef(0)
 
   useFrame((_, delta) => {
     // Cap dt to avoid spiral-of-death on slow frames
@@ -3669,6 +3673,15 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
       if (relationsTimerRef.current >= 10) {
         relationsTimerRef.current = 0
         tickRelations(useGameStore.getState().simSeconds, 10)
+      }
+    }
+
+    // ── M68 Track C: Expedition tick (every 10s) ──────────────────────────────
+    {
+      expeditionTimerRef.current += dt
+      if (expeditionTimerRef.current >= 10) {
+        expeditionTimerRef.current = 0
+        tickExpeditions(useGameStore.getState().simSeconds)
       }
     }
 

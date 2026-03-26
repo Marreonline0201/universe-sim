@@ -53,6 +53,7 @@ import { serializeCodex, deserializeCodex } from './WorldHistoryCodexSystem'
 import { serializeAchievementJournal, deserializeAchievementJournal } from './PlayerAchievementJournalSystem'
 import { serializeRelations, deserializeRelations } from './SettlementRelationsSystem'
 import { serializeRecipeBook, deserializeRecipeBook, type RecipeBookSaveData } from './RecipeBookSystem'
+import { serializeExpeditions, deserializeExpeditions, type ExpeditionSaveData } from './ExpeditionSystem'
 import { Health, Metabolism, Position } from '../ecs/world'
 import { rapierWorld } from '../physics/RapierWorld'
 import { PLANET_RADIUS } from '../world/SpherePlanet'
@@ -192,6 +193,7 @@ export async function saveOffline(): Promise<boolean> {
       achievementJournal: serializeAchievementJournal(),
       settlementRelations: serializeRelations(),
       recipeBook: serializeRecipeBook(),
+      expeditions: serializeExpeditions(),
     })
     const meta = JSON.stringify({
       timestamp: Date.now(),
@@ -473,6 +475,11 @@ export async function loadOffline(): Promise<boolean> {
     // M68 Track A: Restore recipe book
     if (state.recipeBook) {
       deserializeRecipeBook(state.recipeBook as RecipeBookSaveData)
+    }
+
+    // M68 Track C: Restore expedition state
+    if (state.expeditions) {
+      deserializeExpeditions(state.expeditions as ExpeditionSaveData)
     }
 
     // Restore position

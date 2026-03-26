@@ -138,6 +138,8 @@ const PlayerAchievementJournalPanel = lazy(() => import('./panels/PlayerAchievem
 const SettlementRelationsPanel = lazy(() => import('./panels/SettlementRelationsPanel').then(m => ({ default: m.SettlementRelationsPanel })))
 // M68 Track A: Recipe Book panel
 const RecipeBookPanel = lazy(() => import('./panels/RecipeBookPanel').then(m => ({ default: m.RecipeBookPanel })))
+// M68 Track C: Expedition panel
+const ExpeditionPanel = lazy(() => import('./panels/ExpeditionPanel').then(m => ({ default: m.ExpeditionPanel })))
 
 // M36 Track C: Wrapper resolves nearSettlementId from store so panel has no props
 function BuildingsPanelWrapper() {
@@ -227,6 +229,7 @@ const PANEL_LABEL: Record<PanelId, string> = {
   achievejournal:  'ADVENTURE LOG',
   settlementrel:   'SETTLEMENT RELATIONS',
   recipebook:      'RECIPE BOOK',
+  expedition:      'EXPEDITIONS',
 }
 
 const PANEL_WIDTH = 480
@@ -300,6 +303,7 @@ const ICON_BUTTONS: Array<{ id: PanelId; icon: string; hint: string }> = [
   { id: 'achievejournal', icon: '📓', hint: 'Adventure Log (F14)' },
   { id: 'settlementrel',  icon: '🤝', hint: 'Settlement Relations' },
   { id: 'recipebook',     icon: '📖', hint: 'Recipe Book' },
+  { id: 'expedition',    icon: '🗺️', hint: 'Expeditions' },
 ]
 
 const PANEL_COMPONENTS: Record<PanelId, React.ComponentType> = {
@@ -372,6 +376,7 @@ const PANEL_COMPONENTS: Record<PanelId, React.ComponentType> = {
   achievejournal:  PlayerAchievementJournalPanel,
   settlementrel:   SettlementRelationsPanel,
   recipebook:      RecipeBookPanel,
+  expedition:      ExpeditionPanel,
 }
 
 export function SidebarShell() {

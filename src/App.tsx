@@ -45,6 +45,8 @@ import { initWorldHistoryCodex } from './game/WorldHistoryCodexSystem'
 import { initPlayerAchievementJournal } from './game/PlayerAchievementJournalSystem'
 import { initSettlementRelations } from './game/SettlementRelationsSystem'
 import { initRecipeBook } from './game/RecipeBookSystem'
+import { initExpeditionSystem } from './game/ExpeditionSystem'
+import { initNPCScheduleSystem } from './game/NPCScheduleSystem'
 
 // ── M20: Lazy-load AdminPanel (dev/admin only) ──────────────────────────────
 const AdminPanel = lazy(() => import('./ui/AdminPanel').then(m => ({ default: m.AdminPanel })))
@@ -130,6 +132,8 @@ function DevGame() {
     initPlayerAchievementJournal()
     initSettlementRelations()
     initRecipeBook()
+    initExpeditionSystem()
+    initNPCScheduleSystem()
   }, [])
 
   return (
@@ -220,6 +224,8 @@ function GameWithSave() {
     initPlayerAchievementJournal()
     initSettlementRelations()
     initRecipeBook()
+    initExpeditionSystem()
+    initNPCScheduleSystem()
   }, [])
 
   // Load save on first sign-in

@@ -31,8 +31,9 @@ interface NameTagData {
   opacity: number
   isAFK: boolean
   pingMs: number | undefined
-  title?: string       // M37: equipped title name
-  titleColor?: string  // M37: title color
+  title?: string           // M37: equipped title name
+  titleColor?: string      // M37: title color
+  isPartyMember?: boolean  // M39: in same party
 }
 
 // ── Inner component — runs inside R3F Canvas context ──────────────────────────
@@ -51,6 +52,7 @@ function NameTagsOverlayInner({
 
   const tmpVec = useRef(new THREE.Vector3())
   const now = Date.now()
+  const partyMemberIds = usePartyStore(s => s.party?.members.map(m => m.userId) ?? [])
 
   useFrame(() => {
     const tags: NameTagData[] = []
@@ -92,6 +94,7 @@ function NameTagsOverlayInner({
         pingMs: playerPings.get(p.userId),
         title: p.title,
         titleColor: p.titleColor,
+        isPartyMember: partyMemberIds.includes(p.userId),
       })
     }
 
@@ -185,6 +188,18 @@ export function RemotePlayerNameTagsOverlay() {
               {tag.username}
             </span>
           </div>
+          {/* M39: Party member ring */}
+          {tag.isPartyMember && (
+            <div style={{
+              width: 8,
+              height: 8,
+              borderRadius: '50%',
+              border: '2px solid #6abf6a',
+              background: 'transparent',
+              boxShadow: '0 0 5px rgba(106,191,106,0.7)',
+              flexShrink: 0,
+            }} />
+          )}
           {/* Online/AFK status dot */}
           <div style={{
             width: 5,

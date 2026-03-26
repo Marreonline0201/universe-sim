@@ -124,6 +124,31 @@ export const useBuildingStore = create<BuildingState>((set, get) => ({
       return { buildings: next, announcements: newAnnouncements }
     })
 
+    // M39 Track B: Cooperative building — broadcast donation to party members
+    try {
+      const { usePartyStore } = require('../store/partyStore') as typeof import('./partyStore')
+      const party = usePartyStore.getState().party
+      if (party && party.members.length >= 2) {
+        recordPartyDonation(key)
+        const bAfter = get().buildings.get(key)
+        if (bAfter) {
+          const totalNeeded = def.donationRequirements.reduce((s, r) => s + r.qty, 0)
+          const totalDone = def.donationRequirements.reduce((s, r) => s + Math.min(bAfter.donated[r.matId] ?? 0, r.qty), 0)
+          getWorldSocket()?.send({
+            type: 'PARTY_DONATION',
+            buildingType: type,
+            buildingName: def.name,
+            matId,
+            qty: toConsume,
+            current: totalDone,
+            needed: totalNeeded,
+            settlementId,
+            settlementName,
+          } as any)
+        }
+      }
+    } catch { /* party system not loaded */ }
+
     return true
   },
 

@@ -7,6 +7,8 @@ import { create } from 'zustand'
 import type { RemotePlayer } from '../store/multiplayerStore'
 import { openPlayerTradePanel, buildTradeRequest } from './panels/TradePanel'
 import { getLocalUserId, getLocalUsername } from '../net/useWorldSocket'
+import { usePartyStore } from '../store/partyStore'
+import { useUiStore } from '../store/uiStore'
 
 // ── Store ──────────────────────────────────────────────────────────────────────
 interface InspectPlayerState {
@@ -25,6 +27,8 @@ export const useInspectPlayerStore = create<InspectPlayerState>((set) => ({
 export function InspectPlayerOverlay() {
   const { inspectedPlayer, closeInspect } = useInspectPlayerStore()
   const overlayRef = useRef<HTMLDivElement>(null)
+  const partyStore = usePartyStore()
+  const addNotification = useUiStore((s: any) => s.addNotification as (msg: string, type?: string) => void)
 
   // Close on Escape
   useEffect(() => {
@@ -170,6 +174,48 @@ export function InspectPlayerOverlay() {
             </div>
           )}
         </div>
+
+        {/* M39: Invite to Party button */}
+        {(() => {
+          const party = partyStore.party
+          const alreadyInParty = party?.members.some(m => m.userId === p.userId)
+          const partyFull = party !== null && party.members.length >= 4
+          if (alreadyInParty) return null
+          return (
+            <button
+              onClick={() => {
+                if (partyFull) {
+                  addNotification('Your party is full (max 4 members).', 'warning')
+                  return
+                }
+                partyStore.invitePlayer(p.userId, p.username)
+                addNotification(`Party invite sent to ${p.username}.`, 'info')
+                closeInspect()
+              }}
+              style={{
+                display: 'block',
+                width: '100%',
+                marginTop: 8,
+                padding: '7px 0',
+                fontFamily: '"Courier New", monospace',
+                fontSize: 11,
+                fontWeight: 700,
+                letterSpacing: 1,
+                background: 'rgba(106,191,106,0.14)',
+                border: '1px solid #6abf6a',
+                borderRadius: 5,
+                color: '#6abf6a',
+                cursor: partyFull ? 'not-allowed' : 'pointer',
+                opacity: partyFull ? 0.5 : 1,
+                transition: 'all 0.12s',
+              }}
+              onMouseEnter={e => { if (!partyFull) e.currentTarget.style.background = 'rgba(106,191,106,0.28)' }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'rgba(106,191,106,0.14)' }}
+            >
+              INVITE TO PARTY
+            </button>
+          )
+        })()}
 
         {/* M35: Trade button */}
         <button

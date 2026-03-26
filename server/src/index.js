@@ -22,6 +22,7 @@ import { migrateSchema as migrateDiscoverySchema, recordDecode, recordProbe } fr
 import { UniverseRegistry } from './UniverseRegistry.js'
 import * as AgentBus from './AgentBus.js'
 import * as Telegram from './TelegramAgent.js'
+import Anthropic from '@anthropic-ai/sdk'
 
 const PORT = parseInt(process.env.PORT ?? '8080', 10)
 const PERSIST_INTERVAL_MS = 30_000 // save simTime to DB every 30 s
@@ -296,6 +297,26 @@ async function main() {
                   client.send(JSON.stringify({ type: 'AGENT_UPDATE', ...state }))
               })
             }
+          }
+          // Handle plain text messages — forward to Claude and reply
+          if (data.message && data.message.text) {
+            const userText = data.message.text
+            // Fire-and-forget async Claude call
+            ;(async () => {
+              try {
+                const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+                const response = await anthropic.messages.create({
+                  model: 'claude-sonnet-4-6',
+                  max_tokens: 1024,
+                  system: 'You are Claude, an AI assistant embedded in a game development workflow for Universe Sim — a scientifically-grounded open-world survival game on a sphere planet. You help the developer (communicating via Telegram) with game development questions, agent status, and decisions. Be concise since this is a mobile chat interface.',
+                  messages: [{ role: 'user', content: userText }],
+                })
+                const reply = response.content[0]?.text ?? 'No response.'
+                await Telegram.sendMessage(reply)
+              } catch(e) {
+                await Telegram.sendMessage('Error calling Claude: ' + e.message)
+              }
+            })()
           }
         } catch(e) { /* ignore malformed */ }
         res.writeHead(200)

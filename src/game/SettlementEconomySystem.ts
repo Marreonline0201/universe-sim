@@ -82,7 +82,8 @@ export function initSettlementEconomy(): void {
 
   // Listen for completed trade routes — boost involved settlements
   window.addEventListener('trade-route-completed', (e: Event) => {
-    const detail = (e as CustomEvent).detail as { route: { fromSettlementId: number; toSettlementId: number } }
+    const detail = (e as CustomEvent).detail as { route?: { fromSettlementId: number; toSettlementId: number } }
+    if (!detail?.route) return
     const { fromSettlementId, toSettlementId } = detail.route
     for (const eco of _economies) {
       if (eco.settlementId === fromSettlementId || eco.settlementId === toSettlementId) {

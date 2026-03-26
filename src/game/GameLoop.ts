@@ -1193,6 +1193,7 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
                 if (mbEntity) {
                   room.miniBossHp = mbEntity.health
                   dungeonState.miniBossHp = mbEntity.health
+                  useDungeonStore.getState().sync()
                 }
                 if (!mbEntity || mbEntity.behavior === 'DEAD' || mbEntity.health <= 0) {
                   // Mini-boss defeated

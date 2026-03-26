@@ -20,6 +20,9 @@ import { useJoystickStore } from '../ui/MobileControls'
 import { weatherSpeedMult } from '../game/GameLoop'
 // M33 Track B: food buff speed multiplier
 import { getFoodSpeedMult } from '../game/FoodBuffSystem'
+// M41 Track B: mount speed multiplier (set by GameLoop each frame)
+export let mountSpeedMult = 1.0
+export function setMountSpeedMult(v: number) { mountSpeedMult = v }
 
 export type CameraMode = 'first_person' | 'third_person' | 'orbit'
 
@@ -194,6 +197,18 @@ export class PlayerController {
       return true
     }
     if (!this.keys.has('KeyB')) this._homePlaceConsumed = false
+    return false
+  }
+
+  // ── M41 Track B: Mount/dismount key (R) ──────────────────────────────────
+  private _mountConsumed = false
+  /** Consume the mount/dismount key (R). Returns true once per press. */
+  popMount(): boolean {
+    if (this.keys.has('KeyR') && !this._mountConsumed) {
+      this._mountConsumed = true
+      return true
+    }
+    if (!this.keys.has('KeyR')) this._mountConsumed = false
     return false
   }
 
@@ -431,9 +446,11 @@ export class PlayerController {
     }
 
     // ── Normal movement (land + water) ───────────────────────────────────────
-    let speed = inWater ? SWIM_SPEED : WALK_SPEED * speedMult * weatherSpeedMult * getFoodSpeedMult()
-    if (!inWater && inp.sprint) speed *= SPRINT_MULT
-    if (!inWater && inp.crouch) speed *= CROUCH_MULT
+    // M41 Track B: mountSpeedMult applied when riding (replaces sprint when mounted)
+    const isMounted = mountSpeedMult > 1.0
+    let speed = inWater ? SWIM_SPEED : WALK_SPEED * speedMult * weatherSpeedMult * getFoodSpeedMult() * mountSpeedMult
+    if (!inWater && inp.sprint && !isMounted) speed *= SPRINT_MULT
+    if (!inWater && inp.crouch && !isMounted) speed *= CROUCH_MULT
 
     // WASD: desired tangential velocity in the surface plane
     let mx = 0, my = 0, mz = 0

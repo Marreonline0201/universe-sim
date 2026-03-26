@@ -228,6 +228,13 @@ export const BUILDING_TYPES: BuildingType[] = [
     size: [0.5, 2, 0.5], provides: ['light'],
     maxOccupants: 0, structuralStrength: 0.1, maintenanceRate: 1.0,
   },
+  {
+    // M28 Track B: Raft — water craft, place at sea level, E to mount/sail
+    id: 'raft', name: 'Raft', tier: 0,
+    materialsRequired: [{ materialId: M.WOOD, quantity: 20 }, { materialId: M.ROPE, quantity: 5 }],
+    size: [3, 0.4, 3], provides: ['water_travel', 'raft'],
+    maxOccupants: 2, structuralStrength: 0.8, maintenanceRate: 1.0,
+  },
 
   // ── Tier 1: Bronze Age ────────────────────────────────────────────────────
   {

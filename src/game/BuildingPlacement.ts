@@ -7,7 +7,7 @@
 import * as THREE from 'three'
 import { Position } from '../ecs/world'
 import { BUILDING_TYPES } from '../civilization/BuildingSystem'
-import { surfaceRadiusAt, PLANET_RADIUS } from '../world/SpherePlanet'
+import { surfaceRadiusAt, PLANET_RADIUS, SEA_LEVEL, terrainHeightAt } from '../world/SpherePlanet'
 import { inventory, buildingSystem, questSystem } from './GameSingletons'
 import { activateReactor } from './NuclearReactorSystem'
 import { useGameStore } from '../store/gameStore'
@@ -51,7 +51,11 @@ export function tickBuildingPlacement(
 
   // Ghost position: step 6m along tangent plane, then snap to surface
   const ghostDir = playerPos.clone().addScaledVector(_fwdVec, 6).normalize()
-  const ghostSR  = surfaceRadiusAt(ghostDir.x * PLANET_RADIUS, ghostDir.y * PLANET_RADIUS, ghostDir.z * PLANET_RADIUS)
+  let ghostSR  = surfaceRadiusAt(ghostDir.x * PLANET_RADIUS, ghostDir.y * PLANET_RADIUS, ghostDir.z * PLANET_RADIUS)
+  // M28 Track B: Raft floats at SEA_LEVEL instead of terrain surface
+  if (placementMode === 'raft') {
+    ghostSR = PLANET_RADIUS + SEA_LEVEL + 0.5
+  }
   ghostBuildPos = [ghostDir.x * ghostSR, ghostDir.y * ghostSR, ghostDir.z * ghostSR]
 
   const gs = useGameStore.getState()
@@ -64,6 +68,19 @@ export function tickBuildingPlacement(
       inventory.countMaterial(req.materialId) >= req.quantity
     )
     const addNotification = useUiStore.getState().addNotification
+
+    // M28 Track B: Raft can only be placed on water (terrain height < SEA_LEVEL)
+    if (placementMode === 'raft') {
+      const ghostDir2 = new THREE.Vector3(...ghostBuildPos).normalize()
+      const terrH = terrainHeightAt(ghostDir2)
+      if (terrH >= SEA_LEVEL - 0.5) {
+        addNotification('Raft must be placed on water!', 'warning')
+        setPlacementMode(null)
+        gs.setGatherPrompt(null)
+        return true
+      }
+    }
+
     if (canBuild) {
       // Consume materials (bypasses god mode for buildings)
       for (const req of btype.materialsRequired) {

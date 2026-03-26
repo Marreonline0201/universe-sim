@@ -66,6 +66,10 @@ import { PostProcessing } from './PostProcessing'
 // M10 Track B: Sailing + fishing
 import { SailingRenderer } from './SailingRenderer'
 
+// M28 Track B: Raft building + sailing HUD
+import { PlacedRaftsRenderer } from './RaftRenderer'
+import { SailingHUD } from '../ui/SailingHUD'
+
 // M10 Track C: Shop UI
 import { ShopHUD } from '../ui/ShopHUD'
 
@@ -507,6 +511,8 @@ export function SceneRoot() {
             <ResourceNodes key={serverWorldSeed} />
             <NodeHealthBars />
             <PlacedBuildingsRenderer />
+            {/* M28 Track B: Placed raft meshes with buoyancy */}
+            <PlacedRaftsRenderer />
             <CreatureRenderer />
             <RemotePlayersRenderer />
             <ServerNpcsRenderer />
@@ -570,6 +576,8 @@ export function SceneRoot() {
     <DiplomacyHUD />
     {/* M18 Track C: Chemistry event notifications (bottom-left) */}
     <ChemistryHUD />
+    {/* M28 Track B: Sailing HUD — compass, speed, shore warning */}
+    <SailingHUD />
     {/* M11 Track D: Telescope overlay — full screen when telescope equipped + F pressed */}
     {telescopeOpen && (
       <TelescopeView

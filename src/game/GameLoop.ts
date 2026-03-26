@@ -72,6 +72,7 @@ import {
   setPlacedBedrollAnchor,
 } from './DeathSystem'
 import { tickBuildingPlacement, ghostBuildPos } from './BuildingPlacement'
+import { tickRaft, tryMountRaft, dismountRaft, getRaftState } from './RaftSystem'
 import { tickLootPickup } from './LootPickup'
 import {
   RESOURCE_NODES,
@@ -1034,8 +1035,52 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
       }
     }
 
+    // ── M28 Track B: Raft — tick buoyancy/movement, show proximity prompt ─────
+    {
+      const raftSt = getRaftState()
+      const raftSimTime = useGameStore.getState().simSeconds
+      const keysSetRaft = (controllerRef.current as any)?._keys ?? (controllerRef.current as any)?.keys ?? new Set<string>()
+      if (!gs.inputBlocked) {
+        tickRaft(entityId ?? 0, keysSetRaft, dt, raftSimTime)
+        if (raftSt.mounted) {
+          // Sync Rapier body to raft position so physics doesn't fight the raft
+          const rb = rapierWorld.getPlayer()?.body
+          if (rb) {
+            rb.setNextKinematicTranslation({
+              x: Position.x[entityId ?? 0],
+              y: Position.y[entityId ?? 0],
+              z: Position.z[entityId ?? 0],
+            })
+          }
+        } else {
+          // Show mount prompt when near a placed raft
+          const allRafts = buildingSystem.getAllBuildings().filter(b => b.typeId === 'raft')
+          for (const rb2 of allRafts) {
+            const drx = rb2.position[0] - px
+            const dry = rb2.position[1] - py
+            const drz = rb2.position[2] - pz
+            if (drx * drx + dry * dry + drz * drz < 4) {
+              if (gs.gatherPrompt === null) gs.setGatherPrompt('[E] Board Raft')
+              break
+            }
+          }
+        }
+      }
+    }
+
     // ── E key: eat cooked food, apply herb, or drink from river ──────────────
     if (!gs.inputBlocked && controllerRef.current?.popEat?.()) {
+      // M28: if near raft, use E to mount/dismount instead of eat
+      const raftStE = getRaftState()
+      if (raftStE.mounted) {
+        dismountRaft(entityId ?? 0)
+        useUiStore.getState().addNotification('Dismounted raft', 'info')
+        // Don't fall through to eat
+      } else if (tryMountRaft(entityId ?? 0)) {
+        useUiStore.getState().addNotification('Mounted raft — WASD to sail, Q/E to rotate, E to dismount', 'discovery')
+        // Don't fall through to eat
+      } else {
+    // Original eat block wrapped in else
       if (!tryEatFood(inventory, entityId ?? 0)) {
         const _psE = usePlayerStore.getState()
         if (_psE.wounds.length > 0 && !tryApplyHerb(inventory)) {
@@ -1052,6 +1097,7 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
           }
         }
       }
+      } // close else (not raft interaction)
     }
 
     // ── H key: apply herb to wound ────────────────────────────────────────────

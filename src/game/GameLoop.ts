@@ -244,6 +244,10 @@ import { tickMarketPrices } from './MarketPriceSystem'
 import { tickWorldBoss } from './WorldBossSystem'
 // M61 Track B: Settlement economy system
 import { tickSettlementEconomy } from './SettlementEconomySystem'
+// M65 Track B: Dynamic quest board
+import { tickQuestBoard } from './DynamicQuestBoardSystem'
+// M65 Track C: NPC emotion system
+import { tickEmotions } from './NPCEmotionSystem'
 // M62 Track B: Player journal system
 import { initPlayerJournal } from './PlayerJournalSystem'
 
@@ -389,6 +393,10 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
   const weatherEventsTimerRef = useRef(0)
   // M61 Track B: Settlement economy tick timer — fires every 60s
   const economyTimerRef = useRef(0)
+  // M65 Track B: Dynamic quest board tick timer — fires every 60s
+  const questBoardTimerRef = useRef(0)
+  // M65 Track C: NPC emotion decay tick timer — fires every 5s
+  const npcEmotionTimerRef = useRef(0)
 
   useFrame((_, delta) => {
     // Cap dt to avoid spiral-of-death on slow frames
@@ -3215,6 +3223,13 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
       bountyTimerRef.current = 0
       const bountySimSecs = useGameStore.getState().simSeconds
       tickBountyBoard(bountySimSecs)
+    }
+
+    // ── M65 Track B: Dynamic quest board tick every 60s ───────────────────────
+    questBoardTimerRef.current += dt
+    if (questBoardTimerRef.current >= 60) {
+      questBoardTimerRef.current = 0
+      tickQuestBoard(useGameStore.getState().simSeconds)
     }
 
     // ── M26 Track B: Tick emote system (cleans expired remote emotes) ────────

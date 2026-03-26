@@ -241,7 +241,6 @@ export function initSkillComboSystem(): void {
   // Combat attacks
   window.addEventListener('player-attacked', () => {
     recordAction('attack')
-    recordAction('combat')
   })
 
   // Gathering

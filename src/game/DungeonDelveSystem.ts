@@ -187,7 +187,13 @@ export function completeDelve(): void {
   const xpEarned = Math.round(def.baseReward.xp * floorRatio)
   const goldEarned = _activeDelve.lootCollected.gold
 
-  // Apply rewards via game store events
+  // Apply rewards directly
+  import('../store/playerStore').then(({ usePlayerStore }) => {
+    usePlayerStore.getState().addGold(goldEarned)
+  })
+  import('./SkillSystem').then(({ skillSystem }) => {
+    skillSystem.addXp('combat', xpEarned)
+  })
   window.dispatchEvent(new CustomEvent('delve-reward', { detail: { gold: goldEarned, xp: xpEarned } }))
 
   const record: CompletedDelve = {

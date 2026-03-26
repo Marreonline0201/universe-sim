@@ -5,7 +5,13 @@
 
 const MAX_MESSAGES = 100
 
-const AGENT_IDS = ['chemistry', 'biology', 'physics', 'civilization', 'ai', 'world']
+const AGENT_IDS = [
+  'director',
+  'status-worker', 'gp-agent', 'knowledge-director',
+  'cqa', 'car',
+  'ui-worker', 'interaction', 'ai-npc',
+  'physics-prof', 'chemistry-prof', 'biology-prof',
+]
 
 /** @type {Map<string, { status: string, task: string, lastSeen: number }>} */
 const agents = new Map(

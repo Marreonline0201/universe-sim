@@ -1,188 +1,378 @@
 // ── AgentControlCenter ──────────────────────────────────────────────────────────
-// Visualizes Claude subagent activity on the companion status site.
-// Shows 6 domain agent cards (active/idle/blocked) + a live message feed.
+// 2D scene visualization of the Claude agent hierarchy.
+// The Director character walks to whichever agent it last communicated with.
+// Speech bubbles show the live message. Blocked agents trigger an approval alert.
 
-import React, { useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import type { AgentState, AgentMessage } from '../hooks/useStatusSocket'
 
-const AGENT_META: Record<string, { icon: string; label: string; color: string }> = {
-  chemistry:    { icon: '⚗',  label: 'CHEMISTRY',    color: '#ff9b3c' },
-  biology:      { icon: '🧬', label: 'BIOLOGY',       color: '#4cdd88' },
-  physics:      { icon: '⚡', label: 'PHYSICS',        color: '#3bbfff' },
-  civilization: { icon: '🏛', label: 'CIVILIZATION',  color: '#c084fc' },
-  ai:           { icon: '🤖', label: 'AI',             color: '#f472b6' },
-  world:        { icon: '🌍', label: 'WORLD',          color: '#60cdcc' },
+// ── Agent metadata + scene positions (x/y as 0–1 normalized) ─────────────────
+
+interface AgentMeta {
+  icon: string
+  label: string
+  color: string
+  x: number   // 0–1 of scene width
+  y: number   // 0–1 of scene height
+  level: 1 | 2 | 3
+  parent: string | null
 }
 
-const STATUS_COLOR: Record<string, string> = {
-  active:  '#00ff88',
-  idle:    '#334466',
-  blocked: '#ffb830',
-  done:    '#4466aa',
+const AGENTS: Record<string, AgentMeta> = {
+  'director':           { icon: '👑', label: 'DIRECTOR',       color: '#ffd700', x: 0.50, y: 0.07, level: 1, parent: null },
+  'status-worker':      { icon: '🖥', label: 'STATUS',         color: '#60cdcc', x: 0.14, y: 0.42, level: 2, parent: 'director' },
+  'gp-agent':           { icon: '🎮', label: 'GP AGENT',       color: '#a78bfa', x: 0.50, y: 0.42, level: 2, parent: 'director' },
+  'knowledge-director': { icon: '📚', label: 'KNOWLEDGE',      color: '#f472b6', x: 0.86, y: 0.42, level: 2, parent: 'director' },
+  'cqa':                { icon: '🔍', label: 'CQA',            color: '#94a3b8', x: 0.06, y: 0.80, level: 3, parent: 'director' },
+  'car':                { icon: '📊', label: 'CAR',            color: '#94a3b8', x: 0.20, y: 0.80, level: 3, parent: 'director' },
+  'ui-worker':          { icon: '🎨', label: 'UI',             color: '#fb923c', x: 0.36, y: 0.80, level: 3, parent: 'gp-agent' },
+  'interaction':        { icon: '🕹', label: 'INTERACTION',    color: '#fb923c', x: 0.50, y: 0.80, level: 3, parent: 'gp-agent' },
+  'ai-npc':             { icon: '🤖', label: 'AI NPC',         color: '#fb923c', x: 0.64, y: 0.80, level: 3, parent: 'gp-agent' },
+  'physics-prof':       { icon: '⚡', label: 'PHYSICS',        color: '#3bbfff', x: 0.74, y: 0.80, level: 3, parent: 'knowledge-director' },
+  'chemistry-prof':     { icon: '⚗',  label: 'CHEMISTRY',      color: '#ff9b3c', x: 0.84, y: 0.80, level: 3, parent: 'knowledge-director' },
+  'biology-prof':       { icon: '🧬', label: 'BIOLOGY',        color: '#4cdd88', x: 0.94, y: 0.80, level: 3, parent: 'knowledge-director' },
 }
 
-const STATUS_LABEL: Record<string, string> = {
-  active:  '● ACTIVE',
-  idle:    '○ IDLE',
-  blocked: '⚠ BLOCKED',
-  done:    '✓ DONE',
+const NODE_R = 18  // node circle radius px
+const DIR_R  = 14  // Director "home" icon radius
+
+// ── Director SVG character ────────────────────────────────────────────────────
+
+function DirectorFigure({ walking }: { walking: boolean }) {
+  return (
+    <svg width="22" height="32" viewBox="0 0 22 32" style={{
+      filter: 'drop-shadow(0 0 5px #ffd700)',
+      animation: walking ? 'dirWalk 0.35s linear infinite alternate' : 'dirIdle 2s ease-in-out infinite',
+    }}>
+      {/* Crown */}
+      <polygon points="3,7 5,3 7,6 11,1 15,6 17,3 19,7 3,7" fill="#ffd700" />
+      {/* Head */}
+      <circle cx="11" cy="11" r="4" fill="#ffd700" />
+      {/* Eyes */}
+      <circle cx="9.5" cy="10.5" r="0.8" fill="#0a0e1a" />
+      <circle cx="12.5" cy="10.5" r="0.8" fill="#0a0e1a" />
+      {/* Body */}
+      <rect x="8" y="15" width="6" height="8" rx="2" fill="#ffd700" opacity="0.9" />
+      {/* Left arm */}
+      <line x1="8" y1="17" x2={walking ? "3" : "4"} y2={walking ? "22" : "21"} stroke="#ffd700" strokeWidth="2" strokeLinecap="round" />
+      {/* Right arm */}
+      <line x1="14" y1="17" x2={walking ? "19" : "18"} y2={walking ? "21" : "22"} stroke="#ffd700" strokeWidth="2" strokeLinecap="round" />
+      {/* Left leg */}
+      <line x1="9.5" y1="23" x2={walking ? "7" : "8"} y2="31" stroke="#ffd700" strokeWidth="2" strokeLinecap="round" />
+      {/* Right leg */}
+      <line x1="12.5" y1="23" x2={walking ? "15" : "14"} y2="31" stroke="#ffd700" strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  )
 }
 
-function timeAgo(ts: number): string {
-  if (!ts) return ''
-  const s = Math.floor((Date.now() - ts) / 1000)
-  if (s < 5)  return 'just now'
-  if (s < 60) return `${s}s ago`
-  if (s < 3600) return `${Math.floor(s / 60)}m ago`
-  return `${Math.floor(s / 3600)}h ago`
-}
+// ── Speech bubble ─────────────────────────────────────────────────────────────
 
-interface Props {
-  agentState: AgentState
-}
-
-export function AgentControlCenter({ agentState }: Props) {
-  const feedRef = useRef<HTMLDivElement>(null)
-
-  // Keep feed scrolled to top (newest messages first)
-  useEffect(() => {
-    if (feedRef.current) feedRef.current.scrollTop = 0
-  }, [agentState.messages.length])
-
-  const agentIds = Object.keys(AGENT_META)
+function SpeechBubble({ text, fromId, toId }: { text: string; fromId: string; toId: string | null }) {
+  const fromMeta = AGENTS[fromId]
+  const toMeta   = toId ? AGENTS[toId] : null
+  const color    = toMeta?.color ?? fromMeta?.color ?? '#aaa'
 
   return (
     <div style={{
-      display: 'flex',
-      flexDirection: 'column',
-      height: '100%',
+      position: 'absolute',
+      bottom: '110%',
+      left: '50%',
+      transform: 'translateX(-50%)',
+      background: 'rgba(4,8,20,0.96)',
+      border: `1px solid ${color}`,
+      borderRadius: 6,
+      padding: '4px 8px',
+      fontSize: 8,
+      color: 'rgba(220,235,255,0.9)',
+      whiteSpace: 'nowrap',
+      maxWidth: 180,
       overflow: 'hidden',
-      padding: '8px 12px 8px',
+      textOverflow: 'ellipsis',
+      zIndex: 20,
+      pointerEvents: 'none',
+      boxShadow: `0 0 8px ${color}44`,
+      animation: 'bubblePop 0.2s ease-out',
     }}>
-
-      {/* Header */}
+      {toId && (
+        <span style={{ color, marginRight: 4, fontSize: 7 }}>
+          → {AGENTS[toId]?.label ?? toId}:
+        </span>
+      )}
+      {text}
+      {/* Tail */}
       <div style={{
-        fontSize: 9,
-        letterSpacing: 3,
-        color: 'rgba(0,180,255,0.45)',
-        marginBottom: 8,
-        flexShrink: 0,
+        position: 'absolute',
+        bottom: -5,
+        left: '50%',
+        transform: 'translateX(-50%)',
+        width: 8, height: 5,
+        clipPath: 'polygon(50% 100%, 0 0, 100% 0)',
+        background: color,
+      }} />
+    </div>
+  )
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
+
+interface Props { agentState: AgentState }
+
+export function AgentControlCenter({ agentState }: Props) {
+  const sceneRef  = useRef<HTMLDivElement>(null)
+  const lastTsRef = useRef<number>(0)
+
+  // Director walks to the target of the latest message
+  const [dirPos, setDirPos]     = useState({ x: AGENTS['director'].x, y: AGENTS['director'].y })
+  const [walking, setWalking]   = useState(false)
+  const [bubble, setBubble]     = useState<{ text: string; from: string; to: string | null } | null>(null)
+  const [approvals, setApprovals] = useState<string[]>([])
+
+  // Detect new messages → move Director
+  useEffect(() => {
+    const latest = agentState.messages[0]
+    if (!latest || latest.ts === lastTsRef.current) return
+    lastTsRef.current = latest.ts
+
+    // Determine where to walk: prefer the "other party" in the conversation
+    const target = latest.from === 'director'
+      ? (latest.to ?? 'director')
+      : latest.from
+
+    const targetMeta = AGENTS[target]
+    if (targetMeta) {
+      setWalking(true)
+      setDirPos({ x: targetMeta.x, y: targetMeta.y })
+      setTimeout(() => setWalking(false), 1200)
+    }
+
+    setBubble({ text: latest.text, from: latest.from, to: latest.to })
+    const clearBubble = setTimeout(() => setBubble(null), 5000)
+    return () => clearTimeout(clearBubble)
+  }, [agentState.messages])
+
+  // Track blocked agents for approval alerts
+  useEffect(() => {
+    const blocked = Object.entries(agentState.agents)
+      .filter(([_, e]) => e.status === 'blocked')
+      .map(([id]) => id)
+    setApprovals(blocked)
+  }, [agentState.agents])
+
+  const agentIds = Object.keys(AGENTS)
+
+  return (
+    <>
+      <style>{`
+        @keyframes dirWalk {
+          from { transform: translate(-50%, -100%) rotate(-4deg); }
+          to   { transform: translate(-50%, -100%) rotate(4deg); }
+        }
+        @keyframes dirIdle {
+          0%,100% { transform: translate(-50%, -100%) translateY(0); }
+          50%      { transform: translate(-50%, -100%) translateY(-2px); }
+        }
+        @keyframes bubblePop {
+          from { opacity: 0; transform: translateX(-50%) scale(0.85); }
+          to   { opacity: 1; transform: translateX(-50%) scale(1); }
+        }
+        @keyframes nodeGlow {
+          0%,100% { box-shadow: 0 0 6px currentColor; }
+          50%      { box-shadow: 0 0 14px currentColor; }
+        }
+        @keyframes blockedPulse {
+          0%,100% { opacity: 1; }
+          50%      { opacity: 0.5; }
+        }
+      `}</style>
+
+      <div style={{
         display: 'flex',
-        alignItems: 'center',
-        gap: 8,
+        height: '100%',
+        overflow: 'hidden',
+        position: 'relative',
       }}>
-        AGENT CONTROL CENTER
-        <span style={{
-          width: 6, height: 6, borderRadius: '50%',
-          background: agentIds.some(id => agentState.agents[id]?.status === 'active') ? '#00ff88' : '#334466',
-          display: 'inline-block',
-          boxShadow: agentIds.some(id => agentState.agents[id]?.status === 'active')
-            ? '0 0 6px #00ff88' : 'none',
-        }} />
-      </div>
 
-      <div style={{ display: 'flex', gap: 8, minHeight: 0, flex: 1 }}>
+        {/* ── Approval banner ─────────────────────────────────────────────── */}
+        {approvals.length > 0 && (
+          <div style={{
+            position: 'absolute',
+            top: 6, left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: 30,
+            background: 'rgba(255,160,0,0.15)',
+            border: '1px solid rgba(255,160,0,0.6)',
+            borderRadius: 4,
+            padding: '3px 12px',
+            fontSize: 9,
+            color: '#ffb830',
+            letterSpacing: 1.5,
+            animation: 'blockedPulse 1.2s ease-in-out infinite',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+          }}>
+            ⚠ APPROVAL NEEDED — {approvals.map(id => AGENTS[id]?.label ?? id).join(', ')}
+          </div>
+        )}
 
-        {/* Agent cards */}
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(6, 1fr)',
-          gap: 6,
-          flex: '0 0 auto',
-          alignContent: 'start',
+        {/* ── 2D Scene ────────────────────────────────────────────────────── */}
+        <div ref={sceneRef} style={{
+          flex: 1,
+          minWidth: 0,
+          position: 'relative',
+          overflow: 'hidden',
         }}>
+
+          {/* Subtle floor grid */}
+          <div style={{
+            position: 'absolute', inset: 0,
+            backgroundImage: `
+              linear-gradient(rgba(0,180,255,0.03) 1px, transparent 1px),
+              linear-gradient(90deg, rgba(0,180,255,0.03) 1px, transparent 1px)
+            `,
+            backgroundSize: '32px 32px',
+            pointerEvents: 'none',
+          }} />
+
+          {/* SVG hierarchy lines */}
+          <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}>
+            <defs>
+              <marker id="arrowhead" markerWidth="6" markerHeight="4" refX="3" refY="2" orient="auto">
+                <polygon points="0 0, 6 2, 0 4" fill="rgba(0,180,255,0.18)" />
+              </marker>
+            </defs>
+            {agentIds.filter(id => AGENTS[id].parent).map(id => {
+              const a = AGENTS[id]
+              const p = AGENTS[a.parent!]
+              return (
+                <line
+                  key={id}
+                  x1={`${p.x * 100}%`} y1={`${p.y * 100}%`}
+                  x2={`${a.x * 100}%`} y2={`${a.y * 100}%`}
+                  stroke="rgba(0,180,255,0.12)"
+                  strokeWidth={a.level === 2 ? 1.5 : 1}
+                  strokeDasharray={a.level === 3 ? '4,3' : '0'}
+                  markerEnd="url(#arrowhead)"
+                />
+              )
+            })}
+          </svg>
+
+          {/* Agent nodes */}
           {agentIds.map(id => {
-            const meta    = AGENT_META[id]
-            const entry   = agentState.agents[id] ?? { status: 'idle', task: '', lastSeen: 0 }
-            const isActive = entry.status === 'active'
-            const color    = meta.color
-            const sBorder  = isActive ? color : 'rgba(0,180,255,0.1)'
-            const sBg      = isActive ? `${color}14` : 'rgba(4,8,20,0.7)'
+            const meta   = AGENTS[id]
+            const entry  = agentState.agents[id] ?? { status: 'idle', task: '', lastSeen: 0 }
+            const isActive  = entry.status === 'active'
+            const isBlocked = entry.status === 'blocked'
+            const isDone    = entry.status === 'done'
+            const isBubbleTarget = bubble && (bubble.to === id || (bubble.from === id && !bubble.to))
+
+            const ringColor = isBlocked ? '#ffb830'
+              : isActive ? meta.color
+              : isDone   ? '#4466aa'
+              : 'rgba(0,180,255,0.12)'
 
             return (
               <div key={id} style={{
-                background: sBg,
-                border: `1px solid ${sBorder}`,
-                borderRadius: 6,
-                padding: '6px 8px',
+                position: 'absolute',
+                left: `${meta.x * 100}%`,
+                top:  `${meta.y * 100}%`,
+                transform: 'translate(-50%, -50%)',
                 display: 'flex',
                 flexDirection: 'column',
-                gap: 3,
-                minWidth: 100,
-                transition: 'border-color 0.3s, background 0.3s',
-                position: 'relative',
-                overflow: 'hidden',
+                alignItems: 'center',
+                gap: 2,
               }}>
-                {/* Active glow pulse */}
-                {isActive && (
-                  <div style={{
-                    position: 'absolute', inset: 0, borderRadius: 6,
-                    background: `radial-gradient(ellipse 80% 60% at 50% 0%, ${color}18 0%, transparent 70%)`,
-                    pointerEvents: 'none',
-                  }} />
+                {/* Bubble above node */}
+                {isBubbleTarget && bubble && (
+                  <SpeechBubble text={bubble.text} fromId={bubble.from} toId={bubble.to} />
                 )}
 
-                {/* Icon + label */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                  <span style={{ fontSize: 13 }}>{meta.icon}</span>
-                  <span style={{
-                    fontSize: 8,
-                    letterSpacing: 1.5,
-                    color: isActive ? color : 'rgba(100,140,180,0.5)',
-                    fontWeight: 600,
-                    transition: 'color 0.3s',
-                  }}>{meta.label}</span>
-                </div>
-
-                {/* Status badge */}
+                {/* Circle */}
                 <div style={{
-                  fontSize: 8,
-                  color: STATUS_COLOR[entry.status] ?? STATUS_COLOR.idle,
-                  letterSpacing: 0.5,
+                  width:  NODE_R * 2,
+                  height: NODE_R * 2,
+                  borderRadius: '50%',
+                  background: isActive ? `${meta.color}18` : 'rgba(4,8,20,0.85)',
+                  border: `${isActive || isBlocked ? 2 : 1}px solid ${ringColor}`,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: meta.level === 1 ? 18 : meta.level === 2 ? 15 : 12,
+                  color: ringColor,
+                  transition: 'border-color 0.4s, background 0.4s',
+                  animation: isActive ? 'nodeGlow 2s ease-in-out infinite' : 'none',
+                  position: 'relative',
                 }}>
-                  {STATUS_LABEL[entry.status] ?? entry.status.toUpperCase()}
+                  {meta.icon}
                 </div>
 
-                {/* Task text */}
+                {/* Label */}
                 <div style={{
-                  fontSize: 9,
-                  color: isActive ? 'rgba(200,220,255,0.75)' : 'rgba(80,110,150,0.5)',
-                  lineHeight: 1.4,
-                  maxHeight: 36,
-                  overflow: 'hidden',
-                  display: '-webkit-box',
-                  WebkitLineClamp: 2,
-                  WebkitBoxOrient: 'vertical' as any,
-                  transition: 'color 0.3s',
+                  fontSize: 7,
+                  letterSpacing: 0.8,
+                  color: isActive ? meta.color : isBlocked ? '#ffb830' : 'rgba(80,120,180,0.5)',
+                  whiteSpace: 'nowrap',
+                  transition: 'color 0.4s',
+                  fontWeight: isActive ? 600 : 400,
                 }}>
-                  {entry.task || (entry.status === 'idle' ? '—' : '')}
+                  {meta.label}
                 </div>
 
-                {/* Last seen */}
-                {entry.lastSeen > 0 && (
-                  <div style={{ fontSize: 8, color: 'rgba(80,110,150,0.4)', marginTop: 1 }}>
-                    {timeAgo(entry.lastSeen)}
+                {/* Task tooltip if active */}
+                {isActive && entry.task && (
+                  <div style={{
+                    fontSize: 6.5,
+                    color: 'rgba(160,200,240,0.5)',
+                    maxWidth: 72,
+                    textAlign: 'center',
+                    lineHeight: 1.3,
+                    overflow: 'hidden',
+                    display: '-webkit-box',
+                    WebkitLineClamp: 2,
+                    WebkitBoxOrient: 'vertical' as any,
+                  }}>
+                    {entry.task}
                   </div>
                 )}
               </div>
             )
           })}
+
+          {/* ── Walking Director character ──────────────────────────────── */}
+          <div style={{
+            position: 'absolute',
+            left: `${dirPos.x * 100}%`,
+            top:  `${dirPos.y * 100}%`,
+            transition: 'left 1.1s cubic-bezier(0.4,0,0.2,1), top 1.1s cubic-bezier(0.4,0,0.2,1)',
+            zIndex: 15,
+            pointerEvents: 'none',
+          }}>
+            <DirectorFigure walking={walking} />
+          </div>
+
+          {/* Label bottom-left */}
+          <div style={{
+            position: 'absolute', bottom: 5, left: 8,
+            fontSize: 8, letterSpacing: 2,
+            color: 'rgba(0,180,255,0.2)',
+          }}>
+            AGENT CONTROL CENTER
+          </div>
         </div>
 
-        {/* Message feed */}
+        {/* ── Message feed (right strip) ──────────────────────────────────── */}
         <div style={{
-          flex: 1,
-          minWidth: 0,
+          width: 260,
+          flexShrink: 0,
           display: 'flex',
           flexDirection: 'column',
-          background: 'rgba(2,5,14,0.6)',
-          border: '1px solid rgba(0,180,255,0.08)',
-          borderRadius: 6,
+          borderLeft: '1px solid rgba(0,180,255,0.08)',
+          background: 'rgba(2,5,14,0.5)',
           overflow: 'hidden',
         }}>
           <div style={{
-            fontSize: 8,
-            letterSpacing: 2,
+            fontSize: 8, letterSpacing: 2,
             color: 'rgba(0,180,255,0.3)',
             padding: '5px 10px 4px',
             borderBottom: '1px solid rgba(0,180,255,0.06)',
@@ -190,68 +380,32 @@ export function AgentControlCenter({ agentState }: Props) {
           }}>
             MESSAGE FEED
           </div>
-          <div ref={feedRef} style={{ flex: 1, overflowY: 'auto', padding: '4px 0' }}>
+          <div style={{ flex: 1, overflowY: 'auto', padding: '2px 0' }}>
             {agentState.messages.length === 0 ? (
-              <div style={{
-                fontSize: 9,
-                color: 'rgba(80,110,150,0.35)',
-                padding: '8px 10px',
-                fontStyle: 'italic',
-              }}>
+              <div style={{ fontSize: 9, color: 'rgba(80,110,150,0.3)', padding: '8px 10px', fontStyle: 'italic' }}>
                 No messages yet.
               </div>
             ) : agentState.messages.map((msg: AgentMessage, i: number) => {
-              const fromMeta = AGENT_META[msg.from]
-              const toMeta   = msg.to ? AGENT_META[msg.to] : null
+              const fromMeta = AGENTS[msg.from]
+              const toMeta   = msg.to ? AGENTS[msg.to] : null
               const isDirected = !!msg.to
-              const fromColor = fromMeta?.color ?? '#aaa'
-              const toColor   = toMeta?.color   ?? '#aaa'
-
               return (
                 <div key={i} style={{
-                  display: 'flex',
-                  alignItems: 'flex-start',
-                  gap: 8,
-                  padding: '3px 10px',
+                  padding: '3px 8px',
                   borderBottom: '1px solid rgba(0,180,255,0.04)',
-                  opacity: 1 - (i * 0.04),
+                  opacity: Math.max(0.3, 1 - i * 0.05),
                 }}>
-                  {/* From → To label */}
-                  <div style={{
-                    fontSize: 8,
-                    flexShrink: 0,
-                    fontFamily: 'monospace',
-                    lineHeight: 1.5,
-                    color: isDirected ? '#ffb830' : 'rgba(130,165,200,0.55)',
-                    minWidth: 120,
-                  }}>
-                    <span style={{ color: fromColor }}>{msg.from.toUpperCase()}</span>
+                  <div style={{ fontSize: 8, color: isDirected ? '#ffb830' : 'rgba(100,140,180,0.5)', marginBottom: 1 }}>
+                    <span style={{ color: fromMeta?.color ?? '#aaa' }}>{fromMeta?.label ?? msg.from}</span>
                     {isDirected && (
                       <>
-                        <span style={{ color: 'rgba(130,165,200,0.4)' }}> → </span>
-                        <span style={{ color: toColor }}>{msg.to!.toUpperCase()}</span>
+                        <span style={{ color: 'rgba(120,160,200,0.4)' }}> → </span>
+                        <span style={{ color: toMeta?.color ?? '#aaa' }}>{toMeta?.label ?? msg.to}</span>
                       </>
                     )}
                   </div>
-
-                  {/* Message text */}
-                  <div style={{
-                    fontSize: 9,
-                    color: isDirected ? 'rgba(255,200,100,0.85)' : 'rgba(180,210,240,0.7)',
-                    flex: 1,
-                    lineHeight: 1.5,
-                    wordBreak: 'break-word',
-                  }}>
+                  <div style={{ fontSize: 9, color: isDirected ? 'rgba(255,200,100,0.8)' : 'rgba(170,200,230,0.65)', lineHeight: 1.4, wordBreak: 'break-word' }}>
                     {msg.text}
-                  </div>
-
-                  {/* Timestamp */}
-                  <div style={{
-                    fontSize: 8,
-                    color: 'rgba(80,110,150,0.4)',
-                    flexShrink: 0,
-                  }}>
-                    {timeAgo(msg.ts)}
                   </div>
                 </div>
               )
@@ -260,6 +414,6 @@ export function AgentControlCenter({ agentState }: Props) {
         </div>
 
       </div>
-    </div>
+    </>
   )
 }

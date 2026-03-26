@@ -54,7 +54,13 @@ const VIEWER_NAME = '~observer'
 
 const WS_URL = (import.meta as any).env?.VITE_WS_URL as string | undefined
 
-const AGENT_IDS = ['chemistry', 'biology', 'physics', 'civilization', 'ai', 'world']
+const AGENT_IDS = [
+  'director',
+  'status-worker', 'gp-agent', 'knowledge-director',
+  'cqa', 'car',
+  'ui-worker', 'interaction', 'ai-npc',
+  'physics-prof', 'chemistry-prof', 'biology-prof',
+]
 const EMPTY_AGENTS: AgentState = {
   agents: Object.fromEntries(AGENT_IDS.map(id => [id, { status: 'idle', task: '', lastSeen: 0 }])),
   messages: [],

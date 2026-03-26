@@ -6,7 +6,12 @@
 //   import { reportStatus } from '../utils/agentBus'
 //   await reportStatus('chemistry', 'active', 'Adding H2SO4 reactions', 'Acid rain ready', 'biology')
 
-export type AgentId = 'chemistry' | 'biology' | 'physics' | 'civilization' | 'ai' | 'world'
+export type AgentId =
+  | 'director'
+  | 'status-worker' | 'gp-agent' | 'knowledge-director'
+  | 'cqa' | 'car'
+  | 'ui-worker' | 'interaction' | 'ai-npc'
+  | 'physics-prof' | 'chemistry-prof' | 'biology-prof'
 export type AgentStatus = 'active' | 'idle' | 'blocked' | 'done'
 
 let _serverUrl: string | null = null

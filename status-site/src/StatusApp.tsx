@@ -156,7 +156,7 @@ export function StatusApp() {
 
         {/* ── Agent Control Center ──────────────────────────────────────── */}
         <div style={{
-          height: 190,
+          height: 300,
           flexShrink: 0,
           background: 'rgba(4,8,18,0.88)',
           borderTop: '1px solid rgba(0,180,255,0.1)',

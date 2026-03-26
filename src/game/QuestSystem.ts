@@ -9,6 +9,7 @@
 // tier change, and build events.
 
 import { useUiStore } from '../store/uiStore'
+import { usePlayerStore } from '../store/playerStore'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -26,9 +27,9 @@ export interface QuestObjective {
 }
 
 export interface QuestReward {
-  type: 'xp' | 'item' | 'recipe'
+  type: 'xp' | 'item' | 'recipe' | 'gold'
   skillName?: string   // for xp reward: which skill
-  amount?: number      // for xp: amount, for item: quantity
+  amount?: number      // for xp: amount, for item: quantity, for gold: gold amount
   itemId?: number      // for item reward
   materialId?: number  // for item reward (raw material)
   recipeId?: number    // for recipe unlock reward
@@ -68,35 +69,38 @@ function makeQuest(
   }
 }
 
+// ── Gold reward amounts by category/difficulty ────────────────────────────────
+// tutorial: 10-20g, exploration: 20-30g, crafting: 15-25g,
+// combat: 20-35g, civilization: 30-50g
 const QUEST_DEFINITIONS: Quest[] = [
   // ── Tutorial Chain ─────────────────────────────────────────────────────────
   makeQuest('tut_gather', 'First Steps', 'Gather some wood to begin your journey.',
     'tutorial', 1,
     [{ description: 'Gather 5 Wood', type: 'gather', targetId: 3/*MAT.WOOD*/, target: 5 }],
-    [{ type: 'xp', skillName: 'gathering', amount: 50 }],
+    [{ type: 'xp', skillName: 'gathering', amount: 50 }, { type: 'gold', amount: 10 }],
   ),
   makeQuest('tut_craft', 'Tool Time', 'Craft your first stone axe.',
     'tutorial', 2,
     [{ description: 'Craft a Stone Axe', type: 'craft', targetId: 4/*recipe id*/, target: 1 }],
-    [{ type: 'xp', skillName: 'crafting', amount: 50 }],
+    [{ type: 'xp', skillName: 'crafting', amount: 50 }, { type: 'gold', amount: 12 }],
     'tut_gather',
   ),
   makeQuest('tut_hunt', 'Hunter', 'Take down your first animal.',
     'tutorial', 3,
     [{ description: 'Kill 1 Animal', type: 'kill', targetId: 0, target: 1 }],
-    [{ type: 'xp', skillName: 'combat', amount: 75 }],
+    [{ type: 'xp', skillName: 'combat', amount: 75 }, { type: 'gold', amount: 15 }],
     'tut_craft',
   ),
   makeQuest('tut_build', 'Home Base', 'Build your first structure.',
     'tutorial', 4,
     [{ description: 'Build 1 Structure', type: 'build', targetId: 0, target: 1 }],
-    [{ type: 'xp', skillName: 'crafting', amount: 100 }],
+    [{ type: 'xp', skillName: 'crafting', amount: 100 }, { type: 'gold', amount: 18 }],
     'tut_hunt',
   ),
   makeQuest('tut_iron', 'Iron Will', 'Advance your civilization to the Iron Age.',
     'tutorial', 5,
     [{ description: 'Reach Civilization Tier 2', type: 'reach_tier', targetId: 2, target: 1 }],
-    [{ type: 'xp', skillName: 'smithing', amount: 200 }],
+    [{ type: 'xp', skillName: 'smithing', amount: 200 }, { type: 'gold', amount: 20 }],
     'tut_build',
   ),
 
@@ -104,24 +108,24 @@ const QUEST_DEFINITIONS: Quest[] = [
   makeQuest('exp_survivor', 'Survivor', 'Survive for 10 in-game days.',
     'exploration', 1,
     [{ description: 'Survive 10 Days', type: 'survive_days', targetId: 10, target: 10 }],
-    [{ type: 'xp', skillName: 'survival', amount: 150 }],
+    [{ type: 'xp', skillName: 'survival', amount: 150 }, { type: 'gold', amount: 20 }],
   ),
   makeQuest('exp_cartographer', 'Cartographer', 'Explore the world by travelling far from spawn.',
     'exploration', 2,
     [{ description: 'Discover 5 new areas', type: 'explore', targetId: 0, target: 5 }],
-    [{ type: 'xp', skillName: 'exploration', amount: 200 }],
+    [{ type: 'xp', skillName: 'exploration', amount: 200 }, { type: 'gold', amount: 30 }],
   ),
 
   // ── Crafting ───────────────────────────────────────────────────────────────
   makeQuest('craft_10', 'Artisan', 'Craft 10 different items.',
     'crafting', 1,
     [{ description: 'Craft 10 Items', type: 'craft', targetId: 0, target: 10 }],
-    [{ type: 'xp', skillName: 'crafting', amount: 150 }],
+    [{ type: 'xp', skillName: 'crafting', amount: 150 }, { type: 'gold', amount: 15 }],
   ),
   makeQuest('craft_smith', 'Master Smith', 'Craft 5 metal items (Bronze Age or higher).',
     'crafting', 2,
     [{ description: 'Craft 5 Metal Items', type: 'craft', targetId: -1/*any metal recipe*/, target: 5 }],
-    [{ type: 'xp', skillName: 'smithing', amount: 250 }],
+    [{ type: 'xp', skillName: 'smithing', amount: 250 }, { type: 'gold', amount: 25 }],
     'craft_10',
   ),
 
@@ -129,12 +133,12 @@ const QUEST_DEFINITIONS: Quest[] = [
   makeQuest('combat_5', 'Big Game Hunter', 'Kill 5 animals.',
     'combat', 1,
     [{ description: 'Kill 5 Animals', type: 'kill', targetId: 0, target: 5 }],
-    [{ type: 'xp', skillName: 'combat', amount: 200 }],
+    [{ type: 'xp', skillName: 'combat', amount: 200 }, { type: 'gold', amount: 20 }],
   ),
   makeQuest('combat_wolf', 'Wolf Slayer', 'Kill 3 wolves.',
     'combat', 2,
     [{ description: 'Kill 3 Wolves', type: 'kill', targetId: 1/*wolf*/, target: 3 }],
-    [{ type: 'xp', skillName: 'combat', amount: 300 }],
+    [{ type: 'xp', skillName: 'combat', amount: 300 }, { type: 'gold', amount: 35 }],
     'combat_5',
   ),
 
@@ -142,18 +146,18 @@ const QUEST_DEFINITIONS: Quest[] = [
   makeQuest('civ_mayor', 'Mayor', 'Lead your settlement to Tier 3.',
     'civilization', 1,
     [{ description: 'Reach Civilization Tier 3', type: 'reach_tier', targetId: 3, target: 1 }],
-    [{ type: 'xp', skillName: 'exploration', amount: 300 }],
+    [{ type: 'xp', skillName: 'exploration', amount: 300 }, { type: 'gold', amount: 30 }],
   ),
   makeQuest('civ_space', 'Space Age', 'Advance to the Space Age (Tier 5).',
     'civilization', 2,
     [{ description: 'Reach Civilization Tier 5', type: 'reach_tier', targetId: 5, target: 1 }],
-    [{ type: 'xp', skillName: 'crafting', amount: 500 }],
+    [{ type: 'xp', skillName: 'crafting', amount: 500 }, { type: 'gold', amount: 40 }],
     'civ_mayor',
   ),
   makeQuest('civ_contact', 'First Contact', 'Make contact with the Velar civilization.',
     'civilization', 3,
     [{ description: 'Discover the Velar', type: 'discover', targetId: 0, target: 1 }],
-    [{ type: 'xp', skillName: 'exploration', amount: 500 }],
+    [{ type: 'xp', skillName: 'exploration', amount: 500 }, { type: 'gold', amount: 50 }],
     'civ_space',
   ),
 ]
@@ -312,13 +316,25 @@ export class QuestSystem {
   private _completeQuest(q: Quest): void {
     q.status = 'complete'
 
+    // Award gold rewards immediately
+    const goldRewards = q.rewards.filter(r => r.type === 'gold')
+    if (goldRewards.length > 0) {
+      try {
+        const totalGold = goldRewards.reduce((sum, r) => sum + (r.amount ?? 0), 0)
+        if (totalGold > 0) {
+          usePlayerStore.getState().addGold(totalGold)
+        }
+      } catch { /* store not available yet */ }
+    }
+
     // Notification
     const rewardText = q.rewards.map(r => {
       if (r.type === 'xp') return `+${r.amount} ${r.skillName} XP`
       if (r.type === 'item') return `+${r.amount ?? 1} item`
       if (r.type === 'recipe') return `New recipe unlocked`
+      if (r.type === 'gold') return `+${r.amount}💰`
       return ''
-    }).join(', ')
+    }).filter(Boolean).join(', ')
 
     try {
       useUiStore.getState().addNotification(

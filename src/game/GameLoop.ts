@@ -44,7 +44,7 @@ import {
   tickRespawnQueue,
 } from '../ecs/systems/AnimalAISystem'
 
-import { inventory, buildingSystem, questSystem, combatSystem, achievementSystem, tutorialSystem, fishingSystem } from './GameSingletons'
+import { inventory, buildingSystem, questSystem, combatSystem, achievementSystem, tutorialSystem, fishingSystem, merchantSystem } from './GameSingletons'
 import { SPECIES_LOOT, rollLoot } from './LootTable'
 import { ITEM, MAT, RARITY_NAMES, type RarityTier } from '../player/Inventory'
 import { getItemStats, canHarvest } from '../player/EquipSystem'
@@ -426,12 +426,22 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
           }
           const NPC_ROLES = ['villager', 'guard', 'elder', 'trader', 'artisan', 'scout']
           const npcRole = NPC_ROLES[closestNpc.id % NPC_ROLES.length]
+          const isMerchant = npcRole === 'trader'
           const npcName = `${npcSettlement} ${npcRole.charAt(0).toUpperCase() + npcRole.slice(1)}`
-          gs.setGatherPrompt(`[F] Talk to ${npcName}`)
+          const promptLabel = isMerchant ? `[F] Trade with ${npcName} 🛍` : `[F] Talk to ${npcName}`
+          gs.setGatherPrompt(promptLabel)
           if (controllerRef.current?.popInteract()) {
             gs.setGatherPrompt(null)
-            useDialogueStore.getState().openDialogue(closestNpc.id, npcName, npcRole, npcSettlement)
-            useUiStore.getState().openPanel('dialogue')
+            if (isMerchant) {
+              // M27: Open merchant panel with appropriate archetype
+              const civTier = usePlayerStore.getState().civTier
+              const archetype = merchantSystem.getArchetypeForSettlementTier(civTier)
+              ;(window as unknown as Record<string, unknown>).__merchantArchetype = archetype
+              useUiStore.getState().openPanel('merchant')
+            } else {
+              useDialogueStore.getState().openDialogue(closestNpc.id, npcName, npcRole, npcSettlement)
+              useUiStore.getState().openPanel('dialogue')
+            }
           }
         }
       }

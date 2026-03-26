@@ -119,7 +119,7 @@ function buildLocalNpcs(): LocalNpcState[] {
   return npcs
 }
 
-function LocalNpcMesh({ npc }: { npc: LocalNpcState }) {
+function LocalNpcMesh({ npc, isMerchant }: { npc: LocalNpcState; isMerchant?: boolean }) {
   const groupRef = useRef<THREE.Group>(null)
   const lLegRef  = useRef<THREE.Group>(null)
   const rLegRef  = useRef<THREE.Group>(null)
@@ -289,10 +289,18 @@ function LocalNpcMesh({ npc }: { npc: LocalNpcState }) {
 
   return (
     <group ref={groupRef}>
+      {/* AI state indicator dot */}
       <mesh position={[0, 1.55, 0]}>
         <sphereGeometry args={[0.10, 6, 6]} />
         <meshStandardMaterial color={dotColor} emissive={dotColor} emissiveIntensity={0.8} />
       </mesh>
+      {/* M27: Merchant bag indicator — gold diamond above trader NPCs */}
+      {isMerchant && (
+        <mesh position={[0, 1.85, 0]}>
+          <octahedronGeometry args={[0.12, 0]} />
+          <meshStandardMaterial color="#f1c40f" emissive="#f1c40f" emissiveIntensity={1.2} />
+        </mesh>
+      )}
       <mesh position={[0, 0.55, 0]} castShadow>
         <boxGeometry args={[0.44, 0.58, 0.22]} />
         <meshStandardMaterial color={shirt} />
@@ -374,10 +382,14 @@ export function LocalNpcsRenderer() {
   const remoteNpcs = useMultiplayerStore(s => s.remoteNpcs)
   const showLocal = connectionStatus !== 'connected' || remoteNpcs.length === 0
   const npcs = useMemo(() => buildLocalNpcs(), [])
+  // NPC_ROLES order: ['villager','guard','elder','trader','artisan','scout']
+  // trader is index 3 (modulo 6) — same logic as GameLoop
   if (!showLocal) return null
   return (
     <>
-      {npcs.map((npc, i) => <LocalNpcMesh key={i} npc={npc} />)}
+      {npcs.map((npc, i) => (
+        <LocalNpcMesh key={i} npc={npc} isMerchant={i % 6 === 3} />
+      ))}
     </>
   )
 }

@@ -12,6 +12,7 @@ import { CombatSystem } from './CombatSystem'
 import { AchievementSystem } from './AchievementSystem'
 import { TutorialSystem } from './TutorialSystem'
 import { fishingSystem as _fishingSystem } from './FishingSystem'
+import { merchantSystem as _merchantSystem } from './MerchantSystem'
 
 export const inventory       = new Inventory()
 export const journal         = new DiscoveryJournal()
@@ -22,3 +23,4 @@ export const combatSystem      = new CombatSystem()
 export const achievementSystem = new AchievementSystem()
 export const tutorialSystem    = new TutorialSystem()
 export const fishingSystem     = _fishingSystem
+export const merchantSystem    = _merchantSystem

@@ -121,6 +121,7 @@ export async function saveOffline(): Promise<boolean> {
       murderCount: ps.murderCount,
       smithingXp: ps.smithingXp,
       wounds: ps.wounds,
+      gold: ps.gold,
       skills: _skillSystem ? _skillSystem.serialize() : null,
       quests: _questSystem ? _questSystem.serialize() : null,
       achievements: _achievementSystem ? _achievementSystem.serialize() : null,
@@ -218,6 +219,7 @@ export async function loadOffline(): Promise<boolean> {
     }
     if (state.murderCount > 0) ps.setMurderCount(state.murderCount)
     if (state.smithingXp > 0) ps.addSmithingXp(state.smithingXp)
+    if (typeof state.gold === 'number' && state.gold > 0) ps.addGold(state.gold)
 
     // Restore wounds (only if health was valid)
     if (loadedHealth > 0 && Array.isArray(state.wounds) && state.wounds.length > 0) {

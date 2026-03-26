@@ -1,3 +1,4 @@
+import * as THREE from 'three'
 import { Canvas } from '@react-three/fiber'
 import { PerspectiveCamera } from '@react-three/drei'
 
@@ -343,6 +344,29 @@ export function SceneRoot() {
 
       // M9: Spawn initial animal population (deer, wolves, boars)
       spawnInitialAnimals(spawnX, spawnY, spawnZ)
+
+      // M27: Inject synthetic offline NPCs so GameLoop can interact with them.
+      // IDs are chosen so that id%6 maps to the NPC_ROLES array in GameLoop:
+      //   0=villager, 1=guard, 2=elder, 3=trader(merchant), 4=artisan, 5=scout
+      // We spawn 6 NPCs in a ring ~10m from spawn; id=3 gives the merchant.
+      {
+        const up = new THREE.Vector3(spawnX, spawnY, spawnZ).normalize()
+        const north = new THREE.Vector3(0, 0, 1)
+        north.addScaledVector(up, -north.dot(up)).normalize()
+        const east = new THREE.Vector3().crossVectors(up, north).normalize()
+        const offlineNpcs = Array.from({ length: 6 }, (_, i) => {
+          const angle = (i / 6) * Math.PI * 2
+          const dist  = 8 + (i % 3) * 4
+          const ox = (north.x * Math.cos(angle) + east.x * Math.sin(angle)) * dist
+          const oy = (north.y * Math.cos(angle) + east.y * Math.sin(angle)) * dist
+          const oz = (north.z * Math.cos(angle) + east.z * Math.sin(angle)) * dist
+          return { id: i, x: spawnX + ox, y: spawnY + oy, z: spawnZ + oz }
+        })
+        const { connectionStatus } = useMultiplayerStore.getState()
+        if (connectionStatus !== 'connected') {
+          useMultiplayerStore.getState().setRemoteNpcs(offlineNpcs)
+        }
+      }
 
       // Create keyboard/mouse controller for the player
       controllerRef.current = new PlayerController(eid)

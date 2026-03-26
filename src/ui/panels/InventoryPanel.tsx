@@ -112,6 +112,7 @@ export function InventoryPanel() {
   const unequipAction = usePlayerStore(s => s.unequip)
   const updateVitals  = usePlayerStore(s => s.updateVitals)
   const entityId      = usePlayerStore(s => s.entityId)
+  const gold          = usePlayerStore(s => s.gold)
 
   const { onMouseEnter, onMouseLeave, tooltipPortal } = useItemTooltip()
 
@@ -154,6 +155,21 @@ export function InventoryPanel() {
           50% { box-shadow: 0 0 14px #ff8000aa, 0 0 4px #ff800066; }
         }
       `}</style>
+
+      {/* M27: Gold balance header */}
+      <div style={{
+        marginBottom: 12,
+        padding: '6px 10px',
+        background: 'rgba(205,68,32,0.1)',
+        border: '1px solid rgba(205,68,32,0.3)',
+        borderRadius: 6,
+        fontSize: 13,
+        fontWeight: 700,
+        color: '#f1c40f',
+        letterSpacing: 1,
+      }}>
+        💰 {gold} Gold
+      </div>
 
       {/* Tooltip portal — renders outside grid to avoid overflow */}
       {tooltipPortal}

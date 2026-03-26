@@ -27,6 +27,7 @@ const SkillTreePanel = lazy(() => import('./panels/SkillPanel').then(m => ({ def
 const QuestPanel       = lazy(() => import('./panels/QuestPanel').then(m => ({ default: m.QuestPanel })))
 const AchievementPanel = lazy(() => import('./panels/AchievementPanel').then(m => ({ default: m.AchievementPanel })))
 const FishingPanel     = lazy(() => import('./panels/FishingPanel').then(m => ({ default: m.FishingPanel })))
+const MerchantPanel    = lazy(() => import('./panels/MerchantPanel').then(m => ({ default: m.MerchantPanel })))
 
 const PANEL_LABEL: Record<PanelId, string> = {
   inventory: 'INVENTORY',
@@ -42,6 +43,7 @@ const PANEL_LABEL: Record<PanelId, string> = {
   quests:       'QUESTS',
   achievements: 'ACHIEVEMENTS',
   fishing:      'FISHING',
+  merchant:     'MERCHANT',
 }
 
 const PANEL_WIDTH = 480
@@ -76,6 +78,7 @@ const PANEL_COMPONENTS: Record<PanelId, React.ComponentType> = {
   quests:     QuestPanel,
   achievements: AchievementPanel,
   fishing:      FishingPanel,
+  merchant:     MerchantPanel,
 }
 
 export function SidebarShell() {

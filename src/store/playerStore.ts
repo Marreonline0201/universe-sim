@@ -24,6 +24,11 @@ interface PlayerState {
   updateVitals: (v: Partial<Pick<PlayerState, 'hunger' | 'thirst' | 'health' | 'energy' | 'fatigue'>>) => void
   setAmbientTemp: (t: number) => void
 
+  // M27: Gold currency
+  gold: number
+  addGold: (amount: number) => void
+  spendGold: (amount: number) => boolean
+
   // Wound system (Slice 5)
   wounds: Wound[]
   addWound: (severity: number) => void
@@ -102,6 +107,19 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   energy: 1,
   fatigue: 0,
   ambientTemp: 15,
+
+  // M27: Gold currency
+  gold: 0,
+  addGold: (amount) => set((s) => ({ gold: s.gold + Math.max(0, amount) })),
+  spendGold: (amount) => {
+    let success = false
+    set((s) => {
+      if (s.gold < amount) return s
+      success = true
+      return { gold: s.gold - amount }
+    })
+    return success
+  },
   updateVitals: (v) => set((s) => ({
     hunger: v.hunger  !== undefined ? Math.max(0, Math.min(1, v.hunger))  : s.hunger,
     thirst: v.thirst  !== undefined ? Math.max(0, Math.min(1, v.thirst))  : s.thirst,

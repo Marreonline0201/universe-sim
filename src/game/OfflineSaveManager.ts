@@ -21,6 +21,7 @@ import { usePlayerStore } from '../store/playerStore'
 import { useGameStore } from '../store/gameStore'
 import { useSkillStore } from '../store/skillStore'
 import { inventory, journal, buildingSystem } from './GameSingletons'
+import { serializeSpecs, deserializeSpecs } from './SkillSpecializationSystem'
 import { Health, Metabolism, Position } from '../ecs/world'
 import { rapierWorld } from '../physics/RapierWorld'
 import { PLANET_RADIUS } from '../world/SpherePlanet'
@@ -125,6 +126,7 @@ export async function saveOffline(): Promise<boolean> {
       gold: ps.gold,
       skills: _skillSystem ? _skillSystem.serialize() : null,
       skillTree: useSkillStore.getState().serialize(),
+      specs: serializeSpecs(),
       quests: _questSystem ? _questSystem.serialize() : null,
       achievements: _achievementSystem ? _achievementSystem.serialize() : null,
       tutorialStep: _tutorialSystem ? _tutorialSystem.serialize() : null,
@@ -237,6 +239,9 @@ export async function loadOffline(): Promise<boolean> {
     if (state.skillTree) {
       useSkillStore.getState().deserialize(state.skillTree)
     }
+
+    // M49: Restore skill specializations
+    deserializeSpecs(state.specs ?? {})
 
     // Restore quest progress (M23)
     if (state.quests && _questSystem) {

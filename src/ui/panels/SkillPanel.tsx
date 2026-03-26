@@ -6,6 +6,7 @@
 import React, { useEffect, useState } from 'react'
 import { skillSystem, SkillSystem, SKILL_TREE, type SkillId, type SkillNode } from '../../game/SkillSystem'
 import { useSkillStore } from '../../store/skillStore'
+import { SpecializationPanel } from './SpecializationPanel'
 
 const RUST_ORANGE = '#cd4420'
 
@@ -313,7 +314,7 @@ function PrestigeSection() {
 
 // ── Main Panel ────────────────────────────────────────────────────────────────
 
-type Tab = 'skills' | 'tree'
+type Tab = 'skills' | 'tree' | 'specs'
 
 export function SkillPanel() {
   const [, setTick] = useState(0)
@@ -343,6 +344,8 @@ export function SkillPanel() {
     color: activeTab === tab ? '#eee' : '#555',
     cursor: 'pointer',
   })
+
+  const [specTick, setSpecTick] = useState(0)
 
   return (
     <div style={{ padding: '4px 0', color: '#ccc', fontFamily: 'monospace' }}>
@@ -388,6 +391,7 @@ export function SkillPanel() {
       <div style={{ display: 'flex', marginBottom: 10, borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
         <button style={tabStyle('skills')} onClick={() => setActiveTab('skills')}>SKILLS</button>
         <button style={tabStyle('tree')} onClick={() => setActiveTab('tree')}>TREE</button>
+        <button style={tabStyle('specs')} onClick={() => { setActiveTab('specs'); setSpecTick(t => t + 1) }}>SPECS</button>
       </div>
 
       {/* Skills tab */}
@@ -411,6 +415,11 @@ export function SkillPanel() {
           ))}
           <PrestigeSection />
         </>
+      )}
+
+      {/* Specs tab */}
+      {activeTab === 'specs' && (
+        <SpecializationPanel key={specTick} />
       )}
     </div>
   )

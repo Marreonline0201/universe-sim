@@ -49,6 +49,7 @@ import { serializeEmotions, deserializeEmotions } from './NPCEmotionSystem'
 import { serializeTradingNetwork, deserializeTradingNetwork } from './ResourceTradingNetwork'
 import { serializeTitles as serializePlayerTitles, deserializeTitles as deserializePlayerTitles } from './PlayerTitleSystem'
 import { serializeScheduler, deserializeScheduler } from './WorldEventSchedulerSystem'
+import { serializeCodex, deserializeCodex } from './WorldHistoryCodexSystem'
 import { Health, Metabolism, Position } from '../ecs/world'
 import { rapierWorld } from '../physics/RapierWorld'
 import { PLANET_RADIUS } from '../world/SpherePlanet'
@@ -184,6 +185,7 @@ export async function saveOffline(): Promise<boolean> {
       tradingNetwork: serializeTradingNetwork(),
       playerTitles: serializePlayerTitles(),
       worldEventScheduler: serializeScheduler(),
+      worldHistoryCodex: serializeCodex(),
     })
     const meta = JSON.stringify({
       timestamp: Date.now(),
@@ -445,6 +447,11 @@ export async function loadOffline(): Promise<boolean> {
     // M66 Track A: Restore world event scheduler
     if (state.worldEventScheduler) {
       deserializeScheduler(state.worldEventScheduler)
+    }
+
+    // M67 Track A: Restore world history codex
+    if (state.worldHistoryCodex) {
+      deserializeCodex(state.worldHistoryCodex)
     }
 
     // Restore position

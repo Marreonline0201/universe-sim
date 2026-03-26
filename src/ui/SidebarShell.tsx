@@ -130,6 +130,10 @@ const PlayerTitlePanel = lazy(() => import('./panels/PlayerTitlePanel').then(m =
 const WorldEventSchedulerPanel = lazy(() => import('./panels/WorldEventSchedulerPanel').then(m => ({ default: m.WorldEventSchedulerPanel })))
 // M66 Track C: Resource Trading Network panel
 const ResourceTradingNetworkPanel = lazy(() => import('./panels/ResourceTradingNetworkPanel').then(m => ({ default: m.ResourceTradingNetworkPanel })))
+// M67 Track A: World History Codex panel
+const WorldHistoryCodexPanel = lazy(() => import('./panels/WorldHistoryCodexPanel').then(m => ({ default: m.WorldHistoryCodexPanel })))
+// M67 Track B: Player Achievement Journal (Adventure Log) panel
+const PlayerAchievementJournalPanel = lazy(() => import('./panels/PlayerAchievementJournalPanel').then(m => ({ default: m.PlayerAchievementJournalPanel })))
 
 // M36 Track C: Wrapper resolves nearSettlementId from store so panel has no props
 function BuildingsPanelWrapper() {
@@ -215,6 +219,8 @@ const PANEL_LABEL: Record<PanelId, string> = {
   playertitles:    'PLAYER TITLES',
   eventcalendar:   'EVENT CALENDAR',
   tradenetwork:    'TRADE NETWORK',
+  worldhistory:    'WORLD HISTORY CODEX',
+  achievejournal:  'ADVENTURE LOG',
 }
 
 const PANEL_WIDTH = 480
@@ -284,6 +290,8 @@ const ICON_BUTTONS: Array<{ id: PanelId; icon: string; hint: string }> = [
   { id: 'playertitles',  icon: '👑',   hint: 'Titles (F11)' },
   { id: 'settings',      icon: 'SET',  hint: 'Settings (Esc)' },
   { id: 'factionrep',  icon: '🏅',   hint: 'Faction Reputation (F)' },
+  { id: 'worldhistory',   icon: '📜', hint: 'World Codex (F13)' },
+  { id: 'achievejournal', icon: '📓', hint: 'Adventure Log (F14)' },
 ]
 
 const PANEL_COMPONENTS: Record<PanelId, React.ComponentType> = {
@@ -352,6 +360,8 @@ const PANEL_COMPONENTS: Record<PanelId, React.ComponentType> = {
   playertitles:    PlayerTitlePanel,
   eventcalendar:   WorldEventSchedulerPanel,
   tradenetwork:    ResourceTradingNetworkPanel,
+  worldhistory:    WorldHistoryCodexPanel,
+  achievejournal:  PlayerAchievementJournalPanel,
 }
 
 export function SidebarShell() {
@@ -461,6 +471,8 @@ export function SidebarShell() {
           e.preventDefault(); togglePanel('playertitles'); break
         case 'F12':
           e.preventDefault(); togglePanel('tradenetwork'); break
+        case 'F13':
+          e.preventDefault(); togglePanel('worldhistory'); break
         case 'Escape':
           e.preventDefault()
           if (isFishingActive()) { cancelFishing(); useGameStore.getState().setGatherPrompt(null) }

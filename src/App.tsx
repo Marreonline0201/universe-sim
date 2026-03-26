@@ -41,6 +41,7 @@ import { initNPCEmotionSystem } from './game/NPCEmotionSystem'
 import { initPlayerTitleSystem } from './game/PlayerTitleSystem'
 import { initWorldEventScheduler } from './game/WorldEventSchedulerSystem'
 import { initResourceTradingNetwork } from './game/ResourceTradingNetwork'
+import { initWorldHistoryCodex } from './game/WorldHistoryCodexSystem'
 
 // ── M20: Lazy-load AdminPanel (dev/admin only) ──────────────────────────────
 const AdminPanel = lazy(() => import('./ui/AdminPanel').then(m => ({ default: m.AdminPanel })))
@@ -122,6 +123,7 @@ function DevGame() {
     initPlayerTitleSystem()
     initWorldEventScheduler()
     initResourceTradingNetwork()
+    initWorldHistoryCodex()
   }, [])
 
   return (
@@ -208,6 +210,7 @@ function GameWithSave() {
     initPlayerTitleSystem()
     initWorldEventScheduler()
     initResourceTradingNetwork()
+    initWorldHistoryCodex()
   }, [])
 
   // Load save on first sign-in

@@ -171,6 +171,8 @@ import { updateShelterState, shelterState } from './ShelterSystem'
 import { getCaveEntrancePositions } from '../rendering/CaveEntrances'
 // M42 Track C: NPC reputation system
 import { useReputationStore } from '../store/reputationStore'
+// M43 Track B: Market restock tick
+import { marketSystem } from './MarketSystem'
 // M43 Track C: Map exploration + fog of war
 import { useExplorationStore } from '../store/explorationStore'
 
@@ -2348,8 +2350,10 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
           markColdDamage()
         }
       } else if (wState === 'BLIZZARD') {
-        // M42 Track B: Blizzard — push ambient to -40°C
-        usePlayerStore.getState().setAmbientTemp(-40)
+        // M42 Track B: Blizzard — push ambient to -40°C, blocked while sheltered
+        if (!shelterState.isSheltered) {
+          usePlayerStore.getState().setAmbientTemp(-40)
+        }
       } else {
         const storedTemp = usePlayerStore.getState().ambientTemp
         if (Math.abs(storedTemp - wTemp) > 0.1) {
@@ -3116,6 +3120,9 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
         }
       }
     }
+
+    // ── M43 Track B: Market restock tick ─────────────────────────────────────
+    marketSystem.restockTick(dt)
 
     // ── M43 Track C: Exploration tracking (every 5s) ─────────────────────────
     {

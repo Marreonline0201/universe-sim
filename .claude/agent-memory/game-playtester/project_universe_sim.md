@@ -46,12 +46,13 @@ A browser-based 3D survival/civilization sim built with React, Three.js (via @re
 - HUD is monospace font, dark glassmorphism panels
 - Epoch clock top-right, vitals bars top-left (5 bars: health/satiety/hydration/energy/stamina)
 
-**Known issues as of 2026-03-20:**
+**Known issues as of 2026-03-25 (M18):**
+- Click-to-play overlay says "E — Open Inventory" but E opens nothing visible (it triggers eat, not inventory). Inventory is I. IMPORTANT bug for new players.
+- ChemistryHUD useEffect has events.length in dependency array — causes interval re-subscription on every events state change (stale closure pattern).
+- Fermentation rewards MAT.COOKED_MEAT as placeholder (TODO: MAT.ALCOHOL). Misleading gameplay feedback.
+- PostProcessing does two scene renders per frame (depth pass + RenderPass in composer). Potential perf concern on low-end hardware.
 - Disabled BUILD button silently fails (no feedback on click) -- disabled HTML button does not fire onClick
 - Tier 1 buildings shown at fresh start with lock icons (minor clutter)
-- Click-to-play overlay does not mention B=Build
-- Placement mode after Build panel closes: player must re-click canvas to re-acquire pointer lock before F works -- not documented in UI
-- buildVersion in BuildPanel is read from gameStore but not used in JSX (dead variable)
 - HUD connection dot shows red OFFLINE initially until WS handshake completes (normal but alarming)
 - Crafting panel "No craftable recipes right now" on fresh start -- correct but confusing for new players
 

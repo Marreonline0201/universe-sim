@@ -1,6 +1,7 @@
 # Memory Index
 
 ## Project
+- [project_m17_sprint.md](project_m17_sprint.md) — M17 Sprint: SceneRoot decomposition (10-step incremental), genome validation, player onboarding hints
 - [project_m14.md](project_m14.md) — M14 Interstellar Travel DONE — transit animation, Velar language/gateway, multiverse registry + companion Universe Map; next IDs: MAT 70, ITEM 68, Recipe 106
 - [project_m13.md](project_m13.md) — M13 Velar Contact DONE — First Contact decoder/cinematic, orbital mechanics (Aethon/Velar/Sulfis), nuclear physics/meltdown; next IDs: MAT 69, ITEM 67, Recipe 104
 - [project_m11.md](project_m11.md) — M11 Civilization Age DONE — gunpowder/musket, castle walls, mayor/diplomacy, night sky/telescope; next IDs: MAT 65, ITEM 65, recipe 93
@@ -20,4 +21,5 @@
 - [project_m5_track1_multiplayer.md](project_m5_track1_multiplayer.md) — M5 Track 1 server-authoritative world state: NODE_DESTROYED/RESPAWNED/FIRE_STARTED protocol, NodeStateSync, Neon DB depleted_nodes table, pitfalls
 
 ## Feedback
+- [feedback_sceneroot_extraction.md](feedback_sceneroot_extraction.md) — SceneRoot must be decomposed incrementally, never wholesale — M16 corruption incident
 - [feedback_playtester_approach.md](feedback_playtester_approach.md) — game-playtester Skill does not exist; use build log + runtime log + code audit instead

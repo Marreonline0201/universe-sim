@@ -107,11 +107,13 @@ Three lines of hint text: WASD/Mouse/Space/F/G, E/H/Z/Q, ESC/I/C/B/T/J/Tab/M/?. 
 
 Domain-warped FBM + ridged noise (up to +200m mountains) + detail noise (+-15m). Visually confirmed hills/valleys in ss1.png.
 
-## Known bugs / issues (updated 2026-03-21 session 4)
+## Known bugs / issues (updated 2026-03-25 session 5 / M18)
 
 CRITICAL: None.
 
 IMPORTANT:
+- CLICK-TO-PLAY OVERLAY KEYBIND LIE (session 5): Overlay shows "E — Open Inventory" but E does NOT open inventory. Inventory is I. E triggers tryEatFood when not pointer-locked. This is confirmed from SidebarShell.tsx line 84-92 where case 'e'/'E' calls tryEatFood, not togglePanel('inventory'). New players will press E expecting inventory and nothing visible will happen (or their food will be consumed silently).
+- CHEMISTRYHUD REACT HOOK BUG (session 5): ChemistryHUD.tsx useEffect at line 22 has `events.length` in its dependency array. Since `events` is state that setInterval mutates, this creates a new interval whenever events.length changes -- stale closure and unnecessary re-subscriptions. Should use an empty dependency array [] with the setInterval callback using a functional state update or a ref.
 - GATHER PROMPT PRIORITY: no priority system, first match wins.
 - BONE/HIDE NODES RENDERED AS ROCKS: visually indistinguishable from stone. Status unverified session 4.
 - MapPanel compass labels inaccurate off spawn north pole. Status unverified session 4.
@@ -126,6 +128,14 @@ NICE TO HAVE:
 - Admin Give All Materials: 41 MAT entries into 40-slot inventory -- 41st silently dropped
 - Fallback node placement uses -2.0m vs normal -0.8m (inconsistency)
 - Smoke puff opacity lifecycle: NormalBlending overrides per-instance vertex color fade
+- CHEMISTRYHUD ALCOHOL TODO (session 5): fermentation rewards MAT.COOKED_MEAT as placeholder because MAT.ALCOHOL doesn't exist yet. Comment in ChemistryGameplay.ts line 153: "TODO: add MAT.ALCOHOL when available". Fermentation grants cooked meat which is misleading.
+- POSTPROCESSING TRIPLE RENDER RISK (session 5): PostProcessing.tsx renders the scene twice per frame -- once for depth target (line 312-314) and once via EffectComposer's RenderPass. This is intentional but doubles GPU scene traversal. Monitor for performance on low-end devices.
+
+## M18 new systems (session 5)
+
+- PostProcessing.tsx: SSAO (8-tap golden-angle spiral), color grade (ACES filmic, ASC CDL lift/gamma/gain, saturation, temperature), vignette. Wired as last Canvas child.
+- ChemistryGameplay.ts: bridges LocalSimManager chemistry grid to player health. 4 event types: fermentation/acid_rain/photosynthesis/combustion_heat. Sampled at 2Hz via accumulator. tickChemistryGameplay() called from GameLoop.ts line 552.
+- ChemistryHUD.tsx: bottom-left notification badges. Renders only when events.length > 0 (returns null otherwise). 600ms poll interval.
 
 ## Agent-browser testing limitation
 

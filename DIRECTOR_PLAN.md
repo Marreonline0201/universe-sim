@@ -1,8 +1,8 @@
 # Director Plan -- Universe Sim
 
-**Date**: 2026-03-25
+**Date**: 2026-03-26
 **Sprint**: M19
-**Status**: Active -- Sprint Planning Complete
+**Status**: SHIPPED -- All 3 Tracks Complete
 
 ---
 
@@ -126,10 +126,19 @@
 
 ---
 
+## M19 Completion Summary (2026-03-26)
+
+**All 3 Tracks SHIPPED:**
+
+- **Track A -- PBR Water Shader: DONE** -- OceanShader.ts (334 lines): Gerstner wave displacement (2 octaves, 8m+20m), Schlick Fresnel reflections, shoreline foam (depth-based 2-freq noise), underwater caustics via onBeforeCompile. Wired into PlanetTerrain.tsx with per-frame sun direction.
+- **Track B -- Atmospheric Scattering: DONE** -- AtmosphereShader.ts (301 lines): Rayleigh+Mie single-scattering integral (8 samples), Henyey-Greenstein phase, smooth twilight fade to NightSkyRenderer, Reinhard tonemapping. Replaces old flat atmosphere + haze shells.
+- **Track C -- PBR Terrain Materials: DONE** -- Tri-planar normal mapping (terrain: 0.15/0.30 intensity), biome-dependent roughness (grass 0.85, rock 0.65, sand 0.92, snow 0.3), rock normal maps (0.4 intensity + metallic flecks), bark ridges (sin*20 + noise), foliage translucency (backlit 0.15).
+
+**Build**: Passes (0 errors). Bundle: 3820 kB (code splitting deferred to M20).
+
+---
+
 ## Immediate Next Actions
 
-1. Report M19 plan to Railway as `director` -- DONE
-2. Dispatch `ui-worker` for Track A (PBR Ocean Shader)
-3. Dispatch `ui-worker` for Track B (Atmospheric Scattering) -- can run parallel
-4. Dispatch `chemistry-prof` for Track C (PBR Terrain Material Pass)
-5. Run `npm run build` after each new shader to verify compilation
+1. M19 shipped -- all quality gates met
+2. Next sprint: M20 -- Code splitting, Tree LOD, performance pass

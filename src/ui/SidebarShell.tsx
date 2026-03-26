@@ -102,6 +102,10 @@ const PlayerStatsDashboard = lazy(() => import('./panels/PlayerStatsDashboard').
 const WorldBossPanel = lazy(() => import('./panels/WorldBossPanel').then(m => ({ default: m.WorldBossPanel })))
 // M61 Track A: Skill combo panel
 const SkillComboPanel = lazy(() => import('./panels/SkillComboPanel').then(m => ({ default: m.SkillComboPanel })))
+// M61 Track C: Dungeon delve tracker panel
+const DungeonDelvePanel = lazy(() => import('./panels/DungeonDelvePanel').then(m => ({ default: m.DungeonDelvePanel })))
+// M61 Track B: Settlement economy panel
+const SettlementEconomyPanel = lazy(() => import('./panels/SettlementEconomyPanel').then(m => ({ default: m.SettlementEconomyPanel })))
 
 // M36 Track C: Wrapper resolves nearSettlementId from store so panel has no props
 function BuildingsPanelWrapper() {
@@ -173,6 +177,8 @@ const PANEL_LABEL: Record<PanelId, string> = {
   statsdash:       'PLAYER STATS',
   worldboss:       'WORLD BOSS',
   combos:          'SKILL COMBOS',
+  dungeon:         'DUNGEON DELVE',
+  economy:         'SETTLEMENT ECONOMY',
 }
 
 const PANEL_WIDTH = 480
@@ -226,6 +232,8 @@ const ICON_BUTTONS: Array<{ id: PanelId; icon: string; hint: string }> = [
   { id: 'statsdash',       icon: '📈',  hint: 'Stats Dashboard' },
   { id: 'worldboss',       icon: '👹',  hint: 'World Boss' },
   { id: 'combos',          icon: '⚡',  hint: 'Skill Combos' },
+  { id: 'dungeon',         icon: '⚔️',  hint: 'Dungeon Delve' },
+  { id: 'economy',         icon: '🏦',   hint: 'Settlement Economy' },
   { id: 'science',         icon: ' ? ', hint: 'Science Companion (?)' },
   { id: 'settings',    icon: 'SET',  hint: 'Settings (Esc)' },
 ]
@@ -282,6 +290,8 @@ const PANEL_COMPONENTS: Record<PanelId, React.ComponentType> = {
   statsdash:       PlayerStatsDashboard,
   worldboss:       WorldBossPanel,
   combos:          SkillComboPanel,
+  dungeon:         DungeonDelvePanel,
+  economy:         SettlementEconomyPanel,
 }
 
 export function SidebarShell() {

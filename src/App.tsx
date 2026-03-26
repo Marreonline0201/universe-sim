@@ -26,7 +26,9 @@ import { initTitleProgressionSystem } from './game/TitleProgressionSystem'
 import { initMarketPriceSystem } from './game/MarketPriceSystem'
 import { initCraftingMastery } from './game/CraftingMasterySystem'
 import { initWorldBossSystem } from './game/WorldBossSystem'
+import { initSettlementEconomy } from './game/SettlementEconomySystem'
 import { initSkillComboSystem } from './game/SkillComboSystem'
+import { initDungeonDelveSystem } from './game/DungeonDelveSystem'
 
 // ── M20: Lazy-load AdminPanel (dev/admin only) ──────────────────────────────
 const AdminPanel = lazy(() => import('./ui/AdminPanel').then(m => ({ default: m.AdminPanel })))
@@ -94,6 +96,8 @@ function DevGame() {
     initCraftingMastery()
     initWorldBossSystem()
     initSkillComboSystem()
+    initDungeonDelveSystem()
+    initSettlementEconomy()
   }, [])
 
   return (
@@ -166,6 +170,8 @@ function GameWithSave() {
     initCraftingMastery()
     initWorldBossSystem()
     initSkillComboSystem()
+    initDungeonDelveSystem()
+    initSettlementEconomy()
   }, [])
 
   // Load save on first sign-in

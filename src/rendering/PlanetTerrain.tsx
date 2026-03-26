@@ -19,6 +19,11 @@ import {
   PLANET_RADIUS,
   SEA_LEVEL,
 } from '../world/SpherePlanet'
+import { createOceanMaterial, applyOceanCaustics, type OceanMaterialHandle } from './shaders/OceanShader'
+import { makeAtmosphereShader, updateAtmosphereUniforms } from './shaders/AtmosphereShader'
+
+// Sun orbit radius — must match DayNightCycle.tsx constant
+const SUN_ORBIT_R_PT = 8000
 
 // ── Materials ─────────────────────────────────────────────────────────────────
 
@@ -44,6 +49,43 @@ float _detail(vec3 p) {
        + _sn(p * 1.20) * 0.28
        + _sn(p * 3.60) * 0.14
        + _sn(p * 9.00) * 0.10;
+}
+
+// ── Tri-planar procedural normal mapping ─────────────────────────────────────
+// Computes surface normal perturbation from analytical noise gradient using
+// tri-planar projection to avoid seams on spherical geometry.
+// Returns a perturbed normal in world space given a base normal and world pos.
+vec3 _noiseGrad(vec3 p) {
+  // Finite-difference gradient of _sn at two frequencies for bumpiness
+  float eps = 0.15;
+  float nx = _sn(p + vec3(eps, 0.0, 0.0)) - _sn(p - vec3(eps, 0.0, 0.0));
+  float ny = _sn(p + vec3(0.0, eps, 0.0)) - _sn(p - vec3(0.0, eps, 0.0));
+  float nz = _sn(p + vec3(0.0, 0.0, eps)) - _sn(p - vec3(0.0, 0.0, eps));
+  return vec3(nx, ny, nz) / (2.0 * eps);
+}
+
+vec3 _triplanarNormal(vec3 worldPos, vec3 worldNormal, float intensity) {
+  // Blending weights from absolute normal components, sharpened with pow4
+  vec3 blend = abs(worldNormal);
+  blend = pow(blend, vec3(4.0));
+  blend /= (blend.x + blend.y + blend.z + 0.0001);
+
+  // Sample noise gradient on each axis plane at two frequencies
+  vec3 gXY = _noiseGrad(worldPos.xyz * 1.8) * 0.6
+           + _noiseGrad(worldPos.xyz * 5.5) * 0.4;
+  vec3 gXZ = _noiseGrad(worldPos.xzy * 1.8) * 0.6
+           + _noiseGrad(worldPos.xzy * 5.5) * 0.4;
+  vec3 gYZ = _noiseGrad(worldPos.yzx * 1.8) * 0.6
+           + _noiseGrad(worldPos.yzx * 5.5) * 0.4;
+
+  // Tangent-space perturbation per face, then blend
+  vec3 perturbXY = vec3(gXY.x, gXY.y, 0.0);
+  vec3 perturbXZ = vec3(gXZ.x, 0.0, gXZ.y);
+  vec3 perturbYZ = vec3(0.0, gYZ.x, gYZ.y);
+  vec3 perturb = perturbXY * blend.z + perturbXZ * blend.y + perturbYZ * blend.x;
+
+  // Add perturbation to world normal scaled by intensity, then renormalize
+  return normalize(worldNormal + perturb * intensity);
 }
 `
 
@@ -94,16 +136,61 @@ function makeTerrainMaterial(): THREE.MeshStandardMaterial {
       diffuseColor.rgb *= 1.0 - _wetFactor * 0.15;`
     )
 
-    // ── Wet edge roughness ────────────────────────────────────────────────────
-    // Increase roughness near water (wet surfaces scatter light more diffusely).
+    // ── Biome-dependent roughness + wet edge roughness (C2) ───────────────────
+    // Biome detection uses elevation and slope (face normal vs sphere normal).
+    // grass=0.85, rock=0.65, sand (coastal)=0.92, snow (high alt)=0.3
     // Inject after <roughnessmap_fragment> which sets roughnessFactor.
     shader.fragmentShader = shader.fragmentShader.replace(
       '#include <roughnessmap_fragment>',
       `#include <roughnessmap_fragment>
       {
-        float _elev2 = length(vTerrainWorldPos) - uSeaRadius;
-        float _wetR  = clamp(1.0 - _elev2 / 20.0, 0.0, 1.0);
+        float _elev2   = length(vTerrainWorldPos) - uSeaRadius;
+        // Slope: dot of surface normal with outward sphere normal (0=cliff, 1=flat)
+        vec3  _sphereN = normalize(vTerrainWorldPos);
+        float _slope   = clamp(dot(normalize(vNormal), _sphereN), 0.0, 1.0);
+
+        // ── Biome weights (sum to 1) ─────────────────────────────────────────
+        // Sand: coastal band 0–8m elevation
+        float _sandW  = clamp(1.0 - abs(_elev2 - 4.0) / 4.0, 0.0, 1.0);
+        _sandW = clamp(_sandW, 0.0, 1.0);
+        // Snow: high altitude > 60m
+        float _snowW  = clamp((_elev2 - 60.0) / 20.0, 0.0, 1.0);
+        // Rock: steep slopes (slope < 0.55) above sea, excluding snow
+        float _rockW  = clamp((0.55 - _slope) / 0.35, 0.0, 1.0) * clamp(1.0 - _snowW, 0.0, 1.0);
+        // Grass: everything else above sea
+        float _aboveSea = clamp(_elev2 / 5.0, 0.0, 1.0);
+        float _grassW = _aboveSea * clamp(1.0 - _sandW - _snowW - _rockW, 0.0, 1.0);
+
+        // Normalise weights
+        float _wSum = _grassW + _rockW + _sandW + _snowW + 0.0001;
+        _grassW /= _wSum; _rockW /= _wSum; _sandW /= _wSum; _snowW /= _wSum;
+
+        // Blend biome roughness values
+        float _biomeRoughness = _grassW * 0.85 + _rockW * 0.65 + _sandW * 0.92 + _snowW * 0.3;
+        roughnessFactor = mix(roughnessFactor, _biomeRoughness, 0.75);
+
+        // Wet edge: increase roughness near sea level
+        float _wetR = clamp(1.0 - _elev2 / 20.0, 0.0, 1.0);
         roughnessFactor = clamp(roughnessFactor + _wetR * 0.20, 0.0, 1.0);
+      }`
+    )
+
+    // ── Tri-planar procedural normal mapping (C1) ─────────────────────────────
+    // Perturb the shading normal after <normal_fragment_maps> to add surface bumps.
+    // Normal intensity: 0.15 for grass/flat, 0.3 for rock/steep.
+    shader.fragmentShader = shader.fragmentShader.replace(
+      '#include <normal_fragment_maps>',
+      `#include <normal_fragment_maps>
+      {
+        // Recompute biome weights for normal intensity (mirrors roughness block)
+        float _nElev  = length(vTerrainWorldPos) - uSeaRadius;
+        vec3  _nSphN  = normalize(vTerrainWorldPos);
+        float _nSlope = clamp(dot(normalize(vNormal), _nSphN), 0.0, 1.0);
+        float _nRockW = clamp((0.55 - _nSlope) / 0.35, 0.0, 1.0);
+        // Intensity: lerp between 0.15 (flat/grass) and 0.3 (steep/rock)
+        float _normIntensity = mix(0.15, 0.30, _nRockW);
+        // Apply tri-planar normal perturbation in world space
+        normal = _triplanarNormal(vTerrainWorldPos, normal, _normIntensity);
       }`
     )
   }
@@ -111,54 +198,47 @@ function makeTerrainMaterial(): THREE.MeshStandardMaterial {
   return mat
 }
 
-function makeOceanMaterial(): THREE.MeshPhongMaterial {
-  return new THREE.MeshPhongMaterial({
-    color: new THREE.Color(0.04, 0.18, 0.52),
-    transparent: true,
-    opacity: 0.78,
-    shininess: 80,
-    specular: new THREE.Color(0.4, 0.6, 1.0),
-    side: THREE.FrontSide,
-  })
-}
+// makeOceanMaterial replaced by PBR OceanShader (M19 Track A).
+// createOceanMaterial() is called inside the component so the handle
+// (material + update fn) can be stored in a ref for per-frame updates.
 
-function makeAtmosphereMaterial(): THREE.MeshBasicMaterial {
-  return new THREE.MeshBasicMaterial({
-    color: new THREE.Color(0.50, 0.72, 1.00),
-    transparent: true,
-    opacity: 0.15,
-    side: THREE.BackSide,   // render inside — creates glow halo
-    depthWrite: false,
-    blending: THREE.AdditiveBlending,
-  })
-}
-
-function makeHazeMaterial(): THREE.MeshBasicMaterial {
-  return new THREE.MeshBasicMaterial({
-    color: new THREE.Color(0.65, 0.82, 1.00),
-    transparent: true,
-    opacity: 0.06,
-    side: THREE.BackSide,
-    depthWrite: false,
-    blending: THREE.AdditiveBlending,
-  })
-}
+// makeAtmosphereMaterial + makeHazeMaterial replaced by Rayleigh+Mie AtmosphereShader (M19 Track B).
+// makeAtmosphereShader() is called inside useMemo so the ShaderMaterial is
+// created once and updated each frame via updateAtmosphereUniforms().
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export function PlanetTerrain({ seed }: { seed: number }) {
+interface PlanetTerrainProps {
+  seed: number
+  /** Current sun angle in radians forwarded from DayNightCycle — drives atmosphere color */
+  dayAngle?: number
+}
+
+export function PlanetTerrain({ seed, dayAngle = Math.PI * 0.6 }: PlanetTerrainProps) {
   // Generate geometry once — no reactive dependencies
   const terrainGeo = useMemo(() => generatePlanetGeometry(160), [seed])
   const oceanGeo   = useMemo(() => generateOceanGeometry(48), [])
-  // Outer atmosphere glow halo (large, thin ring seen from space)
-  const atmosphereGeo = useMemo(() => new THREE.SphereGeometry(PLANET_RADIUS * 1.05, 32, 32), [])
-  // Inner surface haze layer (close to ground, thickens at limb)
-  const hazeGeo       = useMemo(() => new THREE.SphereGeometry(PLANET_RADIUS * 1.012, 32, 32), [])
+  // Single atmosphere shell — Rayleigh+Mie scattering (M19 Track B)
+  // Replaces old flat atmosphere + haze spheres.
+  const atmosphereGeo = useMemo(
+    () => new THREE.SphereGeometry(PLANET_RADIUS * 1.05, 32, 32),
+    [],
+  )
 
-  const terrainMat    = useMemo(makeTerrainMaterial, [])
-  const oceanMat      = useMemo(makeOceanMaterial, [])
-  const atmosphereMat = useMemo(makeAtmosphereMaterial, [])
-  const hazeMat       = useMemo(makeHazeMaterial, [])
+  const terrainMat  = useMemo(makeTerrainMaterial, [])
+  // M19 Track A: PBR OceanShader — createOceanMaterial returns { material, update }
+  const oceanHandle = useMemo(() => createOceanMaterial(), [])
+  const oceanMat    = oceanHandle.material
+  // M19 Track B: Rayleigh+Mie atmosphere shader (replaces makeAtmosphereMaterial + makeHazeMaterial)
+  const atmosphereMat = useMemo(
+    () => makeAtmosphereShader(PLANET_RADIUS, PLANET_RADIUS * 1.05),
+    [],
+  )
+
+  // Store dayAngle in a ref so useFrame closure always reads the latest value
+  // without needing to re-register the callback on every render.
+  const dayAngleRef = useRef(dayAngle)
+  useEffect(() => { dayAngleRef.current = dayAngle }, [dayAngle])
 
   // ── M9 T3: Shader warmup — compile terrain material before first visible frame ──
   // onBeforeCompile shaders compile on first use, causing a frame hitch of 50-200ms.
@@ -180,12 +260,50 @@ export function PlanetTerrain({ seed }: { seed: number }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Gentle ocean shimmer — oscillate ocean opacity slightly
+  // Apply underwater caustics patch to terrain material once on first mount.
+  // applyOceanCaustics extends terrainMat.onBeforeCompile and stores a
+  // _causticUpdate(t) callback that is called each frame below.
+  useEffect(() => {
+    const seaRadius = PLANET_RADIUS + (SEA_LEVEL ?? 0) + 1
+    applyOceanCaustics(terrainMat, () => 0, seaRadius)
+    terrainMat.needsUpdate = true
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Per-frame updates for ocean + atmosphere
   const oceanRef = useRef<THREE.Mesh>(null)
-  useFrame(({ clock }) => {
-    if (oceanRef.current) {
-      const mat = oceanRef.current.material as THREE.MeshPhongMaterial
-      mat.opacity = 0.75 + Math.sin(clock.getElapsedTime() * 0.4) * 0.03
+  const atmoRef  = useRef<THREE.Mesh>(null)
+
+  useFrame(({ clock }, delta) => {
+    const t = clock.getElapsedTime()
+
+    // Ocean: propagate sun direction from scene directional light → Fresnel uniforms + caustics
+    let sunDir: THREE.Vector3 | undefined
+    let sunCol: THREE.Color   | undefined
+    scene.traverse((obj) => {
+      if ((obj as THREE.DirectionalLight).isDirectionalLight && !sunDir) {
+        const light = obj as THREE.DirectionalLight
+        sunDir = new THREE.Vector3()
+        light.getWorldDirection(sunDir).negate()
+        sunCol = light.color
+      }
+    })
+    oceanHandle.update(t, sunDir, sunCol)
+
+    // Drive caustic time on terrain (patched by applyOceanCaustics)
+    const causticUpdate = (terrainMat as unknown as Record<string, unknown>)._causticUpdate
+    if (typeof causticUpdate === 'function') {
+      (causticUpdate as (elapsed: number) => void)(t)
+    }
+
+    // Atmosphere: update sun direction uniform + smooth twilight opacity
+    if (atmoRef.current) {
+      updateAtmosphereUniforms(
+        atmoRef.current.material as THREE.ShaderMaterial,
+        dayAngleRef.current,
+        SUN_ORBIT_R_PT,
+        delta,
+      )
     }
   })
 
@@ -194,14 +312,14 @@ export function PlanetTerrain({ seed }: { seed: number }) {
       {/* Terrain */}
       <mesh geometry={terrainGeo} material={terrainMat} receiveShadow castShadow />
 
-      {/* Ocean surface */}
+      {/* Ocean surface — PBR Gerstner waves (M19 Track A) */}
       <mesh ref={oceanRef} geometry={oceanGeo} material={oceanMat} />
 
-      {/* Inner haze layer — softens the surface-to-sky transition */}
-      <mesh geometry={hazeGeo} material={hazeMat} />
-
-      {/* Outer atmosphere glow — visible as blue limb from ground */}
-      <mesh geometry={atmosphereGeo} material={atmosphereMat} />
+      {/* Atmosphere shell — Rayleigh+Mie scattering sky (M19 Track B)
+          BackSide render so the shader sees rays cast from inside the shell.
+          depthWrite=false avoids z-fighting with terrain at the horizon.
+          Opacity fades to zero at night, revealing NightSkyRenderer stars. */}
+      <mesh ref={atmoRef} geometry={atmosphereGeo} material={atmosphereMat} />
     </group>
   )
 }

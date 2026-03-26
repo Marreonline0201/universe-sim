@@ -44,6 +44,7 @@ import { initResourceTradingNetwork } from './game/ResourceTradingNetwork'
 import { initWorldHistoryCodex } from './game/WorldHistoryCodexSystem'
 import { initPlayerAchievementJournal } from './game/PlayerAchievementJournalSystem'
 import { initSettlementRelations } from './game/SettlementRelationsSystem'
+import { initRecipeBook } from './game/RecipeBookSystem'
 
 // ── M20: Lazy-load AdminPanel (dev/admin only) ──────────────────────────────
 const AdminPanel = lazy(() => import('./ui/AdminPanel').then(m => ({ default: m.AdminPanel })))
@@ -128,6 +129,7 @@ function DevGame() {
     initWorldHistoryCodex()
     initPlayerAchievementJournal()
     initSettlementRelations()
+    initRecipeBook()
   }, [])
 
   return (
@@ -217,6 +219,7 @@ function GameWithSave() {
     initWorldHistoryCodex()
     initPlayerAchievementJournal()
     initSettlementRelations()
+    initRecipeBook()
   }, [])
 
   // Load save on first sign-in

@@ -52,6 +52,7 @@ import { serializeScheduler, deserializeScheduler } from './WorldEventSchedulerS
 import { serializeCodex, deserializeCodex } from './WorldHistoryCodexSystem'
 import { serializeAchievementJournal, deserializeAchievementJournal } from './PlayerAchievementJournalSystem'
 import { serializeRelations, deserializeRelations } from './SettlementRelationsSystem'
+import { serializeRecipeBook, deserializeRecipeBook, type RecipeBookSaveData } from './RecipeBookSystem'
 import { Health, Metabolism, Position } from '../ecs/world'
 import { rapierWorld } from '../physics/RapierWorld'
 import { PLANET_RADIUS } from '../world/SpherePlanet'
@@ -190,6 +191,7 @@ export async function saveOffline(): Promise<boolean> {
       worldHistoryCodex: serializeCodex(),
       achievementJournal: serializeAchievementJournal(),
       settlementRelations: serializeRelations(),
+      recipeBook: serializeRecipeBook(),
     })
     const meta = JSON.stringify({
       timestamp: Date.now(),
@@ -466,6 +468,11 @@ export async function loadOffline(): Promise<boolean> {
     // M67 Track C: Restore settlement relations
     if (state.settlementRelations) {
       deserializeRelations(state.settlementRelations)
+    }
+
+    // M68 Track A: Restore recipe book
+    if (state.recipeBook) {
+      deserializeRecipeBook(state.recipeBook as RecipeBookSaveData)
     }
 
     // Restore position

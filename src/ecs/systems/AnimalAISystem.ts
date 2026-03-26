@@ -27,6 +27,7 @@ import * as THREE from 'three'
 import { terrainHeightAt, PLANET_RADIUS } from '../../world/SpherePlanet'
 import { GenomeEncoder, type Genome } from '../../biology/GenomeEncoder'
 import { MutationEngine } from '../../biology/MutationEngine'
+import { applyBoidRules } from '../../ai/FlockingSystem'
 
 // ── Genome decoder (singleton, allocation-free per-frame) ─────────────────────
 const _encoder = new GenomeEncoder()
@@ -61,7 +62,7 @@ export interface AnimalGenomePhenotype {
 
 // ── Enums ─────────────────────────────────────────────────────────────────────
 
-export type AnimalSpecies = 'deer' | 'wolf' | 'boar'
+export type AnimalSpecies = 'deer' | 'wolf' | 'boar' | 'bird'
 
 export type AnimalBehavior =
   | 'GRAZING'
@@ -72,6 +73,8 @@ export type AnimalBehavior =
   | 'ROAMING'
   | 'CHARGING'
   | 'AGGRO'    // M24: retaliation state — wolves/boars chase attacker
+  | 'FLOCKING' // M25: bird/deer coordinated group movement
+  | 'SCATTER'  // M25: deer scatter after wolf/player threat, regroup after scatterTimer
   | 'DEAD'
 
 // ── Data types ─────────────────────────────────────────────────────────────────
@@ -95,13 +98,19 @@ export interface AnimalEntity {
   maxHealth: number
 
   // Species-specific state
-  packId: number       // wolves only — shared patrol center index
+  packId: number       // wolves + birds: shared group index
   chargeTimer: number  // boar: seconds remaining in current charge
   stateTimer: number   // general purpose state duration timer
   wanderTimer: number  // seconds until direction change
   deadTimer: number    // seconds since death (despawn at 120)
 
-  // For wolf pack patrol: shared patrol center
+  // M25: deer scatter/regroup timer (seconds until regroup after scattering)
+  scatterTimer: number
+
+  // M25: birds — figure-eight patrol phase angle (radians)
+  flightPhase: number
+
+  // For wolf pack patrol / bird flock: shared center
   patrolCx: number
   patrolCy: number
   patrolCz: number
@@ -143,6 +152,7 @@ const AGGRO_DISENGAGE_DIST = 50  // disengage if player >50m away
 const CAP_DEER  = 20
 const CAP_WOLF  = 8
 const CAP_BOAR  = 10
+// CAP_BIRD defined with bird constants below
 
 // Behavior constants
 const DEER_FLEE_RADIUS       = 25   // m — normal flee trigger
@@ -167,6 +177,23 @@ const BOAR_CHARGE_SPEED      = 9.0  // m/s
 const BOAR_ROAM_SPEED        = 1.5  // m/s
 const BOAR_CHARGE_DURATION   = 5    // s
 const BOAR_DAMAGE            = 12   // HP per ram
+
+// M25: Deer herd behaviour
+const DEER_HERD_SIZE_MIN     = 3    // minimum herd size to enable flocking
+const DEER_HERD_SIZE_MAX     = 6    // maximum herd (groups cluster by packId)
+const DEER_WOLF_ALERT_RADIUS = 15   // m — detect wolf, scatter herd
+const DEER_SCATTER_DURATION  = 10   // s — scatter then regroup
+const DEER_SCATTER_SPEED     = 8.0  // m/s — scatter burst speed
+
+// M25: Bird flock behaviour
+const BIRD_FLOCK_MIN         = 8    // minimum birds per flock
+const BIRD_FLOCK_MAX         = 15   // maximum birds per flock
+const CAP_BIRD               = 30   // population cap
+const BIRD_ALTITUDE          = 40   // m above terrain
+const BIRD_SPEED             = 12.0 // m/s cruise
+const BIRD_FIGURE8_RADIUS    = 80   // m — half-width of figure-eight patrol
+const BIRD_TIGHTEN_RADIUS    = 30   // m — player proximity tightens formation
+const BIRD_TIGHTEN_FACTOR    = 0.4  // scale boid radii when tightening
 
 // Material IDs (must match Inventory.ts MAT constants)
 const MAT_RAW_MEAT   = 42
@@ -300,12 +327,14 @@ export function spawnAnimal(
   const maxHp = phenotype ? phenotype.maxHealth
               : species === 'deer' ? 40
               : species === 'wolf' ? 30
+              : species === 'bird' ? 10
               : 60  // boar
 
   const animal: AnimalEntity = {
     id, species,
     behavior: species === 'deer' ? 'GRAZING'
             : species === 'wolf' ? 'PATROLLING'
+            : species === 'bird' ? 'FLOCKING'
             : 'ROAMING',
     x, y, z,
     vx: 0, vy: 0, vz: 0,
@@ -313,6 +342,8 @@ export function spawnAnimal(
     packId, chargeTimer: 0, stateTimer: 0,
     wanderTimer: 1 + Math.random() * 4,
     deadTimer: 0,
+    scatterTimer: 0,
+    flightPhase: Math.random() * Math.PI * 2,
     patrolCx, patrolCy, patrolCz,
     phenotype,
   }
@@ -409,12 +440,23 @@ export function spawnInitialAnimals(
     return null
   }
 
-  // ── Deer: 10 initial (cap 20) ─────────────────────────────────────────────
-  for (let i = 0; i < 10; i++) {
-    const pos = randomSurfacePos(80, 400)
-    if (!pos) continue
-    const genome = generateSpeciesGenome('deer', rand)
-    spawnAnimal('deer', pos[0], pos[1], pos[2], 0, pos[0], pos[1], pos[2], genome)
+  // ── Deer: 3 herds of 3-4 each (packId per herd, cap 20) ─────────────────
+  // M25: Deer now spawn in named herds so boid rules can group same-packId
+  for (let herd = 0; herd < 3; herd++) {
+    const center = randomSurfacePos(80, 400)
+    if (!center) continue
+    const [hcx, hcy, hcz] = center
+    const herdSize = 3 + Math.floor(rand() * 2)  // 3-4 per herd
+    for (let i = 0; i < herdSize; i++) {
+      // Spread herd members within 20m of center
+      const angle  = rand() * Math.PI * 2
+      const spread = 5 + rand() * 15
+      const nx = hcx + Math.cos(angle) * spread
+      const nz = hcz + Math.sin(angle) * spread
+      const projected = projectOntoSurface(nx, hcy, nz, 1.0)
+      const genome = generateSpeciesGenome('deer', rand)
+      spawnAnimal('deer', projected[0], projected[1], projected[2], herd, hcx, hcy, hcz, genome)
+    }
   }
 
   // ── Wolves: 4 initial in 2 packs of 2 ────────────────────────────────────
@@ -440,6 +482,29 @@ export function spawnInitialAnimals(
     if (!pos) continue
     const genome = generateSpeciesGenome('boar', rand)
     spawnAnimal('boar', pos[0], pos[1], pos[2], 0, pos[0], pos[1], pos[2], genome)
+  }
+
+  // ── Birds: 2 flocks of 8-10 each (M25) ───────────────────────────────────
+  // Birds patrol figure-eight paths high above the terrain.
+  // packId is the flock index so boid rules group same-flock birds.
+  for (let flock = 0; flock < 2; flock++) {
+    const center = randomSurfacePos(150, 500)
+    if (!center) continue
+    const [bcx, bcy, bcz] = center
+    const flockSize = BIRD_FLOCK_MIN + Math.floor(rand() * (BIRD_FLOCK_MAX - BIRD_FLOCK_MIN + 1))
+    for (let i = 0; i < flockSize; i++) {
+      // Spread birds within 15m of flock center at BIRD_ALTITUDE above terrain
+      const angle  = rand() * Math.PI * 2
+      const spread = 5 + rand() * 10
+      const bx = bcx + Math.cos(angle) * spread
+      const bz = bcz + Math.sin(angle) * spread
+      // Elevate to bird altitude
+      const len = Math.sqrt(bx * bx + bcy * bcy + bz * bz)
+      const nx = bx / len, ny = bcy / len, nz = bz / len
+      const birdR = PLANET_RADIUS + BIRD_ALTITUDE
+      const birdX = nx * birdR, birdY = ny * birdR, birdZ = nz * birdR
+      spawnAnimal('bird', birdX, birdY, birdZ, flock + 100, bcx, bcy, bcz)
+    }
   }
 }
 
@@ -470,10 +535,13 @@ export function tickAnimalAI(ctx: AnimalTickContext): void {
 
   const toDelete: number[] = []
   const deerPositions: AnimalEntity[] = []
+  const birdPositions: AnimalEntity[] = []
 
-  // Collect live deer for flocking
+  // Collect live deer and birds for flocking calculations
   for (const a of animalRegistry.values()) {
-    if (a.species === 'deer' && a.behavior !== 'DEAD') deerPositions.push(a)
+    if (a.behavior === 'DEAD') continue
+    if (a.species === 'deer') deerPositions.push(a)
+    if (a.species === 'bird') birdPositions.push(a)
   }
 
   for (const animal of animalRegistry.values()) {
@@ -490,10 +558,25 @@ export function tickAnimalAI(ctx: AnimalTickContext): void {
       case 'deer': tickDeer(animal, ctx, deerPositions); break
       case 'wolf': tickWolf(animal, ctx, deerPositions, onPlayerDamaged); break
       case 'boar': tickBoar(animal, ctx, onPlayerDamaged); break
+      case 'bird': tickBird(animal, ctx, birdPositions); break
     }
 
-    // Clamp position to surface after movement (animal is live — DEAD path continues early above)
-    {
+    // Clamp position to surface after movement — birds float at altitude, others walk terrain
+    if (species === 'bird') {
+      // Birds: keep above terrain at BIRD_ALTITUDE; don't clamp to ground
+      const len = Math.sqrt(animal.x * animal.x + animal.y * animal.y + animal.z * animal.z)
+      if (len > 1) {
+        const nx = animal.x / len, ny = animal.y / len, nz = animal.z / len
+        const dir = new THREE.Vector3(nx, ny, nz)
+        const h = Math.max(0, terrainHeightAt(dir))
+        const targetR = PLANET_RADIUS + h + BIRD_ALTITUDE
+        // Gently drift toward target altitude
+        const currentR = len
+        const rDelta = (targetR - currentR) * 2 * dt
+        const newR = currentR + rDelta
+        animal.x = nx * newR; animal.y = ny * newR; animal.z = nz * newR
+      }
+    } else {
       const size = species === 'deer' ? 1.0 : species === 'wolf' ? 0.7 : 1.2
       const [sx, sy, sz] = projectOntoSurface(animal.x, animal.y, animal.z, size)
       if (sy > 0) {
@@ -536,6 +619,28 @@ function tickDeer(
     )
   }
 
+  // ── M25: Wolf proximity detection — scatter the whole herd ───────────────
+  // Check for nearby wolves (predator threat triggers coordinated scatter)
+  if (a.behavior === 'GRAZING' || a.behavior === 'FLOCKING') {
+    for (const other of animalRegistry.values()) {
+      if (other.species !== 'wolf' || other.behavior === 'DEAD') continue
+      const wx = other.x - a.x, wy = other.y - a.y, wz = other.z - a.z
+      const wolfDist = Math.sqrt(wx * wx + wy * wy + wz * wz)
+      if (wolfDist < DEER_WOLF_ALERT_RADIUS) {
+        // Scatter this deer and nearby herd-mates (same packId)
+        a.behavior = 'SCATTER'
+        a.scatterTimer = DEER_SCATTER_DURATION
+        a.stateTimer = 0
+        // Pick random scatter direction away from wolf
+        const angle = Math.random() * Math.PI * 2
+        const scatterSpeed = DEER_SCATTER_SPEED * speedMult
+        a.vx = Math.cos(angle) * scatterSpeed
+        a.vz = Math.sin(angle) * scatterSpeed
+        break
+      }
+    }
+  }
+
   // ── State transitions ─────────────────────────────────────────────────────
   if (a.behavior === 'GRAZING' && playerDist < fleeRadius) {
     a.behavior = 'FLEEING'
@@ -543,15 +648,28 @@ function tickDeer(
   } else if (a.behavior === 'FLEEING' && playerDist > DEER_STOP_FLEE_RADIUS) {
     a.behavior = 'GRAZING'
     a.stateTimer = 0
+  } else if (a.behavior === 'SCATTER') {
+    a.scatterTimer -= dt
+    if (a.scatterTimer <= 0) {
+      // Regroup: return to flocking with herd-mates
+      a.behavior = 'FLOCKING'
+      a.stateTimer = 0
+    }
+  } else if (a.behavior === 'FLOCKING' && playerDist < fleeRadius) {
+    a.behavior = 'FLEEING'
+    a.stateTimer = 0
+  } else if (a.behavior === 'FLEEING' && playerDist > DEER_STOP_FLEE_RADIUS) {
+    a.behavior = 'FLOCKING'
+    a.stateTimer = 0
   }
 
-  // ── Grazing movement ──────────────────────────────────────────────────────
-  // Behavior tier 0 (reflex): pure wander only, no flocking, no flee awareness
+  // ── Behavior tier (reflex-only: pure wander, no flocking) ────────────────
   const behaviorTier = a.phenotype?.behaviorTier ?? 1
+
+  // ── GRAZING: slow wander with legacy partial flocking ────────────────────
   if (a.behavior === 'GRAZING') {
     a.wanderTimer -= dt
     if (a.wanderTimer <= 0) {
-      // Pick random tangent-plane direction
       const angle = Math.random() * Math.PI * 2
       const grazeSpeed = DEER_SPEED_GRAZE * speedMult
       a.vx = Math.cos(angle) * grazeSpeed
@@ -560,10 +678,8 @@ function tickDeer(
       a.wanderTimer = 3 + Math.random() * 5
     }
 
-    // ── Reynolds flocking: cohesion toward 3 nearest deer ────────────────
-    // Tier 0 creatures (reflex only) don't flock — they just wander
+    // Tier 0 (reflex only): pure wander, no flocking
     if (behaviorTier < 1) {
-      // Simple wander: just clamp speed
       const grazeSpeedClamped = DEER_SPEED_GRAZE * speedMult
       const spd0 = Math.sqrt(a.vx * a.vx + a.vz * a.vz)
       if (spd0 > grazeSpeedClamped) {
@@ -575,36 +691,13 @@ function tickDeer(
       a.z += a.vz * dt
       return
     }
-    let cx = 0, cy = 0, cz = 0, count = 0
-    for (const other of allDeer) {
-      if (other.id === a.id) continue
-      const dx = other.x - a.x, dy = other.y - a.y, dz = other.z - a.z
-      const d  = Math.sqrt(dx * dx + dy * dy + dz * dz)
-      if (d < DEER_FLOCK_RADIUS && d > 0.1) {
-        cx += dx / d; cy += dy / d; cz += dz / d
-        count++
-        if (count >= 3) break
-      }
-    }
-    if (count > 0) {
-      // Gently steer toward centroid
-      a.vx += (cx / count) * 0.3 * dt
-      a.vz += (cz / count) * 0.3 * dt
-    }
 
-    // Separation: avoid getting too close to other deer
-    for (const other of allDeer) {
-      if (other.id === a.id) continue
-      const dx = a.x - other.x, dy = a.y - other.y, dz = a.z - other.z
-      const d2 = dx * dx + dy * dy + dz * dz
-      if (d2 < 16) {  // 4m personal space
-        const d = Math.sqrt(d2) + 0.001
-        a.vx += (dx / d) * 0.8
-        a.vz += (dz / d) * 0.8
-      }
-    }
+    // Tier 1+: apply full boid rules from FlockingSystem
+    const sameHerd = allDeer.filter(d => d.packId === a.packId && d.id !== a.id)
+    const boidDelta = applyBoidRules(a, sameHerd)
+    a.vx += boidDelta.dvx * dt * 0.5
+    a.vz += boidDelta.dvz * dt * 0.5
 
-    // Clamp to walk speed (genome-scaled)
     const grazeSpeedMax = DEER_SPEED_GRAZE * speedMult
     const spd = Math.sqrt(a.vx * a.vx + a.vz * a.vz)
     if (spd > grazeSpeedMax) {
@@ -613,7 +706,58 @@ function tickDeer(
     }
   }
 
-  // ── Fleeing movement: run directly away from player ───────────────────────
+  // ── FLOCKING: full Reynolds boid herd movement ────────────────────────────
+  if (a.behavior === 'FLOCKING') {
+    // Only flock with deer in same pack (herd group)
+    const sameHerd = allDeer.filter(d => d.packId === a.packId && d.id !== a.id)
+
+    if (sameHerd.length >= DEER_HERD_SIZE_MIN - 1) {
+      const boidDelta = applyBoidRules(a, sameHerd)
+      a.vx += boidDelta.dvx * dt
+      a.vz += boidDelta.dvz * dt
+    } else {
+      // Herd too small — wander toward nearest deer regardless of pack
+      a.wanderTimer -= dt
+      if (a.wanderTimer <= 0) {
+        const angle = Math.random() * Math.PI * 2
+        const grazeSpeed = DEER_SPEED_GRAZE * speedMult
+        a.vx = Math.cos(angle) * grazeSpeed
+        a.vz = Math.sin(angle) * grazeSpeed
+        a.wanderTimer = 3 + Math.random() * 5
+      }
+    }
+
+    const flockSpeedMax = DEER_SPEED_GRAZE * speedMult * 1.2
+    const flockSpd = Math.sqrt(a.vx * a.vx + a.vz * a.vz)
+    if (flockSpd > flockSpeedMax) {
+      a.vx = (a.vx / flockSpd) * flockSpeedMax
+      a.vz = (a.vz / flockSpd) * flockSpeedMax
+    }
+  }
+
+  // ── SCATTER: burst away for DEER_SCATTER_DURATION, then regroup ───────────
+  if (a.behavior === 'SCATTER') {
+    // Maintain scatter velocity — boid separation pushes herd-mates apart
+    const sameHerd = allDeer.filter(d => d.packId === a.packId && d.id !== a.id)
+    // Only apply separation rule during scatter (push apart, not cohesion)
+    for (const other of sameHerd) {
+      const dx = a.x - other.x, dz = a.z - other.z
+      const d2 = dx * dx + dz * dz
+      if (d2 < 25 && d2 > 0.001) {
+        const d = Math.sqrt(d2)
+        a.vx += (dx / d) * 2.0
+        a.vz += (dz / d) * 2.0
+      }
+    }
+    const scatterSpeedMax = DEER_SCATTER_SPEED * speedMult
+    const scatterSpd = Math.sqrt(a.vx * a.vx + a.vz * a.vz)
+    if (scatterSpd > scatterSpeedMax) {
+      a.vx = (a.vx / scatterSpd) * scatterSpeedMax
+      a.vz = (a.vz / scatterSpd) * scatterSpeedMax
+    }
+  }
+
+  // ── FLEEING: run directly away from player ────────────────────────────────
   if (a.behavior === 'FLEEING') {
     if (playerDist > 0.1) {
       const invD = 1 / playerDist
@@ -625,6 +769,69 @@ function tickDeer(
   }
 
   // ── Apply velocity ────────────────────────────────────────────────────────
+  a.x += a.vx * dt
+  a.y += a.vy * dt
+  a.z += a.vz * dt
+}
+
+// ── Bird AI ───────────────────────────────────────────────────────────────────
+// M25: Birds flock at altitude in figure-eight patrol paths, tighten formation
+// when the player approaches within BIRD_TIGHTEN_RADIUS.
+
+function tickBird(
+  a: AnimalEntity,
+  ctx: AnimalTickContext,
+  allBirds: AnimalEntity[],
+): void {
+  const { dt, playerX, playerY, playerZ } = ctx
+
+  // Player proximity — tighten formation
+  const dpx = playerX - a.x
+  const dpy = playerY - a.y
+  const dpz = playerZ - a.z
+  const playerDist = Math.sqrt(dpx * dpx + dpy * dpy + dpz * dpz)
+  const tightening = playerDist < BIRD_TIGHTEN_RADIUS ? BIRD_TIGHTEN_FACTOR : 1.0
+
+  // ── Figure-eight patrol target ────────────────────────────────────────────
+  // Lissajous figure-eight: x = R·sin(t), z = R·sin(2t) centered on patrolCx/Cz
+  a.flightPhase += dt * 0.3  // angular speed: one loop ~21s
+  const t = a.flightPhase
+  const figR = BIRD_FIGURE8_RADIUS * tightening
+  const targetX = a.patrolCx + figR * Math.sin(t)
+  const targetZ = a.patrolCz + figR * Math.sin(2 * t) * 0.5
+  const targetY = a.patrolCy  // altitude maintained by outer loop
+
+  // Direction toward figure-eight waypoint
+  const wtx = targetX - a.x
+  const wty = targetY - a.y
+  const wtz = targetZ - a.z
+  const wtDist = Math.sqrt(wtx * wtx + wty * wty + wtz * wtz)
+
+  if (wtDist > 1) {
+    const invD = 1 / wtDist
+    a.vx = wtx * invD * BIRD_SPEED
+    a.vy = wty * invD * BIRD_SPEED * 0.3  // gentle vertical adjustment
+    a.vz = wtz * invD * BIRD_SPEED
+  }
+
+  // ── Apply boid rules within same flock (packId) ───────────────────────────
+  const sameFlock = allBirds.filter(b => b.packId === a.packId && b.id !== a.id)
+  if (sameFlock.length > 0) {
+    const boidDelta = applyBoidRules(a, sameFlock)
+    // Scale separation/cohesion radii by tightening factor: formation tightens near player
+    a.vx += boidDelta.dvx * dt * tightening
+    a.vy += boidDelta.dvy * dt * tightening * 0.3
+    a.vz += boidDelta.dvz * dt * tightening
+  }
+
+  // Clamp to cruise speed
+  const spd = Math.sqrt(a.vx * a.vx + a.vy * a.vy + a.vz * a.vz)
+  if (spd > BIRD_SPEED) {
+    const invSpd = BIRD_SPEED / spd
+    a.vx *= invSpd; a.vy *= invSpd; a.vz *= invSpd
+  }
+
+  // Apply velocity
   a.x += a.vx * dt
   a.y += a.vy * dt
   a.z += a.vz * dt
@@ -976,6 +1183,8 @@ const ANIMAL_LOOT: Record<AnimalSpecies, AnimalKillLoot[]> = {
     { materialId: MAT_RAW_MEAT,  quantity: 3, label: 'Raw Meat' },
     { materialId: MAT_BOAR_TUSK, quantity: 1, label: 'Boar Tusk' },
   ],
+  // Birds are not directly attackable in normal gameplay; empty loot table
+  bird: [],
 }
 
 /**
@@ -1132,6 +1341,7 @@ export function tickEcosystemBalance(
   const deerCount = countSpecies('deer')
   const wolfCount = countSpecies('wolf')
   const boarCount = countSpecies('boar')
+  const birdCount = countSpecies('bird')
 
   if (deerCount < CAP_DEER * 0.5) {
     const pos = randPos(200, 600)
@@ -1154,6 +1364,16 @@ export function tickEcosystemBalance(
       spawnAnimal('boar', pos[0], pos[1], pos[2], 0, pos[0], pos[1], pos[2], genome)
     }
   }
+  // M25: Birds respawn into existing flock — no genome (birds don't evolve)
+  if (birdCount < CAP_BIRD * 0.5) {
+    const pos = randPos(150, 500)
+    if (pos) {
+      const len = Math.sqrt(pos[0] * pos[0] + pos[1] * pos[1] + pos[2] * pos[2])
+      const nx = pos[0] / len, ny = pos[1] / len, nz = pos[2] / len
+      const birdR = PLANET_RADIUS + BIRD_ALTITUDE
+      spawnAnimal('bird', nx * birdR, ny * birdR, nz * birdR, 100, pos[0], pos[1], pos[2])
+    }
+  }
 }
 
 // ── M24: Tick respawn queue (call from GameLoop each frame) ─────────────────
@@ -1167,6 +1387,7 @@ export function tickRespawnQueue(dt: number): void {
       const count = countSpecies(entry.species)
       const cap = entry.species === 'deer' ? CAP_DEER
                 : entry.species === 'wolf' ? CAP_WOLF
+                : entry.species === 'bird' ? CAP_BIRD
                 : CAP_BOAR
       if (count < cap) {
         spawnAnimal(

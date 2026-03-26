@@ -533,7 +533,7 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
 
     // M41 Track B: Mount and riding system
     {
-      if (gs.inputBlocked) {
+      if (useGameStore.getState().inputBlocked) {
         // Clear any pending R key while UI is open so it doesn't fire on panel close
         controllerRef.current?.popMount()
       } else {

@@ -196,7 +196,7 @@ const ICON_BUTTONS: Array<{ id: PanelId; icon: string; hint: string }> = [
   { id: 'threats',       icon: '⚠️',   hint: 'World Threats (A)' },
   { id: 'factionstanding', icon: '🌟',  hint: 'Faction Standing (6)' },
   { id: 'recipescan',      icon: '🔍',  hint: 'Recipe Scanner (7)' },
-  { id: 'codex',           icon: '📖',  hint: 'Codex' },
+  { id: 'codex',           icon: '📖',  hint: 'Codex (0)' },
   { id: 'showcase',        icon: '🏅',  hint: 'Showcase (9)' },
   { id: 'science',         icon: ' ? ', hint: 'Science Companion (?)' },
   { id: 'settings',    icon: 'SET',  hint: 'Settings (Esc)' },
@@ -325,6 +325,8 @@ export function SidebarShell() {
           e.preventDefault(); togglePanel('npcschedule'); break
         case '9':
           e.preventDefault(); togglePanel('showcase'); break
+        case '0':
+          e.preventDefault(); togglePanel('codex'); break
         case '1': case '2': case '3': case '4':
           if (!document.pointerLockElement) break  // only when in-game (pointer locked)
           if (activePanel !== null) break

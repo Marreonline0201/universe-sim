@@ -232,6 +232,8 @@ import { tickTradeRoutes } from './TradeRouteSystem'
 import { checkAndUpdateMilestones } from './AchievementShowcaseSystem'
 // M57 Track C: Weather gather multiplier
 import { getWeatherGatherMult } from './WeatherEffectsSystem'
+// M58 Track C: Pet advancement
+import { addPetXp } from './PetAdvancementSystem'
 
 // Register skill system with offline save manager for serialization
 registerSkillSystem(skillSystem)
@@ -328,6 +330,7 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
   const factionWarTimerRef      = useRef(0)  // seconds since last war check (fires every 60s)
   const factionHealTimerRef     = useRef(0)  // seconds since last settlement health tick (every 60s)
   const showcaseTimerRef        = useRef(0)  // M57 Track A: seconds since last milestone check (every 30s)
+  const petXpTimerRef           = useRef(0)  // M58 Track C: pet XP award every 30s
   // M36 Track B: Dungeon room tracking
   const dungeonRoomCheckRef     = useRef(0)  // seconds since last dungeon room respawn check (every 30s)
   const puzzleResetCheckRef     = useRef<Record<string, number>>({}) // roomId → reset timestamp
@@ -3249,6 +3252,13 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
     if (showcaseTimerRef.current >= 30) {
       showcaseTimerRef.current = 0
       checkAndUpdateMilestones()
+    }
+
+    // ── M58 Track C: Pet XP award (every 30s when pet is active) ─────────────
+    petXpTimerRef.current += dt
+    if (petXpTimerRef.current >= 30) {
+      petXpTimerRef.current = 0
+      addPetXp(10)
     }
 
     // ── M24: Tutorial system tick ───────────────────────────────────────────

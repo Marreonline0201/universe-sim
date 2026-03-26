@@ -65,10 +65,8 @@ export function claimMilestone(id: string): boolean {
   // Award gold
   usePlayerStore.getState().addGold(m.reward.gold)
 
-  // Award skill XP if applicable
-  if (m.reward.skill) {
-    skillSystem.addXp(m.reward.skill as SkillId, m.reward.xp)
-  }
+  // Award skill XP — use specified skill or fall back to 'survival' as general XP
+  skillSystem.addXp((m.reward.skill ?? 'survival') as SkillId, m.reward.xp)
 
   m.claimed = true
   window.dispatchEvent(new CustomEvent('milestone-claimed', { detail: { milestone: { ...m, reward: { ...m.reward } } } }))

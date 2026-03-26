@@ -31,6 +31,7 @@ import { serializeNodes, deserializeNodes } from './ResourceDepletionSystem'
 import { serializeLore, deserializeLore } from './LoreSystem'
 import { serializeMilestones, deserializeMilestones } from './AchievementShowcaseSystem'
 import { serializeUpgrades, deserializeUpgrades } from './HousingUpgradeSystem'
+import { serializePet, deserializePet } from './PetAdvancementSystem'
 import { Health, Metabolism, Position } from '../ecs/world'
 import { rapierWorld } from '../physics/RapierWorld'
 import { PLANET_RADIUS } from '../world/SpherePlanet'
@@ -148,6 +149,7 @@ export async function saveOffline(): Promise<boolean> {
       achievementShowcase: serializeMilestones(),
       loreCodex: serializeLore(),
       housingUpgrades: serializeUpgrades(),
+      petAdvancement: serializePet(),
     })
     const meta = JSON.stringify({
       timestamp: Date.now(),
@@ -319,6 +321,11 @@ export async function loadOffline(): Promise<boolean> {
     // M58 Track A: Restore housing upgrade tree
     if (state.housingUpgrades) {
       deserializeUpgrades(state.housingUpgrades)
+    }
+
+    // M58 Track C: Restore pet advancement state
+    if (state.petAdvancement) {
+      deserializePet(state.petAdvancement)
     }
 
     // Restore position

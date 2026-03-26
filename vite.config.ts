@@ -9,6 +9,12 @@ export default defineConfig({
     format: 'es',
     plugins: () => [wasm(), topLevelAwait()],
   },
+  resolve: {
+    // Force all packages to share a single React instance.
+    // Without this, @clerk bundles its own React copy in production,
+    // causing React error #185 (max update depth) and "removeChild: not a child" crashes.
+    dedupe: ['react', 'react-dom', 'react/jsx-runtime', 'react/jsx-dev-runtime'],
+  },
   optimizeDeps: {
     exclude: ['@dimforge/rapier3d-compat'],
   },

@@ -20,6 +20,13 @@ import { useDiplomacyStore } from '../store/diplomacyStore'
 import { receiveRadioBroadcast, registerTower } from '../game/RadioSystem'
 import { useVelarStore } from '../store/velarStore'
 import { generateProbeResult, SYSTEM_PLANETS } from '../game/OrbitalMechanicsSystem'
+// M37 Track A: World events
+import {
+  triggerWorldEvent,
+  expireWorldEvent,
+  updateEventParticipants,
+  type WorldEventType,
+} from '../game/WorldEventSystem'
 
 // Module-level reference to the active LocalSimManager.
 // Set by SceneRoot after the sim grid initialises.
@@ -853,6 +860,26 @@ export class WorldSocket {
           `${username as string} spoke with the Velar and learned the purpose of the Lattice.`,
           'discovery'
         )
+        break
+      }
+
+      // ── M37 Track A: World events ─────────────────────────────────────────────
+
+      case 'WORLD_EVENT_START': {
+        // Server broadcast: a new world event has started
+        triggerWorldEvent(msg.eventType as WorldEventType | undefined)
+        break
+      }
+
+      case 'WORLD_EVENT_END': {
+        // Server broadcast: world event expired
+        expireWorldEvent(msg.eventId as string | undefined)
+        break
+      }
+
+      case 'WORLD_EVENT_PROGRESS': {
+        // Server broadcast: participant count updated
+        updateEventParticipants(msg.eventId as string, msg.participantCount as number)
         break
       }
 

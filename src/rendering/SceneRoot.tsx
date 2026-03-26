@@ -58,6 +58,8 @@ import { spawnInitialCreatures } from '../ecs/systems/CreatureSpawner'
 import { GameLoop } from '../game/GameLoop'
 // M34 Track A: Player home cabin renderer
 import { PlayerHomeRenderer } from './PlayerHomeRenderer'
+// M37 Track A: World event 3-D visuals
+import { WorldEventRenderer } from './WorldEventRenderer'
 
 // M10 Track A: Seasonal terrain pass
 import { SeasonalTerrainPass } from './SeasonalTerrainPass'
@@ -577,6 +579,8 @@ export function SceneRoot() {
             <TamedAnimalOverlay />
             {/* M14 Track A: Destination planet — shown when transit phase === 'arrived' */}
             <DestinationPlanetMeshWrapper />
+            {/* M37 Track A: World event visuals — beacon, crater, ruins, migration, faction war */}
+            <WorldEventRenderer />
             {/* M29 Track A: Underground cave system — entrances, tunnels, ore, bioluminescent lighting */}
             <CaveEntrances />
             <CaveTunnelRenderer />

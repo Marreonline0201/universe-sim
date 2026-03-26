@@ -140,6 +140,11 @@ import {
   CAVE_BOSS,
   type DungeonRoom,
 } from './DungeonSystem'
+// M37 Track A: World event participation
+import { currentWorldEvent, completeWorldEvent } from './WorldEventSystem'
+// M37 Track C: Player stats tracking + title check
+import { usePlayerStatsStore } from '../store/playerStatsStore'
+import { checkNewTitles } from './TitleSystem'
 
 // Register skill system with offline save manager for serialization
 registerSkillSystem(skillSystem)
@@ -224,6 +229,8 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
   // M36 Track B: Dungeon room tracking
   const dungeonRoomCheckRef     = useRef(0)  // seconds since last dungeon room respawn check (every 30s)
   const puzzleResetCheckRef     = useRef<Record<string, number>>({}) // roomId → reset timestamp
+  // M37 Track A: World event completion tracking
+  const worldEventCompletedRef  = useRef<string | null>(null)  // eventId that was completed this session
 
   useFrame((_, delta) => {
     // Cap dt to avoid spiral-of-death on slow frames
@@ -384,6 +391,45 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
     const py = Position.y[entityId]
     const pz = Position.z[entityId]
     setPosition(px, py, pz)
+
+    // ── M37 Track A: World event proximity / participation ────────────────────
+    {
+      const ev = currentWorldEvent
+      if (ev && ev.active && ev.id !== worldEventCompletedRef.current) {
+        const [ex, ey, ez] = ev.position
+        const dx = px - ex, dy = py - ey, dz = pz - ez
+        const dist2 = dx * dx + dy * dy + dz * dz
+        let completed = false
+
+        if (ev.type === 'treasure_hunt' && dist2 < 25) {          // 5m
+          completed = true
+        } else if (ev.type === 'meteor_impact' && dist2 < 64) {   // 8m — gather crater resources
+          completed = true
+        } else if (ev.type === 'migration' && dist2 < 400) {      // 20m — near herd
+          // Check if any tamed animal is within 30m of player (taming happened nearby)
+          let hasTamedNearby = false
+          for (const [, aData] of animalRegistry) {
+            if ((aData as {tamed?: boolean}).tamed) { hasTamedNearby = true; break }
+          }
+          if (hasTamedNearby) completed = true
+        } else if (ev.type === 'ancient_ruins' && dist2 < 9 && controllerRef.current?.popInteract()) { // 3m + E
+          completed = true
+        } else if (ev.type === 'faction_war' && dist2 < 225) {    // 15m — in the battle zone
+          completed = true
+        }
+
+        if (completed) {
+          worldEventCompletedRef.current = ev.id
+          completeWorldEvent(ev.id, 'local')
+          // Grant XP via skillSystem
+          skillSystem.addXp('combat', ev.rewards.xp)
+          // Grant gold
+          usePlayerStore.getState().addGold?.(ev.rewards.gold)
+          // Notify server
+          getWorldSocket()?.send({ type: 'WORLD_EVENT_COMPLETE', eventId: ev.id })
+        }
+      }
+    }
 
     // M29 Track C4: Inspect remote player — F within 3m, prioritised over gather
     {
@@ -552,6 +598,9 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
           }
           // M22: Gathering XP (10-30 based on ore vs basic)
           skillSystem.addXp('gathering', isOre ? 25 : 15)
+          // M37 Track C: Track gather stat
+          usePlayerStatsStore.getState().incrementStat('resourcesGathered', qty)
+          checkNewTitles()
           // M23: Quest progress on gather
           questSystem.onGather(nearNode.matId, qty)
           // M33: Settlement quest board progress on gather
@@ -1425,6 +1474,9 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
               // M24: Achievement progress on kill
               achievementSystem.onKill(killed.species)
               achievementSystem.onDealDamage(effectiveDamage)
+              // M37 Track C: Track kill stat + check titles
+              usePlayerStatsStore.getState().incrementStat('killCount')
+              checkNewTitles()
             } else {
               useUiStore.getState().addNotification(
                 `Hit animal for ${Math.round(effectiveDamage)} dmg!`, 'warning'

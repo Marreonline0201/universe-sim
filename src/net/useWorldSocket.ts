@@ -8,6 +8,11 @@ import { useAuth } from '@clerk/react'
 import { useUser } from '@clerk/react'
 import { WorldSocket } from './WorldSocket'
 import { usePlayerStore } from '../store/playerStore'
+import { useSkillStore } from '../store/skillStore'
+import { skillSystem } from '../game/SkillSystem'
+import { getEquippedTitle } from '../game/TitleSystem'
+// M37 Track A: World event local timer (fires events when offline / single-player)
+import { startLocalEventTimer, stopLocalEventTimer } from '../game/WorldEventSystem'
 
 const WS_URL = import.meta.env.VITE_WS_URL as string | undefined
 if (!WS_URL) console.warn('[WorldSocket] VITE_WS_URL is not set — multiplayer disabled')
@@ -56,18 +61,41 @@ export function useWorldSocket(): void {
       if (now - lastUpdateRef.current < UPDATE_MS) return
       lastUpdateRef.current = now
 
-      const { x, y, z, health, murderCount } = usePlayerStore.getState()
-      socket.send({ type: 'PLAYER_UPDATE', x, y, z, health, murderCount })
+      const { x, y, z, health, murderCount, gold } = usePlayerStore.getState()
+      const prestigeCount = useSkillStore.getState().prestigeCount
+      const skillIds = ['gathering', 'crafting', 'combat', 'survival', 'exploration', 'smithing', 'husbandry'] as const
+      const totalLevel = skillIds.reduce((sum, id) => sum + skillSystem.getLevel(id), 0)
+      const equippedTitle = getEquippedTitle()
+      socket.send({
+        type: 'PLAYER_UPDATE', x, y, z, health, murderCount, gold,
+        totalLevel, prestigeCount,
+        title: equippedTitle.name,
+        titleColor: equippedTitle.color,
+      })
     }
     rafId = requestAnimationFrame(loop)
+
+    // When connected to server, server drives world events — stop local timer
+    stopLocalEventTimer()
 
     return () => {
       cancelAnimationFrame(rafId)
       socket.destroy()
       socketRef.current = null
       _adminSocket = null
+      // Restart local timer when disconnected
+      startLocalEventTimer()
     }
   }, [userId, user])
+
+  // Start local event timer when no server connection is available
+  useEffect(() => {
+    if (!WS_URL || !userId) {
+      startLocalEventTimer()
+      return stopLocalEventTimer
+    }
+    return undefined
+  }, [userId])
 }
 
 const ADMIN_SECRET = import.meta.env.VITE_ADMIN_SECRET as string | undefined

@@ -31,6 +31,11 @@ import { useSettlementStore } from '../store/settlementStore'
 import { FACTIONS, getFactionRelationship, getRelationshipColor } from '../game/FactionSystem'
 // M36 Track C: Building system HUD
 import { BuildingAnnouncementHUD } from './BuildingAnnouncementHUD'
+// M37 Track C: Title system
+import { getEquippedTitle } from '../game/TitleSystem'
+import { getLocalUsername } from '../net/useWorldSocket'
+// M37 Track A: World events HUD
+import { WorldEventHUD } from './WorldEventHUD'
 
 // ── M20: Lazy-loaded overlays (rarely shown) ─────────────────────────────────
 const FirstContactOverlay = lazy(() => import('./FirstContactOverlay').then(m => ({ default: m.FirstContactOverlay })))
@@ -2100,6 +2105,21 @@ export function HUD() {
           padding: '10px 12px 8px',
           pointerEvents: 'none',
         }}>
+          {/* M37 Track C: Player title + name nameplate */}
+          {(() => {
+            const title = getEquippedTitle()
+            const uname = getLocalUsername()
+            return (
+              <div style={{ marginBottom: 7, paddingBottom: 6, borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
+                <div style={{ fontSize: 9, color: title.color, fontFamily: 'monospace', letterSpacing: 0.5, lineHeight: 1.2 }}>
+                  [{title.name}]
+                </div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: '#e0d6c8', fontFamily: 'monospace', lineHeight: 1.2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {uname !== 'Unknown' ? uname : 'You'}
+                </div>
+              </div>
+            )
+          })()}
           <RustVitalBar value={health}      color="#c0392b" icon="♥" label="Health"   />
           <RustVitalBar value={1 - hunger}  color="#e67e22" icon="◆" label="Food"     />
           <RustVitalBar value={1 - thirst}  color="#2980b9" icon="~" label="Water"    />
@@ -2450,6 +2470,9 @@ export function HUD() {
 
       {/* ── M35 Track B: Disaster warning overlay ── */}
       <DisasterWarningOverlay />
+
+      {/* ── M37 Track A: World event banner + indicator + history ── */}
+      <WorldEventHUD />
 
       {/* ── M32 Track C: Fast travel fade-to-black overlay ── */}
       <div style={{

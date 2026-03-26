@@ -21,6 +21,27 @@ import { usePlayerStore } from '../store/playerStore'
 import { useWeatherStore } from '../store/weatherStore'
 import { useGameStore } from '../store/gameStore'
 
+// ── M39 Track A: Sky gradient colors (pre-allocated) ─────────────────────────
+// Dawn  (sinA near 0, rising)
+const _dawnHorizon = new THREE.Color('#ff6633')
+const _dawnMidsky  = new THREE.Color('#cc44aa')
+const _dawnZenith  = new THREE.Color('#1122aa')
+// Day
+const _dayHorizon  = new THREE.Color('#88ccff')
+const _dayZenith   = new THREE.Color('#1144cc')
+// Sunset (sinA near 0, setting)
+const _sunsetHorizon = new THREE.Color('#ff4400')
+const _sunsetMidsky  = new THREE.Color('#ffaa00')
+const _sunsetZenith  = new THREE.Color('#440088')
+// Night
+const _nightSky    = new THREE.Color('#000011')
+// Scratch
+const _skyTop      = new THREE.Color()
+const _skyBot      = new THREE.Color()
+
+// God ray color
+const _godRayColor = new THREE.Color('#ffdd88')
+
 // One full day = 1200 real seconds (20 minutes)
 const DAY_DURATION_S = 1200
 const ANGULAR_VEL    = (2 * Math.PI) / DAY_DURATION_S
@@ -79,6 +100,15 @@ export function DayNightCycle({ onDayAngleChange }: Props) {
   const totalRevolutions = useRef(0)
   const prevAngleRef = useRef(START_ANGLE)
 
+  // M39 Track A: God ray cone meshes (5 cones, refs stored in array)
+  const godRayRefs = useRef<(THREE.Mesh | null)[]>([null, null, null, null, null])
+
+  // M39 Track A: Sky gradient sphere (custom ShaderMaterial)
+  const skySphereRef = useRef<THREE.Mesh>(null)
+
+  // M39 Track A: Previous weather state for transition detection
+  const prevWeatherStateRef = useRef<string>('CLEAR')
+
   // M22: Fog color targets (pre-allocated)
   const _fogNoon   = useRef(new THREE.Color('#c8d8e8'))
   const _fogDusk   = useRef(new THREE.Color('#ffd4a3'))
@@ -87,6 +117,34 @@ export function DayNightCycle({ onDayAngleChange }: Props) {
 
   // M22: Throttle gameStore updates to ~2Hz
   const storeUpdateTimer = useRef(0)
+
+  // M39 Track A: Sky gradient shader material
+  const skyGradientMaterial = useMemo(() => new THREE.ShaderMaterial({
+    uniforms: {
+      uTopColor:    { value: new THREE.Color('#1144cc') },
+      uBottomColor: { value: new THREE.Color('#88ccff') },
+    },
+    vertexShader: /* glsl */`
+      varying vec3 vWorldPos;
+      void main() {
+        vWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: /* glsl */`
+      uniform vec3 uTopColor;
+      uniform vec3 uBottomColor;
+      varying vec3 vWorldPos;
+      void main() {
+        // t = 0 at equator (horizon), 1 at top of sphere
+        float t = clamp(normalize(vWorldPos).y * 0.5 + 0.5, 0.0, 1.0);
+        vec3 color = mix(uBottomColor, uTopColor, t * t);
+        gl_FragColor = vec4(color, 1.0);
+      }
+    `,
+    side: THREE.BackSide,
+    depthWrite: false,
+  }), [])
 
   useFrame((state, delta) => {
     // Advance day angle
@@ -243,6 +301,88 @@ export function DayNightCycle({ onDayAngleChange }: Props) {
       })
     }
 
+    // ── M39 Track A: Sky gradient update (throttled with sky params ~4Hz) ──
+    if (skyUpdateTimer.current === 0) {  // reuse the 0.25s throttle reset above
+      // Determine sky phase and pick top/bottom colors
+      const horizP = Math.max(0, 1 - Math.abs(sinA))
+      const isDawn    = sunAboveHorizon && sinA < 0.35 && angle < Math.PI  // rising
+      const isSunset  = sunAboveHorizon && sinA < 0.35 && angle >= Math.PI // setting
+
+      if (!sunAboveHorizon) {
+        // Night
+        _skyTop.copy(_nightSky)
+        _skyBot.copy(_nightSky).lerp(_dawnZenith, 0.05)
+      } else if (isDawn) {
+        const t = Math.min(1, sinA / 0.35)
+        _skyBot.copy(_dawnHorizon).lerp(_dayHorizon, t)
+        _skyTop.copy(_dawnZenith).lerp(_dayZenith, t)
+      } else if (isSunset) {
+        const t = Math.min(1, sinA / 0.35)
+        _skyBot.copy(_sunsetHorizon).lerp(_dayHorizon, t)
+        _skyTop.copy(_sunsetZenith).lerp(_dayZenith, t)
+      } else {
+        // Full day
+        _skyBot.copy(_dayHorizon)
+        _skyTop.copy(_dayZenith)
+      }
+
+      if (skySphereRef.current) {
+        const mat = skySphereRef.current.material as THREE.ShaderMaterial
+        mat.uniforms.uTopColor.value.copy(_skyTop)
+        mat.uniforms.uBottomColor.value.copy(_skyBot)
+      }
+    }
+
+    // ── M39 Track A: God rays (dawn/dusk only — near horizon) ──────────────
+    const horizonProximityForRays = 1 - Math.abs(sinA)
+    const isGodRayTime = sunAboveHorizon && horizonProximityForRays > 0.8
+    const ps4 = usePlayerStore.getState()
+    const discDist4 = 3000
+    const godRayX = ps4.x + discDist4 * Math.cos(angle)
+    const godRayY = ps4.y + discDist4 * Math.sin(angle)
+    const godRayZ = ps4.z + 1200
+
+    for (let i = 0; i < 5; i++) {
+      const ref = godRayRefs.current[i]
+      if (!ref) continue
+      if (!isGodRayTime) {
+        ref.visible = false
+        continue
+      }
+      // Spread cones in a fan around sun direction
+      const fanAngle = (i - 2) * 0.08  // -0.16 to +0.16 radians
+      const cosF = Math.cos(fanAngle), sinF = Math.sin(fanAngle)
+      const rx = godRayX * cosF - godRayZ * sinF
+      const rz = godRayX * sinF + godRayZ * cosF
+      ref.position.set(rx, godRayY, rz)
+      ref.lookAt(ps4.x, ps4.y, ps4.z)
+      ref.rotateX(Math.PI / 2) // ConeGeometry points up; rotate to point toward player
+
+      const rayOpacity = (horizonProximityForRays - 0.8) / 0.2 * 0.06
+      const mat = ref.material as THREE.MeshBasicMaterial
+      mat.opacity = rayOpacity
+      ref.visible = true
+    }
+
+    // ── M39 Track A: Weather transition detection ───────────────────────────
+    const currentWeatherState = useWeatherStore.getState().getPlayerWeather()?.state ?? 'CLEAR'
+    if (currentWeatherState !== prevWeatherStateRef.current) {
+      const wasRain = prevWeatherStateRef.current === 'RAIN' || prevWeatherStateRef.current === 'STORM'
+      const nowClear = currentWeatherState === 'CLEAR'
+      // Trigger rainbow when rain clears
+      if (wasRain && nowClear) {
+        useWeatherStore.getState().setRainbowActive(true)
+      }
+      useWeatherStore.getState().setWeatherTransition(
+        prevWeatherStateRef.current as any,
+        currentWeatherState,
+      )
+      prevWeatherStateRef.current = currentWeatherState
+    }
+    // Tick transition + rainbow timers each frame
+    useWeatherStore.getState().tickTransition(delta)
+    useWeatherStore.getState().tickRainbow(delta)
+
     onDayAngleChange?.(angle)
   })
 
@@ -314,6 +454,90 @@ export function DayNightCycle({ onDayAngleChange }: Props) {
         intensity={0}
         castShadow={false}
       />
+
+      {/* M39 Track A: Sky gradient sphere — sits behind everything */}
+      <mesh ref={skySphereRef} renderOrder={-1000}>
+        <sphereGeometry args={[4000, 16, 8]} />
+        <primitive object={skyGradientMaterial} attach="material" />
+      </mesh>
+
+      {/* M39 Track A: God rays — 5 additive cones from sun at dawn/dusk */}
+      {[0, 1, 2, 3, 4].map((i) => (
+        <mesh
+          key={i}
+          ref={(el) => { godRayRefs.current[i] = el }}
+          visible={false}
+          renderOrder={997}
+        >
+          <coneGeometry args={[200, 800, 4]} />
+          <meshBasicMaterial
+            color={_godRayColor}
+            transparent
+            opacity={0.05}
+            depthWrite={false}
+            blending={THREE.AdditiveBlending}
+            side={THREE.DoubleSide}
+          />
+        </mesh>
+      ))}
+
+      {/* M39 Track A: Rainbow — TorusGeometry arc after rain clears */}
+      <RainbowArc />
     </>
+  )
+}
+
+// ── M39 Track A: Rainbow arc — appears when rainbowActive is true ────────────
+function RainbowArc() {
+  const rainbowRef = useRef<THREE.Mesh>(null)
+  const materialRef = useRef<THREE.MeshBasicMaterial>(null)
+  const hueRef = useRef(0)
+
+  useFrame((_, delta) => {
+    const { rainbowActive, rainbowTimer } = useWeatherStore.getState()
+
+    if (!rainbowRef.current || !materialRef.current) return
+
+    if (!rainbowActive) {
+      rainbowRef.current.visible = false
+      return
+    }
+
+    // Fade: full at 45-60s remaining, fades to 0 at 0s
+    const opacity = Math.min(1, rainbowTimer / 15) * 0.65
+    materialRef.current.opacity = opacity
+    rainbowRef.current.visible = opacity > 0.01
+
+    // Cycle hue through rainbow spectrum
+    hueRef.current = (hueRef.current + delta * 0.12) % 1
+    materialRef.current.color.setHSL(hueRef.current, 1.0, 0.55)
+
+    // Follow player, position opposite sun
+    const ps = usePlayerStore.getState()
+    const dayAngle = useGameStore.getState().dayAngle
+    // Rainbow is opposite sun direction (sun at angle → rainbow at angle + PI)
+    const oppAngle = dayAngle + Math.PI
+    rainbowRef.current.position.set(
+      ps.x + Math.cos(oppAngle) * 400,
+      ps.y + 150,
+      ps.z + Math.sin(oppAngle) * 400,
+    )
+    rainbowRef.current.lookAt(ps.x, ps.y + 150, ps.z)
+    rainbowRef.current.rotateX(Math.PI / 2)
+  })
+
+  return (
+    <mesh ref={rainbowRef} visible={false} renderOrder={500}>
+      <torusGeometry args={[600, 3, 8, 64, Math.PI]} />
+      <meshBasicMaterial
+        ref={materialRef}
+        color="#ff0000"
+        transparent
+        opacity={0}
+        depthWrite={false}
+        blending={THREE.AdditiveBlending}
+        side={THREE.DoubleSide}
+      />
+    </mesh>
   )
 }

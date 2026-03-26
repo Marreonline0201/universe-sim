@@ -60,6 +60,8 @@ import { GameLoop } from '../game/GameLoop'
 import { PlayerHomeRenderer } from './PlayerHomeRenderer'
 // M37 Track A: World event 3-D visuals
 import { WorldEventRenderer } from './WorldEventRenderer'
+// M39 Track A: Volumetric cloud system
+import { CloudSystem } from './CloudSystem'
 
 // M10 Track A: Seasonal terrain pass
 import { SeasonalTerrainPass } from './SeasonalTerrainPass'
@@ -525,6 +527,8 @@ export function SceneRoot() {
       <fogExp2 attach="fog" args={['#c0d8f4', 0.010]} />
       {/* DayNightCycle owns all sky/sun/ambient/hemisphere lighting — replaces static lights */}
       <DayNightCycle onDayAngleChange={setDayAngle} />
+      {/* M39 Track A: Volumetric cloud system — drifts with wind, darkens in rain */}
+      <CloudSystem />
       {/* M11 Track D: Photorealistic night sky — 2000 stars with stellar color classification */}
       <NightSkyRenderer dayAngle={dayAngle} />
       <Suspense fallback={null}>

@@ -51,6 +51,22 @@ interface WeatherStoreState {
   /** Whether volcanic ash cloud is active */
   volcanicAshActive: boolean
   setVolcanicAshActive: (v: boolean) => void
+
+  // M39 Track A: Weather transition smoothing
+  /** The weather state we are transitioning FROM (for lerping effects) */
+  prevWeatherState: WeatherState
+  /** The weather state we are transitioning TO */
+  targetWeatherState: WeatherState
+  /** Transition progress 0→1 (0 = fully prevState, 1 = fully targetState) */
+  transitionProgress: number
+  setWeatherTransition: (from: WeatherState, to: WeatherState) => void
+  tickTransition: (delta: number) => void
+
+  // M39 Track A: Rainbow state — appears after rain clears
+  rainbowActive: boolean
+  rainbowTimer: number   // countdown seconds (0 = gone, up to 60)
+  setRainbowActive: (v: boolean) => void
+  tickRainbow: (delta: number) => void
 }
 
 const DEFAULT_SECTOR: SectorWeather = {
@@ -100,4 +116,37 @@ export const useWeatherStore = create<WeatherStoreState>((set, get) => ({
 
   volcanicAshActive: false,
   setVolcanicAshActive: (v) => set({ volcanicAshActive: v }),
+
+  // M39 Track A: Weather transition smoothing
+  prevWeatherState: 'CLEAR',
+  targetWeatherState: 'CLEAR',
+  transitionProgress: 1,
+
+  setWeatherTransition: (from, to) => {
+    const { targetWeatherState } = get()
+    // Only start a new transition if target is actually changing
+    if (to === targetWeatherState) return
+    set({ prevWeatherState: from, targetWeatherState: to, transitionProgress: 0 })
+  },
+
+  tickTransition: (delta) => {
+    const { transitionProgress } = get()
+    if (transitionProgress >= 1) return
+    // 30-second full transition
+    const next = Math.min(1, transitionProgress + delta / 30)
+    set({ transitionProgress: next })
+  },
+
+  // M39 Track A: Rainbow
+  rainbowActive: false,
+  rainbowTimer: 0,
+
+  setRainbowActive: (v) => set({ rainbowActive: v, rainbowTimer: v ? 60 : 0 }),
+
+  tickRainbow: (delta) => {
+    const { rainbowTimer, rainbowActive } = get()
+    if (!rainbowActive) return
+    const next = Math.max(0, rainbowTimer - delta)
+    set({ rainbowTimer: next, rainbowActive: next > 0 })
+  },
 }))

@@ -82,6 +82,7 @@ import type { AnomalySignalData } from '../ui/VelarSignalView'
 // DestinationPlanetMesh, VelarPlanetMesh, TransitOverlay moved to entities/MiscRenderers.tsx (M18 A7)
 import { useTransitStore } from '../store/transitStore'
 import { VelarDiplomacyPanel } from '../ui/VelarDiplomacyPanel'
+import { ChemistryHUD } from '../ui/ChemistryHUD'
 
 // M12 Track A: Rocketry
 import { RocketVFXRenderer } from './RocketVFXRenderer'
@@ -535,6 +536,8 @@ export function SceneRoot() {
     <ShopHUD />
     {/* M11 Track C: Diplomacy notifications banner (top-right) */}
     <DiplomacyHUD />
+    {/* M18 Track C: Chemistry event notifications (bottom-left) */}
+    <ChemistryHUD />
     {/* M11 Track D: Telescope overlay — full screen when telescope equipped + F pressed */}
     {telescopeOpen && (
       <TelescopeView

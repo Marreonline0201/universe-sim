@@ -97,6 +97,7 @@ import {
 import { getWorldSocket } from '../net/useWorldSocket'
 import type { PlayerController } from '../player/PlayerController'
 import type { LocalSimManager } from '../engine/LocalSimManager'
+import { tickChemistryGameplay } from './ChemistryGameplay'
 import { CreatureBody } from '../ecs/world'
 
 // ── Dig holes ─────────────────────────────────────────────────────────────────
@@ -543,6 +544,20 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
 
     // ── P2-5: Building physics — fire damage to combustible structures ─────────
     tickBuildingPhysics(dt, buildingSystem, simManagerRef.current)
+
+    // ── M18 Track C: Chemistry-to-gameplay bridge ────────────────────────────
+    // Samples local grid chemistry and produces gameplay effects (acid damage,
+    // fermentation rewards, photosynthesis O2 boost, combustion heat warnings).
+    {
+      const chemHealthDelta = tickChemistryGameplay(
+        dt, simManagerRef.current, px, py, pz, inventory,
+        entityId !== null ? Health.current[entityId] / Health.max[entityId] : 1,
+      )
+      if (entityId !== null && chemHealthDelta !== 0) {
+        const newHp = Health.current[entityId] + chemHealthDelta * Health.max[entityId]
+        Health.current[entityId] = Math.max(0, Math.min(Health.max[entityId], newHp))
+      }
+    }
 
     // ── Tool use: left click harvests with equipped item ──────────────────────
     const ps2 = usePlayerStore.getState()

@@ -98,6 +98,7 @@ import {
   type VesselType,
 } from '../world/SailingSystem'
 import { getWorldSocket } from '../net/useWorldSocket'
+import { tickEmoteSystem } from './EmoteSystem'
 import type { PlayerController } from '../player/PlayerController'
 import type { LocalSimManager } from '../engine/LocalSimManager'
 import { tickChemistryGameplay } from './ChemistryGameplay'
@@ -1392,6 +1393,9 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
       offlineSaveTimerRef.current = 0
       saveOffline().catch(() => {})
     }
+
+    // ── M26 Track B: Tick emote system (cleans expired remote emotes) ────────
+    tickEmoteSystem()
 
     // ── M22: Passive survival XP every 60s alive ────────────────────────────
     survivalXpTimerRef.current += dt

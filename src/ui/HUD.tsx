@@ -16,6 +16,8 @@ import { MAT, ITEM } from '../player/Inventory'
 import { cookingProgress } from '../game/SurvivalSystems'
 import { useVelarStore } from '../store/velarStore'
 import { getReactorTemp, isCleanupActive, getCleanupTimeRemaining, SAFE_TEMP_CELSIUS, MELT_THRESHOLD_C } from '../game/NuclearReactorSystem'
+import { EmoteWheel } from './EmoteWheel'
+import { getLocalEmote } from '../game/EmoteSystem'
 
 // ── M20: Lazy-loaded overlays (rarely shown) ─────────────────────────────────
 const FirstContactOverlay = lazy(() => import('./FirstContactOverlay').then(m => ({ default: m.FirstContactOverlay })))
@@ -618,6 +620,29 @@ export function HUD() {
     return () => clearInterval(id)
   }, [])
 
+  // ── M26 Track B: Emote wheel (hold T) ──────────────────────────────────────
+  const [emoteWheelOpen, setEmoteWheelOpen] = useState(false)
+  const [localEmoji, setLocalEmoji] = useState<string | null>(null)
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.code === 'KeyT' && !e.repeat) setEmoteWheelOpen(true)
+    }
+    function onKeyUp(e: KeyboardEvent) {
+      if (e.code === 'KeyT') setEmoteWheelOpen(false)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    window.addEventListener('keyup',   onKeyUp)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('keyup',   onKeyUp)
+    }
+  }, [])
+  // Poll local emote state every 250ms for the speech bubble indicator
+  useEffect(() => {
+    const id = setInterval(() => setLocalEmoji(getLocalEmote()), 250)
+    return () => clearInterval(id)
+  }, [])
+
   // Wound + cooking poll tick — 500ms is enough for these slower-updating systems
   const [survivalTick, setSurvivalTick] = useState(0)
   useEffect(() => {
@@ -1009,6 +1034,46 @@ export function HUD() {
 
       {/* ── M25: Mobile touch controls (joystick + action buttons) ── */}
       <MobileControls />
+
+      {/* ── M26 Track B: Local player emote speech bubble ── */}
+      {localEmoji && !emoteWheelOpen && (
+        <div style={{
+          position: 'fixed',
+          bottom: 140,
+          left: '50%',
+          transform: 'translateX(-50%)',
+          background: '#ffffff',
+          borderRadius: 20,
+          padding: '6px 14px',
+          fontSize: 32,
+          lineHeight: 1,
+          boxShadow: '0 2px 12px rgba(0,0,0,0.45)',
+          pointerEvents: 'none',
+          zIndex: 850,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          // Speech bubble tail
+          filter: 'drop-shadow(0 3px 6px rgba(0,0,0,0.3))',
+        }}>
+          {localEmoji}
+          {/* Tail */}
+          <div style={{
+            position: 'absolute',
+            bottom: -10,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            width: 0,
+            height: 0,
+            borderLeft: '8px solid transparent',
+            borderRight: '8px solid transparent',
+            borderTop: '10px solid #ffffff',
+          }} />
+        </div>
+      )}
+
+      {/* ── M26 Track B: Emote wheel (hold T) ── */}
+      <EmoteWheel open={emoteWheelOpen} onClose={() => setEmoteWheelOpen(false)} />
     </>
   )
 }

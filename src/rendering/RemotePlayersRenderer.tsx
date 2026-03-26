@@ -1,14 +1,16 @@
 // ── RemotePlayersRenderer ──────────────────────────────────────────────────────
 // Renders other connected players as coloured capsules with username labels.
 // M7 T2: Wanted players (murderCount >= 5) show skull icon + bounty amount.
+// M26 Track B: Emote chat bubbles float above players when they emote.
 
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { Text } from '@react-three/drei'
 import * as THREE from 'three'
 import { useMultiplayerStore } from '../store/multiplayerStore'
 import { useOutlawStore } from '../store/outlawStore'
 import { useAuth } from '@clerk/react'
+import { getRemoteEmote } from '../game/EmoteSystem'
 
 const WANTED_THRESHOLD = 5
 
@@ -32,11 +34,22 @@ function RemotePlayer({ userId, username, x, y, z, health, murderCount = 0 }: {
   const bountyEntry = useOutlawStore(s => s.getWantedEntry(userId))
   const isWanted    = murderCount >= WANTED_THRESHOLD
 
+  // M26 Track B: poll emote state — throttled to ~4 Hz to avoid excess re-renders
+  const [currentEmote, setCurrentEmote] = useState<string | null>(null)
+  const emoteCheckRef = useRef(0)
+
   // Smoothly interpolate to server position
   useFrame((_, dt) => {
     const g = groupRef.current
     if (!g) return
     g.position.lerp(new THREE.Vector3(x, y + 0.6, z), Math.min(1, dt * 12))
+
+    emoteCheckRef.current += dt
+    if (emoteCheckRef.current >= 0.25) {
+      emoteCheckRef.current = 0
+      const emoji = getRemoteEmote(userId)
+      setCurrentEmote(prev => prev !== emoji ? emoji : prev)
+    }
   })
 
   // Capsule colour: wanted players glow red, ordinary outlaws are orange-tinted
@@ -94,6 +107,20 @@ function RemotePlayer({ userId, username, x, y, z, health, murderCount = 0 }: {
             emissiveIntensity={isWanted ? 1.4 : 0.8}
           />
         </mesh>
+      )}
+
+      {/* M26 Track B: Emote chat bubble — floats above head for 3s */}
+      {currentEmote && (
+        <Text
+          position={[0, isWanted ? 3.1 : 2.65, 0]}
+          fontSize={0.52}
+          anchorX="center"
+          anchorY="middle"
+          outlineWidth={0.06}
+          outlineColor="#ffffff"
+        >
+          {currentEmote}
+        </Text>
       )}
     </group>
   )

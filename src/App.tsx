@@ -11,6 +11,8 @@ import { initCaveFeatures } from './game/CaveFeatureSystem'
 import { initJournalSystem } from './game/JournalSystem'
 import { initNPCRelationshipSystem } from './game/NPCRelationshipSystem'
 import { initRecipeDiscovery } from './game/RecipeDiscoverySystem'
+import { initBountyBoard } from './game/BountyBoardSystem'
+import { initMerchantGuildSystem, refreshContracts } from './game/MerchantGuildSystem'
 
 // ── M20: Lazy-load AdminPanel (dev/admin only) ──────────────────────────────
 const AdminPanel = lazy(() => import('./ui/AdminPanel').then(m => ({ default: m.AdminPanel })))
@@ -60,6 +62,9 @@ function DevGame() {
     initJournalSystem()
     initNPCRelationshipSystem()
     initRecipeDiscovery()
+    initBountyBoard(0)
+    initMerchantGuildSystem()
+    refreshContracts(0)
   }, [])
 
   return (
@@ -107,12 +112,16 @@ function GameWithSave() {
   // M51 Track A: Initialize player journal system
   // M51 Track B: Initialize NPC relationship system
   // M52 Track B: Initialize recipe discovery
+  // M54 Track A: Initialize merchant guild system
   useEffect(() => {
     initWorldEventLogger()
     initCaveFeatures()
     initJournalSystem()
     initNPCRelationshipSystem()
     initRecipeDiscovery()
+    initBountyBoard(0)
+    initMerchantGuildSystem()
+    refreshContracts(0)
   }, [])
 
   // Load save on first sign-in

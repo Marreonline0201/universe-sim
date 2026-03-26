@@ -204,6 +204,10 @@ import { tickFactionWars } from './FactionWarSystem'
 import { onSeasonChange, tickSeasonalEvents, normaliseSeasonName } from './SeasonalEventSystem'
 // M53 Track C: Combo system
 import { onHit, tickCombo, getDamageMultiplier } from './ComboSystem'
+// M54 Track B: Bounty board
+import { onKill as bountyOnKill, tickBountyBoard } from './BountyBoardSystem'
+// M54 Track C: Exploration discovery system
+import { checkDiscoveries } from './ExplorationDiscoverySystem'
 
 // Register skill system with offline save manager for serialization
 registerSkillSystem(skillSystem)
@@ -324,6 +328,10 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
   const warTimerRef = useRef(0)
   // M53 Track A: Last known season for seasonal-event change detection
   const lastSeasonRef = useRef<string | null>(null)
+  // M54 Track B: Bounty board tick timer — fires every 60s
+  const bountyTimerRef = useRef(0)
+  // M54 Track C: Exploration discovery check timer — fires every 2s
+  const discoveryTimerRef = useRef(0)
 
   useFrame((_, delta) => {
     // Cap dt to avoid spiral-of-death on slow frames
@@ -1943,6 +1951,8 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
               window.dispatchEvent(new CustomEvent('combat-kill', { detail: { enemyName: killed.species ?? 'creature' } }))
               // M23: Quest progress on kill
               questSystem.onKill(killed.species)
+              // M54 Track B: Bounty board kill progress
+              bountyOnKill(killed.species)
               // M33: Settlement quest board progress on kill
               {
                 const sqStore = useSettlementQuestStore.getState()
@@ -3115,6 +3125,14 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
     if (offlineSaveTimerRef.current >= 60) {
       offlineSaveTimerRef.current = 0
       saveOffline().catch(() => {})
+    }
+
+    // ── M54 Track B: Bounty board tick every 60s ─────────────────────────────
+    bountyTimerRef.current += dt
+    if (bountyTimerRef.current >= 60) {
+      bountyTimerRef.current = 0
+      const bountySimSecs = useGameStore.getState().simSeconds
+      tickBountyBoard(bountySimSecs)
     }
 
     // ── M26 Track B: Tick emote system (cleans expired remote emotes) ────────

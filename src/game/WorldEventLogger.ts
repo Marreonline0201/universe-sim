@@ -166,6 +166,17 @@ export function initWorldEventLogger(): void {
     })
   })
 
+  // seasonal-change — M53 Track A: season transition
+  window.addEventListener('seasonal-change', (e: Event) => {
+    const detail = (e as CustomEvent).detail ?? {}
+    useWorldEventStore.getState().addEvent({
+      category: 'exploration',
+      icon: detail.season === 'winter' ? '❄️' : detail.season === 'summer' ? '☀️' : detail.season === 'autumn' ? '🍂' : '🌸',
+      title: `Season Changed: ${String(detail.season ?? '').charAt(0).toUpperCase() + String(detail.season ?? '').slice(1)}`,
+      detail: detail.bonusName ? `${detail.bonusName} is now active.` : 'A new season begins.',
+    })
+  })
+
   // combo-milestone — M53 Track C: combo streak milestones
   window.addEventListener('combo-milestone', (e: Event) => {
     const detail = (e as CustomEvent).detail ?? {}
@@ -175,6 +186,21 @@ export function initWorldEventLogger(): void {
       icon: '⚔️',
       title: 'Combo Milestone',
       detail: `Achieved a ×${count} combo!`,
+    })
+  })
+
+  // bounty-claimed — M54 Track B: bounty board claim
+  window.addEventListener('bounty-claimed', (e: Event) => {
+    const detail = (e as CustomEvent).detail ?? {}
+    const species: string = detail.targetSpecies ?? 'creature'
+    const poster: string  = detail.poster ?? 'NPC'
+    const gold: number    = detail.reward?.gold ?? 0
+    const rep: number     = detail.reward?.reputationBonus ?? 0
+    useWorldEventStore.getState().addEvent({
+      category: 'combat',
+      icon: '📋',
+      title: 'Bounty Claimed',
+      detail: `Claimed bounty on ${species} (posted by ${poster}) — +${gold} gold, +${rep} rep`,
     })
   })
 }

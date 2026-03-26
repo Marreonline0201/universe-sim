@@ -44,7 +44,7 @@ import {
   tickRespawnQueue,
 } from '../ecs/systems/AnimalAISystem'
 
-import { inventory, buildingSystem, questSystem, combatSystem } from './GameSingletons'
+import { inventory, buildingSystem, questSystem, combatSystem, achievementSystem, tutorialSystem } from './GameSingletons'
 import { SPECIES_LOOT, rollLoot } from './LootTable'
 import { ITEM, MAT, RARITY_NAMES, type RarityTier } from '../player/Inventory'
 import { getItemStats, canHarvest } from '../player/EquipSystem'
@@ -103,12 +103,15 @@ import type { LocalSimManager } from '../engine/LocalSimManager'
 import { tickChemistryGameplay } from './ChemistryGameplay'
 import { CreatureBody } from '../ecs/world'
 import { skillSystem } from './SkillSystem'
-import { saveOffline, registerSkillSystem, registerQuestSystem } from './OfflineSaveManager'
+import { saveOffline, registerSkillSystem, registerQuestSystem, registerAchievementSystem, registerTutorialSystem } from './OfflineSaveManager'
 
 // Register skill system with offline save manager for serialization
 registerSkillSystem(skillSystem)
 // Register quest system with offline save manager for serialization (M23)
 registerQuestSystem(questSystem)
+// Register achievement + tutorial systems with offline save manager (M24)
+registerAchievementSystem(achievementSystem)
+registerTutorialSystem(tutorialSystem)
 
 // ── Dig holes ─────────────────────────────────────────────────────────────────
 export interface DigHole { x: number; y: number; z: number; r: number }
@@ -850,6 +853,9 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
               skillSystem.addXp('combat', 50) // M22: Combat XP on animal kill
               // M23: Quest progress on kill
               questSystem.onKill(killed.species)
+              // M24: Achievement progress on kill
+              achievementSystem.onKill(killed.species)
+              achievementSystem.onDealDamage(effectiveDamage)
             } else {
               useUiStore.getState().addNotification(
                 `Hit animal for ${Math.round(effectiveDamage)} dmg!`, 'warning'
@@ -1356,6 +1362,28 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
       questSystem.onDayTick(dayCount)
       const currentTier = usePlayerStore.getState().civTier ?? 0
       questSystem.onTierReached(currentTier)
+    }
+
+    // ── M24: Achievement system tick ────────────────────────────────────────
+    {
+      const gs2 = useGameStore.getState()
+      const dayCount2 = gs2.dayCount ?? 1
+      const healthPct = Health.current[entityId] / (Health.max[entityId] || 100)
+      const isNight = (gs2.simSeconds % 1200) > 600
+      const biome = gs2.currentBiome ?? ''
+      const mapRevealPct = 0  // TODO: wire real map reveal
+      const belowSeaLevel = Position.y[entityId] < 0
+      achievementSystem.tick(dt, px, py, pz, healthPct, dayCount2, isNight, biome, mapRevealPct, belowSeaLevel)
+    }
+
+    // ── M24: Tutorial system tick ───────────────────────────────────────────
+    if (tutorialSystem && !tutorialSystem.isComplete) {
+      const hasWood = inventory.listItems().some((it: any) => it.materialId === 1 && it.quantity > 0)
+      const hasStoneAxe = inventory.listItems().some((it: any) => it.itemId === 2)
+      const equippedIsAxe = false  // TODO: read from EquipSystem
+      const hasCampfire = buildingSystem.getAllBuildings().some((b: any) => b.type === 'campfire')
+      const hasAttackedAnimal = combatSystem.isInCombat
+      tutorialSystem.tick(dt, px, py, pz, hasWood, hasStoneAxe, equippedIsAxe, hasCampfire, hasAttackedAnimal, 0)
     }
 
     // ── M7 T2: NPC guard aggro ────────────────────────────────────────────────

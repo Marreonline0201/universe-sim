@@ -9,6 +9,7 @@ import type { SeasonName } from '../store/seasonStore'
 import { SidebarShell } from './SidebarShell'
 import { NotificationSystem } from './NotificationSystem'
 import { CombatHUD } from './CombatHUD'
+import { TutorialOverlay } from './TutorialOverlay'
 import { inventory } from '../game/GameSingletons'
 import { MAT, ITEM } from '../player/Inventory'
 import { cookingProgress } from '../game/SurvivalSystems'
@@ -999,6 +1000,8 @@ export function HUD() {
 
       {/* ── M24: Combat HUD (damage numbers, health bars, combat indicator) ── */}
       <CombatHUD />
+      {/* ── M24: Tutorial onboarding overlay ── */}
+      <TutorialOverlay />
 
       {/* ── Toast notifications ── */}
       <NotificationSystem />

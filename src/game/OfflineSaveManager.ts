@@ -81,6 +81,22 @@ export function registerQuestSystem(sys: { serialize: () => unknown; deserialize
   _questSystem = sys
 }
 
+// ── Achievement system integration ───────────────────────────────────────────
+
+let _achievementSystem: { serialize: () => unknown; deserialize: (d: unknown) => void } | null = null
+
+export function registerAchievementSystem(sys: { serialize: () => unknown; deserialize: (d: unknown) => void }) {
+  _achievementSystem = sys
+}
+
+// ── Tutorial system integration ──────────────────────────────────────────────
+
+let _tutorialSystem: { serialize: () => unknown; deserialize: (d: unknown) => void } | null = null
+
+export function registerTutorialSystem(sys: { serialize: () => unknown; deserialize: (d: unknown) => void }) {
+  _tutorialSystem = sys
+}
+
 // ── Save ──────────────────────────────────────────────────────────────────────
 
 export async function saveOffline(): Promise<boolean> {
@@ -107,6 +123,8 @@ export async function saveOffline(): Promise<boolean> {
       wounds: ps.wounds,
       skills: _skillSystem ? _skillSystem.serialize() : null,
       quests: _questSystem ? _questSystem.serialize() : null,
+      achievements: _achievementSystem ? _achievementSystem.serialize() : null,
+      tutorialStep: _tutorialSystem ? _tutorialSystem.serialize() : null,
     })
     const meta = JSON.stringify({
       timestamp: Date.now(),
@@ -214,6 +232,16 @@ export async function loadOffline(): Promise<boolean> {
     // Restore quest progress (M23)
     if (state.quests && _questSystem) {
       _questSystem.deserialize(state.quests)
+    }
+
+    // Restore achievements (M24)
+    if (state.achievements && _achievementSystem) {
+      _achievementSystem.deserialize(state.achievements)
+    }
+
+    // Restore tutorial step (M24)
+    if (state.tutorialStep && _tutorialSystem) {
+      _tutorialSystem.deserialize(state.tutorialStep)
     }
 
     // Restore position

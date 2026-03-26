@@ -53,6 +53,7 @@ const ICON_BUTTONS: Array<{ id: PanelId; icon: string; hint: string }> = [
   { id: 'map',        icon: 'MAP',  hint: 'Map (M)' },
   { id: 'skills',     icon: 'SKL',  hint: 'Skills (K)' },
   { id: 'quests',     icon: 'QST',  hint: 'Quests (Q)' },
+  { id: 'achievements', icon: 'ACH', hint: 'Achievements (H)' },
   { id: 'science',    icon: ' ? ',  hint: 'Science Companion (?)' },
   { id: 'settings',   icon: 'SET',  hint: 'Settings (Esc)' },
 ]
@@ -69,6 +70,7 @@ const PANEL_COMPONENTS: Record<PanelId, React.ComponentType> = {
   dialogue:   DialoguePanel,
   skills:     SkillTreePanel,
   quests:     QuestPanel,
+  achievements: AchievementPanel,
 }
 
 export function SidebarShell() {
@@ -109,6 +111,7 @@ export function SidebarShell() {
         case 'j': case 'J':   e.preventDefault(); togglePanel('journal');    break
         case 'k': case 'K':   e.preventDefault(); togglePanel('skills');     break
         case 'q': case 'Q':   e.preventDefault(); togglePanel('quests');     break
+        case 'h': case 'H':   e.preventDefault(); togglePanel('achievements'); break
         case 'Tab':           e.preventDefault(); togglePanel('character');  break
         case 'm': case 'M':   e.preventDefault(); togglePanel('map');        break
         case '?': case '/':

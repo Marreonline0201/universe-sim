@@ -1,7 +1,7 @@
 # Director Plan -- Universe Sim
 
 **Date**: 2026-03-26
-**Sprint**: M20
+**Sprint**: M21
 **Status**: SHIPPED -- All 3 Tracks Complete
 
 ---
@@ -238,22 +238,116 @@
 
 ---
 
-## Priority Queue (After M20)
+## M21 Sprint Plan -- 3 Parallel Tracks
+
+### Track A (P0): Procedural Ambient Audio System
+**Assigned to**: `director` (self-execute)
+**Duration**: Full sprint
+**Goal**: Build a zero-dependency ambient audio engine using the Web Audio API. Procedurally generate all sounds (no audio files). Covers: wind, rain, thunder, footsteps, fire crackling, ocean waves, and biome ambient drones.
+
+| Task | Description | Technical Spec |
+|------|-------------|---------------|
+| A1 | Create `AmbientAudioEngine.ts` | Singleton class at `src/audio/AmbientAudioEngine.ts`. Lazy-creates an `AudioContext` on first user interaction (browser autoplay policy). Manages a bank of OscillatorNode + BiquadFilterNode + GainNode chains. Methods: `init()`, `update(playerState, weatherState, dt)`, `dispose()`. All volume transitions use `linearRampToValueAtTime` for smooth fades. Master gain controlled by settings. |
+| A2 | Wind layer | Filtered white noise (BiquadFilter bandpass 200-800Hz). Gain = `weatherStore.windSpeed / 15`. Bandpass center frequency modulated by LFO (0.1Hz sine) for "gusting" effect. Active during all weather states. |
+| A3 | Rain layer | Filtered white noise (highpass 3000Hz + lowpass 8000Hz, simulates rain hiss). Gain = 0.0 (CLEAR/CLOUDY), 0.3 (RAIN), 0.6 (STORM). Smooth 2-second crossfade between states. |
+| A4 | Thunder | On `lightningActive` transition from false->true, play a short noise burst: white noise envelope (attack 10ms, sustain 200ms, decay 1.5s) through lowpass filter at 120Hz (rumble). Randomize pitch via playbackRate 0.8-1.2. |
+| A5 | Footsteps | Triggered from PlayerController movement. Noise burst (20ms) through bandpass filter. Frequency varies by terrain: grass=800Hz, rock=2000Hz, sand=400Hz, water=600Hz. Interval: 350ms walk, 220ms run. Only when player is moving and grounded. |
+| A6 | Fire crackling | When player is within 15m of a settlement fire or campfire. Random noise bursts (5-15ms, interval 50-200ms random) through bandpass 1500-4000Hz. Gain attenuates with distance (1/r falloff, max 15m). |
+| A7 | Ocean waves | When player is within 30m of sea level and near coast. Low-frequency oscillator (0.15Hz sine) modulating gain of filtered noise (200-600Hz bandpass). Simulates wave surge/retreat cycle. |
+| A8 | Wire into GameLoop | Call `ambientAudio.update()` each frame with current playerStore + weatherStore state. Init on first canvas click. Dispose on unmount. Add volume slider to SettingsPanel. |
+
+**Quality gate**: (a) Wind audible and varies with wind speed, (b) rain fades in/out with weather transitions, (c) thunder plays on lightning, (d) footstep sounds vary by surface, (e) fire crackles near settlements, (f) ocean waves near shore, (g) master volume slider works, (h) no audio glitches/clicks on transitions, (i) build passes.
+
+---
+
+### Track B (P1): Settlement Visual Upgrades
+**Assigned to**: `director` (self-execute)
+**Duration**: Full sprint
+**Goal**: Upgrade settlements from plain box meshes to visually distinct buildings with roofs, chimneys, smoke particles, market stalls at higher tiers, and animated NPC activity dots.
+
+| Task | Description | Technical Spec |
+|------|-------------|---------------|
+| B1 | Roof geometry | Add a ConeGeometry (pyramid roof) on top of each box building. Roof height = building.h * 0.4. Color: tier 0-1 = straw brown (#8B7355), tier 2+ = slate grey (#556677). Slight overhang (roof radius = building.w * 0.6). |
+| B2 | Chimney + smoke | For civLevel >= 2: add a thin box (0.3x0.8x0.3) chimney on one corner of the largest building. Smoke: 20 instanced small spheres rising from chimney, slow upward drift (0.5m/s), slight wind push, opacity fades from 0.4 to 0 over 3 seconds, reset when they reach 8m above chimney. Use existing instanced mesh pattern. |
+| B3 | Market stalls | For civLevel >= 1: add 1-2 small open-front structures (BoxGeometry table + PlaneGeometry awning) near the settlement center. Awning color varies (rust-orange, deep red, mustard) for visual variety. |
+| B4 | NPC activity dots | Render `npcCount` small animated spheres (radius 0.15) moving slowly within the settlement boundary. Movement: random walk constrained to 5m radius from settlement center, speed 0.3m/s, direction changes every 2-4s. Color: warm skin tone (#d4a574). Visible only within 100m of player. |
+| B5 | Street paths | For civLevel >= 2: render 2-3 thin flat planes (0.5m wide, dark brown) connecting buildings, simulating dirt paths. Simple straight lines between building positions. |
+
+**Quality gate**: (a) Every settlement has roofed buildings, (b) smoke rises from chimneys at tier 2+, (c) market stalls visible at tier 1+, (d) NPC dots move within settlements, (e) visual detail scales with civLevel, (f) no framerate regression >5%, (g) build passes.
+
+---
+
+### Track C (P1): Enhanced Minimap
+**Assigned to**: `director` (self-execute)
+**Duration**: Full sprint
+**Goal**: Upgrade the plain dark minimap to show terrain coloring (biome-based), settlement markers with names, resource node dots, player direction indicator, and zoom controls.
+
+| Task | Description | Technical Spec |
+|------|-------------|---------------|
+| C1 | Terrain color layer | Sample terrain biome at grid points across the map range. Color-code: water = #1a3a5c, grass = #2d5a1e, rock = #6b6b6b, sand = #c4a35a, snow = #dde8f0. Draw as filled rectangles on the canvas (8x8 pixel grid cells). Uses elevation + biome data from SpherePlanet.terrainHeightAt. |
+| C2 | Settlement markers | Draw diamond shapes at settlement positions. Color by civLevel: 0=#8B7355, 1=#b8860b, 2=#708090, 3+=#4682b4. Draw settlement name in 8px text below the diamond. |
+| C3 | Resource node markers | Draw small dots (2px) at resource node positions. Color by type: tree=#2d8a4e, rock=#888, berry=#c44569, iron=#b87333, coal=#333. Only show nodes within fog-of-war reveal radius. |
+| C4 | Player direction arrow | Replace the plain circle with a small triangle/arrow pointing in the player's look direction. Read camera rotation from playerStore or pass as prop. Arrow = equilateral triangle, green, 10px. |
+| C5 | Zoom controls | Add +/- buttons below the map that adjust WORLD_RANGE between 100m and 600m (step 100m). Store zoom level in component state. Default: 300m. |
+| C6 | Weather indicator | Draw a small weather icon (text-based) in the top-right corner of the minimap: sun for CLEAR, cloud for CLOUDY, rain drops for RAIN, lightning bolt for STORM. Plus temperature reading. |
+
+**Quality gate**: (a) Terrain colors visible on minimap matching biome, (b) settlements show as labeled diamonds, (c) resource nodes visible within fog radius, (d) player arrow shows facing direction, (e) zoom in/out works, (f) weather indicator updates, (g) build passes, (h) no performance regression (canvas redraws only when player moves >2m or state changes).
+
+---
+
+## Architecture Decisions (M21)
+
+| Decision | Rationale |
+|----------|-----------|
+| Web Audio API oscillators + noise, no audio files | Zero-dependency, no asset loading, infinite variation, tiny bundle impact |
+| Singleton audio engine, not React component | Audio context must persist across re-renders; singleton pattern matches GameSingletons |
+| Settlement smoke as instanced spheres, not GPU particles | Consistent with WeatherRenderer pattern; low particle count (20 per settlement) |
+| Minimap terrain sampling on a grid, not full resolution | Performance: 50x50 grid = 2500 samples vs millions of terrain points |
+| Minimap redraws throttled to 2m player movement | Prevents canvas overdraw from consuming CPU on every frame |
+
+---
+
+## Risk Register (M21)
+
+| Risk | Likelihood | Impact | Mitigation |
+|------|-----------|--------|------------|
+| Web Audio autoplay policy blocks sound | High | Medium | Lazy-init AudioContext on first user click/keypress; show "Click to enable audio" hint |
+| Audio clicks/pops on parameter changes | Medium | Medium | Use linearRampToValueAtTime with 50ms ramps instead of direct value assignment |
+| Settlement smoke particles reduce FPS | Low | Medium | Only 20 particles per settlement, only render within 100m of player |
+| Minimap terrain sampling is slow | Low | Medium | Cache terrain colors; only resample when zoom changes or player moves >10m |
+| NPC activity dots z-fight with terrain | Medium | Low | Offset dots 0.3m above settlement y position |
+
+---
+
+## Priority Queue (After M21)
 
 | Priority | Item | Status |
 |----------|------|--------|
-| P1 | Tree LOD (instanced low-poly at distance) | Queued for M21 |
-| P1 | LLM integration for dialogue (connect DialoguePanel to real LLMBridge) | Queued for M21 |
+| P1 | Tree LOD (instanced low-poly at distance) | Queued for M22 |
+| P1 | LLM integration for dialogue (connect DialoguePanel to real LLMBridge) | Queued for M22 |
 | P2 | Species divergence notifications in journal | Queued |
 | P2 | Subsurface scattering for creature skin | Queued |
 | P2 | Volumetric fog (ray-marched, density from weather system) | Queued |
 | P2 | Shadow cascade tuning (3 cascades, bias correction) | Queued |
-| P2 | Procedural ambient sound (footsteps, weather, environment) | Queued |
 | P2 | Drag-drop inventory reordering | Queued |
+| P2 | Player skill progression / tech tree UI | Queued |
+| P2 | Save/load improvements (manual save slots) | Queued |
+
+---
+
+## M21 Completion Summary (2026-03-26)
+
+**All 3 Tracks SHIPPED:**
+
+- **Track A -- Procedural Ambient Audio: DONE** -- AmbientAudioEngine.ts (320 lines): Web Audio API procedural sound with zero audio files. 6 layers: wind (bandpass noise, LFO gusting, gain=windSpeed/15), rain (highpass noise, 2s crossfade, snow damping), thunder (noise burst + lowpass rumble on lightning), footsteps (terrain-dependent bandpass: grass 800Hz, rock 2200Hz, sand 400Hz), fire crackling (random bursts 1.5-4kHz, 1/r falloff), ocean waves (0.15Hz LFO surge, distance-attenuated). AudioHook.tsx bridges stores to engine. Volume slider in SettingsPanel.
+- **Track B -- Settlement Visual Upgrades: DONE** -- SettlementRenderer.tsx (350 lines): pyramid roofs (ConeGeometry, straw brown tier 0-1, slate grey tier 2+), chimneys + smoke particles (20 instanced spheres rising with wind drift, civLevel>=2), market stalls (table+awning+poles, 1-2 per settlement at tier 1+), NPC activity dots (up to 12 animated spheres with random-walk AI, LOD at 100m), dirt street paths connecting buildings (civLevel>=2). Zero per-frame allocations (pre-allocated scratch vectors).
+- **Track C -- Enhanced Minimap: DONE** -- MapPanel.tsx (290 lines): terrain color grid (44x44 biomeColor samples, cached, resample throttled to 10m movement), settlement diamond markers (civLevel-colored + name labels), resource node dots (type-colored, fog-of-war gated), player direction arrow (green triangle), zoom controls (+/- buttons, 100m-600m range), weather indicator (state icon + temperature + wind arrow), expanded legend.
+
+**Build**: Passes (0 errors). Main chunk: 3022 kB (from 2995 kB, +27 kB for all 3 features). MapPanel lazy chunk: 5.5 kB (up from 2.3 kB).
 
 ---
 
 ## Immediate Next Actions
 
-1. M20 shipped -- all quality gates met
-2. Next sprint: M21 -- Tree LOD, LLM dialogue integration, performance pass
+1. M21 shipped -- all quality gates met
+2. Next sprint: M22 -- Tree LOD, LLM dialogue integration, volumetric fog

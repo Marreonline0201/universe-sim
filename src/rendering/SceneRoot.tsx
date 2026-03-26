@@ -57,6 +57,8 @@ import { GameLoop } from '../game/GameLoop'
 
 // M10 Track A: Seasonal terrain pass
 import { SeasonalTerrainPass } from './SeasonalTerrainPass'
+// M21 Track A: Procedural ambient audio
+import { AudioHook } from '../audio/AudioHook'
 // Post-processing: raw Three.js composer (bloom + vignette)
 import { PostProcessing } from './PostProcessing'
 
@@ -514,6 +516,8 @@ export function SceneRoot() {
       {worldInitialized && entityId !== null && (
         <>
           <GameLoop controllerRef={controllerRef} simManagerRef={simManagerRef} entityId={entityId} gameActive={pointerLocked || bypassPointerLock || activePanel !== null} />
+          {/* M21 Track A: Procedural ambient audio (wind, rain, thunder, footsteps, fire, ocean) */}
+          <AudioHook />
           <PlayerMesh entityId={entityId} controllerRef={controllerRef} />
           <EquippedItemMesh entityId={entityId} />
           <BuildingGhost entityId={entityId} />

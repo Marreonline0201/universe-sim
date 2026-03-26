@@ -1,11 +1,13 @@
 // ── SettingsPanel ──────────────────────────────────────────────────────────────
 // Graphics, audio, keybinds, time controls (admin), logout.
 
+import { useState } from 'react'
 import { useClerk, useAuth } from '@clerk/react'
 import { useGameStore } from '../../store/gameStore'
 import { usePlayerStore } from '../../store/playerStore'
 import { useUiStore } from '../../store/uiStore'
 import { Health, Metabolism } from '../../ecs/world'
+import { ambientAudio } from '../../audio/AmbientAudioEngine'
 
 const TIME_SCALES = [0.1, 0.5, 1, 10, 100, 1000, 10000, 100000, 1000000, 1e8, 1e9, 1e10, 1e12]
 const LABELS      = ['0.1×', '0.5×', '1×', '10×', '100×', '1k×', '10k×', '100k×', '1M×', '100M×', '1B×', '10B×', '1T×']
@@ -195,6 +197,30 @@ export function SettingsPanel() {
           </div>
         </section>
       )}
+
+      {/* M21: Audio Volume */}
+      <section>
+        <div style={{ fontSize: 10, color: '#555', letterSpacing: 2, marginBottom: 10 }}>
+          AUDIO
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+          <span style={{ fontSize: 11, color: '#888', width: 56 }}>Volume</span>
+          <input
+            type="range" min={0} max={1} step={0.01}
+            defaultValue={ambientAudio.getMasterVolume()}
+            onChange={e => {
+              ambientAudio.setMasterVolume(parseFloat(e.target.value))
+            }}
+            style={{ flex: 1, accentColor: '#9b59b6' }}
+          />
+          <span style={{ fontSize: 10, color: '#9b59b6', width: 32, textAlign: 'right' }}>
+            {Math.round(ambientAudio.getMasterVolume() * 100)}%
+          </span>
+        </div>
+        <div style={{ fontSize: 9, color: '#555', marginTop: 4 }}>
+          Wind, rain, thunder, footsteps, fire, ocean waves
+        </div>
+      </section>
 
       {/* Keybinds */}
       <section>

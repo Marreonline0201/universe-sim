@@ -37,6 +37,8 @@ import { serializeGiftCooldowns, deserializeGiftCooldowns } from './NPCGiftSyste
 import { serializeMastery, deserializeMastery } from './CraftingMasterySystem'
 import { serializeEconomies, deserializeEconomies } from './SettlementEconomySystem'
 import { serializeFactions, deserializeFactions } from './FactionReputationSystem'
+import { serializeBlueprints, deserializeBlueprints } from './BlueprintUnlockSystem'
+import { serializeMemories, deserializeMemories } from './NPCMemorySystem'
 import { Health, Metabolism, Position } from '../ecs/world'
 import { rapierWorld } from '../physics/RapierWorld'
 import { PLANET_RADIUS } from '../world/SpherePlanet'
@@ -160,6 +162,8 @@ export async function saveOffline(): Promise<boolean> {
       craftMastery: serializeMastery(),
       settlementEconomy: serializeEconomies(),
       factions: serializeFactions(),
+      blueprints: serializeBlueprints(),
+      npcMemories: serializeMemories(),
     })
     const meta = JSON.stringify({
       timestamp: Date.now(),
@@ -361,6 +365,11 @@ export async function loadOffline(): Promise<boolean> {
     // M62 Track A: Restore faction reputation standings
     if (state.factions) {
       deserializeFactions(state.factions)
+    }
+
+    // M63 Track A: Restore blueprint unlock state
+    if (state.blueprints) {
+      deserializeBlueprints(state.blueprints)
     }
 
     // Restore position

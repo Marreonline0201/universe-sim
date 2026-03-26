@@ -110,6 +110,12 @@ const SettlementEconomyPanel = lazy(() => import('./panels/SettlementEconomyPane
 const FactionReputationPanel = lazy(() => import('./panels/FactionReputationPanel').then(m => ({ default: m.FactionReputationPanel })))
 // M62 Track C: Achievement trophy room
 const AchievementTrophyPanel = lazy(() => import('./panels/AchievementTrophyPanel').then(m => ({ default: m.AchievementTrophyPanel })))
+// M63 Track A: Blueprint unlock tree
+const BlueprintTreePanel = lazy(() => import('./panels/BlueprintTreePanel').then(m => ({ default: m.BlueprintTreePanel })))
+// M63 Track B: NPC memory & contextual dialogue panel
+const NPCMemoryPanel = lazy(() => import('./panels/NPCMemoryPanel').then(m => ({ default: m.NPCMemoryPanel })))
+// M63 Track C: World event chronicle panel
+const WorldChroniclePanel = lazy(() => import('./panels/WorldChroniclePanel').then(m => ({ default: m.WorldChroniclePanel })))
 
 // M36 Track C: Wrapper resolves nearSettlementId from store so panel has no props
 function BuildingsPanelWrapper() {
@@ -185,6 +191,9 @@ const PANEL_LABEL: Record<PanelId, string> = {
   economy:         'SETTLEMENT ECONOMY',
   factionrep:      'FACTION REPUTATION',
   trophies:        'TROPHY ROOM',
+  blueprints:      'BLUEPRINT TREE',
+  npcmemory:       'NPC MEMORY',
+  chronicle:       'CHRONICLE',
 }
 
 const PANEL_WIDTH = 480
@@ -242,6 +251,9 @@ const ICON_BUTTONS: Array<{ id: PanelId; icon: string; hint: string }> = [
   { id: 'economy',         icon: '🏦',   hint: 'Settlement Economy' },
   { id: 'science',         icon: ' ? ', hint: 'Science Companion (?)' },
   { id: 'trophies',     icon: '🏆',   hint: 'Trophies (F2)' },
+  { id: 'blueprints',  icon: '📐',   hint: 'Blueprint Tree (F3)' },
+  { id: 'npcmemory',   icon: '🧠',   hint: 'NPC Memory (F4)' },
+  { id: 'chronicle',   icon: '📜',   hint: 'Chronicle (F5)' },
   { id: 'settings',    icon: 'SET',  hint: 'Settings (Esc)' },
   { id: 'factionrep',  icon: '🏅',   hint: 'Faction Reputation (F)' },
 ]
@@ -302,6 +314,9 @@ const PANEL_COMPONENTS: Record<PanelId, React.ComponentType> = {
   economy:         SettlementEconomyPanel,
   factionrep:      FactionReputationPanel,
   trophies:        AchievementTrophyPanel,
+  blueprints:      BlueprintTreePanel,
+  npcmemory:       NPCMemoryPanel,
+  chronicle:       WorldChroniclePanel,
 }
 
 export function SidebarShell() {
@@ -391,6 +406,12 @@ export function SidebarShell() {
           break
         case 'F2':
           e.preventDefault(); togglePanel('trophies'); break
+        case 'F3':
+          e.preventDefault(); togglePanel('blueprints'); break
+        case 'F4':
+          e.preventDefault(); togglePanel('npcmemory'); break
+        case 'F5':
+          e.preventDefault(); togglePanel('chronicle'); break
         case 'Escape':
           e.preventDefault()
           if (isFishingActive()) { cancelFishing(); useGameStore.getState().setGatherPrompt(null) }

@@ -5,7 +5,7 @@
 
 import { create } from 'zustand'
 
-export type WeatherState = 'CLEAR' | 'CLOUDY' | 'RAIN' | 'STORM' | 'BLIZZARD' | 'TORNADO_WARNING' | 'VOLCANIC_ASH'
+export type WeatherState = 'CLEAR' | 'CLOUDY' | 'RAIN' | 'STORM' | 'BLIZZARD' | 'TORNADO_WARNING' | 'VOLCANIC_ASH' | 'ACID_RAIN'
 
 export interface SectorWeather {
   sectorId:    number
@@ -67,6 +67,10 @@ interface WeatherStoreState {
   rainbowTimer: number   // countdown seconds (0 = gone, up to 60)
   setRainbowActive: (v: boolean) => void
   tickRainbow: (delta: number) => void
+
+  // M42 Track B: Pollution level — drives ACID_RAIN transition when > 0.7
+  pollutionLevel: number  // 0-1, increases when player smelts many metals or burns coal
+  setPollutionLevel: (lvl: number) => void
 }
 
 const DEFAULT_SECTOR: SectorWeather = {
@@ -149,4 +153,8 @@ export const useWeatherStore = create<WeatherStoreState>((set, get) => ({
     const next = Math.max(0, rainbowTimer - delta)
     set({ rainbowTimer: next, rainbowActive: next > 0 })
   },
+
+  // M42 Track B: Pollution
+  pollutionLevel: 0,
+  setPollutionLevel: (lvl) => set({ pollutionLevel: Math.max(0, Math.min(1, lvl)) }),
 }))

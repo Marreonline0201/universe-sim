@@ -455,6 +455,7 @@ const WEATHER_ICONS: Record<WeatherState, string> = {
   BLIZZARD:        'blizzard',
   TORNADO_WARNING: 'tornado',
   VOLCANIC_ASH:    'ash',
+  ACID_RAIN:       'acid',
 }
 
 // ASCII-art style SVG icons — photorealistic enough for a monospace sci-fi HUD
@@ -522,6 +523,15 @@ function WeatherIcon({ state }: { state: WeatherState }) {
           <ellipse cx="9" cy="6" rx="6" ry="3.5" fill="#887755" />
           {[4,8,12].map((x, i) => (
             <ellipse key={i} cx={x} cy={13 + i} rx="1.2" ry="0.8" fill="#aa8855" opacity="0.7" />
+          ))}
+        </svg>
+      )
+    case 'ACID_RAIN':
+      return (
+        <svg width={size} height={size} viewBox="0 0 18 18" style={{ display: 'block' }}>
+          <ellipse cx="9" cy="7" rx="5.5" ry="3.5" fill="#667744" />
+          {[4,8,12].map((x, i) => (
+            <line key={i} x1={x} y1="11" x2={x - 1} y2="16" stroke="#aaff44" strokeWidth="1.5" strokeLinecap="round" />
           ))}
         </svg>
       )
@@ -2390,6 +2400,21 @@ export function HUD() {
           }}>
             {ambientTemp.toFixed(0)}°C
           </div>
+          {/* M42 Track B: Shelter indicator */}
+          <ShelterIndicator />
+          {/* M42 Track B: Weather hazard warnings */}
+          {(weatherState === 'ACID_RAIN' || weatherState === 'BLIZZARD') && (
+            <div style={{
+              marginTop: 3,
+              fontSize: 8,
+              fontFamily: 'monospace',
+              letterSpacing: 1,
+              color: weatherState === 'ACID_RAIN' ? '#aaff44' : '#aaddff',
+              fontWeight: 700,
+            }}>
+              {weatherState === 'ACID_RAIN' ? '! ACID RAIN' : '! BLIZZARD'}
+            </div>
+          )}
         </div>
 
         {/* ── M8: Armor slot (chest) — bottom-left above hotbar ── */}

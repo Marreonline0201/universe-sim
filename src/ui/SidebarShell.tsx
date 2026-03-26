@@ -78,6 +78,8 @@ const NPCSchedulePanel = lazy(() => import('./panels/NPCSchedulePanel').then(m =
 const ResourceTrackerPanel = lazy(() => import('./panels/ResourceTrackerPanel').then(m => ({ default: m.ResourceTrackerPanel })))
 // M55 Track C: World threat tracker panel
 const WorldThreatPanel = lazy(() => import('./panels/WorldThreatPanel').then(m => ({ default: m.WorldThreatPanel })))
+// M56 Track B: Faction standing panel
+const FactionStandingPanel = lazy(() => import('./panels/FactionStandingPanel').then(m => ({ default: m.FactionStandingPanel })))
 
 // M36 Track C: Wrapper resolves nearSettlementId from store so panel has no props
 function BuildingsPanelWrapper() {
@@ -136,7 +138,8 @@ const PANEL_LABEL: Record<PanelId, string> = {
   merchantguild: 'MERCHANT GUILD',
   npcschedule:   'NPC SCHEDULES',
   resources:     'RESOURCE TRACKER',
-  threats:       'WORLD THREAT TRACKER',
+  threats:        'WORLD THREAT TRACKER',
+  factionstanding: 'FACTION STANDING',
 }
 
 const PANEL_WIDTH = 480
@@ -178,7 +181,8 @@ const ICON_BUTTONS: Array<{ id: PanelId; icon: string; hint: string }> = [
   { id: 'npcschedule',   icon: '📅',   hint: 'NPC Schedules' },
   { id: 'resources',     icon: '🌲',   hint: 'Resources' },
   { id: 'threats',       icon: '⚠️',   hint: 'World Threats (A)' },
-  { id: 'science',       icon: ' ? ', hint: 'Science Companion (?)' },
+  { id: 'factionstanding', icon: '🌟',  hint: 'Faction Standing (6)' },
+  { id: 'science',         icon: ' ? ', hint: 'Science Companion (?)' },
   { id: 'settings',    icon: 'SET',  hint: 'Settings (Esc)' },
 ]
 
@@ -221,7 +225,8 @@ const PANEL_COMPONENTS: Record<PanelId, React.ComponentType> = {
   merchantguild: MerchantGuildPanel,
   npcschedule:   NPCSchedulePanel,
   resources:     ResourceTrackerPanel,
-  threats:       WorldThreatPanel,
+  threats:         WorldThreatPanel,
+  factionstanding: FactionStandingPanel,
 }
 
 export function SidebarShell() {
@@ -292,6 +297,8 @@ export function SidebarShell() {
           break
         case '5':
           e.preventDefault(); togglePanel('bountboard'); break
+        case '6':
+          e.preventDefault(); togglePanel('factionstanding'); break
         case '1': case '2': case '3': case '4':
           if (!document.pointerLockElement) break  // only when in-game (pointer locked)
           if (activePanel !== null) break

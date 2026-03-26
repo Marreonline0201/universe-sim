@@ -419,7 +419,7 @@ export function DialoguePanel() {
 
   // M42 Track C: Settlement reputation
   const nearSettlementId = useSettlementStore(s => s.nearSettlementId)
-  const repTier = useReputationStore(s => nearSettlementId !== null ? s.getTier(nearSettlementId) : null)
+  const repTier = useReputationStore(s => nearSettlementId !== null ? (s.settlements[nearSettlementId]?.tier ?? null) : null)
   const donateToBuilding    = useBuildingStore(s => s.donateToBuilding)
   const getBuildingProgress = useBuildingStore(s => s.getBuildingProgress)
   const isBldgComplete      = useBuildingStore(s => s.isBuildingComplete)

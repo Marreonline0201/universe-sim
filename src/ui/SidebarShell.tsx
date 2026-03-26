@@ -10,6 +10,7 @@ import { usePlayerStore } from '../store/playerStore'
 import { cancelFishing, isFishingActive } from '../world/SailingSystem'
 import { tryEatFood } from '../game/SurvivalSystems'
 import { inventory } from '../game/GameSingletons'
+import { rollLoot, applyLootToInventory, CHEST_LOOT_TABLE } from '../game/LootSystem'
 import { fishingSystem } from '../game/FishingSystem'
 import { spellSystem } from '../game/SpellSystem'
 import { useDialogueStore } from '../store/dialogueStore'
@@ -43,6 +44,8 @@ const AlchemyPanel = lazy(() => import('./panels/AlchemyPanel').then(m => ({ def
 const TradePostPanel = lazy(() => import('./panels/TradePostPanel').then(m => ({ default: m.TradePostPanel })))
 // M43 Track A: Forge / weapon upgrade panel
 const ForgePanel = lazy(() => import('./panels/ForgePanel').then(m => ({ default: m.ForgePanel })))
+// M44 Track B: Housing & furniture panel
+const HousingPanel = lazy(() => import('./panels/HousingPanel').then(m => ({ default: m.HousingPanel })))
 
 // M36 Track C: Wrapper resolves nearSettlementId from store so panel has no props
 function BuildingsPanelWrapper() {
@@ -85,6 +88,7 @@ const PANEL_LABEL: Record<PanelId, string> = {
   alchemy:      'ALCHEMY',
   tradepost:    'TRADE POST',
   forge:        'FORGE',
+  housing:      'PLAYER HOUSING',
 }
 
 const PANEL_WIDTH = 480
@@ -109,6 +113,7 @@ const ICON_BUTTONS: Array<{ id: PanelId; icon: string; hint: string }> = [
   { id: 'alchemy',     icon: 'ALK',  hint: 'Alchemy (Y)' },
   { id: 'tradepost',   icon: 'TRD',  hint: 'Trade Post (T)' },
   { id: 'forge',       icon: 'FRG',  hint: 'Forge (V)' },
+  { id: 'housing',     icon: 'HSE',  hint: 'Housing (N)' },
   { id: 'science',     icon: ' ? ',  hint: 'Science Companion (?)' },
   { id: 'settings',    icon: 'SET',  hint: 'Settings (Esc)' },
 ]
@@ -136,6 +141,7 @@ const PANEL_COMPONENTS: Record<PanelId, React.ComponentType> = {
   alchemy:       AlchemyPanel,
   tradepost:     TradePostPanel,
   forge:         ForgePanel,
+  housing:       HousingPanel,
 }
 
 export function SidebarShell() {
@@ -152,6 +158,17 @@ export function SidebarShell() {
       if (document.pointerLockElement) document.exitPointerLock()
     }
   }, [activePanel, setInputBlocked, setGatherPrompt])
+
+  // M44 Track A: Chest interaction — listens for 'open-chest' events and drops loot
+  useEffect(() => {
+    function onOpenChest() {
+      const drops = rollLoot(CHEST_LOOT_TABLE, 2)
+      const labels = applyLootToInventory(drops)
+      window.dispatchEvent(new CustomEvent('loot-drop', { detail: { drops: labels, source: 'Treasure Chest' } }))
+    }
+    window.addEventListener('open-chest', onOpenChest)
+    return () => window.removeEventListener('open-chest', onOpenChest)
+  }, [])
 
   // Global hotkey listener
   useEffect(() => {
@@ -184,6 +201,7 @@ export function SidebarShell() {
         case 'y': case 'Y':   e.preventDefault(); togglePanel('alchemy');     break
         case 't': case 'T':   e.preventDefault(); togglePanel('tradepost');  break
         case 'v': case 'V':   e.preventDefault(); togglePanel('forge');      break
+        case 'n': case 'N':   e.preventDefault(); togglePanel('housing');   break
         case 'Tab':           e.preventDefault(); togglePanel('character');  break
         case 'm': case 'M':   e.preventDefault(); togglePanel('map');        break
         case '?': case '/':

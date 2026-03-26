@@ -3,7 +3,7 @@
 // Tab 1 BROWSE: scroll all listings, filter by name, sort by price/time, BUY.
 // Tab 2 SELL: pick from inventory, set qty/price, LIST or CANCEL listings.
 
-import { useState, useCallback, useMemo } from 'react'
+import { useState, useCallback, useMemo, useEffect } from 'react'
 import { useTradePostStore, type TradePostListing } from '../../store/tradePostStore'
 import { usePlayerStore } from '../../store/playerStore'
 import { useUiStore } from '../../store/uiStore'
@@ -11,6 +11,8 @@ import { inventory } from '../../game/GameSingletons'
 import { getWorldSocket } from '../../net/useWorldSocket'
 import { getLocalUsername } from '../../net/useWorldSocket'
 import { MAT, ITEM } from '../../player/Inventory'
+import { getReputationBonus } from '../../store/reputationStore'
+import { useSettlementStore } from '../../store/settlementStore'
 
 // ── Name lookup maps ──────────────────────────────────────────────────────────
 
@@ -96,14 +98,24 @@ function BrowseTab() {
   }, [listings, filter, sort])
 
   const handleBuy = useCallback((listing: TradePostListing) => {
-    const totalCost = listing.pricePerUnit * listing.quantity
-    const result = useTradePostStore.getState().buyListing(listing.id, gold)
-    if (!result.success) {
-      addNotification(result.message, 'warning')
+    const baseCost = listing.pricePerUnit * listing.quantity
+    // Apply reputation trade discount from nearby settlement
+    const nearId = useSettlementStore.getState().nearSettlementId
+    const repBonus = nearId !== null ? getReputationBonus(nearId) : null
+    const totalCost = repBonus ? Math.floor(baseCost * (1 - repBonus.tradeDiscount)) : baseCost
+    // Deduct gold first using fresh state — spendGold returns false if insufficient
+    const spent = usePlayerStore.getState().spendGold(totalCost)
+    if (!spent) {
+      addNotification('Not enough gold.', 'warning')
       return
     }
-    // Deduct gold
-    usePlayerStore.getState().spendGold(totalCost)
+    const result = useTradePostStore.getState().buyListing(listing.id, Infinity)
+    if (!result.success) {
+      // Listing gone — refund the gold we already deducted
+      usePlayerStore.getState().earnGold(totalCost)
+      addNotification('Listing no longer available.', 'warning')
+      return
+    }
     // Add item/material to inventory
     inventory.addItem({
       itemId:     listing.itemId,
@@ -114,7 +126,7 @@ function BrowseTab() {
     addNotification(`Purchased ${getDisplayName(listing.materialId, listing.itemId)} x${listing.quantity} for ${totalCost} gold!`, 'discovery')
     // Broadcast to other players
     getWorldSocket()?.send({ type: 'TRADE_POST_BUY', listingId: listing.id })
-  }, [gold, addNotification])
+  }, [addNotification])
 
   function SortBtn({ k, label }: { k: SortKey; label: string }) {
     return (
@@ -253,6 +265,13 @@ function SellTab() {
     useUiStore.getState().addNotification(msg, type)
   }, [])
 
+  // Ticker to re-derive inventory when items change (not just when listings change)
+  const [invVersion, setInvVersion] = useState(0)
+  useEffect(() => {
+    const id = setInterval(() => setInvVersion(v => v + 1), 500)
+    return () => clearInterval(id)
+  }, [])
+
   // Build list of player's inventory items with qty > 0
   const invItems = useMemo(() => {
     const items: Array<{ slotIndex: number; materialId: number; itemId: number; quantity: number; name: string }> = []
@@ -269,7 +288,7 @@ function SellTab() {
       }
     }
     return items
-  }, [listings]) // re-derive whenever listings change (proxy for inventory changes)
+  }, [invVersion]) // re-derive on ticker so new gathers appear without closing panel
 
   const [selectedSlot, setSelectedSlot] = useState<number | null>(null)
   const [qty, setQty]                   = useState(1)
@@ -296,6 +315,8 @@ function SellTab() {
       listedAt:     Date.now(),
     }
     useTradePostStore.getState().addListing(listing)
+    // Remove items from inventory (prevent dupe exploit)
+    inventory.removeItem(selectedItem.slotIndex, qty)
     // Track as my listing
     useTradePostStore.setState(s => ({ myListings: [...s.myListings, id] }))
     getWorldSocket()?.send({ type: 'TRADE_POST_LIST', listing })

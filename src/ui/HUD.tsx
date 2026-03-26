@@ -44,6 +44,8 @@ import { PartyHUD } from './PartyHUD'
 import { SpectateMode } from './SpectateMode'
 // M40 Track B: Magic spell system
 const SpellBar = lazy(() => import('./SpellBar').then(m => ({ default: m.SpellBar })))
+// M44 Track C: Weather-spell interaction hint
+const SpellWeatherHint = lazy(() => import('./panels/SpellWeatherHint').then(m => ({ default: m.SpellWeatherHint })))
 // M41 Track B: Mount HUD
 const MountHUD = lazy(() => import('./MountHUD').then(m => ({ default: m.MountHUD })))
 // M39 Track C: Civilization progression banners
@@ -56,6 +58,8 @@ const ReputationToast = lazy(() => import('./ReputationToast').then(m => ({ defa
 
 // ── M20: Lazy-loaded overlays (rarely shown) ─────────────────────────────────
 const FirstContactOverlay = lazy(() => import('./FirstContactOverlay').then(m => ({ default: m.FirstContactOverlay })))
+// M44 Track A: Dungeon loot drop overlay
+const LootOverlay = lazy(() => import('./panels/LootOverlay').then(m => ({ default: m.LootOverlay })))
 
 // ── Armor slot visual constants ────────────────────────────────────────────────
 const STEEL_BLUE = '#4a9eff'
@@ -2666,6 +2670,11 @@ export function HUD() {
         <SpellBar />
       </Suspense>
 
+      {/* ── M44 Track C: Weather-spell interaction hint (shown below spell bar) ── */}
+      <Suspense fallback={null}>
+        <SpellWeatherHint />
+      </Suspense>
+
       {/* ── M41 Track B: Mount HUD (shown when riding) ── */}
       <Suspense fallback={null}>
         <MountHUD />
@@ -2687,6 +2696,11 @@ export function HUD() {
       {/* ── M39 Track C: Civilization level-up and milestone banners ── */}
       <CivLevelUpBanner />
       <CivMilestoneBanner />
+
+      {/* ── M44 Track A: Dungeon loot drop overlay ── */}
+      <Suspense fallback={null}>
+        <LootOverlay />
+      </Suspense>
 
       {/* ── M32 Track C: Fast travel fade-to-black overlay ── */}
       <div style={{

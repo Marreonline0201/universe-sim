@@ -16,6 +16,7 @@
 
 import * as THREE from 'three'
 import { CAVE_SEED, getCaveEntrancePositions } from '../rendering/CaveEntrances'
+import { rollLoot, applyLootToInventory, BOSS_LOOT_TABLES } from './LootSystem'
 
 // ── Seeded PRNG (same mulberry32 as rest of cave system) ─────────────────────
 function seededRandom(seed: number): () => number {
@@ -179,6 +180,25 @@ export function damageMiniBoss(amount: number): boolean {
   dungeonState.miniBossHp = Math.max(0, dungeonState.miniBossHp - amount)
   if (dungeonState.miniBossHp <= 0) {
     dungeonState.miniBossAlive = false
+    // M44 Track A: drop mini-boss loot
+    const drops = rollLoot(BOSS_LOOT_TABLES['dungeon_miniboss'], 2)
+    const labels = applyLootToInventory(drops)
+    window.dispatchEvent(new CustomEvent('loot-drop', { detail: { drops: labels, source: 'Dungeon Mini-Boss' } }))
+    return true
+  }
+  return false
+}
+
+/** Damage the main dungeon boss. Returns true when boss HP reaches 0. */
+export function damageBoss(room: DungeonRoom, amount: number): boolean {
+  if (!room.bossAlive) return false
+  room.bossHp = Math.max(0, room.bossHp - amount)
+  if (room.bossHp <= 0) {
+    room.bossAlive = false
+    // M44 Track A: drop boss loot
+    const drops = rollLoot(BOSS_LOOT_TABLES['dungeon_boss'], 3)
+    const labels = applyLootToInventory(drops)
+    window.dispatchEvent(new CustomEvent('loot-drop', { detail: { drops: labels, source: 'Dungeon Boss' } }))
     return true
   }
   return false

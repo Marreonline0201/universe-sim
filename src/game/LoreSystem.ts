@@ -235,6 +235,15 @@ export function initLoreSystem(): void {
   window.addEventListener('recipe-discovered', () => autoUnlock('alchemy'))
   window.addEventListener('faction-war-started', () => autoUnlock('factions'))
   window.addEventListener('trade-route-completed', () => autoUnlock('artifacts'))
+  // M64: additional unlock triggers
+  window.addEventListener('boss-defeated', () => autoUnlock('bestiary'))
+  window.addEventListener('item-crafted', () => autoUnlock('alchemy'))
+  window.addEventListener('faction-standing-changed', (e) => {
+    const tier = (e as CustomEvent).detail?.tier
+    if (tier === 'friendly' || tier === 'honored' || tier === 'exalted') autoUnlock('factions')
+  })
+  window.addEventListener('delve-completed', () => autoUnlock('geography'))
+  window.addEventListener('seasonal-event-started', () => autoUnlock('history'))
 }
 
 export function getLoreEntries(): LoreEntry[] {

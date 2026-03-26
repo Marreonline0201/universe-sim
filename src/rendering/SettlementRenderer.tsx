@@ -28,6 +28,9 @@ import { Html } from '@react-three/drei'
 import { useFrame } from '@react-three/fiber'
 import { useSettlementStore } from '../store/settlementStore'
 import { usePlayerStore } from '../store/playerStore'
+// M36 Track C: Building meshes
+import { useBuildingStore } from '../store/buildingStore'
+import type { BuildingType } from '../game/BuildingSystem'
 
 const TERRITORY_RADIUS = 150
 
@@ -462,6 +465,227 @@ function SettlementLabel({
   )
 }
 
+// ── M36 Track C: Completed building meshes ─────────────────────────────────────
+// Each building type renders at an offset from the settlement center.
+// Under-construction buildings show wireframe scaffolding.
+
+const BUILDING_OFFSETS: Record<BuildingType, [number, number, number]> = {
+  barracks:   [ 12, 0,  2],
+  library:    [-12, 0,  4],
+  market:     [  6, 0, 10],
+  watchtower: [-10, 0,-10],
+  healer_hut: [  8, 0, -8],
+  forge:      [-14, 0, -4],
+}
+
+function BarracksMesh() {
+  // Rectangular building 8×4×5, brown-red material
+  return (
+    <group>
+      <mesh position={[0, 2, 0]} castShadow receiveShadow>
+        <boxGeometry args={[8, 4, 5]} />
+        <meshStandardMaterial color="#8b3a2c" roughness={0.8} metalness={0.05} />
+      </mesh>
+      {/* Roof */}
+      <mesh position={[0, 4.8, 0]} castShadow>
+        <coneGeometry args={[5, 1.6, 4]} />
+        <meshStandardMaterial color="#5a2a1e" roughness={0.9} metalness={0.02} />
+      </mesh>
+      {/* Weapon rack detail */}
+      <mesh position={[0, 1.5, 2.6]}>
+        <boxGeometry args={[3, 1.5, 0.1]} />
+        <meshStandardMaterial color="#4a3020" roughness={0.95} />
+      </mesh>
+    </group>
+  )
+}
+
+function LibraryMesh() {
+  // Tall narrow building 4×7×4, dark wood
+  return (
+    <group>
+      <mesh position={[0, 3.5, 0]} castShadow receiveShadow>
+        <boxGeometry args={[4, 7, 4]} />
+        <meshStandardMaterial color="#3d2b1a" roughness={0.85} metalness={0.03} />
+      </mesh>
+      {/* Tall pointed roof */}
+      <mesh position={[0, 7.5, 0]} castShadow>
+        <coneGeometry args={[3, 2.5, 4]} />
+        <meshStandardMaterial color="#2a1e0f" roughness={0.9} />
+      </mesh>
+      {/* Doorway arch */}
+      <mesh position={[0, 1.2, 2.1]}>
+        <boxGeometry args={[1.2, 2.4, 0.12]} />
+        <meshStandardMaterial color="#1a1008" roughness={0.95} />
+      </mesh>
+    </group>
+  )
+}
+
+function HealerHutMesh() {
+  // Small rounded-looking building 4×3.5×4 with green cross on roof
+  return (
+    <group>
+      <mesh position={[0, 1.75, 0]} castShadow receiveShadow>
+        <boxGeometry args={[4, 3.5, 4]} />
+        <meshStandardMaterial color="#4a7840" roughness={0.85} metalness={0.02} />
+      </mesh>
+      {/* Roof */}
+      <mesh position={[0, 3.6, 0]} castShadow>
+        <coneGeometry args={[3, 1.2, 4]} />
+        <meshStandardMaterial color="#2e5228" roughness={0.9} />
+      </mesh>
+      {/* Green cross on roof (horizontal bar) */}
+      <mesh position={[0, 4.5, 0]} rotation={[0, 0, 0]}>
+        <planeGeometry args={[1.8, 0.5]} />
+        <meshStandardMaterial
+          color="#00cc44"
+          emissive="#00aa33"
+          emissiveIntensity={1.2}
+          side={THREE.DoubleSide}
+        />
+      </mesh>
+      {/* Green cross (vertical bar) */}
+      <mesh position={[0, 4.5, 0]}>
+        <planeGeometry args={[0.5, 1.8]} />
+        <meshStandardMaterial
+          color="#00cc44"
+          emissive="#00aa33"
+          emissiveIntensity={1.2}
+          side={THREE.DoubleSide}
+        />
+      </mesh>
+    </group>
+  )
+}
+
+function ForgeMesh() {
+  // Squat 5×4×5 dark stone building with chimney and orange glow
+  return (
+    <group>
+      <mesh position={[0, 2, 0]} castShadow receiveShadow>
+        <boxGeometry args={[5, 4, 5]} />
+        <meshStandardMaterial color="#2a2a2a" roughness={0.9} metalness={0.08} />
+      </mesh>
+      {/* Flat-ish roof */}
+      <mesh position={[0, 4.3, 0]} castShadow>
+        <coneGeometry args={[3.5, 0.8, 4]} />
+        <meshStandardMaterial color="#1a1a1a" roughness={0.95} />
+      </mesh>
+      {/* Chimney */}
+      <mesh position={[1.5, 5, 1.5]} castShadow>
+        <boxGeometry args={[0.6, 2, 0.6]} />
+        <meshStandardMaterial color="#222222" roughness={0.9} metalness={0.1} />
+      </mesh>
+      {/* Forge glow */}
+      <pointLight position={[0, 1.5, 0]} color="#ff4400" intensity={4} distance={8} decay={2} />
+      <mesh position={[0, 0.5, 2.6]}>
+        <sphereGeometry args={[0.3, 8, 6]} />
+        <meshStandardMaterial color="#ff6600" emissive="#ff4400" emissiveIntensity={3} />
+      </mesh>
+    </group>
+  )
+}
+
+function WatchtowerMesh() {
+  // Tall thin 2×12×2 stone tower with light at top
+  return (
+    <group>
+      <mesh position={[0, 6, 0]} castShadow receiveShadow>
+        <boxGeometry args={[2, 12, 2]} />
+        <meshStandardMaterial color="#7a7068" roughness={0.88} metalness={0.04} />
+      </mesh>
+      {/* Battlements cap */}
+      <mesh position={[0, 12.4, 0]} castShadow>
+        <boxGeometry args={[2.6, 0.8, 2.6]} />
+        <meshStandardMaterial color="#6a6058" roughness={0.9} />
+      </mesh>
+      {/* Light at top */}
+      <pointLight position={[0, 13, 0]} color="#ffe8a0" intensity={3} distance={25} decay={2} />
+      <mesh position={[0, 12.8, 0]}>
+        <sphereGeometry args={[0.18, 6, 4]} />
+        <meshStandardMaterial color="#ffe880" emissive="#ffcc40" emissiveIntensity={2} />
+      </mesh>
+    </group>
+  )
+}
+
+function MarketMesh() {
+  // Open-sided pavilion: edge frame + roof, gold trim
+  return (
+    <group>
+      {/* Roof plane */}
+      <mesh position={[0, 4, 0]} castShadow>
+        <boxGeometry args={[8, 0.2, 6]} />
+        <meshStandardMaterial color="#b8841a" roughness={0.8} metalness={0.15} />
+      </mesh>
+      {/* Four corner columns */}
+      {([-3.5, 3.5] as const).flatMap((px) =>
+        ([-2.5, 2.5] as const).map((pz, i) => (
+          <mesh key={`col-${px}-${pz}-${i}`} position={[px, 2, pz]} castShadow>
+            <boxGeometry args={[0.3, 4, 0.3]} />
+            <meshStandardMaterial color="#c8a030" roughness={0.7} metalness={0.3} />
+          </mesh>
+        ))
+      )}
+      {/* Edge wire frame */}
+      <lineSegments>
+        <edgesGeometry args={[new THREE.BoxGeometry(8, 4, 6)]} />
+        <lineBasicMaterial color="#c8a030" />
+      </lineSegments>
+    </group>
+  )
+}
+
+// Scaffolding for in-progress buildings
+function ScaffoldingMesh() {
+  const geo = useMemo(() => new THREE.BoxGeometry(5, 5, 5), [])
+  return (
+    <mesh position={[0, 2.5, 0]}>
+      <primitive object={geo} attach="geometry" />
+      <meshStandardMaterial color="#8B6914" wireframe opacity={0.6} transparent />
+    </mesh>
+  )
+}
+
+const BUILDING_MESH_MAP: Record<BuildingType, () => JSX.Element | null> = {
+  barracks:   BarracksMesh,
+  library:    LibraryMesh,
+  healer_hut: HealerHutMesh,
+  forge:      ForgeMesh,
+  watchtower: WatchtowerMesh,
+  market:     MarketMesh,
+}
+
+function SettlementBuildings({ settlementId }: { settlementId: number }) {
+  const isBuildingComplete  = useBuildingStore(s => s.isBuildingComplete)
+  const getBuildingProgress = useBuildingStore(s => s.getBuildingProgress)
+  const getAvailableBuildings = useBuildingStore(s => s.getAvailableBuildings)
+  const settlement = useSettlementStore(s => s.settlements.get(settlementId))
+  const civLevel   = settlement?.civLevel ?? 0
+
+  const types = getAvailableBuildings(civLevel)
+
+  return (
+    <>
+      {types.map(type => {
+        const [ox, oy, oz] = BUILDING_OFFSETS[type]
+        const complete  = isBuildingComplete(settlementId, type)
+        const pct       = getBuildingProgress(settlementId, type)
+        const MeshComp  = BUILDING_MESH_MAP[type]
+
+        if (!complete && pct === 0) return null  // not started, don't show
+
+        return (
+          <group key={type} position={[ox, oy, oz]}>
+            {complete ? <MeshComp /> : <ScaffoldingMesh />}
+          </group>
+        )
+      })}
+    </>
+  )
+}
+
 // ── Settlement Mesh (main building group) ─────────────────────────────────────
 
 function SettlementMesh({ settlement }: { settlement: any }) {
@@ -573,6 +797,9 @@ function SettlementMesh({ settlement }: { settlement: any }) {
 
       {/* Territory ring */}
       <TerritoryRing x={0} y={0} z={0} />
+
+      {/* M36 Track C: Completed/in-progress buildings */}
+      <SettlementBuildings settlementId={id} />
     </group>
   )
 }

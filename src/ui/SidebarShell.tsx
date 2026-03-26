@@ -12,6 +12,7 @@ import { tryEatFood } from '../game/SurvivalSystems'
 import { inventory } from '../game/GameSingletons'
 import { fishingSystem } from '../game/FishingSystem'
 import { useDialogueStore } from '../store/dialogueStore'
+import { useSettlementStore } from '../store/settlementStore'
 
 // ── Lazy-loaded panels (M20 code splitting) ──────────────────────────────────
 const InventoryPanel = lazy(() => import('./panels/InventoryPanel').then(m => ({ default: m.InventoryPanel })))
@@ -31,6 +32,26 @@ const MerchantPanel    = lazy(() => import('./panels/MerchantPanel').then(m => (
 const PlayerListPanel  = lazy(() => import('./panels/PlayerListPanel').then(m => ({ default: m.PlayerListPanel })))
 const HomePanel        = lazy(() => import('./panels/HomePanel').then(m => ({ default: m.HomePanel })))
 const FactionPanel     = lazy(() => import('./panels/FactionPanel').then(m => ({ default: m.FactionPanel })))
+// M36 Track C: Buildings panel (wrapper reads settlementId from store)
+const BuildingsPanelLazy = lazy(() => import('./panels/BuildingsPanel').then(m => ({ default: m.BuildingsPanel })))
+
+// M36 Track C: Wrapper resolves nearSettlementId from store so panel has no props
+function BuildingsPanelWrapper() {
+  const nearSettlementId = useSettlementStore(s => s.nearSettlementId)
+  const closePanel = useUiStore(s => s.closePanel)
+  if (!nearSettlementId) {
+    return (
+      <div style={{ color: '#888', fontFamily: 'monospace', padding: 16, fontSize: 12 }}>
+        You need to be near a settlement to view its buildings.
+      </div>
+    )
+  }
+  return (
+    <React.Suspense fallback={null}>
+      <BuildingsPanelLazy settlementId={nearSettlementId} onClose={closePanel} />
+    </React.Suspense>
+  )
+}
 
 const PANEL_LABEL: Record<PanelId, string> = {
   inventory: 'INVENTORY',
@@ -50,6 +71,7 @@ const PANEL_LABEL: Record<PanelId, string> = {
   players:      'PLAYERS ONLINE',
   home:         'HOME BASE',
   factions:     'FACTIONS',
+  buildings:    'SETTLEMENT BUILDINGS',
 }
 
 const PANEL_WIDTH = 480
@@ -69,6 +91,7 @@ const ICON_BUTTONS: Array<{ id: PanelId; icon: string; hint: string }> = [
   { id: 'home',       icon: 'HME',  hint: 'Home Base (H)' },
   { id: 'players',    icon: 'PLR',  hint: 'Players Online (P)' },
   { id: 'factions',   icon: 'FCT',  hint: 'Factions (G)' },
+  { id: 'buildings',  icon: 'BLD',  hint: 'Settlement Buildings (U)' },
   { id: 'science',    icon: ' ? ',  hint: 'Science Companion (?)' },
   { id: 'settings',   icon: 'SET',  hint: 'Settings (Esc)' },
 ]
@@ -91,6 +114,7 @@ const PANEL_COMPONENTS: Record<PanelId, React.ComponentType> = {
   players:      PlayerListPanel,
   home:         HomePanel,
   factions:     FactionPanel,
+  buildings:    BuildingsPanelWrapper,
 }
 
 export function SidebarShell() {
@@ -131,7 +155,8 @@ export function SidebarShell() {
         case 'j': case 'J':   e.preventDefault(); togglePanel('journal');    break
         case 'k': case 'K':   e.preventDefault(); togglePanel('skills');     break
         case 'q': case 'Q':   e.preventDefault(); togglePanel('quests');     break
-        case 'g': case 'G':   e.preventDefault(); togglePanel('factions'); break
+        case 'g': case 'G':   e.preventDefault(); togglePanel('factions');  break
+        case 'u': case 'U':   e.preventDefault(); togglePanel('buildings'); break
         case 'h': case 'H':   e.preventDefault(); togglePanel('home'); break
         case 'p': case 'P':   e.preventDefault(); togglePanel('players');     break
         case 'Tab':           e.preventDefault(); togglePanel('character');  break

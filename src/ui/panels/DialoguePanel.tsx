@@ -7,12 +7,18 @@
 // and dominant emotion. Connects to LLMBridge when an API key is configured;
 // otherwise falls back to procedural template responses.
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { useDialogueStore } from '../../store/dialogueStore'
 import type { EmotionState } from '../../ai/EmotionModel'
 import { useFactionStore } from '../../store/factionStore'
 import { useSettlementStore } from '../../store/settlementStore'
 import { FACTIONS, getFactionRelationship } from '../../game/FactionSystem'
+// M36 Track C: Building donation via NPC dialogue
+import { useBuildingStore } from '../../store/buildingStore'
+import { BUILDING_DEFS, ALL_BUILDING_TYPES } from '../../game/BuildingSystem'
+import { usePlayerStore } from '../../store/playerStore'
+import { inventory } from '../../game/GameSingletons'
+import { skillSystem } from '../../game/SkillSystem'
 
 // ── Procedural fallback dialogue (no LLM key) ──────────────────────────────
 
@@ -250,6 +256,10 @@ export function DialoguePanel() {
   const inputRef = useRef<HTMLInputElement>(null)
   const hasGreeted = useRef(false)
 
+  // M36 Track C: Building donation state
+  const [showBuildingMenu, setShowBuildingMenu] = useState(false)
+  const [buildingFeedback, setBuildingFeedback] = useState<string | null>(null)
+
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
     if (scrollRef.current) {
@@ -267,6 +277,50 @@ export function DialoguePanel() {
   // Derive faction relationship for greeting override
   const playerFaction = useFactionStore(s => s.playerFaction)
   const settlements   = useSettlementStore(s => s.settlements)
+
+  // M36 Track C: Resolve the settlement object for building panel
+  const currentSettlement = useSettlementStore(s => {
+    for (const settlement of s.settlements.values()) {
+      if (settlement.name === targetSettlement) return settlement
+    }
+    return null
+  })
+  const donateToBuilding    = useBuildingStore(s => s.donateToBuilding)
+  const getBuildingProgress = useBuildingStore(s => s.getBuildingProgress)
+  const isBldgComplete      = useBuildingStore(s => s.isBuildingComplete)
+  const getAvailableBuildings = useBuildingStore(s => s.getAvailableBuildings)
+
+  const availableBuildings = currentSettlement
+    ? getAvailableBuildings(currentSettlement.civLevel).filter(
+        t => !isBldgComplete(currentSettlement.id, t)
+      )
+    : []
+
+  const handleDonateQuick = useCallback((matId: number, qty: number, buildingType: string, matLabel: string) => {
+    if (!currentSettlement) return
+    const imported = ALL_BUILDING_TYPES.find(t => t === buildingType)
+    if (!imported) return
+    const donated = donateToBuilding(
+      currentSettlement.id,
+      currentSettlement.name,
+      imported,
+      matId,
+      qty,
+    )
+    if (donated) {
+      setBuildingFeedback(`Donated ${qty}x ${matLabel}!`)
+      addMessage('npc', `Thank you, traveler. Your donation brings us closer to completing our ${BUILDING_DEFS[imported].name}!`)
+    } else {
+      const inInv = inventory.countMaterial(matId)
+      if (inInv === 0) {
+        setBuildingFeedback(`You have no ${matLabel}.`)
+        addMessage('npc', `It seems you don't have any ${matLabel}. Come back when you've gathered some.`)
+      } else {
+        setBuildingFeedback('Nothing more needed for that material.')
+      }
+    }
+    setTimeout(() => setBuildingFeedback(null), 3000)
+  }, [currentSettlement, donateToBuilding, addMessage])
 
   function getFactionGreeting(): string | null {
     if (!playerFaction || !targetSettlement) return null
@@ -442,6 +496,246 @@ export function DialoguePanel() {
           </div>
         )}
       </div>
+
+      {/* M36 Track C: Service NPC actions (when completed buildings exist) */}
+      {currentSettlement && (() => {
+        const sid = currentSettlement.id
+        const role = targetNpcRole.toLowerCase()
+        const gold = usePlayerStore.getState().gold
+        const spendGold = usePlayerStore.getState().spendGold
+        const addGold = usePlayerStore.getState().addGold
+        const skillSys = skillSystem
+
+        // Healer action
+        if (role === 'healer' && isBldgComplete(sid, 'healer_hut')) {
+          return (
+            <div style={{ marginTop: 6, borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 8 }}>
+              <button
+                onClick={() => {
+                  if (gold < 5) {
+                    addMessage('npc', "You don't have enough gold. Healing costs 5 gold.")
+                    return
+                  }
+                  if (spendGold(5)) {
+                    usePlayerStore.getState().updateVitals({ health: 1 })
+                    addMessage('npc', 'There you go — good as new! Come back if you need me.')
+                  }
+                }}
+                style={{
+                  padding: '5px 12px',
+                  fontSize: 11,
+                  fontFamily: 'monospace',
+                  background: gold >= 5 ? 'rgba(76,175,80,0.2)' : 'rgba(255,255,255,0.04)',
+                  border: `1px solid ${gold >= 5 ? 'rgba(76,175,80,0.5)' : 'rgba(255,255,255,0.1)'}`,
+                  borderRadius: 4,
+                  color: gold >= 5 ? '#4caf50' : '#555',
+                  cursor: gold >= 5 ? 'pointer' : 'not-allowed',
+                }}
+              >
+                💉 Heal for 5 gold (you have: {gold}g)
+              </button>
+            </div>
+          )
+        }
+
+        // Blacksmith / Forge action
+        if ((role === 'blacksmith' || role === 'smith') && isBldgComplete(sid, 'forge')) {
+          const ironCount = inventory.countMaterial(15 /* MAT.IRON */)
+          const canUpgrade = gold >= 20 && ironCount >= 10
+          return (
+            <div style={{ marginTop: 6, borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 8 }}>
+              <button
+                onClick={() => {
+                  if (!canUpgrade) {
+                    addMessage('npc', 'You need 10 Iron and 20 gold for an upgrade. Come back when ready.')
+                    return
+                  }
+                  if (spendGold(20)) {
+                    // Consume 10 iron
+                    let remaining = 10
+                    for (let i = 0; i < inventory.slotCount && remaining > 0; i++) {
+                      const s = inventory.getSlot(i)
+                      if (s && s.itemId === 0 && s.materialId === 15) {
+                        const take = Math.min(s.quantity, remaining)
+                        inventory.removeItemForce(i, take)
+                        remaining -= take
+                      }
+                    }
+                    // Grant combat XP as proxy for weapon upgrade
+                    if (skillSys?.addXp) skillSys.addXp('combat', 50)
+                    addMessage('npc', "There — your weapon has been sharpened and reinforced. It'll serve you well.")
+                  }
+                }}
+                style={{
+                  padding: '5px 12px',
+                  fontSize: 11,
+                  fontFamily: 'monospace',
+                  background: canUpgrade ? 'rgba(255,140,0,0.2)' : 'rgba(255,255,255,0.04)',
+                  border: `1px solid ${canUpgrade ? 'rgba(255,140,0,0.5)' : 'rgba(255,255,255,0.1)'}`,
+                  borderRadius: 4,
+                  color: canUpgrade ? '#ff8c00' : '#555',
+                  cursor: canUpgrade ? 'pointer' : 'not-allowed',
+                }}
+              >
+                🔥 Upgrade weapon — 10 Iron + 20 gold (iron: {ironCount}, gold: {gold}g)
+              </button>
+            </div>
+          )
+        }
+
+        // Guard Captain / Barracks action
+        if ((role === 'guard captain' || role === 'captain') && isBldgComplete(sid, 'barracks')) {
+          return (
+            <div style={{ marginTop: 6, borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 8 }}>
+              <button
+                onClick={() => {
+                  if (gold < 50) {
+                    addMessage('npc', 'Training costs 50 gold, soldier. Come back when your coin purse is heavier.')
+                    return
+                  }
+                  if (spendGold(50)) {
+                    if (skillSys?.addXp) skillSys.addXp('combat', 100)
+                    addMessage('npc', 'Good. Now hit the yard — those 100 points of experience should sharpen your edge.')
+                  }
+                }}
+                style={{
+                  padding: '5px 12px',
+                  fontSize: 11,
+                  fontFamily: 'monospace',
+                  background: gold >= 50 ? 'rgba(205,68,32,0.2)' : 'rgba(255,255,255,0.04)',
+                  border: `1px solid ${gold >= 50 ? 'rgba(205,68,32,0.5)' : 'rgba(255,255,255,0.1)'}`,
+                  borderRadius: 4,
+                  color: gold >= 50 ? '#cd4420' : '#555',
+                  cursor: gold >= 50 ? 'pointer' : 'not-allowed',
+                }}
+              >
+                ⚔ Buy Combat Training — 50 gold → +100 Combat XP (you have: {gold}g)
+              </button>
+            </div>
+          )
+        }
+
+        // Scholar / Library action
+        if ((role === 'scholar' || role === 'librarian') && isBldgComplete(sid, 'library')) {
+          return (
+            <div style={{ marginTop: 6, borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 8 }}>
+              <button
+                onClick={() => {
+                  if (gold < 40) {
+                    addMessage('npc', 'Knowledge has a price: 40 gold. Return when you can afford to learn.')
+                    return
+                  }
+                  if (spendGold(40)) {
+                    if (skillSys?.addXp) skillSys.addXp('crafting', 80)
+                    addMessage('npc', 'Excellent. I have shared all I can for now. Come back when the knowledge settles.')
+                  }
+                }}
+                style={{
+                  padding: '5px 12px',
+                  fontSize: 11,
+                  fontFamily: 'monospace',
+                  background: gold >= 40 ? 'rgba(52,152,219,0.2)' : 'rgba(255,255,255,0.04)',
+                  border: `1px solid ${gold >= 40 ? 'rgba(52,152,219,0.5)' : 'rgba(255,255,255,0.1)'}`,
+                  borderRadius: 4,
+                  color: gold >= 40 ? '#3498db' : '#555',
+                  cursor: gold >= 40 ? 'pointer' : 'not-allowed',
+                }}
+              >
+                📚 Study Crafting — 40 gold → +80 Crafting XP (you have: {gold}g)
+              </button>
+            </div>
+          )
+        }
+
+        return null
+      })()}
+
+      {/* M36 Track C: Building donation quick-actions */}
+      {availableBuildings.length > 0 && (
+        <div style={{
+          marginTop: 8,
+          borderTop: '1px solid rgba(255,255,255,0.06)',
+          paddingTop: 8,
+        }}>
+          <button
+            onClick={() => setShowBuildingMenu(v => !v)}
+            style={{
+              padding: '4px 10px',
+              fontSize: 10,
+              fontFamily: 'monospace',
+              background: showBuildingMenu ? 'rgba(205,136,32,0.3)' : 'rgba(205,136,32,0.12)',
+              border: '1px solid rgba(205,136,32,0.4)',
+              borderRadius: 4,
+              color: '#cd8820',
+              cursor: 'pointer',
+            }}
+          >
+            🏗 Help build the settlement {showBuildingMenu ? '▲' : '▼'}
+          </button>
+
+          {buildingFeedback && (
+            <div style={{ fontSize: 10, color: '#cd8820', marginTop: 4 }}>
+              {buildingFeedback}
+            </div>
+          )}
+
+          {showBuildingMenu && currentSettlement && (
+            <div style={{
+              marginTop: 6,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 6,
+              maxHeight: 160,
+              overflowY: 'auto',
+            }}>
+              {availableBuildings.map(type => {
+                const def = BUILDING_DEFS[type]
+                const pct = getBuildingProgress(currentSettlement.id, type)
+                return (
+                  <div key={type} style={{
+                    background: 'rgba(255,255,255,0.04)',
+                    border: '1px solid rgba(255,255,255,0.08)',
+                    borderRadius: 4,
+                    padding: '6px 8px',
+                  }}>
+                    <div style={{ fontSize: 11, color: '#ddd', marginBottom: 3 }}>
+                      {def.icon} {def.name} — {pct}%
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                      {def.donationRequirements.map(req => {
+                        const donated = useBuildingStore.getState().getBuilding(currentSettlement.id, type)?.donated[req.matId] ?? 0
+                        const stillNeeded = Math.max(0, req.qty - donated)
+                        const inInv = inventory.countMaterial(req.matId)
+                        const canGive = Math.min(inInv, stillNeeded)
+                        if (stillNeeded === 0) return null
+                        return (
+                          <button
+                            key={req.matId}
+                            onClick={() => handleDonateQuick(req.matId, Math.min(canGive, req.qty), type, req.label)}
+                            disabled={canGive === 0}
+                            style={{
+                              padding: '2px 7px',
+                              fontSize: 9,
+                              fontFamily: 'monospace',
+                              background: canGive > 0 ? 'rgba(205,136,32,0.18)' : 'rgba(255,255,255,0.04)',
+                              border: `1px solid ${canGive > 0 ? 'rgba(205,136,32,0.4)' : 'rgba(255,255,255,0.08)'}`,
+                              borderRadius: 3,
+                              color: canGive > 0 ? '#cd8820' : '#444',
+                              cursor: canGive > 0 ? 'pointer' : 'not-allowed',
+                            }}
+                          >
+                            Give {req.label} ({donated}/{req.qty}, have: {inInv})
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Input area */}
       <div style={{

@@ -29,6 +29,8 @@ import { useSettlementQuestStore } from '../store/settlementQuestStore'
 import { useFactionStore } from '../store/factionStore'
 import { useSettlementStore } from '../store/settlementStore'
 import { FACTIONS, getFactionRelationship, getRelationshipColor } from '../game/FactionSystem'
+// M36 Track C: Building system HUD
+import { BuildingAnnouncementHUD } from './BuildingAnnouncementHUD'
 
 // ── M20: Lazy-loaded overlays (rarely shown) ─────────────────────────────────
 const FirstContactOverlay = lazy(() => import('./FirstContactOverlay').then(m => ({ default: m.FirstContactOverlay })))
@@ -2362,6 +2364,9 @@ export function HUD() {
 
       {/* ── Toast notifications ── */}
       <NotificationSystem />
+
+      {/* ── M36 Track C: Building completion announcements ── */}
+      <BuildingAnnouncementHUD />
 
       {/* ── M25: Mobile touch controls (joystick + action buttons) ── */}
       <MobileControls />

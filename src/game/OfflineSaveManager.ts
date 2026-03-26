@@ -39,6 +39,7 @@ import { serializeEconomies, deserializeEconomies } from './SettlementEconomySys
 import { serializeFactions, deserializeFactions } from './FactionReputationSystem'
 import { serializeBlueprints, deserializeBlueprints } from './BlueprintUnlockSystem'
 import { serializeMemories, deserializeMemories } from './NPCMemorySystem'
+import { serializeChronicle, deserializeChronicle } from './WorldChronicleSystem'
 import { Health, Metabolism, Position } from '../ecs/world'
 import { rapierWorld } from '../physics/RapierWorld'
 import { PLANET_RADIUS } from '../world/SpherePlanet'
@@ -164,6 +165,7 @@ export async function saveOffline(): Promise<boolean> {
       factions: serializeFactions(),
       blueprints: serializeBlueprints(),
       npcMemories: serializeMemories(),
+      worldChronicle: serializeChronicle(),
     })
     const meta = JSON.stringify({
       timestamp: Date.now(),
@@ -370,6 +372,16 @@ export async function loadOffline(): Promise<boolean> {
     // M63 Track A: Restore blueprint unlock state
     if (state.blueprints) {
       deserializeBlueprints(state.blueprints)
+    }
+
+    // M63 Track B: Restore NPC memory state
+    if (state.npcMemories) {
+      deserializeMemories(state.npcMemories)
+    }
+
+    // M63 Track C: Restore world chronicle
+    if (state.worldChronicle) {
+      deserializeChronicle(state.worldChronicle)
     }
 
     // Restore position

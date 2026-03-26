@@ -1,8 +1,26 @@
 # Director Plan -- Universe Sim
 
 **Date**: 2026-03-26
-**Sprint**: M23
-**Status**: SHIPPED -- All 3 Tracks Complete
+**Sprint**: M24
+**Status**: IN PROGRESS -- Finishing 3 remaining tracks
+
+## M24 Status
+
+**Committed (b18ccbc):**
+- CombatSystem.ts (222 lines) — melee cooldowns, combo, dodge, block, damage number tracking, health bar tracking
+- CombatHUD.tsx (255 lines) — combat indicator, floating damage numbers, enemy health bars (all inline)
+- AchievementSystem.ts (324 lines) — 25 achievements across 6 categories, toast queue, serialize/deserialize
+- AchievementPanel.tsx (172 lines) — grid of achievement cards with progress bars, category display
+- AnimalAISystem.ts — creature aggro (wolf/boar retaliation), respawn queue
+- GameLoop.ts — combat tick, respawn tick, quest hooks wired
+- GameSingletons.ts — combatSystem + achievementSystem exported
+- uiStore.ts — 'achievements' added to PanelId
+- SidebarShell.tsx — lazy import + sidebar icon for achievements
+
+**Remaining (3 workers spawning):**
+1. **Track A (ui-worker)**: Fix AchievementPanel missing from PANEL_COMPONENTS + add 'H' hotkey + add ACH sidebar icon
+2. **Track B (ai-npc)**: Wire AchievementSystem.tick() into GameLoop + add persistence to OfflineSaveManager + add tutorial step persistence
+3. **Track C (interaction)**: Create TutorialSystem.ts + TutorialOverlay.tsx + wire into GameLoop/HUD
 
 ---
 

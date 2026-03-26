@@ -489,6 +489,20 @@ Rules:
     }
   }, 15_000)
 
+  // ── Auto-queue director every 4 hours ────────────────────────────────────────
+  // When Claude Code is opened, the watchdog polls /pending-triggers and auto-launches.
+  const DIRECTOR_QUEUE_INTERVAL = 4 * 60 * 60 * 1000
+  setInterval(() => {
+    queueTrigger('director')
+    Telegram.sendMessage(
+      '⏰ *Auto-scheduled:* director launch queued (4-hour cycle).\n\nOpen Claude Code and it will start automatically, or it\'s already running.'
+    ).catch(() => {})
+    console.log('[cron] director queued for auto-launch')
+  }, DIRECTOR_QUEUE_INTERVAL)
+  // Also queue immediately on server start so opening Claude Code right after deploy auto-launches
+  queueTrigger('director')
+  console.log('[cron] director queued on startup')
+
   wss.on('connection', (ws, req) => {
     const ip = req.socket.remoteAddress
     console.log(`[server] Client connected from ${ip}`)

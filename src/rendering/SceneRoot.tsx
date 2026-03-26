@@ -92,6 +92,8 @@ import { RocketVFXRenderer } from './RocketVFXRenderer'
 // M12 Track B: Radio + Electric lights
 import { RadioTowerVFXRenderer } from './RadioTowerVFXRenderer'
 import { ElectricLightPass, registerElectricSettlements } from './ElectricLightPass'
+// M27 Track C: Campfire + torch dynamic point lights
+import { CampfireLightPass } from './CampfireLightPass'
 
 // M12 Track C: civLevel 6 gate handled in SettlementManager (server) + WorldSocket
 
@@ -500,6 +502,8 @@ export function SceneRoot() {
             <RadioTowerVFXRenderer />
             {/* M12 Track B: Tungsten electric lights on civLevel 6 settlements */}
             <ElectricLightPass dayAngle={dayAngle} />
+            {/* M27 Track C: Campfire flicker + torch point lights */}
+            <CampfireLightPass />
             {/* M14 Track B: Velar Gateway portal structure */}
             <VelarGatewayRenderer />
             {/* M8: Weather particle system — follows player position */}

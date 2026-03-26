@@ -109,6 +109,9 @@ function makeTerrainMaterial(): THREE.MeshStandardMaterial {
     shader.uniforms.uSeaRadius = { value: seaRadius }
     // M23: Wetness factor from weather system (0-1)
     shader.uniforms.uWetness = { value: 0.0 }
+    // M27 Track C3: Sunrise/sunset terrain tinting
+    shader.uniforms.uSunTint = { value: new THREE.Color(0xff8040) }
+    shader.uniforms.uSunTintStrength = { value: 0.0 }
 
     // Inject world-position varying into vertex shader.
     // Use #include <project_vertex> as the injection point — always present in
@@ -121,7 +124,7 @@ function makeTerrainMaterial(): THREE.MeshStandardMaterial {
     )
 
     // Inject detail noise + wet-edge darkening into fragment shader color step
-    shader.fragmentShader = 'varying vec3 vTerrainWorldPos;\nuniform float uSeaRadius;\nuniform float uWetness;\n' + DETAIL_NOISE_GLSL + shader.fragmentShader
+    shader.fragmentShader = 'varying vec3 vTerrainWorldPos;\nuniform float uSeaRadius;\nuniform float uWetness;\nuniform vec3 uSunTint;\nuniform float uSunTintStrength;\n' + DETAIL_NOISE_GLSL + shader.fragmentShader
     shader.fragmentShader = shader.fragmentShader.replace(
       '#include <color_fragment>',
       `#include <color_fragment>
@@ -139,7 +142,9 @@ function makeTerrainMaterial(): THREE.MeshStandardMaterial {
       diffuseColor.rgb *= 1.0 - _wetFactor * 0.15;
 
       // M23: Rain wetness — darken terrain albedo by up to 30% when wet
-      diffuseColor.rgb *= 1.0 - uWetness * 0.30;`
+      diffuseColor.rgb *= 1.0 - uWetness * 0.30;
+      // M27 Track C3: Sunrise/sunset warm tint — blend albedo toward #ff8040
+      diffuseColor.rgb = mix(diffuseColor.rgb, uSunTint, uSunTintStrength * 0.15);`
     )
 
     // ── Biome-dependent roughness + wet edge roughness (C2) ───────────────────
@@ -312,6 +317,23 @@ export function PlanetTerrain({ seed, dayAngle = Math.PI * 0.6 }: PlanetTerrainP
     const terrainShader = (terrainMat as any)._terrainShader
     if (terrainShader?.uniforms?.uWetness) {
       terrainShader.uniforms.uWetness.value = useWeatherStore.getState().wetness
+    }
+
+    // M27 Track C3: Sunrise/sunset terrain tinting
+    // Sun elevation proxy: sinA = sin(dayAngle). Golden hour = sinA in [-0.09, +0.26].
+    // warmth factor 0→1 within that band, 0 outside.
+    if (terrainShader?.uniforms?.uSunTintStrength) {
+      const sinA = Math.sin(dayAngleRef.current)
+      const inGoldenHour = sinA >= -0.09 && sinA <= 0.26
+      if (inGoldenHour) {
+        // Map sinA from [-0.09, 0.26] → warmth peak at sinA ≈ 0.085 (mid golden hour)
+        const mid = (-0.09 + 0.26) / 2
+        const half = (0.26 - (-0.09)) / 2
+        const warmth = 1.0 - Math.abs(sinA - mid) / half
+        terrainShader.uniforms.uSunTintStrength.value = Math.max(0, warmth)
+      } else {
+        terrainShader.uniforms.uSunTintStrength.value = 0.0
+      }
     }
 
     // Atmosphere: update sun direction uniform + smooth twilight opacity

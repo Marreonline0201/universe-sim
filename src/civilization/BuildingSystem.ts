@@ -221,6 +221,13 @@ export const BUILDING_TYPES: BuildingType[] = [
     size: [2, 1, 2], provides: ['fire', 'cooking', 'warmth'],
     maxOccupants: 8, structuralStrength: 2.0, maintenanceRate: 0.5,
   },
+  {
+    // M27 Track C5: Torch — portable light source, no cooking
+    id: 'torch', name: 'Torch', tier: 0,
+    materialsRequired: [{ materialId: M.WOOD, quantity: 2 }, { materialId: M.BARK, quantity: 1 }],
+    size: [0.5, 2, 0.5], provides: ['light'],
+    maxOccupants: 0, structuralStrength: 0.1, maintenanceRate: 1.0,
+  },
 
   // ── Tier 1: Bronze Age ────────────────────────────────────────────────────
   {

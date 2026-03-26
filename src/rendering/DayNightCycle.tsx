@@ -170,16 +170,18 @@ export function DayNightCycle({ onDayAngleChange }: Props) {
       state.scene.fog.color.lerp(_fogTarget.current, Math.min(1, delta * 2))
     }
 
-    // ── M22: Moonlight (secondary directional, blue-white, opposite sun) ───
+    // ── M27 Track C4: Moon glow — soft blue-white, opposite sun, night only ──
     if (moonLightRef.current) {
       const ps2 = usePlayerStore.getState()
       if (!sunAboveHorizon) {
-        // Moon positioned opposite the sun
+        // Moon direction = -sunDir + slight declination offset (normalized)
+        // sunDir vector: (sx, sy, 3000) → opposite = (-sx, -sy, -3000) + (0, 0, 0.1*norm)
+        // Approximate: place moon opposite sun with z declination offset
         moonLightRef.current.position.set(ps2.x - sx * 0.5, ps2.y - sy * 0.5, ps2.z + 2000)
         moonLightRef.current.target.position.set(ps2.x, ps2.y, ps2.z)
         moonLightRef.current.target.updateMatrixWorld()
-        // Intensity modulated: stronger when sun is well below horizon
-        moonLightRef.current.intensity = Math.min(0.18, Math.abs(sinA) * 0.25)
+        // Ramp up to 0.08 as sun goes below horizon (abs(sinA) increases)
+        moonLightRef.current.intensity = Math.min(0.08, Math.abs(sinA) * 0.10)
         moonLightRef.current.visible = true
       } else {
         moonLightRef.current.intensity = 0
@@ -305,20 +307,12 @@ export function DayNightCycle({ onDayAngleChange }: Props) {
         />
       </mesh>
 
-      {/* M22: Moonlight — soft blue-white secondary directional */}
+      {/* M27 Track C4: Moonlight — cool blue-white, no shadow (GPU cost) */}
       <directionalLight
         ref={moonLightRef}
-        color="#b0c4de"
+        color="#c0d0ff"
         intensity={0}
-        castShadow
-        shadow-mapSize={[1024, 1024]}
-        shadow-camera-near={1}
-        shadow-camera-far={8000}
-        shadow-camera-left={-400}
-        shadow-camera-right={400}
-        shadow-camera-top={400}
-        shadow-camera-bottom={-400}
-        shadow-bias={-0.002}
+        castShadow={false}
       />
     </>
   )

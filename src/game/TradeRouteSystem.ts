@@ -96,14 +96,15 @@ export function initTradeRouteSystem(): void {
   // Listen for siege events
   window.addEventListener('siege-started', (e: Event) => {
     const detail = (e as CustomEvent).detail as { settlementId: number }
-    const route = _routes.find(
-      r => (r.fromSettlementId === detail.settlementId || r.toSettlementId === detail.settlementId)
-        && r.status === 'active'
-    )
-    if (route) {
-      route.status = 'disrupted'
-      route.disrupted = true
-      route.disruptionReason = 'Siege underway'
+    for (const route of _routes) {
+      if (
+        (route.fromSettlementId === detail.settlementId || route.toSettlementId === detail.settlementId)
+        && route.status === 'active'
+      ) {
+        route.status = 'disrupted'
+        route.disrupted = true
+        route.disruptionReason = 'Siege underway'
+      }
     }
   })
 

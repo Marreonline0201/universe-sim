@@ -84,6 +84,10 @@ const WorldThreatPanel = lazy(() => import('./panels/WorldThreatPanel').then(m =
 const RecipeFeasibilityPanel = lazy(() => import('./panels/RecipeFeasibilityPanel').then(m => ({ default: m.RecipeFeasibilityPanel })))
 // M56 Track B: Faction standing panel
 const FactionStandingPanel = lazy(() => import('./panels/FactionStandingPanel').then(m => ({ default: m.FactionStandingPanel })))
+// M57 Track B: World Codex panel
+const CodexPanel = lazy(() => import('./panels/CodexPanel').then(m => ({ default: m.CodexPanel })))
+// M57 Track A: Achievement Showcase panel
+const AchievementShowcasePanel = lazy(() => import('./panels/AchievementShowcasePanel').then(m => ({ default: m.AchievementShowcasePanel })))
 
 // M36 Track C: Wrapper resolves nearSettlementId from store so panel has no props
 function BuildingsPanelWrapper() {
@@ -130,6 +134,7 @@ const PANEL_LABEL: Record<PanelId, string> = {
   pet:          'PET & COMPANIONS',
   worldevents:  'WORLD EVENTS LOG',
   traderoutes:  'TRADING ROUTES',
+  npcroutes:    'NPC TRADE ROUTES',
   bestiary:     'BESTIARY',
   titles:       'TITLES & REPUTATION',
   forecast:     'WEATHER FORECAST',
@@ -145,6 +150,7 @@ const PANEL_LABEL: Record<PanelId, string> = {
   threats:        'WORLD THREAT TRACKER',
   factionstanding: 'FACTION STANDING',
   recipescan:      'RECIPE SCANNER',
+  codex:           'WORLD CODEX',
 }
 
 const PANEL_WIDTH = 480
@@ -173,6 +179,7 @@ const ICON_BUTTONS: Array<{ id: PanelId; icon: string; hint: string }> = [
   { id: 'housing',     icon: 'HSE',  hint: 'Housing (N)' },
   { id: 'worldevents', icon: '📜',   hint: 'World Events (L)' },
   { id: 'traderoutes', icon: '💹',   hint: 'Trading Routes' },
+  { id: 'npcroutes',   icon: '🚚',   hint: 'NPC Trade Routes' },
   { id: 'bestiary',    icon: '📖',   hint: 'Bestiary' },
   { id: 'titles',      icon: '🎖',   hint: 'Titles & Reputation' },
   { id: 'forecast',      icon: '🌤',   hint: 'Weather Forecast' },
@@ -188,6 +195,7 @@ const ICON_BUTTONS: Array<{ id: PanelId; icon: string; hint: string }> = [
   { id: 'threats',       icon: '⚠️',   hint: 'World Threats (A)' },
   { id: 'factionstanding', icon: '🌟',  hint: 'Faction Standing (6)' },
   { id: 'recipescan',      icon: '🔍',  hint: 'Recipe Scanner (7)' },
+  { id: 'codex',           icon: '📖',  hint: 'Codex' },
   { id: 'science',         icon: ' ? ', hint: 'Science Companion (?)' },
   { id: 'settings',    icon: 'SET',  hint: 'Settings (Esc)' },
 ]
@@ -218,7 +226,8 @@ const PANEL_COMPONENTS: Record<PanelId, React.ComponentType> = {
   housing:       HousingPanel,
   pet:           PetPanel,
   worldevents:   WorldEventsPanel,
-  traderoutes:   TradeRoutesPanel,
+  traderoutes:   TradingRoutesPanel,
+  npcroutes:     TradeRoutesPanel,
   bestiary:      BestiaryPanel,
   titles:        ReputationTitlesPanel,
   forecast:      WeatherForecastPanel,

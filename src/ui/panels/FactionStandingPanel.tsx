@@ -38,9 +38,10 @@ function tierProgress(rep: number): { pct: number; next: StandingTier | null; ne
   const idx = STANDING_TIERS.indexOf(tier)
   if (idx === STANDING_TIERS.length - 1) return { pct: 1, next: null, needed: 0 }
   const next = STANDING_TIERS[idx + 1]
-  const rangeStart = tier.min < 0 ? tier.min : tier.min
-  const rangeEnd   = next.min
-  const pct = Math.min(1, Math.max(0, (rep - rangeStart) / (rangeEnd - rangeStart)))
+  // Guard: HOSTILE tier has min: -Infinity — use 0 progress to avoid NaN
+  if (!isFinite(tier.min)) return { pct: 0, next, needed: next.min - rep }
+  const rangeEnd = next.min
+  const pct = Math.min(1, Math.max(0, (rep - tier.min) / (rangeEnd - tier.min)))
   return { pct, next, needed: rangeEnd - rep }
 }
 

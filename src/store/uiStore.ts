@@ -9,7 +9,16 @@ export interface Notification {
   createdAt: number
 }
 
+export interface MapWaypoint {
+  x: number
+  z: number
+}
+
 let _notifId = 0
+
+// Minimap zoom levels (world-radius in meters shown on half the canvas)
+export const MINIMAP_ZOOM_LEVELS = [100, 200, 400] as const
+export type MinimapZoom = typeof MINIMAP_ZOOM_LEVELS[number]
 
 interface UiState {
   activePanel: PanelId | null
@@ -20,6 +29,17 @@ interface UiState {
   notifications: Notification[]
   addNotification: (message: string, type?: Notification['type']) => void
   dismissNotification: (id: number) => void
+
+  // Minimap waypoints (up to 5)
+  waypoints: MapWaypoint[]
+  addWaypoint: (wp: MapWaypoint) => void
+  removeWaypoint: (index: number) => void
+
+  // Minimap zoom
+  minimapZoom: MinimapZoom
+  setMinimapZoom: (zoom: MinimapZoom) => void
+  cycleMinimapZoomIn: () => void
+  cycleMinimapZoomOut: () => void
 }
 
 export const useUiStore = create<UiState>((set) => ({
@@ -40,4 +60,29 @@ export const useUiStore = create<UiState>((set) => ({
   },
   dismissNotification: (id) =>
     set((s) => ({ notifications: s.notifications.filter(n => n.id !== id) })),
+
+  waypoints: [],
+  addWaypoint: (wp) =>
+    set((s) => ({
+      waypoints: s.waypoints.length >= 5
+        ? [...s.waypoints.slice(1), wp]
+        : [...s.waypoints, wp],
+    })),
+  removeWaypoint: (index) =>
+    set((s) => ({ waypoints: s.waypoints.filter((_, i) => i !== index) })),
+
+  minimapZoom: 200,
+  setMinimapZoom: (zoom) => set({ minimapZoom: zoom }),
+  cycleMinimapZoomIn: () =>
+    set((s) => {
+      const idx = MINIMAP_ZOOM_LEVELS.indexOf(s.minimapZoom)
+      const next = MINIMAP_ZOOM_LEVELS[Math.max(0, idx - 1)]
+      return { minimapZoom: next }
+    }),
+  cycleMinimapZoomOut: () =>
+    set((s) => {
+      const idx = MINIMAP_ZOOM_LEVELS.indexOf(s.minimapZoom)
+      const next = MINIMAP_ZOOM_LEVELS[Math.min(MINIMAP_ZOOM_LEVELS.length - 1, idx + 1)]
+      return { minimapZoom: next }
+    }),
 }))

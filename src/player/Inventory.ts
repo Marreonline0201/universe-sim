@@ -147,7 +147,7 @@ export class Inventory {
 
     if (!this._godMode) {
       // Normal mode: require recipe knowledge, tier, and materials
-      if (recipe.knowledgeRequired.length > 0 && !this.knownRecipes.has(recipeId)) return false
+      if (recipe.knowledgeRequired.length > 0 && !this.knownRecipes.has(recipe.id)) return false
       if (currentTier < recipe.tier) return false
       for (const input of recipe.inputs) {
         if (this.countMaterial(input.materialId) < input.quantity) return false

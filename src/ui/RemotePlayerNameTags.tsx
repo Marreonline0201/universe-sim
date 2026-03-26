@@ -10,6 +10,7 @@ import { useThree, useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { useMultiplayerStore } from '../store/multiplayerStore'
 import { usePlayerStore } from '../store/playerStore'
+import { usePartyStore } from '../store/partyStore'
 import { useAuth } from '@clerk/react'
 
 const AFK_THRESHOLD_MS = 60_000

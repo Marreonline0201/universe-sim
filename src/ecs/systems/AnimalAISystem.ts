@@ -25,6 +25,39 @@
 
 import * as THREE from 'three'
 import { terrainHeightAt, PLANET_RADIUS } from '../../world/SpherePlanet'
+import { GenomeEncoder, type Genome } from '../../biology/GenomeEncoder'
+import { MutationEngine } from '../../biology/MutationEngine'
+
+// ── Genome decoder (singleton, allocation-free per-frame) ─────────────────────
+const _encoder = new GenomeEncoder()
+const _mutationEngine = new MutationEngine()
+
+/**
+ * Phenotype stats derived from a genome, used to parameterize per-animal AI.
+ * Computed once at spawn; stored on the AnimalEntity.
+ */
+export interface AnimalGenomePhenotype {
+  /** Movement speed multiplier (1.0 = baseline species speed). 0.5–2.0 range. */
+  speedMult: number
+  /** Detection/awareness radius in meters. */
+  detectionRange: number
+  /** Attack damage per hit (HP). */
+  attackDamage: number
+  /** Maximum health override (if genome is set; else species default). */
+  maxHealth: number
+  /** Armor damage reduction factor (0 = none, 0.5 = halves damage). */
+  armorReduction: number
+  /**
+   * Behavior tier:
+   *   0 = simple wander (reflex only)
+   *   1 = instinct (BehaviorTree lite — prey or predator BT logic)
+   *   2 = learning (full BehaviorTree)
+   *   3+ = GOAP
+   */
+  behaviorTier: 0 | 1 | 2 | 3
+  /** Raw genome bytes for crossover/mutation on reproduction. */
+  genome: Genome
+}
 
 // ── Enums ─────────────────────────────────────────────────────────────────────
 
@@ -71,6 +104,9 @@ export interface AnimalEntity {
   patrolCx: number
   patrolCy: number
   patrolCz: number
+
+  /** Genome-derived phenotype stats. Optional — absent means use hardcoded species defaults. */
+  phenotype?: AnimalGenomePhenotype
 }
 
 export interface LootDrop {
@@ -122,6 +158,81 @@ const MAT_BONE       = 6
 const MAT_WOLF_PELT  = 57  // NEW in M9
 const MAT_BOAR_TUSK  = 58  // NEW in M9
 
+// ── Genome phenotype decoder ──────────────────────────────────────────────────
+
+/**
+ * Decode a genome into behavior-relevant phenotype stats for animals.
+ *
+ * Genome bit layout (per GenomeEncoder.ts):
+ *   bits 32-35  = visionType  (0=none … 6=camera)
+ *   bits 36-39  = visionRange (0-15 → 0-30m)
+ *   bits 48-51  = swimSpeed   (0-15)
+ *   bits 52-55  = walkSpeed   (0-15)
+ *   bits 56-59  = flySpeed    (0-15)
+ *   bit  64/65  = hasArmor
+ *   bits 68-71  = armorThickness (0-15)
+ *   bits 72-75  = venomPotency   (0-15)
+ *   bits 76-79  = weaponType     (0-6)
+ *   bits 96-103 = neuralComplexity (0-255 → level 0-4)
+ */
+export function decodeAnimalPhenotype(
+  genome: Genome,
+  species: AnimalSpecies,
+): AnimalGenomePhenotype {
+  const p = _encoder.decode(genome)
+
+  // ── Speed multiplier from best locomotion speed ──────────────────────────
+  // Take the max of swim/walk/fly speed (0-15), normalize to 0.5–2.0
+  const bestLoco = Math.max(p.swimSpeed, p.walkSpeed, p.flySpeed, p.burrowSpeed)
+  // 0 → 0.5x, 7 → 1.0x (baseline), 15 → 2.0x
+  const speedMult = 0.5 + (bestLoco / 15) * 1.5
+
+  // ── Detection range from vision ───────────────────────────────────────────
+  // visionRange 0-15 maps to 0-30m; if no vision (visionType=0), use olfaction fallback
+  let detectionRange: number
+  if (p.visionType === 0) {
+    // No vision — fall back to olfaction (0-15 → 5-20m)
+    detectionRange = 5 + (p.olfaction / 15) * 15
+  } else {
+    // Camera/compound/UV eyes: visionRange 0-15 → 5-40m
+    detectionRange = 5 + (p.visionRange / 15) * 35
+  }
+
+  // ── Attack damage from weapon type and venom ──────────────────────────────
+  // weaponType: 0=none,1=claws,2=beak,3=teeth,4=spines,5=electric,6=chemical
+  const weaponBase = [0, 8, 6, 7, 5, 12, 10][Math.min(p.weaponType, 6)]
+  const venomBonus = p.hasVenom ? Math.round(p.venomPotency / 15 * 6) : 0
+  // Scale by species baseline — preserve game balance
+  const speciesDmgBase = species === 'wolf' ? WOLF_DAMAGE
+                       : species === 'boar' ? BOAR_DAMAGE
+                       : 3  // deer baseline (critters)
+  // Blend 50/50 between genome and hardcoded species baseline
+  const attackDamage = Math.max(1, Math.round((speciesDmgBase + weaponBase + venomBonus) / 2))
+
+  // ── Max health from size class + armor ────────────────────────────────────
+  // sizeClass 0-15: maps roughly to HP (small → large)
+  const speciesBaseHp = species === 'deer' ? 40
+                      : species === 'wolf' ? 30
+                      : 60  // boar
+  const armorBonus = p.hasArmor ? Math.round(p.armorThickness / 15 * 20) : 0
+  const maxHealth = speciesBaseHp + armorBonus
+
+  // ── Armor damage reduction ────────────────────────────────────────────────
+  // armorThickness 0-15 → 0-40% damage reduction
+  const armorReduction = p.hasArmor ? (p.armorThickness / 15) * 0.4 : 0
+
+  // ── Behavior tier from neural complexity ──────────────────────────────────
+  // neuralLevel: 0=reflex,1=instinct,2=learning,3=reasoning,4=abstract
+  // Map to behavior tier: 0-1→simple wander, 1→instinct BT, 2→full BT, 3+→GOAP
+  let behaviorTier: 0 | 1 | 2 | 3
+  if (p.neuralLevel <= 0)      behaviorTier = 0  // reflex: pure wander
+  else if (p.neuralLevel === 1) behaviorTier = 1  // instinct: BT lite
+  else if (p.neuralLevel === 2) behaviorTier = 2  // learning: full BehaviorTree
+  else                          behaviorTier = 3  // reasoning: GOAP
+
+  return { speedMult, detectionRange, attackDamage, maxHealth, armorReduction, behaviorTier, genome }
+}
+
 // ── Seeded RNG (same pattern as rest of codebase) ─────────────────────────────
 
 function seededRand(seed: number): () => number {
@@ -162,9 +273,15 @@ export function spawnAnimal(
   x: number, y: number, z: number,
   packId = 0,
   patrolCx = x, patrolCy = y, patrolCz = z,
+  genome?: Genome,
 ): AnimalEntity {
   const id = _nextId++
-  const maxHp = species === 'deer' ? 40
+
+  // Decode genome phenotype if provided, otherwise use species defaults
+  const phenotype = genome ? decodeAnimalPhenotype(genome, species) : undefined
+
+  const maxHp = phenotype ? phenotype.maxHealth
+              : species === 'deer' ? 40
               : species === 'wolf' ? 30
               : 60  // boar
 
@@ -180,9 +297,60 @@ export function spawnAnimal(
     wanderTimer: 1 + Math.random() * 4,
     deadTimer: 0,
     patrolCx, patrolCy, patrolCz,
+    phenotype,
   }
   animalRegistry.set(id, animal)
   return animal
+}
+
+/**
+ * Generate a plausible random genome for a given species.
+ * Sets neural complexity, locomotion, vision, and weapon bits to species-appropriate ranges.
+ */
+function generateSpeciesGenome(species: AnimalSpecies, rng: () => number): Genome {
+  const genome = new Uint8Array(32)
+  // Fill with random data as base
+  for (let b = 0; b < 32; b++) genome[b] = Math.floor(rng() * 256)
+
+  // Tune bits per species using GenomeEncoder bit layout
+  if (species === 'deer') {
+    // Neural: level 1 (instinct) — score 16-63 → byte 12 bits 0-7
+    genome[12] = 20 + Math.floor(rng() * 30)   // 20-49: solidly level 1
+    // Locomotion: good walk speed (bits 52-55 = byte 6 bits 4-7) — 8-13
+    genome[6] = (genome[6] & 0x0F) | ((8 + Math.floor(rng() * 6)) << 4)
+    // Vision: good color vision (bits 32-35 = byte 4 bits 0-3 = type 2), range 6-12
+    genome[4] = (genome[4] & 0xF0) | 2                              // visionType=2 (color)
+    genome[4] = (genome[4] & 0x0F) | ((6 + Math.floor(rng() * 7)) << 4) // visionRange
+    // Weapon: none (bits 76-79 = byte 9 bits 4-7 = 0)
+    genome[9] = genome[9] & 0x0F
+  } else if (species === 'wolf') {
+    // Neural: level 2 (learning) — score 64-127 → byte 12
+    genome[12] = 70 + Math.floor(rng() * 50)   // 70-119: level 2
+    // Locomotion: fast walk/run (bits 52-55 = byte 6 bits 4-7) — 10-14
+    genome[6] = (genome[6] & 0x0F) | ((10 + Math.floor(rng() * 5)) << 4)
+    // Vision: compound eyes, medium range (bits 32-35 type=5, bits 36-39 range=8-12)
+    genome[4] = (genome[4] & 0xF0) | 5                              // visionType=5
+    genome[4] = (genome[4] & 0x0F) | ((8 + Math.floor(rng() * 5)) << 4)  // visionRange
+    // Weapon: claws (bits 76-79 = byte 9 bits 4-7 = 1)
+    genome[9] = (genome[9] & 0x0F) | (1 << 4)
+  } else {
+    // boar
+    // Neural: level 1 (instinct) — score 16-63
+    genome[12] = 25 + Math.floor(rng() * 35)   // 25-59: level 1
+    // Locomotion: moderate walk (bits 52-55 = byte 6 bits 4-7) — 7-11
+    genome[6] = (genome[6] & 0x0F) | ((7 + Math.floor(rng() * 5)) << 4)
+    // Vision: light/dark only (bits 32-35 type=1), short range
+    genome[4] = (genome[4] & 0xF0) | 1                              // visionType=1
+    genome[4] = (genome[4] & 0x0F) | ((3 + Math.floor(rng() * 4)) << 4)  // visionRange 3-6
+    // Weapon: spines/tusks (bits 76-79 = byte 9 bits 4-7 = 4)
+    genome[9] = (genome[9] & 0x0F) | (4 << 4)
+    // Armor: bit 64-65 (byte 8 bit 0 and 1) — boars are tough
+    genome[8] = genome[8] | 0x03
+    // Armor thickness bits 68-71 = byte 8 bits 4-7 — medium (6-10)
+    genome[8] = (genome[8] & 0x0F) | ((6 + Math.floor(rng() * 5)) << 4)
+  }
+
+  return genome
 }
 
 /** Spawn the initial animal population around a spawn point. */
@@ -214,7 +382,8 @@ export function spawnInitialAnimals(
   for (let i = 0; i < 10; i++) {
     const pos = randomSurfacePos(80, 400)
     if (!pos) continue
-    spawnAnimal('deer', pos[0], pos[1], pos[2])
+    const genome = generateSpeciesGenome('deer', rand)
+    spawnAnimal('deer', pos[0], pos[1], pos[2], 0, pos[0], pos[1], pos[2], genome)
   }
 
   // ── Wolves: 4 initial in 2 packs of 2 ────────────────────────────────────
@@ -229,7 +398,8 @@ export function spawnInitialAnimals(
       const nx = cx + Math.cos(angle) * spread
       const nz = cz + Math.sin(angle) * spread
       const projected = projectOntoSurface(nx, cy, nz, 0.7)
-      spawnAnimal('wolf', projected[0], projected[1], projected[2], pack, cx, cy, cz)
+      const genome = generateSpeciesGenome('wolf', rand)
+      spawnAnimal('wolf', projected[0], projected[1], projected[2], pack, cx, cy, cz, genome)
     }
   }
 
@@ -237,7 +407,8 @@ export function spawnInitialAnimals(
   for (let i = 0; i < 5; i++) {
     const pos = randomSurfacePos(100, 500)
     if (!pos) continue
-    spawnAnimal('boar', pos[0], pos[1], pos[2])
+    const genome = generateSpeciesGenome('boar', rand)
+    spawnAnimal('boar', pos[0], pos[1], pos[2], 0, pos[0], pos[1], pos[2], genome)
   }
 }
 
@@ -317,7 +488,13 @@ function tickDeer(
   const dpz = playerZ - a.z
   const playerDist = Math.sqrt(dpx * dpx + dpy * dpy + dpz * dpz)
 
-  const fleeRadius = playerCrouching ? DEER_FLEE_RADIUS_CROUCH : DEER_FLEE_RADIUS
+  // Apply genome phenotype: speed and detection range
+  const speedMult = a.phenotype?.speedMult ?? 1.0
+  const detectionBonus = a.phenotype ? (a.phenotype.detectionRange - 15) * 0.5 : 0  // genome shifts baseline
+  const fleeRadiusBase = playerCrouching
+    ? DEER_FLEE_RADIUS_CROUCH
+    : Math.max(10, DEER_FLEE_RADIUS + detectionBonus)
+  const fleeRadius = fleeRadiusBase
 
   // ── State transitions ─────────────────────────────────────────────────────
   if (a.behavior === 'GRAZING' && playerDist < fleeRadius) {
@@ -329,18 +506,35 @@ function tickDeer(
   }
 
   // ── Grazing movement ──────────────────────────────────────────────────────
+  // Behavior tier 0 (reflex): pure wander only, no flocking, no flee awareness
+  const behaviorTier = a.phenotype?.behaviorTier ?? 1
   if (a.behavior === 'GRAZING') {
     a.wanderTimer -= dt
     if (a.wanderTimer <= 0) {
       // Pick random tangent-plane direction
       const angle = Math.random() * Math.PI * 2
-      a.vx = Math.cos(angle) * DEER_SPEED_GRAZE
-      a.vz = Math.sin(angle) * DEER_SPEED_GRAZE
+      const grazeSpeed = DEER_SPEED_GRAZE * speedMult
+      a.vx = Math.cos(angle) * grazeSpeed
+      a.vz = Math.sin(angle) * grazeSpeed
       a.vy = 0
       a.wanderTimer = 3 + Math.random() * 5
     }
 
     // ── Reynolds flocking: cohesion toward 3 nearest deer ────────────────
+    // Tier 0 creatures (reflex only) don't flock — they just wander
+    if (behaviorTier < 1) {
+      // Simple wander: just clamp speed
+      const grazeSpeedClamped = DEER_SPEED_GRAZE * speedMult
+      const spd0 = Math.sqrt(a.vx * a.vx + a.vz * a.vz)
+      if (spd0 > grazeSpeedClamped) {
+        a.vx = (a.vx / spd0) * grazeSpeedClamped
+        a.vz = (a.vz / spd0) * grazeSpeedClamped
+      }
+      a.x += a.vx * dt
+      a.y += a.vy * dt
+      a.z += a.vz * dt
+      return
+    }
     let cx = 0, cy = 0, cz = 0, count = 0
     for (const other of allDeer) {
       if (other.id === a.id) continue
@@ -370,11 +564,12 @@ function tickDeer(
       }
     }
 
-    // Clamp to walk speed
+    // Clamp to walk speed (genome-scaled)
+    const grazeSpeedMax = DEER_SPEED_GRAZE * speedMult
     const spd = Math.sqrt(a.vx * a.vx + a.vz * a.vz)
-    if (spd > DEER_SPEED_GRAZE) {
-      a.vx = (a.vx / spd) * DEER_SPEED_GRAZE
-      a.vz = (a.vz / spd) * DEER_SPEED_GRAZE
+    if (spd > grazeSpeedMax) {
+      a.vx = (a.vx / spd) * grazeSpeedMax
+      a.vz = (a.vz / spd) * grazeSpeedMax
     }
   }
 
@@ -382,8 +577,9 @@ function tickDeer(
   if (a.behavior === 'FLEEING') {
     if (playerDist > 0.1) {
       const invD = 1 / playerDist
-      a.vx = -(dpx * invD) * DEER_SPEED_FLEE
-      a.vz = -(dpz * invD) * DEER_SPEED_FLEE
+      const fleeSpeed = DEER_SPEED_FLEE * speedMult
+      a.vx = -(dpx * invD) * fleeSpeed
+      a.vz = -(dpz * invD) * fleeSpeed
       a.vy = 0
     }
   }
@@ -409,16 +605,30 @@ function tickWolf(
   const dpz = playerZ - a.z
   const playerDist = Math.sqrt(dpx * dpx + dpy * dpy + dpz * dpz)
 
+  // Genome-derived stats: scale patrol/hunt speed and detection radius
+  const speedMult = a.phenotype?.speedMult ?? 1.0
+  const detectionRange = a.phenotype?.detectionRange ?? WOLF_HUNT_RADIUS
+  const attackDamage = a.phenotype?.attackDamage ?? WOLF_DAMAGE
+  const armorReduction = a.phenotype?.armorReduction ?? 0
+
+  const huntRadius   = Math.max(15, detectionRange)
+  const playerRadius = Math.max(10, detectionRange * 0.67)
+
+  // Behavior tier: higher-tier wolves have more sophisticated hunt patterns
+  // Tier 0: simple wander only — very rare for wolves given their genome
+  // Tier 1+: standard state machine
+  const behaviorTier = a.phenotype?.behaviorTier ?? 1
+
   // ── State transitions ─────────────────────────────────────────────────────
   if (a.behavior === 'PATROLLING') {
     // Check for player threat (bloodthirsty: murder_count >= 3)
-    if (playerMurderCount >= 3 && playerDist < WOLF_PLAYER_RADIUS) {
+    if (playerMurderCount >= 3 && playerDist < playerRadius) {
       a.behavior = 'ATTACKING_PLAYER'
       a.stateTimer = 0
     } else {
-      // Check for nearby deer to hunt
+      // Check for nearby deer to hunt (use genome-derived detection range)
       let nearestDeer: AnimalEntity | null = null
-      let nearestDeerDist = WOLF_HUNT_RADIUS
+      let nearestDeerDist = huntRadius
       for (const deer of allDeer) {
         if (deer.behavior === 'DEAD') continue
         const dx = deer.x - a.x, dy = deer.y - a.y, dz = deer.z - a.z
@@ -431,17 +641,18 @@ function tickWolf(
       }
     }
   } else if (a.behavior === 'HUNTING_DEER') {
-    // Re-evaluate: if no deer within 60m, return to patrol
+    // Re-evaluate: if no deer within 2× hunt radius, return to patrol
+    const giveUpRange = huntRadius * 2
     let hasDeer = false
     for (const deer of allDeer) {
       if (deer.behavior === 'DEAD') continue
       const dx = deer.x - a.x, dy = deer.y - a.y, dz = deer.z - a.z
       const d  = Math.sqrt(dx * dx + dy * dy + dz * dz)
-      if (d < 60) { hasDeer = true; break }
+      if (d < giveUpRange) { hasDeer = true; break }
     }
     if (!hasDeer) a.behavior = 'PATROLLING'
     // Wolves always prioritize a murderous player
-    if (playerMurderCount >= 3 && playerDist < WOLF_PLAYER_RADIUS) {
+    if (playerMurderCount >= 3 && playerDist < playerRadius) {
       a.behavior = 'ATTACKING_PLAYER'
     }
   } else if (a.behavior === 'ATTACKING_PLAYER') {
@@ -450,19 +661,33 @@ function tickWolf(
   }
 
   // ── Behavior execution ────────────────────────────────────────────────────
+  const patrolSpeed = WOLF_SPEED_PATROL * speedMult
+  const huntSpeed   = WOLF_SPEED_HUNT   * speedMult
+
   if (a.behavior === 'PATROLLING') {
-    a.wanderTimer -= dt
-    if (a.wanderTimer <= 0) {
-      // Patrol around pack center
-      const angle   = Math.random() * Math.PI * 2
-      const radius  = 20 + Math.random() * 40
-      const tx = a.patrolCx + Math.cos(angle) * radius
-      const tz = a.patrolCz + Math.sin(angle) * radius
-      const dx = tx - a.x, dz = tz - a.z
-      const d  = Math.sqrt(dx * dx + dz * dz) + 0.001
-      a.vx = (dx / d) * WOLF_SPEED_PATROL
-      a.vz = (dz / d) * WOLF_SPEED_PATROL
-      a.wanderTimer = 4 + Math.random() * 6
+    // Tier 0 wolves (reflex-only): pure random wander, ignore pack center
+    if (behaviorTier === 0) {
+      a.wanderTimer -= dt
+      if (a.wanderTimer <= 0) {
+        const angle = Math.random() * Math.PI * 2
+        a.vx = Math.cos(angle) * patrolSpeed
+        a.vz = Math.sin(angle) * patrolSpeed
+        a.wanderTimer = 4 + Math.random() * 6
+      }
+    } else {
+      a.wanderTimer -= dt
+      if (a.wanderTimer <= 0) {
+        // Patrol around pack center
+        const angle   = Math.random() * Math.PI * 2
+        const radius  = 20 + Math.random() * 40
+        const tx = a.patrolCx + Math.cos(angle) * radius
+        const tz = a.patrolCz + Math.sin(angle) * radius
+        const dx = tx - a.x, dz = tz - a.z
+        const d  = Math.sqrt(dx * dx + dz * dz) + 0.001
+        a.vx = (dx / d) * patrolSpeed
+        a.vz = (dz / d) * patrolSpeed
+        a.wanderTimer = 4 + Math.random() * 6
+      }
     }
   }
 
@@ -477,15 +702,20 @@ function tickWolf(
       if (d < nearestDeerDist) { nearestDeerDist = d; nearestDeer = deer }
     }
     if (nearestDeer) {
+      // Tier 2+ wolves: stalk (slow approach) when far, rush when close
+      const useStalk = behaviorTier >= 2 && nearestDeerDist > WOLF_DEER_ATTACK_RADIUS * 2
+      const chaseSpd = useStalk ? huntSpeed * 0.4 : huntSpeed
       const dx = nearestDeer.x - a.x
       const dz = nearestDeer.z - a.z
       const d  = Math.sqrt(dx * dx + dz * dz) + 0.001
-      a.vx = (dx / d) * WOLF_SPEED_HUNT
-      a.vz = (dz / d) * WOLF_SPEED_HUNT
+      a.vx = (dx / d) * chaseSpd
+      a.vz = (dz / d) * chaseSpd
 
-      // Attack deer at close range
+      // Attack deer at close range — genome damage affects kill speed
       if (nearestDeerDist < WOLF_DEER_ATTACK_RADIUS) {
-        nearestDeer.health -= 25 * dt  // kills deer in ~1.6s of sustained contact
+        const deerArmorReduction = nearestDeer.phenotype?.armorReduction ?? 0
+        const effectiveDamage = 25 * (1 - deerArmorReduction)
+        nearestDeer.health -= effectiveDamage * dt  // kills deer in ~1.6s sustained (base)
         if (nearestDeer.health <= 0) {
           nearestDeer.behavior = 'DEAD'
           nearestDeer.deadTimer = 0
@@ -502,18 +732,22 @@ function tickWolf(
   if (a.behavior === 'ATTACKING_PLAYER') {
     if (playerDist > 0.1) {
       const invD = 1 / playerDist
-      a.vx = dpx * invD * WOLF_SPEED_HUNT
-      a.vz = dpz * invD * WOLF_SPEED_HUNT
+      a.vx = dpx * invD * huntSpeed
+      a.vz = dpz * invD * huntSpeed
     }
-    // Deal damage at melee range
+    // Deal damage at melee range — genome-derived attackDamage
     if (playerDist < WOLF_ATTACK_RADIUS) {
       const cooldown = wolfAttackCooldowns.get(a.id) ?? 0
       if (cooldown <= 0) {
-        onPlayerDamaged(WOLF_DAMAGE)
+        // armorReduction reduces incoming damage to player (player has no genome here; use wolf attack)
+        onPlayerDamaged(attackDamage)
         wolfAttackCooldowns.set(a.id, WOLF_ATTACK_COOLDOWN)
       }
     }
   }
+
+  // Suppress unused variable warning (armorReduction applies to deer incoming damage above)
+  void armorReduction
 
   // Tick attack cooldown
   const cd = wolfAttackCooldowns.get(a.id) ?? 0
@@ -540,8 +774,14 @@ function tickBoar(
   const dpz = playerZ - a.z
   const playerDist = Math.sqrt(dpx * dpx + dpy * dpy + dpz * dpz)
 
+  // Genome-derived stats
+  const speedMult     = a.phenotype?.speedMult    ?? 1.0
+  const detectionRange = a.phenotype?.detectionRange ?? BOAR_TRIGGER_RADIUS
+  const attackDamage  = a.phenotype?.attackDamage ?? BOAR_DAMAGE
+  const triggerRadius = Math.max(4, Math.min(16, detectionRange * 0.4))
+
   // ── State transitions ─────────────────────────────────────────────────────
-  if (a.behavior === 'ROAMING' && playerDist < BOAR_TRIGGER_RADIUS) {
+  if (a.behavior === 'ROAMING' && playerDist < triggerRadius) {
     a.behavior = 'CHARGING'
     a.chargeTimer = BOAR_CHARGE_DURATION
     a.stateTimer = 0
@@ -559,24 +799,26 @@ function tickBoar(
     a.wanderTimer -= dt
     if (a.wanderTimer <= 0) {
       const angle = Math.random() * Math.PI * 2
-      a.vx = Math.cos(angle) * BOAR_ROAM_SPEED
-      a.vz = Math.sin(angle) * BOAR_ROAM_SPEED
+      const roamSpeed = BOAR_ROAM_SPEED * speedMult
+      a.vx = Math.cos(angle) * roamSpeed
+      a.vz = Math.sin(angle) * roamSpeed
       a.wanderTimer = 3 + Math.random() * 6
     }
   }
 
   // ── Charging: lock onto player direction, rush forward ───────────────────
   if (a.behavior === 'CHARGING') {
+    const chargeSpeed = BOAR_CHARGE_SPEED * speedMult
     if (playerDist > 0.1) {
       const invD = 1 / playerDist
-      a.vx = dpx * invD * BOAR_CHARGE_SPEED
-      a.vz = dpz * invD * BOAR_CHARGE_SPEED
+      a.vx = dpx * invD * chargeSpeed
+      a.vz = dpz * invD * chargeSpeed
     }
-    // Deal impact damage when within contact range
+    // Deal impact damage when within contact range — genome-derived damage
     if (playerDist < 2.5) {
       const cd = boarAttackCooldowns.get(a.id) ?? 0
       if (cd <= 0) {
-        onPlayerDamaged(BOAR_DAMAGE)
+        onPlayerDamaged(attackDamage)
         boarAttackCooldowns.set(a.id, 1.5)
       }
     }
@@ -653,6 +895,11 @@ export function attackNearestAnimal(
 /**
  * Check population levels and respawn animals if below 50% of cap.
  * Should be called every ~30 seconds from the GameLoop.
+ *
+ * Reproduction mechanic: when a new animal is born, we find an existing
+ * conspecific (parent A) and optionally a second (parent B for crossover),
+ * then run MutationEngine on the offspring genome. This means population
+ * pressure drives evolution — genomes drift and speciate over time.
  */
 export function tickEcosystemBalance(
   spawnX: number, spawnY: number, spawnZ: number,
@@ -678,20 +925,77 @@ export function tickEcosystemBalance(
     return null
   }
 
+  /**
+   * Find live parents of a given species to use for reproduction.
+   * Returns [parentA, parentB?] — parentB may be null for asexual reproduction.
+   */
+  function findParents(species: AnimalSpecies): [AnimalEntity | null, AnimalEntity | null] {
+    const candidates: AnimalEntity[] = []
+    for (const a of animalRegistry.values()) {
+      if (a.species === species && a.behavior !== 'DEAD' && a.phenotype) {
+        candidates.push(a)
+      }
+    }
+    if (candidates.length === 0) return [null, null]
+    const pa = candidates[Math.floor(rand() * candidates.length)]
+    const others = candidates.filter(c => c.id !== pa.id)
+    const pb = others.length > 0 ? others[Math.floor(rand() * others.length)] : null
+    return [pa, pb]
+  }
+
+  /**
+   * Create offspring genome via crossover (if two parents available)
+   * then apply MutationEngine. Discards lethal genomes and uses parent genome instead.
+   */
+  function reproduceGenome(species: AnimalSpecies): Genome {
+    const [pa, pb] = findParents(species)
+
+    let offspringGenome: Genome
+    if (pa?.phenotype && pb?.phenotype) {
+      // Sexual reproduction: crossover between two parents
+      offspringGenome = _encoder.crossover(pa.phenotype.genome, pb.phenotype.genome, rand)
+    } else if (pa?.phenotype) {
+      // Asexual: clone parent genome
+      offspringGenome = new Uint8Array(pa.phenotype.genome)
+    } else {
+      // No parents found (first generation): generate a fresh species genome
+      return generateSpeciesGenome(species, rand)
+    }
+
+    // Apply mutations (mutagenLevel=0 = clean environment, 1 generation)
+    _mutationEngine.mutate(offspringGenome, 0, 1, rand, Date.now())
+
+    // If genome is lethal, fall back to parent A's genome
+    if (_mutationEngine.isLethal(offspringGenome) && pa?.phenotype) {
+      offspringGenome = new Uint8Array(pa.phenotype.genome)
+    }
+
+    return offspringGenome
+  }
+
   const deerCount = countSpecies('deer')
   const wolfCount = countSpecies('wolf')
   const boarCount = countSpecies('boar')
 
   if (deerCount < CAP_DEER * 0.5) {
     const pos = randPos(200, 600)
-    if (pos) spawnAnimal('deer', pos[0], pos[1], pos[2])
+    if (pos) {
+      const genome = reproduceGenome('deer')
+      spawnAnimal('deer', pos[0], pos[1], pos[2], 0, pos[0], pos[1], pos[2], genome)
+    }
   }
   if (wolfCount < CAP_WOLF * 0.5) {
     const pos = randPos(300, 700)
-    if (pos) spawnAnimal('wolf', pos[0], pos[1], pos[2])
+    if (pos) {
+      const genome = reproduceGenome('wolf')
+      spawnAnimal('wolf', pos[0], pos[1], pos[2], 0, pos[0], pos[1], pos[2], genome)
+    }
   }
   if (boarCount < CAP_BOAR * 0.5) {
     const pos = randPos(150, 500)
-    if (pos) spawnAnimal('boar', pos[0], pos[1], pos[2])
+    if (pos) {
+      const genome = reproduceGenome('boar')
+      spawnAnimal('boar', pos[0], pos[1], pos[2], 0, pos[0], pos[1], pos[2], genome)
+    }
   }
 }

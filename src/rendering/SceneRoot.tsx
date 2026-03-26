@@ -82,6 +82,9 @@ import {
 
 // M10 Track A: Seasonal terrain pass
 import { SeasonalTerrainPass } from './SeasonalTerrainPass'
+
+// Post-processing: raw Three.js composer (bloom + vignette)
+import { PostProcessing } from './PostProcessing'
 import { useSeasonStore } from '../store/seasonStore'
 
 // M10 Track B: Sailing + fishing
@@ -921,9 +924,8 @@ export function SceneRoot() {
       )}
       {/* M10 Track A: Seasonal terrain overlays (spring blossoms, autumn tint, winter snow) */}
       <SeasonalTerrainPass />
-      {/* Post-processing — subtle filmic effects, never stylised */}
-      {/* EffectComposer (Bloom + Vignette) removed: @react-three/postprocessing 3.0.4
-          crashes with @react-three/fiber 8.18.0 — re-enable after upgrading postprocessing */}
+      {/* Post-processing — bloom on bright emitters + vignette framing */}
+      <PostProcessing />
     </Canvas>
     {/* M5: Death screen — shown above everything when player is dead */}
     <DeathScreenWrapper onRespawn={handleRespawn} />

@@ -11,6 +11,7 @@ import { cancelFishing, isFishingActive } from '../world/SailingSystem'
 import { tryEatFood } from '../game/SurvivalSystems'
 import { inventory } from '../game/GameSingletons'
 import { fishingSystem } from '../game/FishingSystem'
+import { spellSystem } from '../game/SpellSystem'
 import { useDialogueStore } from '../store/dialogueStore'
 import { useSettlementStore } from '../store/settlementStore'
 
@@ -169,6 +170,12 @@ export function SidebarShell() {
         case 'm': case 'M':   e.preventDefault(); togglePanel('map');        break
         case '?': case '/':
           if (!document.pointerLockElement) { e.preventDefault(); togglePanel('science') }
+          break
+        case '1': case '2': case '3': case '4':
+          if (!document.pointerLockElement) break  // only when in-game (pointer locked)
+          if (activePanel !== null) break
+          e.preventDefault()
+          spellSystem.castEquippedSpell(parseInt(e.key) - 1)
           break
         case 'Escape':
           e.preventDefault()

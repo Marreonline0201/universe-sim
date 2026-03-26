@@ -148,6 +148,9 @@ import { currentWorldEvent, completeWorldEvent } from './WorldEventSystem'
 // M37 Track C: Player stats tracking + title check
 import { usePlayerStatsStore } from '../store/playerStatsStore'
 import { checkNewTitles } from './TitleSystem'
+// M40 Track B: Magic spell system
+import { spellSystem } from './SpellSystem'
+import { useSpellStore } from '../store/spellStore'
 
 // Register skill system with offline save manager for serialization
 registerSkillSystem(skillSystem)
@@ -156,6 +159,12 @@ registerQuestSystem(questSystem)
 // Register achievement + tutorial systems with offline save manager (M24)
 registerAchievementSystem(achievementSystem)
 registerTutorialSystem(tutorialSystem)
+
+// M40 Track B: Give player starter spells
+spellSystem.learnSpell('fireball')
+spellSystem.learnSpell('heal')
+spellSystem.equipSpell('fireball', 0)
+spellSystem.equipSpell('heal', 1)
 
 // ── Dig holes ─────────────────────────────────────────────────────────────────
 export interface DigHole { x: number; y: number; z: number; r: number }
@@ -245,6 +254,10 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
 
     // M5: Reset damage-source flags at frame start so this frame's damage is tracked fresh
     resetDamageFlags()
+
+    // M40 Track B: Mana regeneration + periodic store sync
+    spellSystem.tick(dt)
+    useSpellStore.getState().syncFromSystem()
 
     // Pause all game logic when the CLICK TO PLAY overlay is visible (B-08 fix).
     if (!gameActive) return

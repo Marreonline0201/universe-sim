@@ -40,6 +40,8 @@ import { WorldEventHUD } from './WorldEventHUD'
 import { ChatBox } from './ChatBox'
 import { PartyHUD } from './PartyHUD'
 import { SpectateMode } from './SpectateMode'
+// M40 Track B: Magic spell system
+const SpellBar = lazy(() => import('./SpellBar').then(m => ({ default: m.SpellBar })))
 
 // ── M20: Lazy-loaded overlays (rarely shown) ─────────────────────────────────
 const FirstContactOverlay = lazy(() => import('./FirstContactOverlay').then(m => ({ default: m.FirstContactOverlay })))
@@ -2534,6 +2536,11 @@ export function HUD() {
 
       {/* ── M39 Track B: Spectate mode (shown when player is dead) ── */}
       <SpectateMode />
+
+      {/* ── M40 Track B: Spell hotbar + mana bar ── */}
+      <Suspense fallback={null}>
+        <SpellBar />
+      </Suspense>
 
       {/* ── M37 Track A: World event banner + indicator + history ── */}
       <WorldEventHUD />

@@ -183,6 +183,7 @@ function GameWithSave() {
     initFactionReputationSystem()
     initBlueprintSystem()
     initNPCMemorySystem()
+    initWorldChronicle()
   }, [])
 
   // Load save on first sign-in

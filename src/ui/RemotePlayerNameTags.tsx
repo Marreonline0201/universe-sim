@@ -82,8 +82,9 @@ function NameTagsOverlayInner({
       const screenX = ( tmpVec.current.x + 1) / 2 * size.width
       const screenY = (-tmpVec.current.y + 1) / 2 * size.height
 
-      // Behind camera check
+      // Behind camera check or invalid projection (NaN/Infinity on uninitialized camera)
       if (tmpVec.current.z > 1) continue
+      if (!isFinite(screenX) || !isFinite(screenY)) continue
 
       const isAFK = (Date.now() - (p.lastMovedAt ?? Date.now())) > AFK_THRESHOLD_MS
       tags.push({

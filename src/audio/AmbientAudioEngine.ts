@@ -69,8 +69,8 @@ function getNoiseBuffer(ctx: AudioContext): AudioBuffer {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function ramp(param: AudioParam, value: number, duration: number) {
-  param.linearRampToValueAtTime(value, param.context.currentTime + duration)
+function ramp(ctx: AudioContext, param: AudioParam, value: number, duration: number) {
+  param.linearRampToValueAtTime(value, ctx.currentTime + duration)
 }
 
 function clamp01(v: number): number {
@@ -197,7 +197,7 @@ export class AmbientAudioEngine {
   setMasterVolume(v: number) {
     this._masterVolume = clamp01(v)
     if (this.masterGain && this.ctx) {
-      ramp(this.masterGain.gain, this._masterVolume, 0.05)
+      ramp(this.ctx, this.masterGain.gain, this._masterVolume, 0.05)
     }
   }
 
@@ -234,11 +234,11 @@ export class AmbientAudioEngine {
     const lfoMod = 1 + Math.sin(this.windLfoPhase) * 0.3
 
     const targetGain = baseGain * lfoMod
-    ramp(this.windGain.gain, targetGain, 0.1)
+    ramp(this.ctx, this.windGain.gain, targetGain, 0.1)
 
     // Modulate bandpass center frequency for tonal variation
     const centerFreq = 400 + Math.sin(this.windLfoPhase * 0.7) * 200
-    ramp(this.windBandpass.frequency, centerFreq, 0.1)
+    ramp(this.ctx, this.windBandpass.frequency, centerFreq, 0.1)
   }
 
   // ── Rain ────────────────────────────────────────────────────────────────────
@@ -255,7 +255,7 @@ export class AmbientAudioEngine {
       targetGain *= 0.4  // Snow is softer
     }
 
-    ramp(this.rainGain.gain, targetGain, 2.0)  // 2-second crossfade
+    ramp(this.ctx, this.rainGain.gain, targetGain, 2.0)  // 2-second crossfade
   }
 
   // ── Thunder ─────────────────────────────────────────────────────────────────
@@ -711,7 +711,7 @@ export class AmbientAudioEngine {
     if (!this.oceanGain || !this.oceanBandpass || !this.ctx) return
 
     if (!state.nearOcean || state.oceanDistance > 30) {
-      ramp(this.oceanGain.gain, 0, 1.0)
+      ramp(this.ctx, this.oceanGain.gain, 0, 1.0)
       return
     }
 
@@ -723,11 +723,11 @@ export class AmbientAudioEngine {
     const waveSurge = 0.5 + Math.sin(this.oceanLfoPhase) * 0.5  // 0-1
 
     const targetGain = distFactor * 0.3 * (0.4 + waveSurge * 0.6)
-    ramp(this.oceanGain.gain, targetGain, 0.2)
+    ramp(this.ctx, this.oceanGain.gain, targetGain, 0.2)
 
     // Modulate frequency for tonal variety
     const centerFreq = 300 + Math.sin(this.oceanLfoPhase * 0.5) * 100
-    ramp(this.oceanBandpass.frequency, centerFreq, 0.2)
+    ramp(this.ctx, this.oceanBandpass.frequency, centerFreq, 0.2)
   }
 
   // ── Dispose ─────────────────────────────────────────────────────────────────

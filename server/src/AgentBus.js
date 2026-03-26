@@ -93,3 +93,24 @@ export function getState() {
   }
   return { agents: agentsObj, messages: messages.slice(0, 20) }
 }
+
+// ── Auto-idle timeout ───────────────────────────────────────────────────────
+// Agents that haven't reported in 5 minutes are reset to idle automatically.
+const IDLE_TIMEOUT_MS = 5 * 60 * 1000
+
+/**
+ * Reset any agent that hasn't checked in within IDLE_TIMEOUT_MS.
+ * Returns true if any agents were reset (caller should broadcast).
+ */
+export function tickIdleTimeout() {
+  const now = Date.now()
+  let changed = false
+  for (const [, entry] of agents.entries()) {
+    if (entry.status !== 'idle' && entry.lastSeen > 0 && now - entry.lastSeen > IDLE_TIMEOUT_MS) {
+      entry.status = 'idle'
+      entry.task   = ''
+      changed = true
+    }
+  }
+  return changed
+}

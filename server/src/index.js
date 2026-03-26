@@ -372,6 +372,19 @@ ${recentMessages || '  (none)'}`
     console.log(`[server] Listening on port ${PORT} (HTTP + WebSocket)`)
   })
 
+  // ── Agent idle-timeout sweep (every 60 s) ────────────────────────────────────
+  // Agents that haven't reported in 5 min are auto-reset to idle and broadcasted.
+  setInterval(() => {
+    const changed = AgentBus.tickIdleTimeout()
+    if (changed) {
+      const state = AgentBus.getState()
+      wss.clients.forEach(client => {
+        if (client.readyState === WebSocket.OPEN)
+          client.send(JSON.stringify({ type: 'AGENT_UPDATE', ...state }))
+      })
+    }
+  }, 60_000)
+
   wss.on('connection', (ws, req) => {
     const ip = req.socket.remoteAddress
     console.log(`[server] Client connected from ${ip}`)

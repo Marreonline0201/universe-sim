@@ -26,7 +26,7 @@ export function UndergroundAtmosphere() {
   const undergroundRef  = useRef(false)
   const transitionRef   = useRef(0) // 0 = above ground, 1 = underground
   const caveFogRef      = useRef<THREE.FogExp2 | null>(null)
-  const origFogRef      = useRef<THREE.FogBase | null>(null)
+  const origFogRef      = useRef<THREE.Fog | THREE.FogExp2 | null>(null)
   const ambientRef      = useRef<THREE.AmbientLight | null>(null)
 
   // Store original fog on mount

@@ -297,6 +297,9 @@ async function main() {
       let body = ''
       req.on('data', chunk => body += chunk)
       req.on('end', () => {
+        // Always respond 200 immediately — Telegram retries if it doesn't get one quickly
+        res.writeHead(200)
+        res.end('ok')
         try {
           const data = JSON.parse(body)
           const cq = data.callback_query
@@ -411,8 +414,6 @@ Rules:
             })()
           }
         } catch(e) { /* ignore malformed */ }
-        res.writeHead(200)
-        res.end('ok')
       })
       return
     }

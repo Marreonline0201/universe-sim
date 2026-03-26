@@ -94,6 +94,12 @@ const WeatherEventsPanel = lazy(() => import('./panels/WeatherEventsPanel').then
 const MarketPricePanel = lazy(() => import('./panels/MarketPricePanel').then(m => ({ default: m.MarketPricePanel })))
 // M59 Track B: Title progression panel
 const TitleProgressionPanel = lazy(() => import('./panels/TitleProgressionPanel').then(m => ({ default: m.TitleProgressionPanel })))
+// M60 Track A: Crafting mastery panel
+const CraftingMasteryPanel = lazy(() => import('./panels/CraftingMasteryPanel').then(m => ({ default: m.CraftingMasteryPanel })))
+// M60 Track C: Player stats dashboard
+const PlayerStatsDashboard = lazy(() => import('./panels/PlayerStatsDashboard').then(m => ({ default: m.PlayerStatsDashboard })))
+// M60 Track B: World boss panel
+const WorldBossPanel = lazy(() => import('./panels/WorldBossPanel').then(m => ({ default: m.WorldBossPanel })))
 
 // M36 Track C: Wrapper resolves nearSettlementId from store so panel has no props
 function BuildingsPanelWrapper() {
@@ -161,6 +167,8 @@ const PANEL_LABEL: Record<PanelId, string> = {
   weatherevents:   'WEATHER EVENTS',
   market:          'RESOURCE MARKET',
   titleprogress:   'TITLE PROGRESSION',
+  craftmastery:    'CRAFTING MASTERY',
+  statsdash:       'PLAYER STATS',
 }
 
 const PANEL_WIDTH = 480
@@ -210,6 +218,8 @@ const ICON_BUTTONS: Array<{ id: PanelId; icon: string; hint: string }> = [
   { id: 'weatherevents',   icon: '⛈',   hint: 'Weather Events' },
   { id: 'market',          icon: '📊',  hint: 'Market Prices' },
   { id: 'titleprogress',   icon: '👑',  hint: 'Titles' },
+  { id: 'craftmastery',    icon: '⚒',   hint: 'Crafting Mastery' },
+  { id: 'statsdash',       icon: '📈',  hint: 'Stats Dashboard' },
   { id: 'science',         icon: ' ? ', hint: 'Science Companion (?)' },
   { id: 'settings',    icon: 'SET',  hint: 'Settings (Esc)' },
 ]
@@ -262,6 +272,8 @@ const PANEL_COMPONENTS: Record<PanelId, React.ComponentType> = {
   weatherevents:   WeatherEventsPanel,
   market:          MarketPricePanel,
   titleprogress:   TitleProgressionPanel,
+  craftmastery:    CraftingMasteryPanel,
+  statsdash:       PlayerStatsDashboard,
 }
 
 export function SidebarShell() {

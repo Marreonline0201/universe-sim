@@ -34,6 +34,7 @@ import { serializeTitles, deserializeTitles } from './TitleProgressionSystem'
 import { serializeUpgrades, deserializeUpgrades } from './HousingUpgradeSystem'
 import { serializePet, deserializePet } from './PetAdvancementSystem'
 import { serializeGiftCooldowns, deserializeGiftCooldowns } from './NPCGiftSystem'
+import { serializeMastery, deserializeMastery } from './CraftingMasterySystem'
 import { Health, Metabolism, Position } from '../ecs/world'
 import { rapierWorld } from '../physics/RapierWorld'
 import { PLANET_RADIUS } from '../world/SpherePlanet'
@@ -154,6 +155,7 @@ export async function saveOffline(): Promise<boolean> {
       petAdvancement: serializePet(),
       giftCooldowns: serializeGiftCooldowns(),
       titleProgression: serializeTitles(),
+      craftMastery: serializeMastery(),
     })
     const meta = JSON.stringify({
       timestamp: Date.now(),
@@ -340,6 +342,11 @@ export async function loadOffline(): Promise<boolean> {
     // M59 Track B: Restore title progression state
     if (state.titleProgression) {
       deserializeTitles(state.titleProgression)
+    }
+
+    // M60 Track A: Restore crafting mastery state
+    if (state.craftMastery) {
+      deserializeMastery(state.craftMastery)
     }
 
     // Restore position

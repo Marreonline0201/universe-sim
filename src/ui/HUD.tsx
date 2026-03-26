@@ -68,6 +68,8 @@ const SiegeHUD = lazy(() => import('./panels/SiegeHUD').then(m => ({ default: m.
 const RestockEventBanner = lazy(() => import('./panels/RestockEventBanner').then(m => ({ default: m.RestockEventBanner })))
 // M47 Track B: Environmental hazard warning bar
 const HazardWarning = lazy(() => import('./HazardWarning').then(m => ({ default: m.HazardWarning })))
+// M52 Track C: Day/night event HUD badges
+import { DayNightEventHUD } from './DayNightEventHUD'
 
 // ── Armor slot visual constants ────────────────────────────────────────────────
 const STEEL_BLUE = '#4a9eff'
@@ -2727,6 +2729,9 @@ export function HUD() {
       <Suspense fallback={null}>
         <RestockEventBanner />
       </Suspense>
+
+      {/* ── M52 Track C: Day/night event floating badges (top-right) ── */}
+      <DayNightEventHUD />
 
       {/* ── M32 Track C: Fast travel fade-to-black overlay ── */}
       <div style={{

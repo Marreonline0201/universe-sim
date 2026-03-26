@@ -96,6 +96,23 @@ export function initWorldEventLogger(): void {
     })
   })
 
+  // recipe-discovered — detail: { recipeId: string }
+  window.addEventListener('recipe-discovered', (e: Event) => {
+    const detail = (e as CustomEvent).detail ?? {}
+    const recipeId = detail.recipeId ?? '?'
+    // Lazy-import to avoid circular dependency with RecipeDiscoverySystem
+    import('../player/CraftingRecipes').then(m => {
+      const recipe = m.CRAFTING_RECIPES.find(r => String(r.id) === String(recipeId))
+      const name = recipe ? recipe.name : `Recipe #${recipeId}`
+      useWorldEventStore.getState().addEvent({
+        category: 'crafting',
+        icon: '📜',
+        title: 'Recipe Discovered',
+        detail: `You discovered: ${name}`,
+      })
+    })
+  })
+
   // weather-changed
   window.addEventListener('weather-changed', (e: Event) => {
     const detail = (e as CustomEvent).detail ?? {}
@@ -105,6 +122,22 @@ export function initWorldEventLogger(): void {
       icon: weatherIcon(weatherName),
       title: 'Weather Changed',
       detail: weatherName,
+    })
+  })
+
+  // daynight-event — M52 Track C: day/night triggered events
+  window.addEventListener('daynight-event', (e: Event) => {
+    const detail = (e as CustomEvent).detail ?? {}
+    const timeWindow: string = detail.timeWindow ?? 'night'
+    const category =
+      timeWindow === 'night' ? 'combat' :
+      timeWindow === 'dusk'  ? 'weather' :
+      'exploration'
+    useWorldEventStore.getState().addEvent({
+      category,
+      icon: detail.icon ?? '🌙',
+      title: detail.title ?? 'Night Event',
+      detail: `A ${timeWindow} event has begun.`,
     })
   })
 }

@@ -62,6 +62,8 @@ const WeatherForecastPanel = lazy(() => import('./panels/WeatherForecastPanel').
 const CaveFeaturesPanel = lazy(() => import('./panels/CaveFeaturesPanel').then(m => ({ default: m.CaveFeaturesPanel })))
 // M51 Track B: NPC Relationship panel
 const RelationshipPanel = lazy(() => import('./panels/RelationshipPanel').then(m => ({ default: m.RelationshipPanel })))
+// M52 Track A: Faction War panel
+const FactionWarPanel = lazy(() => import('./panels/FactionWarPanel').then(m => ({ default: m.FactionWarPanel })))
 
 // M36 Track C: Wrapper resolves nearSettlementId from store so panel has no props
 function BuildingsPanelWrapper() {
@@ -113,6 +115,7 @@ const PANEL_LABEL: Record<PanelId, string> = {
   forecast:     'WEATHER FORECAST',
   cavefeatures:  'CAVE FEATURES',
   relationships: 'NPC RELATIONSHIPS',
+  factionwars:   'FACTION WARS',
 }
 
 const PANEL_WIDTH = 480
@@ -146,6 +149,7 @@ const ICON_BUTTONS: Array<{ id: PanelId; icon: string; hint: string }> = [
   { id: 'forecast',      icon: '🌤',   hint: 'Weather Forecast' },
   { id: 'cavefeatures',  icon: '⛏',   hint: 'Cave Features' },
   { id: 'relationships', icon: '🤝',  hint: 'Relations (R)' },
+  { id: 'factionwars',   icon: '⚔️',  hint: 'Faction Wars (W)' },
   { id: 'science',       icon: ' ? ', hint: 'Science Companion (?)' },
   { id: 'settings',    icon: 'SET',  hint: 'Settings (Esc)' },
 ]
@@ -182,6 +186,7 @@ const PANEL_COMPONENTS: Record<PanelId, React.ComponentType> = {
   forecast:      WeatherForecastPanel,
   cavefeatures:  CaveFeaturesPanel,
   relationships: RelationshipPanel,
+  factionwars:   FactionWarPanel,
 }
 
 export function SidebarShell() {
@@ -240,6 +245,7 @@ export function SidebarShell() {
         case 'n': case 'N':   e.preventDefault(); togglePanel('housing');      break
         case 'z': case 'Z':   e.preventDefault(); togglePanel('achievements'); break
         case 'r': case 'R':   e.preventDefault(); togglePanel('relationships'); break
+        case 'w': case 'W':   e.preventDefault(); togglePanel('factionwars');  break
         case 'Tab':           e.preventDefault(); togglePanel('character');  break
         case 'm': case 'M':   e.preventDefault(); togglePanel('map');        break
         case '?': case '/':

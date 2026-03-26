@@ -196,6 +196,10 @@ import { logCombatEvent } from './WorldEventLogger'
 import { tickRoutes } from './TradingRouteSystem'
 // M50 Track B: Weather forecast system
 import { updateForecasts } from './WeatherForecastSystem'
+// M52 Track C: Day/night event system
+import { onTimeTransition, tickDayNightEvents } from './DayNightEventSystem'
+// M52 Track A: Faction war events
+import { tickFactionWars } from './FactionWarSystem'
 
 // Register skill system with offline save manager for serialization
 registerSkillSystem(skillSystem)
@@ -310,6 +314,10 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
   const restockTriggerTimerRef = useRef(0)
   // M50 Track B: Weather forecast refresh timer — every 60 game-seconds
   const forecastTimerRef = useRef(0)
+  // M52 Track C: Last known time period for transition detection
+  const lastTimePeriodRef = useRef<'dawn' | 'day' | 'dusk' | 'night' | null>(null)
+  // M52 Track A: Faction war system tick timer — fires every 120 sim-seconds
+  const warTimerRef = useRef(0)
 
   useFrame((_, delta) => {
     // Cap dt to avoid spiral-of-death on slow frames
@@ -3261,6 +3269,16 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
       }
     }
 
+    // ── M52 Track A: Faction war system — tick every 120 sim-seconds ────────
+    {
+      warTimerRef.current += dt
+      if (warTimerRef.current >= 120) {
+        warTimerRef.current = 0
+        const simSecs52 = useGameStore.getState().simSeconds
+        tickFactionWars(simSecs52, FACTION_IDS)
+      }
+    }
+
     // ── M46 Track B: Siege system tick + trigger ──────────────────────────────
     {
       // Tick active siege every frame
@@ -3320,6 +3338,29 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
 
     // ── M49 Track B: Trading routes tick ─────────────────────────────────────
     tickRoutes(dt * 1000)
+
+    // ── M52 Track C: Day/Night event system ──────────────────────────────────
+    {
+      const simSecs52 = useGameStore.getState().simSeconds
+      // Tick expirations every frame
+      tickDayNightEvents(simSecs52)
+
+      // Detect time-period transitions using dayAngle (same cycle as NPC schedules)
+      // dayAngle=0 is midnight, dayAngle=π is noon; hour = (dayAngle/(2π))*24
+      const da52 = getDayAngle()
+      const norm52 = ((da52 % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI)
+      const hour52 = (norm52 / (2 * Math.PI)) * 24
+      let period52: 'dawn' | 'day' | 'dusk' | 'night'
+      if (hour52 >= 5 && hour52 < 7)  period52 = 'dawn'
+      else if (hour52 >= 7 && hour52 < 17) period52 = 'day'
+      else if (hour52 >= 17 && hour52 < 21) period52 = 'dusk'
+      else period52 = 'night'
+
+      if (lastTimePeriodRef.current !== period52) {
+        lastTimePeriodRef.current = period52
+        onTimeTransition(period52, simSecs52)
+      }
+    }
 
     // ── M43 Track C: Exploration tracking (every 5s) ─────────────────────────
     {

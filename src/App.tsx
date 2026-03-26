@@ -6,6 +6,7 @@ import { loadSave, saveGame } from './store/saveStore'
 import { useWorldSocket } from './net/useWorldSocket'
 import { useBootstrapStatus } from './hooks/useBootstrapStatus'
 import { WorldBootstrapScreen } from './ui/WorldBootstrapScreen'
+import { initWorldEventLogger } from './game/WorldEventLogger'
 
 // ── M20: Lazy-load AdminPanel (dev/admin only) ──────────────────────────────
 const AdminPanel = lazy(() => import('./ui/AdminPanel').then(m => ({ default: m.AdminPanel })))
@@ -49,6 +50,10 @@ function AuthedApp() {
 function DevGame() {
   useWorldSocket()
 
+  useEffect(() => {
+    initWorldEventLogger()
+  }, [])
+
   return (
     <>
       <Suspense fallback={<div style={{ color: '#fff', padding: 20 }}>Initializing universe...</div>}>
@@ -88,6 +93,11 @@ function GameWithSave() {
 
   // Connect to the persistent Railway WebSocket server
   useWorldSocket()
+
+  // M48 Track C: Initialize world event logger once on mount
+  useEffect(() => {
+    initWorldEventLogger()
+  }, [])
 
   // Load save on first sign-in
   useEffect(() => {

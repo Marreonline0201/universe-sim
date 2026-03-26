@@ -48,6 +48,8 @@ const ForgePanel = lazy(() => import('./panels/ForgePanel').then(m => ({ default
 const HousingPanel = lazy(() => import('./panels/HousingPanel').then(m => ({ default: m.HousingPanel })))
 // M45 Track A: Pet & companion panel
 const PetPanel = lazy(() => import('./panels/PetPanel').then(m => ({ default: m.PetPanel })))
+// M48 Track C: World events log panel
+const WorldEventsPanel = lazy(() => import('./panels/WorldEventsPanel').then(m => ({ default: m.WorldEventsPanel })))
 
 // M36 Track C: Wrapper resolves nearSettlementId from store so panel has no props
 function BuildingsPanelWrapper() {
@@ -92,6 +94,7 @@ const PANEL_LABEL: Record<PanelId, string> = {
   forge:        'FORGE',
   housing:      'PLAYER HOUSING',
   pet:          'PET & COMPANIONS',
+  worldevents:  'WORLD EVENTS LOG',
 }
 
 const PANEL_WIDTH = 480
@@ -118,6 +121,7 @@ const ICON_BUTTONS: Array<{ id: PanelId; icon: string; hint: string }> = [
   { id: 'tradepost',   icon: 'TRD',  hint: 'Trade Post (T)' },
   { id: 'forge',       icon: 'FRG',  hint: 'Forge (V)' },
   { id: 'housing',     icon: 'HSE',  hint: 'Housing (N)' },
+  { id: 'worldevents', icon: '📜',   hint: 'World Events (E)' },
   { id: 'science',     icon: ' ? ',  hint: 'Science Companion (?)' },
   { id: 'settings',    icon: 'SET',  hint: 'Settings (Esc)' },
 ]
@@ -147,6 +151,7 @@ const PANEL_COMPONENTS: Record<PanelId, React.ComponentType> = {
   forge:         ForgePanel,
   housing:       HousingPanel,
   pet:           PetPanel,
+  worldevents:   WorldEventsPanel,
 }
 
 export function SidebarShell() {
@@ -187,13 +192,8 @@ export function SidebarShell() {
         case 'c': case 'C':   e.preventDefault(); togglePanel('crafting');   break
         case 'b': case 'B':   e.preventDefault(); togglePanel('build');      break
         case 'e': case 'E':
-          // Try to eat (works even without pointer lock for browser testing)
-          if (!document.pointerLockElement) {
-            e.preventDefault()
-            const ps = usePlayerStore.getState()
-            const eid = ps.entityId
-            if (eid) tryEatFood(inventory, eid)
-          }
+          e.preventDefault()
+          togglePanel('worldevents')
           break
         case 'j': case 'J':   e.preventDefault(); togglePanel('journal');    break
         case 'k': case 'K':   e.preventDefault(); togglePanel('skills');     break

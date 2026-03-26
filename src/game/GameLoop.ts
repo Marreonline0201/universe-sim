@@ -189,6 +189,8 @@ import { getActiveHazard, HAZARD_DEFS, HAZARD_ZONE_TYPE_BY_ID } from './HazardSy
 import { isPotionFireImmune } from './PotionSystem'
 // M48 Track B: NPC Merchant Restocking Events
 import { tickRestockEvent, triggerRestockEvent } from './MerchantRestockSystem'
+// M48 Track C: World events log
+import { logCombatEvent } from './WorldEventLogger'
 
 // Register skill system with offline save manager for serialization
 registerSkillSystem(skillSystem)
@@ -1728,6 +1730,7 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
                 creatureWander.delete(targetEid)
                 removeEntity(world, targetEid)
                 skillSystem.addXp('combat', 60) // M22: Combat XP on musket kill
+                logCombatEvent('Creature (musket)', 60) // M48 Track C: Log to world events
                 useUiStore.getState().addNotification('Creature killed by musket shot!', 'discovery')
               } else {
                 useUiStore.getState().addNotification(`Musket hit — ${shotResult.damage} dmg! Reloading (8s)...`, 'warning')
@@ -1804,6 +1807,7 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
             creatureWander.delete(nearestCreatureEid)
             removeEntity(world, nearestCreatureEid)
             skillSystem.addXp('combat', 40) // M22: Combat XP on creature kill
+            logCombatEvent('Creature', 40) // M48 Track C: Log to world events
             // M46 Track C: Combat milestone discovery — Steel Sword recipe at combat Lv.3
             if (skillSystem.getLevel('combat') >= 3) {
               discoverRecipe(71)  // Steel Sword (M8) — combat milestone
@@ -1906,6 +1910,7 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
                 usePlayerStatsStore.getState().incrementStat('bossesKilled')
               }
               skillSystem.addXp('combat', 50) // M22: Combat XP on animal kill
+              logCombatEvent(killed.species ?? 'Animal', 50) // M48 Track C: Log to world events
               // M23: Quest progress on kill
               questSystem.onKill(killed.species)
               // M33: Settlement quest board progress on kill

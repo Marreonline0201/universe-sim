@@ -15,6 +15,7 @@ import { useSettlementQuestStore } from '../../store/settlementQuestStore'
 import { ENCHANTS, applyEnchant, activeWeaponEnchant, activeArmorEnchant, type Enchant } from '../../game/EnchantSystem'
 import { usePlayerStatsStore } from '../../store/playerStatsStore'
 import { checkNewTitles } from '../../game/TitleSystem'
+import { logCraftEvent } from '../../game/WorldEventLogger'
 
 const MAT_NAMES: Record<number, string> = Object.fromEntries(
   Object.entries(MAT).map(([k, v]) => [v, k.toLowerCase().replace(/_/g, ' ')])
@@ -194,6 +195,7 @@ export function CraftingPanel() {
         }
       })
       addNotification(`Crafted: ${selectedRecipe.name}${rarityLabel}`, 'info')
+      logCraftEvent(`${selectedRecipe.name}${rarityLabel}`) // M48 Track C: Log to world events
       if (andEquip && !selectedRecipe.output.isMaterial) {
         for (let i = 0; i < inventory.slotCount; i++) {
           const slot = inventory.getSlot(i)

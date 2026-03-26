@@ -46,6 +46,8 @@ import { serializeHousing, deserializeHousing } from './PlayerHousingSystem'
 import { serializeTalents, deserializeTalents } from './TalentTreeSystem'
 import { serializeQuestBoard, deserializeQuestBoard } from './DynamicQuestBoardSystem'
 import { serializeEmotions, deserializeEmotions } from './NPCEmotionSystem'
+import { serializeTitles as serializePlayerTitles, deserializeTitles as deserializePlayerTitles } from './PlayerTitleSystem'
+import { serializeScheduler, deserializeScheduler } from './WorldEventSchedulerSystem'
 import { Health, Metabolism, Position } from '../ecs/world'
 import { rapierWorld } from '../physics/RapierWorld'
 import { PLANET_RADIUS } from '../world/SpherePlanet'
@@ -178,6 +180,7 @@ export async function saveOffline(): Promise<boolean> {
       talents: serializeTalents(),
       questBoard: serializeQuestBoard(),
       npcEmotions: serializeEmotions(),
+      playerTitles: serializePlayerTitles(),
     })
     const meta = JSON.stringify({
       timestamp: Date.now(),
@@ -424,6 +427,11 @@ export async function loadOffline(): Promise<boolean> {
     // M65 Track C: Restore NPC emotion states
     if (state.npcEmotions) {
       deserializeEmotions(state.npcEmotions)
+    }
+
+    // M66 Track B: Restore player title system
+    if (state.playerTitles) {
+      deserializePlayerTitles(state.playerTitles)
     }
 
     // Restore position

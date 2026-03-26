@@ -38,6 +38,8 @@ import { initPlayerHousing } from './game/PlayerHousingSystem'
 import { initTalentTree } from './game/TalentTreeSystem'
 import { initDynamicQuestBoard } from './game/DynamicQuestBoardSystem'
 import { initNPCEmotionSystem } from './game/NPCEmotionSystem'
+import { initPlayerTitleSystem } from './game/PlayerTitleSystem'
+import { initWorldEventScheduler } from './game/WorldEventSchedulerSystem'
 
 // ── M20: Lazy-load AdminPanel (dev/admin only) ──────────────────────────────
 const AdminPanel = lazy(() => import('./ui/AdminPanel').then(m => ({ default: m.AdminPanel })))
@@ -116,6 +118,8 @@ function DevGame() {
     initTalentTree()
     initDynamicQuestBoard(0)
     initNPCEmotionSystem()
+    initPlayerTitleSystem()
+    initWorldEventScheduler()
   }, [])
 
   return (
@@ -199,6 +203,8 @@ function GameWithSave() {
     initTalentTree()
     initDynamicQuestBoard(0)
     initNPCEmotionSystem()
+    initPlayerTitleSystem()
+    initWorldEventScheduler()
   }, [])
 
   // Load save on first sign-in

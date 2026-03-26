@@ -164,6 +164,34 @@ export function tickFoodCooking(
 
 // Eat cooked meat from inventory → restore hunger bar
 export function tryEatFood(inv: Inventory, entityId: number): boolean {
+  // ── M30 Track B: Alcohol / Mead drink effects ──────────────────────────
+  // Check for drinkable fermented beverages before cooked meat
+  const alcoholSlot = inv.findItem(MAT.ALCOHOL)
+  if (alcoholSlot >= 0) {
+    inv.removeItem(alcoholSlot, 1)
+    const psA = usePlayerStore.getState()
+    // Alcohol: +8 warmth, +5 hunger restore
+    psA.addWarmth(8)
+    const newHungerA = Math.max(0, psA.hunger - 0.05)
+    psA.updateVitals({ hunger: newHungerA })
+    Metabolism.hunger[entityId] = newHungerA
+    useUiStore.getState().addNotification('Drank grain spirit — warmth restored', 'info')
+    return true
+  }
+
+  const meadSlot = inv.findItem(MAT.MEAD)
+  if (meadSlot >= 0) {
+    inv.removeItem(meadSlot, 1)
+    const psM = usePlayerStore.getState()
+    // Mead: +12 warmth, +10 hunger restore
+    psM.addWarmth(12)
+    const newHungerM = Math.max(0, psM.hunger - 0.10)
+    psM.updateVitals({ hunger: newHungerM })
+    Metabolism.hunger[entityId] = newHungerM
+    useUiStore.getState().addNotification('Drank mead — warmth and hunger restored', 'info')
+    return true
+  }
+
   // Find first cooked meat slot
   const slotIdx = inv.findItem(MAT.COOKED_MEAT)
   if (slotIdx < 0) return false

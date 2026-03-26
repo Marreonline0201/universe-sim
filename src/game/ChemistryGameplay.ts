@@ -151,7 +151,7 @@ export function tickChemistryGameplay(
     if (Math.random() < intensity * 0.05) {
       inventory.addItem({
         itemId: 0,
-        materialId: MAT.COOKED_MEAT, // TODO: add MAT.ALCOHOL when available
+        materialId: MAT.ALCOHOL,
         quantity: 1,
         quality: 0.8,
       })

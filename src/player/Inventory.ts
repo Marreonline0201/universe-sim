@@ -312,6 +312,10 @@ export const MAT = {
   // ── M15: Velar Civilization ─────────────────────────────────────────────
   VELAR_ALLOY: 70,       // Velar-transmuted steel — trade item, used in Velar Fabricator
   QUANTUM_CORE: 71,      // Velar-recrystallized silicon — advanced CPU for Velar tech
+  // ── M30 Track B: Fermentation system ────────────────────────────────────
+  ALCOHOL: 72,           // fermented grain spirit — restores 5 warmth, reduces pain
+  MEAD: 73,              // honey wine — restores 8 warmth, 10 hunger
+  VINEGAR: 74,           // over-fermented alcohol — preservative, crafting ingredient
 } as const
 
 // ── Item IDs ──────────────────────────────────────────────────────────────────

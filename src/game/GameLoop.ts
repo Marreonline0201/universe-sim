@@ -475,7 +475,7 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
               // M27: Open merchant panel with appropriate archetype
               const civTier = usePlayerStore.getState().civTier
               const archetype = merchantSystem.getArchetypeForSettlementTier(civTier)
-              ;(window as unknown as Record<string, unknown>).__merchantArchetype = archetype
+              useDialogueStore.getState().setMerchantArchetype(archetype)
               useUiStore.getState().openPanel('merchant')
             } else {
               useDialogueStore.getState().openDialogue(closestNpc.id, npcName, npcRole, npcSettlement)
@@ -1033,6 +1033,12 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
       if (inventory.countMaterial(MAT.COOKED_MEAT) > 0 && psNow.hunger > 0.05) {
         const eatLabel = '[E] Eat cooked meat'
         if (gs.gatherPrompt === null) gs.setGatherPrompt(eatLabel)
+      }
+      // M30 Track B: Show drink prompt for fermented beverages
+      if (inventory.countMaterial(MAT.ALCOHOL) > 0) {
+        if (gs.gatherPrompt === null) gs.setGatherPrompt('[E] Drink grain spirit (+warmth)')
+      } else if (inventory.countMaterial(MAT.MEAD) > 0) {
+        if (gs.gatherPrompt === null) gs.setGatherPrompt('[E] Drink mead (+warmth +hunger)')
       }
       if (psNow.wounds.length > 0 && inventory.countMaterial(MAT.LEAF) > 0) {
         const herbLabel = '[H] Apply herb to wound'

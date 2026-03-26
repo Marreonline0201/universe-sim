@@ -1008,6 +1008,51 @@ export const CRAFTING_RECIPES: CraftingRecipe[] = [
     output: { itemId: MAT.VELAR_ALLOY, quantity: 1, isMaterial: true },
     knowledgeRequired: ['velar_fabrication'],
   },
+  // ── M30 Track B: Fermentation + Brewing ──────────────────────────────────
+  //
+  // Real fermentation chemistry (Tier B — Approximate):
+  //   C₆H₁₂O₆ (glucose/starch from grain) + yeast → 2 C₂H₅OH (ethanol) + 2 CO₂
+  //   Grain (MAT.GRAIN) provides fermentable sugars. Water needed as solvent medium.
+  //   Mead: honey + water → ethanol + CO₂ (natural yeast from honey).
+  //   Vinegar: C₂H₅OH + O₂ (acetic acid bacteria) → CH₃COOH (acetic acid) + H₂O.
+  //   All reactions use GRAIN as substrate — matches MAT.GRAIN (id 62) from M10.
+  //
+  {
+    // id 111 — Fermented Grain Spirit: 5x grain + 1x water (fiber+bone as vessel) → 1x alcohol
+    // Tier 1 (Bronze Age): requires basic vessel knowledge for fermentation container.
+    // Water represented by CLAY (water-holding vessel) as closest early-game water source.
+    id: 111, name: 'Fermented Grain Spirit', tier: 1, time: 60,
+    inputs: [
+      { materialId: MAT.GRAIN, quantity: 5 },
+      { materialId: MAT.CLAY,  quantity: 1 },   // clay vessel holds fermenting mash
+    ],
+    output: { itemId: MAT.ALCOHOL, quantity: 1, isMaterial: true },
+    knowledgeRequired: ['fire_making'],
+  },
+  {
+    // id 112 — Mead: 3x grain (honey substitute via organic sugar) + 2x fiber → 2x mead
+    // Honey not yet a standalone material — grain provides fermentable sugars.
+    // Fiber represents wild herb/flower additions to the mash (flavoring + natural yeast).
+    id: 112, name: 'Mead', tier: 1, time: 45,
+    inputs: [
+      { materialId: MAT.GRAIN, quantity: 3 },
+      { materialId: MAT.FIBER, quantity: 2 },   // wildflower/herb yeast source
+    ],
+    output: { itemId: MAT.MEAD, quantity: 2, isMaterial: true },
+    knowledgeRequired: ['fire_making'],
+  },
+  {
+    // id 113 — Vinegar: 2x alcohol → 3x vinegar (oxidation — no extra input needed)
+    // Acetic acid bacteria convert ethanol to acetic acid when exposed to air.
+    // Time is short because it's just controlled over-fermentation in open vessel.
+    id: 113, name: 'Vinegar', tier: 1, time: 30,
+    inputs: [
+      { materialId: MAT.ALCOHOL, quantity: 2 },
+    ],
+    output: { itemId: MAT.VINEGAR, quantity: 3, isMaterial: true },
+    knowledgeRequired: ['fire_making'],
+  },
+
   {
     // id 110 — Velar Beacon (via Fabricator): 1x velar_crystal + 10x hydrogen + 2x quantum_core
     // Marks home universe coordinates across the Lattice gateway network.

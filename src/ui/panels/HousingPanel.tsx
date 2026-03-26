@@ -16,6 +16,7 @@ import {
 import { MAT } from '../../player/Inventory'
 import { useSettlementStore } from '../../store/settlementStore'
 import { useUiStore } from '../../store/uiStore'
+import { HousingUpgradePanel } from './HousingUpgradePanel'
 
 const FURNITURE_ORDER: FurnitureType[] = [
   FurnitureType.BED,
@@ -154,6 +155,7 @@ export function HousingPanel() {
   // Local state mirrors module-level mutable playerHouse (refresh on events)
   const [house, setHouse] = useState<PlayerHouse | null>(playerHouse)
   const [, forceRefresh] = useState(0)
+  const [showUpgrades, setShowUpgrades] = useState(false)
 
   // Refresh on housing events and inventory changes
   useEffect(() => {
@@ -254,6 +256,26 @@ export function HousingPanel() {
               </div>
             ))
           )}
+        </div>
+      )}
+
+      {/* ── Upgrades ──────────────────────────────────────────────────────────── */}
+      {house && (
+        <div style={S.section}>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              ...S.sectionTitle,
+              cursor: 'pointer',
+            }}
+            onClick={() => setShowUpgrades(v => !v)}
+          >
+            <span>Upgrades</span>
+            <span style={{ fontSize: 11, letterSpacing: 0 }}>{showUpgrades ? '▲' : '▼'}</span>
+          </div>
+          {showUpgrades && <HousingUpgradePanel />}
         </div>
       )}
 

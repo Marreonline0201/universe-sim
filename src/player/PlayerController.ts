@@ -185,6 +185,18 @@ export class PlayerController {
     return false
   }
 
+  // ── M34 Track A: Home placement (B key) ──────────────────────────────────
+  private _homePlaceConsumed = false
+  /** Consume the home placement key (B). Returns true once per press. */
+  popHomePlacement(): boolean {
+    if (this.keys.has('KeyB') && !this._homePlaceConsumed) {
+      this._homePlaceConsumed = true
+      return true
+    }
+    if (!this.keys.has('KeyB')) this._homePlaceConsumed = false
+    return false
+  }
+
   requestPointerLock(): void {
     try {
       // Try canvas first (most reliable), fallback to body

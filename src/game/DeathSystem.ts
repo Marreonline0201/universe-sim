@@ -158,10 +158,20 @@ export function executeRespawn(
 ): void {
   const ps = usePlayerStore.getState()
 
-  // Target: bedroll if placed, otherwise world spawn
-  const target = ps.bedrollPos
-    ? { x: ps.bedrollPos.x, y: ps.bedrollPos.y, z: ps.bedrollPos.z }
-    : { x: worldSpawnPos[0], y: worldSpawnPos[1], z: worldSpawnPos[2] }
+  // Target priority: home base > bedroll > world spawn (M34 Track A)
+  let respawnLabel = 'No bedroll — respawned at world spawn.'
+  let target: { x: number; y: number; z: number }
+
+  if (ps.homeSet && ps.homePosition) {
+    const [hx, hy, hz] = ps.homePosition
+    target = { x: hx, y: hy, z: hz }
+    respawnLabel = 'Respawned at your home base.'
+  } else if (ps.bedrollPos) {
+    target = { x: ps.bedrollPos.x, y: ps.bedrollPos.y, z: ps.bedrollPos.z }
+    respawnLabel = 'Respawned at your bedroll.'
+  } else {
+    target = { x: worldSpawnPos[0], y: worldSpawnPos[1], z: worldSpawnPos[2] }
+  }
 
   // Teleport
   setEcsPosition(target.x, target.y, target.z)
@@ -180,8 +190,5 @@ export function executeRespawn(
   // Clear death overlay
   ps.clearDeath()
 
-  useUiStore.getState().addNotification(
-    ps.bedrollPos ? 'Respawned at your bedroll.' : 'No bedroll — respawned at world spawn.',
-    'info'
-  )
+  useUiStore.getState().addNotification(respawnLabel, 'info')
 }

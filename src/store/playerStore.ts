@@ -105,6 +105,16 @@ interface PlayerState {
   setBedrollPos: (pos: { x: number; y: number; z: number } | null) => void
   incrementMurderCount: () => void
   setMurderCount: (n: number) => void
+
+  // M34 Track A: Player Home Base
+  homePosition: [number, number, number] | null  // null = not placed yet
+  homeSet: boolean
+  setHomePosition: (pos: [number, number, number]) => void
+  homeStorage: number[]  // array of MAT IDs stored at home
+  addToHomeStorage: (matId: number) => void
+  removeFromHomeStorage: (matId: number) => boolean
+  homeTier: 0 | 1 | 2  // 0=Cozy (default), 1=Upgraded (+10 slots), 2=Fortified
+  setHomeTier: (tier: 0 | 1 | 2) => void
 }
 
 export const usePlayerStore = create<PlayerState>((set, get) => ({
@@ -255,4 +265,25 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   setBedrollPos: (pos) => set({ bedrollPos: pos }),
   incrementMurderCount: () => set((s) => ({ murderCount: s.murderCount + 1 })),
   setMurderCount: (n) => set({ murderCount: Math.max(0, n) }),
+
+  // ── M34 Track A: Player Home Base ─────────────────────────────────────────
+  homePosition: null,
+  homeSet: false,
+  setHomePosition: (pos) => set({ homePosition: pos, homeSet: true }),
+  homeStorage: [],
+  addToHomeStorage: (matId) => set((s) => ({ homeStorage: [...s.homeStorage, matId] })),
+  removeFromHomeStorage: (matId) => {
+    let removed = false
+    set((s) => {
+      const idx = s.homeStorage.indexOf(matId)
+      if (idx < 0) return s
+      removed = true
+      const next = [...s.homeStorage]
+      next.splice(idx, 1)
+      return { homeStorage: next }
+    })
+    return removed
+  },
+  homeTier: 0,
+  setHomeTier: (tier) => set({ homeTier: tier }),
 }))

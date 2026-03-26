@@ -29,6 +29,7 @@ const AchievementPanel = lazy(() => import('./panels/AchievementPanel').then(m =
 const FishingPanel     = lazy(() => import('./panels/FishingPanel').then(m => ({ default: m.FishingPanel })))
 const MerchantPanel    = lazy(() => import('./panels/MerchantPanel').then(m => ({ default: m.MerchantPanel })))
 const PlayerListPanel  = lazy(() => import('./panels/PlayerListPanel').then(m => ({ default: m.PlayerListPanel })))
+const HomePanel        = lazy(() => import('./panels/HomePanel').then(m => ({ default: m.HomePanel })))
 
 const PANEL_LABEL: Record<PanelId, string> = {
   inventory: 'INVENTORY',
@@ -46,6 +47,7 @@ const PANEL_LABEL: Record<PanelId, string> = {
   fishing:      'FISHING',
   merchant:     'MERCHANT',
   players:      'PLAYERS ONLINE',
+  home:         'HOME BASE',
 }
 
 const PANEL_WIDTH = 480
@@ -60,8 +62,9 @@ const ICON_BUTTONS: Array<{ id: PanelId; icon: string; hint: string }> = [
   { id: 'map',        icon: 'MAP',  hint: 'Map (M)' },
   { id: 'skills',     icon: 'SKL',  hint: 'Skills (K)' },
   { id: 'quests',     icon: 'QST',  hint: 'Quests (Q)' },
-  { id: 'achievements', icon: 'ACH', hint: 'Achievements (H)' },
+  { id: 'achievements', icon: 'ACH', hint: 'Achievements' },
   { id: 'fishing',    icon: 'FSH',  hint: 'Fishing (F near water)' },
+  { id: 'home',       icon: 'HME',  hint: 'Home Base (H)' },
   { id: 'players',    icon: 'PLR',  hint: 'Players Online (P)' },
   { id: 'science',    icon: ' ? ',  hint: 'Science Companion (?)' },
   { id: 'settings',   icon: 'SET',  hint: 'Settings (Esc)' },
@@ -83,6 +86,7 @@ const PANEL_COMPONENTS: Record<PanelId, React.ComponentType> = {
   fishing:      FishingPanel,
   merchant:     MerchantPanel,
   players:      PlayerListPanel,
+  home:         HomePanel,
 }
 
 export function SidebarShell() {
@@ -123,7 +127,7 @@ export function SidebarShell() {
         case 'j': case 'J':   e.preventDefault(); togglePanel('journal');    break
         case 'k': case 'K':   e.preventDefault(); togglePanel('skills');     break
         case 'q': case 'Q':   e.preventDefault(); togglePanel('quests');     break
-        case 'h': case 'H':   e.preventDefault(); togglePanel('achievements'); break
+        case 'h': case 'H':   e.preventDefault(); togglePanel('home'); break
         case 'p': case 'P':   e.preventDefault(); togglePanel('players');     break
         case 'Tab':           e.preventDefault(); togglePanel('character');  break
         case 'm': case 'M':   e.preventDefault(); togglePanel('map');        break

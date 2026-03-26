@@ -1,4 +1,4 @@
-import React, { useState, useEffect, Suspense, lazy } from 'react'
+import React, { useState, useEffect, useRef, Suspense, lazy } from 'react'
 import { useGameStore } from '../store/gameStore'
 import { usePlayerStore } from '../store/playerStore'
 import { useMultiplayerStore } from '../store/multiplayerStore'
@@ -1021,6 +1021,11 @@ function SkillXpBar() {
           0%   { opacity: 0.8; }
           100% { opacity: 0; }
         }
+        @keyframes bossPulse {
+          0%   { box-shadow: 0 0 18px rgba(204,0,0,0.6); border-color: #cc0000; }
+          50%  { box-shadow: 0 0 36px rgba(204,0,0,1.0); border-color: #ff3333; }
+          100% { box-shadow: 0 0 18px rgba(204,0,0,0.6); border-color: #cc0000; }
+        }
         @keyframes chestLootSlideUp {
           0%   { opacity: 0; transform: translateX(-50%) translateY(12px); }
           20%  { opacity: 1; transform: translateX(-50%) translateY(0); }
@@ -1039,6 +1044,228 @@ const QUEST_TYPE_ICONS: Record<string, string> = {
   hunt: '⚔',
   explore: '🗺',
   craft: '🔨',
+}
+
+// ── M34 Track B: Boss spawn alert banner ─────────────────────────────────────
+
+interface BossSpawnDetail { name: string; distance: number; direction: string }
+interface BossKillDetail  { name: string; killerName: string }
+
+/** Displays a dramatic red banner for 5 seconds when the world boss spawns. */
+export function BossSpawnAlert() {
+  const [detail, setDetail] = useState<BossSpawnDetail | null>(null)
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const d = (e as CustomEvent<BossSpawnDetail>).detail
+      setDetail(d)
+      if (timerRef.current) clearTimeout(timerRef.current)
+      timerRef.current = setTimeout(() => setDetail(null), 5000)
+    }
+    window.addEventListener('world-boss-spawned', handler)
+    return () => {
+      window.removeEventListener('world-boss-spawned', handler)
+      if (timerRef.current) clearTimeout(timerRef.current)
+    }
+  }, [])
+
+  if (!detail) return null
+
+  return (
+    <div style={{
+      position: 'fixed',
+      top: 80,
+      left: '50%',
+      transform: 'translateX(-50%)',
+      background: 'rgba(0,0,0,0.85)',
+      border: '2px solid #cc0000',
+      borderRadius: 6,
+      padding: '10px 24px',
+      zIndex: 900,
+      pointerEvents: 'none',
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      gap: 4,
+      animation: 'bossPulse 0.8s ease-in-out infinite',
+      boxShadow: '0 0 24px rgba(204,0,0,0.7)',
+    }}>
+      <span style={{ fontSize: 13, color: '#ff4444', fontFamily: 'monospace', fontWeight: 'bold', letterSpacing: 2 }}>
+        &#9888; WORLD BOSS
+      </span>
+      <span style={{ fontSize: 11, color: '#ff8888', fontFamily: 'monospace' }}>
+        {detail.name} has appeared [{detail.distance}m {detail.direction}]
+      </span>
+    </div>
+  )
+}
+
+/** Displays a gold banner when the world boss is slain. */
+export function BossKillAnnouncement() {
+  const [detail, setDetail] = useState<BossKillDetail | null>(null)
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const d = (e as CustomEvent<BossKillDetail>).detail
+      setDetail(d)
+      if (timerRef.current) clearTimeout(timerRef.current)
+      timerRef.current = setTimeout(() => setDetail(null), 6000)
+    }
+    window.addEventListener('world-boss-killed', handler)
+    return () => {
+      window.removeEventListener('world-boss-killed', handler)
+      if (timerRef.current) clearTimeout(timerRef.current)
+    }
+  }, [])
+
+  if (!detail) return null
+
+  return (
+    <div style={{
+      position: 'fixed',
+      top: 80,
+      left: '50%',
+      transform: 'translateX(-50%)',
+      background: 'rgba(0,0,0,0.85)',
+      border: '2px solid #ffaa00',
+      borderRadius: 6,
+      padding: '10px 24px',
+      zIndex: 900,
+      pointerEvents: 'none',
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      gap: 4,
+      boxShadow: '0 0 24px rgba(255,170,0,0.6)',
+    }}>
+      <span style={{ fontSize: 13, color: '#ffcc00', fontFamily: 'monospace', fontWeight: 'bold', letterSpacing: 2 }}>
+        &#127942; BOSS SLAIN
+      </span>
+      <span style={{ fontSize: 11, color: '#ffdd88', fontFamily: 'monospace' }}>
+        {detail.killerName} has slain the {detail.name}!
+      </span>
+    </div>
+  )
+}
+
+// ── M34 Track B: Boss HP bar (shown when within 200m of boss) ─────────────────
+
+/** Persistent top-screen HP bar visible while the boss is alive. */
+export function BossHPBar() {
+  const [bossData, setBossData] = useState<{ hp: number; maxHp: number; visible: boolean } | null>(null)
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const d = (e as CustomEvent<{ hp: number; maxHp: number; visible: boolean }>).detail
+      // Show bar whenever boss is alive (maxHp > 0 and hp > 0)
+      if (d.maxHp > 0 && d.hp > 0) {
+        setBossData(d)
+      } else {
+        setBossData(null)
+      }
+    }
+    window.addEventListener('__bossOverlayUpdate', handler)
+    return () => window.removeEventListener('__bossOverlayUpdate', handler)
+  }, [])
+
+  if (!bossData) return null
+  const hpPct = Math.max(0, Math.min(1, bossData.hp / bossData.maxHp))
+
+  return (
+    <div style={{
+      position: 'fixed',
+      top: 12,
+      left: '50%',
+      transform: 'translateX(-50%)',
+      background: 'rgba(0,0,0,0.8)',
+      border: '1px solid #cc0000',
+      borderRadius: 6,
+      padding: '5px 16px',
+      zIndex: 850,
+      pointerEvents: 'none',
+      minWidth: 220,
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      gap: 3,
+    }}>
+      <span style={{ fontSize: 10, color: '#ff4444', fontFamily: 'monospace', letterSpacing: 1 }}>
+        &#128308; Ancient Dire Wolf &mdash; {Math.round(bossData.hp)}/{bossData.maxHp} HP
+      </span>
+      <div style={{ width: '100%', height: 6, background: 'rgba(255,255,255,0.15)', borderRadius: 3, overflow: 'hidden' }}>
+        <div style={{
+          width: `${hpPct * 100}%`,
+          height: '100%',
+          background: '#cc0000',
+          borderRadius: 3,
+          transition: 'width 0.25s ease',
+        }} />
+      </div>
+    </div>
+  )
+}
+
+// ── M34 Track A: Home indicator (top-left, above vitals) ──────────────────────
+function HomeIndicatorWidget() {
+  const homeSet      = usePlayerStore(s => s.homeSet)
+  const homePosition = usePlayerStore(s => s.homePosition)
+  const { x: px, y: py, z: pz } = usePlayerStore(s => s)
+  const togglePanel  = useUiStore(s => s.togglePanel)
+
+  if (!homeSet || !homePosition) return null
+
+  const [hx, hy, hz] = homePosition
+  const dx = hx - px, dy = hy - py, dz = hz - pz
+  const dist = Math.sqrt(dx * dx + dy * dy + dz * dz)
+  const nearby = dist < 15
+
+  // Compute compass bearing angle (atan2 in the XZ plane)
+  const angle = Math.atan2(dz, dx) * (180 / Math.PI)
+
+  return (
+    <div
+      onClick={() => togglePanel('home')}
+      title={`Home Base — ${dist < 1 ? 'here' : `${dist.toFixed(0)}m`} — click to open`}
+      style={{
+        position: 'fixed',
+        top: 14,
+        left: 186,
+        display: 'flex',
+        alignItems: 'center',
+        gap: 5,
+        background: 'rgba(0,0,0,0.55)',
+        border: `1px solid ${nearby ? 'rgba(123,75,42,0.6)' : 'rgba(255,255,255,0.06)'}`,
+        borderRadius: 3,
+        padding: '3px 7px',
+        cursor: 'pointer',
+        zIndex: 110,
+        pointerEvents: 'auto',
+        fontFamily: 'monospace',
+        fontSize: 9,
+        color: nearby ? '#e8c97a' : '#888',
+        letterSpacing: 1,
+        transition: 'border-color 0.3s, color 0.3s',
+      }}
+    >
+      <span style={{ fontSize: 11 }}>{'\uD83C\uDFE0'}</span>
+      {nearby ? (
+        <span>HOME</span>
+      ) : (
+        <>
+          <span>{dist.toFixed(0)}m</span>
+          {/* Directional arrow */}
+          <span style={{
+            display: 'inline-block',
+            transform: `rotate(${angle}deg)`,
+            fontSize: 10,
+            lineHeight: 1,
+          }}>&#10148;</span>
+        </>
+      )}
+    </div>
+  )
 }
 
 function QuestTrackerWidget() {
@@ -1672,6 +1899,14 @@ export function HUD() {
 
       {/* ── M33 Track A: Quest tracker widget (bottom-right) ── */}
       <QuestTrackerWidget />
+
+      {/* ── M34 Track A: Home indicator ── */}
+      <HomeIndicatorWidget />
+
+      {/* ── M34 Track B: World boss alerts ── */}
+      <BossSpawnAlert />
+      <BossKillAnnouncement />
+      <BossHPBar />
 
       {/* ── M32 Track C: Fast travel fade-to-black overlay ── */}
       <div style={{

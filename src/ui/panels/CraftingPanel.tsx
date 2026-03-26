@@ -4,7 +4,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { inventory, questSystem } from '../../game/GameSingletons'
 import { skillSystem } from '../../game/SkillSystem'
-import { CRAFTING_RECIPES, MAT, ITEM, rollCraftRarity, RARITY_NAMES, type CraftingRecipe, type RarityTier } from '../../player/Inventory'
+import { MAT, ITEM, rollCraftRarity, RARITY_NAMES, type CraftingRecipe, type RarityTier } from '../../player/Inventory'
+import { CRAFTING_RECIPES } from '../../player/CraftingRecipes'
 import { usePlayerStore } from '../../store/playerStore'
 import { useUiStore } from '../../store/uiStore'
 
@@ -99,7 +100,7 @@ export function CraftingPanel() {
     if (!selectedRecipe) return
     inventory.discoverRecipe(selectedRecipe.id)
     const prevItems = inventory.listItems().map(e => e.index)
-    const ok = inventory.craft(selectedRecipe.id, civTier)
+    const ok = inventory.craft(selectedRecipe, civTier)
     if (ok) {
       // M23: Roll rarity for the crafted item based on recipe tier + crafting skill
       const craftLevel = skillSystem.getLevel('crafting')

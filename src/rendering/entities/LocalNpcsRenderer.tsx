@@ -25,6 +25,10 @@ import { NPC_SKIN_TONES, NPC_SHIRT_COLS, NPC_PANTS_COLS } from './HumanoidFigure
 const LOCAL_NPC_COUNT = 12
 const NPC_WANDER_SPEED = 1.8  // m/s
 
+// ── Distance culling thresholds ──────────────────────────────────────────────
+const NPC_CULL_DIST   = 150  // beyond 150 m: skip rendering entirely
+const NPC_AI_CULL_DIST = 100 // beyond 100 m: skip AI/pathfinding ticks
+
 // ── P2-3: NPC Utility AI ──────────────────────────────────────────────────────
 //
 // Actions:
@@ -144,14 +148,26 @@ function LocalNpcMesh({ npc, isMerchant }: { npc: LocalNpcState; isMerchant?: bo
     const pos = npc.pos
     const up = pos.clone().normalize()
 
-    // Update biological needs every frame
-    npc.hunger  = Math.min(1, npc.hunger  + 0.004 * dt)
-    npc.fatigue = Math.min(1, npc.fatigue + (npc.aiState === 'WANDER' || npc.aiState === 'GATHER' ? 0.003 : -0.008) * dt)
-
-    // Trust dynamics
+    // Distance culling — check player position first
     const ps = usePlayerStore.getState()
     const pdx = ps.x - pos.x, pdy = ps.y - pos.y, pdz = ps.z - pos.z
     const distToPlayer = Math.sqrt(pdx * pdx + pdy * pdy + pdz * pdz)
+
+    // Beyond 150 m: hide NPC entirely, skip all work
+    if (distToPlayer > NPC_CULL_DIST) {
+      root.visible = false
+      return
+    }
+    root.visible = true
+
+    // Beyond 100 m: skip AI/pathfinding ticks, just keep position
+    if (distToPlayer > NPC_AI_CULL_DIST) {
+      return
+    }
+
+    // Update biological needs every frame
+    npc.hunger  = Math.min(1, npc.hunger  + 0.004 * dt)
+    npc.fatigue = Math.min(1, npc.fatigue + (npc.aiState === 'WANDER' || npc.aiState === 'GATHER' ? 0.003 : -0.008) * dt)
     if (distToPlayer < 10) {
       npc.trust = Math.min(1, npc.trust + 0.001 * dt)
     }

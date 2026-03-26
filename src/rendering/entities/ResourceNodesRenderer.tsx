@@ -9,9 +9,10 @@
  */
 
 import * as THREE from 'three'
-import { useRef, useMemo, useEffect } from 'react'
+import { useRef, useMemo, useEffect, type MutableRefObject } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { useMultiplayerStore } from '../../store/multiplayerStore'
+import { usePlayerStore } from '../../store/playerStore'
 import {
   RESOURCE_NODES,
   RESOURCE_NODE_QUATS,
@@ -20,6 +21,11 @@ import {
   getNodeMaxHits,
 } from '../../world/ResourceNodeManager'
 import { DIG_HOLES } from '../../game/GameLoop'
+
+// ── LOD distance thresholds ──────────────────────────────────────────────────
+const LOD_FULL_DIST   = 40   // 0–40 m: full quality
+const LOD_LOW_DIST    = 80   // 40–80 m: low-poly
+// beyond 80 m: culled (not rendered)
 
 // ── Deterministic per-node visual variation ──────────────────────────────────
 function nodeRand(id: number, offset: number): number {
@@ -201,6 +207,45 @@ function makeBarkMaterial(color: string): THREE.MeshStandardMaterial {
   return mat
 }
 
+// ── Low-poly fallback meshes (LOD level 1, 40–80 m) ──────────────────────────
+// Shared materials for low-poly LOD — created once, never disposed.
+const _lodTreeConeMat  = new THREE.MeshStandardMaterial({ color: '#1e5c1e', roughness: 1 })
+const _lodTreeTrunkMat = new THREE.MeshStandardMaterial({ color: '#5c3a1e', roughness: 1 })
+const _lodRockMat: Record<string, THREE.MeshStandardMaterial> = {}
+function getLodRockMat(color: string): THREE.MeshStandardMaterial {
+  if (!_lodRockMat[color]) {
+    _lodRockMat[color] = new THREE.MeshStandardMaterial({ color, roughness: 1 })
+  }
+  return _lodRockMat[color]
+}
+
+function TreeMeshLow({ id }: { id: number }) {
+  const scale  = 0.8 + nodeRand(id, 0) * 0.7
+  const trunkH = 3.5 * scale
+  return (
+    <group>
+      <mesh position={[0, trunkH * 0.5, 0]} material={_lodTreeTrunkMat}>
+        <cylinderGeometry args={[0.12 * scale, 0.28 * scale, trunkH, 5]} />
+      </mesh>
+      <mesh position={[0, trunkH * 1.1, 0]} material={_lodTreeConeMat}>
+        <coneGeometry args={[1.8 * scale, 3.0 * scale, 5]} />
+      </mesh>
+    </group>
+  )
+}
+
+function RockMeshLow({ id, color }: { id: number; color: string }) {
+  const scale = 0.8 + nodeRand(id, 3) * 1.0
+  const rot   = nodeRand(id, 4) * Math.PI * 2
+  return (
+    <group position={[0, 0.4 * scale, 0]} rotation={[0, rot, 0]} scale={[scale, scale * 0.7, scale]}>
+      <mesh material={getLodRockMat(color)}>
+        <boxGeometry args={[0.8, 0.8, 0.8]} />
+      </mesh>
+    </group>
+  )
+}
+
 function TreeMesh({ id }: { id: number }) {
   const scale    = 0.8 + nodeRand(id, 0) * 0.7
   const trunkH   = 3.5 * scale
@@ -358,17 +403,47 @@ export function NodeHealthBars() {
   return <group ref={groupRef} />
 }
 
+// ── LOD level: 0 = full quality, 1 = low-poly, 2 = culled ───────────────────
+type LodLevel = 0 | 1 | 2
+
+function computeLod(
+  nx: number, ny: number, nz: number,
+  px: number, py: number, pz: number,
+): LodLevel {
+  const dx = nx - px, dy = ny - py, dz = nz - pz
+  const dist2 = dx * dx + dy * dy + dz * dz
+  if (dist2 > LOD_LOW_DIST  * LOD_LOW_DIST)  return 2
+  if (dist2 > LOD_FULL_DIST * LOD_FULL_DIST) return 1
+  return 0
+}
+
 export function ResourceNodes() {
   const groupRefs = useRef<(THREE.Group | null)[]>([])
+  // LOD levels updated every 2 s, not every frame
+  const lodLevels  = useRef<LodLevel[]>(RESOURCE_NODES.map(() => 0))
+  const lodTimer   = useRef(0)
 
-  useFrame(() => {
+  useFrame((_, delta) => {
     const serverDepleted = useMultiplayerStore.getState().depletedNodes
+
+    // Recompute LOD every 2 seconds
+    lodTimer.current += delta
+    if (lodTimer.current >= 2.0) {
+      lodTimer.current = 0
+      const ps = usePlayerStore.getState()
+      for (let i = 0; i < RESOURCE_NODES.length; i++) {
+        const node = RESOURCE_NODES[i]
+        lodLevels.current[i] = computeLod(node.x, node.y, node.z, ps.x, ps.y, ps.z)
+      }
+    }
+
     for (let i = 0; i < RESOURCE_NODES.length; i++) {
       const g = groupRefs.current[i]
-      if (g) {
-        const id = RESOURCE_NODES[i].id
-        g.visible = !gatheredNodeIds.has(id) && !serverDepleted.has(id)
-      }
+      if (!g) continue
+      const id = RESOURCE_NODES[i].id
+      const depleted = gatheredNodeIds.has(id) || serverDepleted.has(id)
+      // Cull: hidden if depleted OR beyond 80 m
+      g.visible = !depleted && lodLevels.current[i] < 2
     }
   })
 
@@ -376,22 +451,65 @@ export function ResourceNodes() {
     <>
       {RESOURCE_NODES.map((node, i) => {
         return (
-          <group
+          <ResourceNodeLod
             key={node.id}
-            ref={el => { groupRefs.current[i] = el }}
-            position={[node.x, node.y, node.z]}
-            quaternion={RESOURCE_NODE_QUATS[i]}
-          >
-            {node.type === 'wood'
-              ? <TreeMesh id={node.id} />
-              : node.type === 'bark'
-                ? <BarkMesh id={node.id} />
-                : <RockMesh id={node.id} color={node.color} />
-            }
-          </group>
+            node={node}
+            index={i}
+            groupRefs={groupRefs}
+            lodLevels={lodLevels}
+          />
         )
       })}
     </>
+  )
+}
+
+/** Thin wrapper so each node can read its own LOD level and pick the right mesh. */
+function ResourceNodeLod({
+  node, index, groupRefs, lodLevels,
+}: {
+  node: (typeof RESOURCE_NODES)[number]
+  index: number
+  groupRefs: MutableRefObject<(THREE.Group | null)[]>
+  lodLevels: MutableRefObject<LodLevel[]>
+}) {
+  // We render both LOD meshes but only show the relevant one via group visibility.
+  // The useFrame in ResourceNodes sets g.visible on the outer group (culling);
+  // here we swap inner children by toggling inner group visibility every 2 s.
+  const innerFullRef = useRef<THREE.Group>(null)
+  const innerLowRef  = useRef<THREE.Group>(null)
+
+  useFrame(() => {
+    const lod = lodLevels.current[index]
+    if (innerFullRef.current) innerFullRef.current.visible = lod === 0
+    if (innerLowRef.current)  innerLowRef.current.visible  = lod === 1
+  })
+
+  return (
+    <group
+      ref={el => { groupRefs.current[index] = el }}
+      position={[node.x, node.y, node.z]}
+      quaternion={RESOURCE_NODE_QUATS[index]}
+    >
+      {/* Full-quality mesh */}
+      <group ref={innerFullRef}>
+        {node.type === 'wood'
+          ? <TreeMesh id={node.id} />
+          : node.type === 'bark'
+            ? <BarkMesh id={node.id} />
+            : <RockMesh id={node.id} color={node.color} />
+        }
+      </group>
+      {/* Low-poly LOD mesh (40–80 m) */}
+      <group ref={innerLowRef}>
+        {node.type === 'wood'
+          ? <TreeMeshLow id={node.id} />
+          : node.type === 'bark'
+            ? null
+            : <RockMeshLow id={node.id} color={node.color} />
+        }
+      </group>
+    </group>
   )
 }
 

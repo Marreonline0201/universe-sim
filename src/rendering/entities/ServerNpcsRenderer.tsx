@@ -10,7 +10,10 @@ import { useFrame } from '@react-three/fiber'
 import { useMultiplayerStore } from '../../store/multiplayerStore'
 import type { RemoteNpc } from '../../store/multiplayerStore'
 import { surfaceRadiusAt } from '../../world/SpherePlanet'
+import { usePlayerStore } from '../../store/playerStore'
 import { NPC_SKIN_TONES, NPC_SHIRT_COLS, NPC_PANTS_COLS } from './HumanoidFigure'
+
+const SERVER_NPC_CULL_DIST = 150  // beyond 150 m: skip rendering
 
 function AnimatedNpcMesh({ npc, skinColor, shirtColor, pantsColor }: {
   npc: RemoteNpc; skinColor: string; shirtColor: string; pantsColor: string
@@ -26,6 +29,15 @@ function AnimatedNpcMesh({ npc, skinColor, shirtColor, pantsColor }: {
   useFrame((_, delta) => {
     const root = groupRef.current
     if (!root) return
+
+    // Distance culling: skip beyond 150 m
+    const ps = usePlayerStore.getState()
+    const cdx = npc.x - ps.x, cdy = npc.y - ps.y, cdz = npc.z - ps.z
+    if (cdx * cdx + cdy * cdy + cdz * cdz > SERVER_NPC_CULL_DIST * SERVER_NPC_CULL_DIST) {
+      root.visible = false
+      return
+    }
+    root.visible = true
 
     // Snap to terrain surface using sphere-aware surfaceRadiusAt.
     const sr = surfaceRadiusAt(npc.x, npc.y, npc.z)

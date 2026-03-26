@@ -3130,3 +3130,86 @@ This table shows the complete milestone history of the game in one place. Each m
 | M15: Multiverse Map | Universe Map on companion site — SVG starfield showing all registered universes with tech level and discovery stats | Done |
 
 The game is a functioning multiplayer survival simulation spanning from stone-age survival to interplanetary travel and first contact with an alien civilization. Players can now decode an alien language, activate an inter-universal portal, and view the growing multiverse on the companion science site. The core loop — gather, craft, survive, trade, advance, explore — works end-to-end at every scale from stone tools to orbital capsules.
+| M16–M38: Ongoing Development | Multiple sprints covering expanded gameplay, faction systems, world events, dungeons, alchemy, and more | Done |
+
+---
+
+## Sprint M39–M40 Progress Log (2026-03-26)
+
+This section tracks what the team fixed and built during the M39 and M40 sprints. Think of a "sprint" like a focused two-week work session where everyone tackles a specific set of goals.
+
+---
+
+### Bugs Fixed (reported after M38 playtesting)
+
+Before starting new features, the team took time to fix five bugs that playtesters found. Here is what each bug was and how it was fixed, in plain terms:
+
+**1. Faction ability fired through open menus**
+- What went wrong: Players could accidentally trigger a powerful faction ability even when a menu was open on screen. Menus are supposed to pause that kind of action.
+- What was fixed: Added a check in the game's main loop — if any menu is open, the game now ignores the faction ability button entirely.
+
+**2. World event gold granted twice**
+- What went wrong: When a world event finished, players were receiving double the gold reward — like getting paid twice for the same job.
+- What was fixed: Removed the duplicate payout. The gold is now only handed out once, in the correct place.
+
+**3. Explore quests never completing**
+- What went wrong: Quests that asked players to explore parts of the map were never marking themselves as finished, even after the player had done everything required.
+- What was fixed: The code was looking up the player's active quests the wrong way — like calling someone by the wrong name. The correct method name was restored and quests now complete as expected.
+
+**4. Item tooltip crash on certain materials**
+- What went wrong: Hovering over some items caused the game to crash because the tooltip was trying to display an icon for a material that didn't exist under the name it was using.
+- What was fixed: Replaced the incorrect material names with the correct ones. The tooltip now shows the right icons without crashing.
+
+**5. Empty Vial blocked by alchemy table requirement**
+- What went wrong: Players couldn't craft an Empty Vial unless they had an alchemy table, but Empty Vials are a basic item that should be craftable anywhere.
+- What was fixed: Removed the alchemy table requirement from that recipe. Empty Vials can now be crafted freely.
+
+---
+
+### M39 Completed Features
+
+Two big feature tracks were finished during M39:
+
+**Weather and Time of Day Visual Polish (Track A)**
+The game's world now looks much more alive at different times of day and in different weather conditions. This includes:
+- Fog that rolls in and fades out
+- Dynamic lighting that changes as the sun moves across the sky
+- A visible sun and moon that arc across the sky
+- Smooth transitions between day and night
+
+**Civilization Progression System (Track C)**
+Settlements in the game can now grow and evolve over time, just like real civilizations. Specifically:
+- Settlements have 6 growth tiers (0 through 5) — from tiny camp to thriving city
+- Civilizations advance through historical ages: Stone Age, Bronze Age, Iron Age, and beyond
+- Population grows naturally over time
+- As settlements grow, they gain visible features like defensive walls, fountains, and palaces
+- When a civilization advances to a new age, a banner announcement appears on the player's screen
+
+---
+
+### M40 Sprint — Currently Running (3 Parallel Work Tracks)
+
+Three separate workers are building new features at the same time right now. Think of it like three construction crews working on different parts of the same building simultaneously.
+
+**Track A — Enhanced Inventory UI (ui-worker)**
+The item bag/inventory screen is getting a big upgrade:
+- A sort button to organize items automatically
+- Filter tabs so you can view only Tools, Food, Materials, or Miscellaneous items
+- A "quick-stack" button that automatically moves items to a nearby chest
+- Small number badges on item icons showing how many of each item you have
+
+**Track B — Magic Spell System (physics-prof)**
+Magic is coming to the game:
+- A mana bar (mana is like a fuel tank for spells — it runs out as you cast, then refills over time)
+- 6 spells: Fireball, Ice, Lightning, Heal, Wind, and Shield
+- A spell hotbar displayed on screen so you can see your available spells
+- Keyboard shortcuts — press keys 1 through 4 to quickly switch between spells
+
+**Track C — Dungeon Progression (ai-npc)**
+Dungeons are getting more dangerous and rewarding:
+- Mini-boss rooms with tougher enemies guarding better loot
+- Spike trap rooms that require careful movement to survive
+- Improved loot tables — what items you find in dungeons is now more varied and interesting
+- A boss health bar that appears on screen when you are fighting a dungeon boss
+
+---

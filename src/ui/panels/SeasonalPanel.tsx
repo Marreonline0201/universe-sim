@@ -44,9 +44,12 @@ export function SeasonalPanel() {
   const [, refresh]  = useState(0)
 
   // Re-render every second so time-remaining countdown updates
+  // Also listen for seasonal-change to refresh bonus immediately on season transition
   useEffect(() => {
     const id = setInterval(() => refresh(n => n + 1), 1_000)
-    return () => clearInterval(id)
+    const handler = () => refresh(n => n + 1)
+    window.addEventListener('seasonal-change', handler)
+    return () => { clearInterval(id); window.removeEventListener('seasonal-change', handler) }
   }, [])
 
   const bonus        = getCurrentSeasonalBonus()

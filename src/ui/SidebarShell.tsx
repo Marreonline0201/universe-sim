@@ -172,7 +172,7 @@ const ICON_BUTTONS: Array<{ id: PanelId; icon: string; hint: string }> = [
   { id: 'relationships', icon: '🤝',  hint: 'Relations (R)' },
   { id: 'factionwars',   icon: '⚔️',  hint: 'Faction Wars (W)' },
   { id: 'seasonal',      icon: '🍃',   hint: 'Seasons (S)' },
-  { id: 'bountboard',    icon: '📋',   hint: 'Bounties' },
+  { id: 'bountboard',    icon: '📋',   hint: 'Bounties (5)' },
   { id: 'discoveries',   icon: '🗺',   hint: 'Discoveries (D)' },
   { id: 'merchantguild', icon: '🏪',   hint: 'Guild (E)' },
   { id: 'npcschedule',   icon: '📅',   hint: 'NPC Schedules' },
@@ -290,6 +290,8 @@ export function SidebarShell() {
         case '?': case '/':
           if (!document.pointerLockElement) { e.preventDefault(); togglePanel('science') }
           break
+        case '5':
+          e.preventDefault(); togglePanel('bountboard'); break
         case '1': case '2': case '3': case '4':
           if (!document.pointerLockElement) break  // only when in-game (pointer locked)
           if (activePanel !== null) break

@@ -204,6 +204,8 @@ import { tickFactionWars } from './FactionWarSystem'
 import { onSeasonChange, tickSeasonalEvents, normaliseSeasonName } from './SeasonalEventSystem'
 // M53 Track C: Combo system
 import { onHit, tickCombo, getDamageMultiplier } from './ComboSystem'
+// M54 Track A: Merchant guild periodic refresh
+import { refreshContracts } from './MerchantGuildSystem'
 // M54 Track B: Bounty board
 import { onKill as bountyOnKill, tickBountyBoard } from './BountyBoardSystem'
 // M54 Track C: Exploration discovery system
@@ -330,6 +332,8 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
   const warTimerRef = useRef(0)
   // M53 Track A: Last known season for seasonal-event change detection
   const lastSeasonRef = useRef<string | null>(null)
+  // M54 Track A: Merchant guild contract refresh timer — fires every 60s
+  const guildTimerRef = useRef(0)
   // M54 Track B: Bounty board tick timer — fires every 60s
   const bountyTimerRef = useRef(0)
   // M54 Track C: Exploration discovery check timer — fires every 2s
@@ -3129,6 +3133,13 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
     if (offlineSaveTimerRef.current >= 60) {
       offlineSaveTimerRef.current = 0
       saveOffline().catch(() => {})
+    }
+
+    // ── M54 Track A: Merchant guild contract refresh every 60s ───────────────
+    guildTimerRef.current += dt
+    if (guildTimerRef.current >= 60) {
+      guildTimerRef.current = 0
+      refreshContracts(useGameStore.getState().simSeconds)
     }
 
     // ── M54 Track B: Bounty board tick every 60s ─────────────────────────────

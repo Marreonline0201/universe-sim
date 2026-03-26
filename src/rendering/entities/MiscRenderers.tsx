@@ -15,7 +15,9 @@ import {
   gatheredLootIds,
   placedBedrollAnchor,
 } from '../../game/DeathSystem'
+import { useWeatherStore } from '../../store/weatherStore'
 import { WeatherRenderer } from '../WeatherRenderer'
+import { TornadoRenderer } from '../TornadoRenderer'
 import { TransitOverlay } from '../../ui/TransitOverlay'
 import { DestinationPlanetMesh } from '../DestinationPlanet'
 import { VelarPlanetMesh } from '../VelarPlanetTerrain'
@@ -108,6 +110,39 @@ export function WeatherRendererWrapper() {
   return <WeatherRenderer playerX={pos.x} playerY={pos.y} playerZ={pos.z} />
 }
 
+export function TornadoRendererWrapper() {
+  const entityId   = usePlayerStore(s => s.entityId)
+  const tornadoPos = useWeatherStore(s => s.tornadoPos)
+  const posRef     = useRef({ x: 0, y: 0, z: 0 })
+  const [pos, setPos] = useState({ x: 0, y: 4003, z: 0 })
+
+  useFrame(() => {
+    if (entityId === null) return
+    const nx = Position.x[entityId]
+    const ny = Position.y[entityId]
+    const nz = Position.z[entityId]
+    if (
+      Math.abs(nx - posRef.current.x) > 2 ||
+      Math.abs(ny - posRef.current.y) > 2 ||
+      Math.abs(nz - posRef.current.z) > 2
+    ) {
+      posRef.current = { x: nx, y: ny, z: nz }
+      setPos({ x: nx, y: ny, z: nz })
+    }
+  })
+
+  if (!tornadoPos || entityId === null) return null
+
+  return (
+    <TornadoRenderer
+      playerX={pos.x}
+      playerY={pos.y}
+      playerZ={pos.z}
+      entityId={entityId}
+    />
+  )
+}
+
 export function TransitOverlayWrapper() {
   const phase = useTransitStore(s => s.phase)
   const { arriveAtDestination } = useTransitStore()
@@ -125,4 +160,87 @@ export function DestinationPlanetSelector() {
   const toPlanet = useTransitStore(s => s.toPlanet)
   if (toPlanet === 'Velar') return <VelarPlanetMesh />
   return <DestinationPlanetMesh />
+}
+
+// ── M35 Track B: Lava Pool Renderer ──────────────────────────────────────────
+// Renders emissive orange circles at seeded lava pool positions near volcano summit.
+// Matches the pool positions checked in GameLoop for damage.
+
+const LAVA_POOL_DEFS = [
+  { ox: 20, oz: 15, r: 3 },
+  { ox: -18, oz: 22, r: 2.5 },
+  { ox: 5, oz: -25, r: 3.5 },
+  { ox: -10, oz: 10, r: 2 },
+  { ox: 30, oz: -5, r: 3 },
+  { ox: -5, oz: 30, r: 2.8 },
+]
+
+export function LavaPoolRenderer() {
+  const entityId = usePlayerStore(s => s.entityId)
+  const [visible, setVisible] = useState(false)
+  const pxRef = useRef(0), pyRef = useRef(0), pzRef = useRef(0)
+  const pulseRef = useRef(0)
+  const meshRefs = useRef<(THREE.Mesh | null)[]>([])
+
+  useFrame((_, delta) => {
+    if (entityId === null) return
+    const px = Position.x[entityId]
+    const py = Position.y[entityId]
+    const pz = Position.z[entityId]
+    pxRef.current = px; pyRef.current = py; pzRef.current = pz
+    // Only show lava pools when player is high up (volcano area heuristic)
+    const height = Math.sqrt(px * px + py * py + pz * pz) - 4000
+    setVisible(height > 80)
+    // Pulse emissive intensity
+    pulseRef.current += delta * 2
+    const intensity = 0.8 + Math.sin(pulseRef.current) * 0.4
+    for (const mesh of meshRefs.current) {
+      if (!mesh) continue
+      const mat = mesh.material as THREE.MeshStandardMaterial
+      mat.emissiveIntensity = intensity
+    }
+  })
+
+  if (!visible) return null
+
+  return (
+    <>
+      {LAVA_POOL_DEFS.map((pool, i) => (
+        <group key={i} position={[pool.ox, pzRef.current < 0.001 ? 4000 : pyRef.current - 0.2, pool.oz]}>
+          {/* Main lava disc */}
+          <mesh
+            ref={el => { meshRefs.current[i] = el }}
+            rotation={[-Math.PI / 2, 0, 0]}
+          >
+            <circleGeometry args={[pool.r, 24]} />
+            <meshStandardMaterial
+              color={0xff4400}
+              emissive={0xff2200}
+              emissiveIntensity={1.0}
+              roughness={0.4}
+              metalness={0.1}
+            />
+          </mesh>
+          {/* Glow halo */}
+          <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.01, 0]}>
+            <ringGeometry args={[pool.r, pool.r + 1.5, 24]} />
+            <meshBasicMaterial
+              color={0xff6600}
+              transparent
+              opacity={0.5}
+              depthWrite={false}
+              side={THREE.DoubleSide}
+            />
+          </mesh>
+          {/* Lava light source */}
+          <pointLight
+            color={0xff4400}
+            intensity={3}
+            distance={pool.r * 4}
+            decay={2}
+          />
+        </group>
+      ))}
+    </>
+  )
 }

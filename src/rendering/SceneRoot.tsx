@@ -50,7 +50,7 @@ import { LocalNpcsRenderer } from './entities/LocalNpcsRenderer'
 import { PlayerMesh, EquippedItemMesh } from './entities/PlayerRenderer'
 import { ResourceNodes, NodeHealthBars, DigHolesRenderer } from './entities/ResourceNodesRenderer'
 import { BuildingGhost, PlacedBuildingsRenderer } from './entities/BuildingsRenderer'
-import { DeathLootDropsRenderer, BedrollMeshRenderer, WeatherRendererWrapper, TransitOverlayWrapper, DestinationPlanetMeshWrapper, DestinationPlanetSelector } from './entities/MiscRenderers'
+import { DeathLootDropsRenderer, BedrollMeshRenderer, WeatherRendererWrapper, TornadoRendererWrapper, LavaPoolRenderer, TransitOverlayWrapper, DestinationPlanetMeshWrapper, DestinationPlanetSelector } from './entities/MiscRenderers'
 import {
   spawnInitialAnimals,
 } from '../ecs/systems/AnimalAISystem'
@@ -565,6 +565,10 @@ export function SceneRoot() {
             <VelarGatewayRenderer />
             {/* M8: Weather particle system — follows player position */}
             <WeatherRendererWrapper />
+            {/* M35 Track B: Tornado renderer — spawned during STORM weather */}
+            <TornadoRendererWrapper />
+            {/* M35 Track B: Lava pools — emissive circles near volcano summit */}
+            <LavaPoolRenderer />
             {/* M9: River ribbon meshes — generated from flow-field paths */}
             <RiverRenderer key={serverWorldSeed} seed={serverWorldSeed} />
             {/* M9: Animal renderer — instanced deer/wolf/boar meshes */}

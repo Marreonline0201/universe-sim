@@ -5,7 +5,7 @@
 
 import { create } from 'zustand'
 
-export type WeatherState = 'CLEAR' | 'CLOUDY' | 'RAIN' | 'STORM'
+export type WeatherState = 'CLEAR' | 'CLOUDY' | 'RAIN' | 'STORM' | 'BLIZZARD' | 'TORNADO_WARNING' | 'VOLCANIC_ASH'
 
 export interface SectorWeather {
   sectorId:    number
@@ -37,6 +37,20 @@ interface WeatherStoreState {
   // Ramps up during rain, ramps down after rain stops
   wetness: number
   setWetness: (v: number) => void
+
+  // M35 Track B: Disaster states
+  /** Active tornado position, null if no tornado */
+  tornadoPos: { x: number; y: number; z: number } | null
+  setTornadoPos: (pos: { x: number; y: number; z: number } | null) => void
+
+  /** Whether an earthquake shake is active */
+  earthquakeActive: boolean
+  earthquakeIntensity: number  // 0–1
+  setEarthquake: (active: boolean, intensity?: number) => void
+
+  /** Whether volcanic ash cloud is active */
+  volcanicAshActive: boolean
+  setVolcanicAshActive: (v: boolean) => void
 }
 
 const DEFAULT_SECTOR: SectorWeather = {
@@ -75,4 +89,15 @@ export const useWeatherStore = create<WeatherStoreState>((set, get) => ({
 
   wetness: 0,
   setWetness: (v) => set({ wetness: v }),
+
+  // M35 Track B: Disaster states
+  tornadoPos: null,
+  setTornadoPos: (pos) => set({ tornadoPos: pos }),
+
+  earthquakeActive: false,
+  earthquakeIntensity: 0,
+  setEarthquake: (active, intensity = 0) => set({ earthquakeActive: active, earthquakeIntensity: intensity }),
+
+  volcanicAshActive: false,
+  setVolcanicAshActive: (v) => set({ volcanicAshActive: v }),
 }))

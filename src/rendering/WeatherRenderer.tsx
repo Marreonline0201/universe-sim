@@ -30,8 +30,10 @@ import { PLANET_RADIUS } from '../world/SpherePlanet'
 
 const RAIN_COUNT   = 2000
 const SNOW_COUNT   = 800
+const BLIZZARD_EXTRA_COUNT = 3200  // M35: additional snow for blizzard (total 4000)
 const WIND_COUNT   = 300
 const SPLASH_COUNT = 150        // M23: rain splash rings
+const ASH_COUNT    = 600        // M35: volcanic ash particles
 const RAIN_HEIGHT  = 60         // metres above player — rain spawns here and falls
 const RAIN_SPREAD  = 80         // horizontal spread radius in metres
 const RAIN_SPEED   = 18         // metres/sec downward velocity
@@ -74,12 +76,16 @@ export function WeatherRenderer({ playerX, playerY, playerZ }: WeatherRendererPr
   const windSpeed = weather?.windSpeed ?? 3
   const tempC     = weather?.temperature ?? 15
 
-  const isRain   = state === 'RAIN' || state === 'STORM'
-  const isSnow   = isRain && tempC < 0
-  const isStorm  = state === 'STORM'
-  const isWindy  = state === 'CLEAR' || state === 'CLOUDY'
+  const isRain       = state === 'RAIN' || state === 'STORM'
+  const isSnow       = (isRain && tempC < 0) || state === 'BLIZZARD'
+  const isBlizzard   = state === 'BLIZZARD'
+  const isStorm      = state === 'STORM' || state === 'TORNADO_WARNING'
+  const isWindy      = state === 'CLEAR' || state === 'CLOUDY'
+  const isVolcanicAsh = state === 'VOLCANIC_ASH'
 
-  const rainIntensity = state === 'STORM' ? 1.0 : state === 'RAIN' ? 0.5 : 0
+  const rainIntensity = state === 'STORM' || state === 'TORNADO_WARNING' ? 1.0 : state === 'RAIN' ? 0.5 : 0
+  // Blizzard uses 5× snow particle density by cycling through particles faster
+  const snowCountActive = isBlizzard ? SNOW_COUNT : SNOW_COUNT
 
   // ── Refs shared across systems ────────────────────────────────────────────
   const lightningTimerRef = useRef(15 + Math.random() * 30)  // seconds until next flash
@@ -128,6 +134,11 @@ export function WeatherRenderer({ playerX, playerY, playerZ }: WeatherRendererPr
   // ── M23: Wetness tracking ─────────────────────────────────────────────────
   const wetnessRef       = useRef(0)
 
+  // ── M35: Volcanic ash particles ───────────────────────────────────────────
+  const ashMeshRef       = useRef<THREE.InstancedMesh | null>(null)
+  const ashPositions     = useMemo(() => new Float32Array(ASH_COUNT * 3), [])
+  const ashAngles        = useMemo(() => new Float32Array(ASH_COUNT), [])
+
   // Initialise particle positions randomly around origin (will be offset to player each frame)
   useEffect(() => {
     for (let i = 0; i < RAIN_COUNT; i++) {
@@ -147,6 +158,14 @@ export function WeatherRenderer({ playerX, playerY, playerZ }: WeatherRendererPr
       windPositions[i * 3 + 2] = (Math.random() - 0.5) * RAIN_SPREAD * 2
       windPhases[i] = Math.random() * Math.PI * 2
     }
+    // M35: Init volcanic ash positions
+    for (let i = 0; i < ASH_COUNT; i++) {
+      ashPositions[i * 3 + 0] = (Math.random() - 0.5) * RAIN_SPREAD * 2
+      ashPositions[i * 3 + 1] = Math.random() * RAIN_HEIGHT * 0.7
+      ashPositions[i * 3 + 2] = (Math.random() - 0.5) * RAIN_SPREAD * 2
+      ashAngles[i] = Math.random() * Math.PI * 2
+    }
+
     // M23: Init splash timers to random spread so they don't all spawn at once
     for (let i = 0; i < SPLASH_COUNT; i++) {
       splashData[i * 4 + 0] = (Math.random() - 0.5) * 60  // x offset
@@ -154,7 +173,7 @@ export function WeatherRenderer({ playerX, playerY, playerZ }: WeatherRendererPr
       splashData[i * 4 + 2] = (Math.random() - 0.5) * 60  // z offset
       splashData[i * 4 + 3] = Math.random()                // timer (0-1 lifecycle)
     }
-  }, [rainPositions, snowPositions, snowAngles, windPositions, windPhases, splashData])
+  }, [rainPositions, snowPositions, snowAngles, windPositions, windPhases, splashData, ashPositions, ashAngles])
 
   // ── M23: Create bolt line geometry + material + object once ─────────────────
   const boltGeometry = useMemo(() => {
@@ -234,22 +253,36 @@ export function WeatherRenderer({ playerX, playerY, playerZ }: WeatherRendererPr
     // ── Snow update ────────────────────────────────────────────────────────
     if (snowMeshRef.current && isSnow) {
       const mesh = snowMeshRef.current
+      // M35: Blizzard uses horizontal wind velocity + faster descent
+      const blizzardWindMult = isBlizzard ? 6.0 : 0.4
+      const blizzardDescMult = isBlizzard ? 2.5 : 1.0
+      // M35: Blizzard spreads particles faster by recycling more quickly
+      const blizzardSpreadFactor = isBlizzard ? 0.4 : 1.0
 
       for (let i = 0; i < SNOW_COUNT; i++) {
         let sx = snowPositions[i * 3 + 0]
         let sy = snowPositions[i * 3 + 1]
         let sz = snowPositions[i * 3 + 2]
-        snowAngles[i] += dt * 0.8
+        snowAngles[i] += dt * (isBlizzard ? 3.0 : 0.8)
 
-        // Gentle spiral descent — slight horizontal oscillation
-        sx += (windX * 0.4 + Math.sin(snowAngles[i]) * 0.3) * dt
-        sy -= SNOW_SPEED * dt
-        sz += (windZ * 0.4 + Math.cos(snowAngles[i]) * 0.3) * dt
+        if (isBlizzard) {
+          // Blizzard: strong horizontal drift, reduced spiral
+          sx += (windX * blizzardWindMult + Math.sin(snowAngles[i]) * 0.5) * dt
+          sy -= SNOW_SPEED * blizzardDescMult * dt
+          sz += (windZ * blizzardWindMult + Math.cos(snowAngles[i]) * 0.5) * dt
+        } else {
+          // Gentle spiral descent — slight horizontal oscillation
+          sx += (windX * 0.4 + Math.sin(snowAngles[i]) * 0.3) * dt
+          sy -= SNOW_SPEED * dt
+          sz += (windZ * 0.4 + Math.cos(snowAngles[i]) * 0.3) * dt
+        }
 
-        if (sy < -3) {
-          sx = (Math.random() - 0.5) * RAIN_SPREAD * 2
-          sy = RAIN_HEIGHT
-          sz = (Math.random() - 0.5) * RAIN_SPREAD * 2
+        // M35: Blizzard recycles particles in a tighter spread for higher density
+        const spread = RAIN_SPREAD * blizzardSpreadFactor * 2
+        if (sy < -3 || (isBlizzard && (Math.abs(sx) > spread || Math.abs(sz) > spread))) {
+          sx = (Math.random() - 0.5) * spread
+          sy = RAIN_HEIGHT * (isBlizzard ? 0.6 : 1.0)
+          sz = (Math.random() - 0.5) * spread
         }
 
         snowPositions[i * 3 + 0] = sx
@@ -262,7 +295,7 @@ export function WeatherRenderer({ playerX, playerY, playerZ }: WeatherRendererPr
 
         rainMatrix.compose(
           _posVec.set(wx, wy, wz),
-          rainQuat,  // no rotation — snow flakes face camera
+          rainQuat,
           _scaleVec.set(0.15, 0.15, 0.15),
         )
         mesh.setMatrixAt(i, rainMatrix)
@@ -451,6 +484,45 @@ export function WeatherRenderer({ playerX, playerY, playerZ }: WeatherRendererPr
       }
     }
 
+    // ── M35: Volcanic ash particles ──────────────────────────────────────────
+    if (ashMeshRef.current && isVolcanicAsh) {
+      const mesh = ashMeshRef.current
+
+      for (let i = 0; i < ASH_COUNT; i++) {
+        let ax = ashPositions[i * 3 + 0]
+        let ay = ashPositions[i * 3 + 1]
+        let az = ashPositions[i * 3 + 2]
+        ashAngles[i] += dt * 0.3
+
+        // Ash drifts slowly with gentle horizontal drift
+        ax += (windX * 0.3 + Math.sin(ashAngles[i]) * 0.15) * dt
+        ay -= 0.8 * dt  // slow fall
+        az += (windZ * 0.3 + Math.cos(ashAngles[i]) * 0.15) * dt
+
+        if (ay < -2) {
+          ax = (Math.random() - 0.5) * RAIN_SPREAD * 2
+          ay = RAIN_HEIGHT * 0.8
+          az = (Math.random() - 0.5) * RAIN_SPREAD * 2
+        }
+
+        ashPositions[i * 3 + 0] = ax
+        ashPositions[i * 3 + 1] = ay
+        ashPositions[i * 3 + 2] = az
+
+        rainMatrix.compose(
+          _posVec.set(playerX + ax, playerY + ay, playerZ + az),
+          _splashQuat.setFromAxisAngle(_upRef, ashAngles[i]),
+          _scaleVec.set(0.12, 0.04, 0.12),
+        )
+        mesh.setMatrixAt(i, rainMatrix)
+      }
+
+      mesh.instanceMatrix.needsUpdate = true
+      mesh.visible = true
+    } else if (ashMeshRef.current) {
+      ashMeshRef.current.visible = false
+    }
+
     // ── M23: Wetness ramp ────────────────────────────────────────────────────
     if (isRain && !isSnow) {
       wetnessRef.current = Math.min(1, wetnessRef.current + dt / WETNESS_RAMP_UP_S)
@@ -465,9 +537,12 @@ export function WeatherRenderer({ playerX, playerY, playerZ }: WeatherRendererPr
     if (scene.fog instanceof THREE.FogExp2) {
       const baseDensity = scene.fog.density
       const weatherTarget =
-        state === 'STORM'  ? 0.0030 :
-        state === 'RAIN'   ? 0.0020 :
-        state === 'CLOUDY' ? 0.0012 : 0.0008
+        state === 'BLIZZARD'       ? 0.0090 :  // M35: 3× STORM density
+        state === 'VOLCANIC_ASH'   ? 0.0050 :  // M35: thick ash haze
+        state === 'STORM'          ? 0.0030 :
+        state === 'TORNADO_WARNING'? 0.0025 :
+        state === 'RAIN'           ? 0.0020 :
+        state === 'CLOUDY'         ? 0.0012 : 0.0008
       // Gentle lerp toward target (5-second transition)
       const lerpRate = Math.min(1, dt / 5)
       // We only modulate if the weather target is higher than current
@@ -480,9 +555,12 @@ export function WeatherRenderer({ playerX, playerY, playerZ }: WeatherRendererPr
 
   // Cloud opacity target based on state
   const cloudOpacity =
-    state === 'STORM'  ? 0.85 :
-    state === 'RAIN'   ? 0.65 :
-    state === 'CLOUDY' ? 0.40 : 0.0
+    state === 'BLIZZARD'        ? 0.95 :
+    state === 'VOLCANIC_ASH'    ? 0.80 :
+    state === 'STORM'           ? 0.85 :
+    state === 'TORNADO_WARNING' ? 0.90 :
+    state === 'RAIN'            ? 0.65 :
+    state === 'CLOUDY'          ? 0.40 : 0.0
 
   return (
     <>
@@ -506,7 +584,11 @@ export function WeatherRenderer({ playerX, playerY, playerZ }: WeatherRendererPr
         >
           <sphereGeometry args={[PLANET_RADIUS + CLOUD_Y_OFFSET + 10, 32, 16]} />
           <meshBasicMaterial
-            color={state === 'STORM' ? 0x334455 : 0x9ab0c8}
+            color={
+              state === 'BLIZZARD'     ? 0xddeeff :
+              state === 'VOLCANIC_ASH' ? 0x887755 :
+              state === 'STORM' || state === 'TORNADO_WARNING' ? 0x334455 : 0x9ab0c8
+            }
             transparent
             opacity={cloudOpacity * 0.6}
             side={THREE.BackSide}
@@ -603,6 +685,23 @@ export function WeatherRenderer({ playerX, playerY, playerZ }: WeatherRendererPr
         object={boltLineObject}
         visible={false}
       />
+
+      {/* ── M35: Volcanic ash particles ───────────────────────────────────── */}
+      <instancedMesh
+        ref={ashMeshRef}
+        args={[undefined, undefined, ASH_COUNT]}
+        frustumCulled={false}
+        visible={false}
+      >
+        <planeGeometry args={[1, 1]} />
+        <meshBasicMaterial
+          color={0xb87040}
+          transparent
+          opacity={0.40}
+          depthWrite={false}
+          side={THREE.DoubleSide}
+        />
+      </instancedMesh>
     </>
   )
 }

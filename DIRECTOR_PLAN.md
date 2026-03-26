@@ -1,130 +1,114 @@
 # Director Plan -- Universe Sim
 
 **Date**: 2026-03-25
-**Status**: Active -- Phase 1 Assessment Complete
+**Sprint**: M17
+**Status**: Active -- Sprint Planning Complete
 
 ---
 
-## Executive Assessment
+## M16 Retrospective
 
-The codebase is impressive in scope -- a scientifically grounded open-world survival sim running on a sphere planet with full ECS, Rapier physics, WebSocket multiplayer, genome-driven biology, Arrhenius chemistry, Lotka-Volterra ecosystems, day/night cycles, weather, seasons, rivers, settlements, diplomacy, rocketry, nuclear reactors, and interplanetary transit. The foundations are strong.
+**Shipped:**
+- PostProcessing.tsx: UnrealBloom + GLSL vignette via raw Three.js EffectComposer (bypasses fiber version conflict)
+- Genome phenotype wiring: AnimalAISystem now reads locomotion/vision/offense/defense/neural from genome
+- Extracted module files: GameLoop.ts (1228 lines), BuildingPlacement.ts, LootPickup.ts, CreatureWanderSystem.ts, ResourceNodeManager.ts
+- Telegram approval flow for blocked agents
+- Status site: draggable sidebar, bigger fonts, agentState in JOIN snapshot
 
-However, the project has a critical architectural problem and several gameplay gaps that need immediate attention. Here are the top priorities.
+**Not shipped (carried over):**
+- SceneRoot decomposition REVERTED -- gp-agent truncated SceneRoot mid-write, had to restore from backup (commit 8506fb5). SceneRoot is still 3844 lines. The extracted modules exist on disk but SceneRoot does not import them; it still has its own inline GameLoop at line 997.
+- Genome system wired but never tested against actual gameplay
+- Chemistry-to-gameplay pipeline still dormant
+- Player onboarding still absent
+
+**Lessons learned:**
+- SceneRoot extraction is extremely high-risk. The previous agent tried to rewrite the entire file at once and corrupted it. We must extract incrementally -- one system at a time, verify after each extraction.
+- PostProcessing was done correctly by writing a new standalone file that SceneRoot simply imports. This is the pattern to follow.
 
 ---
 
-## Priority 1 (P0): SceneRoot Monolith Decomposition
+## M17 Sprint Plan -- 3 Parallel Tracks
 
-**Problem**: `src/rendering/SceneRoot.tsx` is **3,843 lines** -- a single React component containing the entire game loop, resource spawning, creature AI, combat, crafting, building placement, death handling, settlement proximity, fishing, sailing, musket firing, rocket launching, nuclear reactor ticking, and dozens of renderer components. This is the single biggest technical debt in the project.
+### Track A (P0): SceneRoot Incremental Decomposition
+**Assigned to**: `ui-worker`
+**Duration**: Full sprint
+**Strategy**: Incremental extraction -- one module per pass, verify game still runs after each extraction. Never rewrite SceneRoot wholesale.
 
-**Impact**:
-- Impossible to test individual systems in isolation
-- Every change risks breaking unrelated systems
-- Merge conflicts for any multi-agent work
-- Performance optimization is blind -- cannot profile individual systems
-- New developers cannot onboard to any subsystem without reading 3800+ lines
+The inline GameLoop (lines 997-3844) contains the following subsystems that must be extracted one at a time:
 
-**Assigned to**: `gp-agent` (game playtester)
+| Step | Extract | Target File | Approx Lines | Dependencies |
+|------|---------|-------------|-------------|--------------|
+| A1 | Building placement logic | Already in `src/game/BuildingPlacement.ts` (97 lines) -- wire it in | ~120 lines from SceneRoot | gameStore, buildingSystem |
+| A2 | Loot pickup logic | Already in `src/game/LootPickup.ts` (54 lines) -- wire it in | ~80 lines from SceneRoot | playerStore, inventory |
+| A3 | Resource gathering/node interaction | Already in `src/world/ResourceNodeManager.ts` (223 lines) -- wire it in | ~150 lines from SceneRoot | inventory, canHarvest |
+| A4 | Creature wander + spawn | Already in `src/ecs/systems/CreatureWanderSystem.ts` (87 lines) -- wire it in | ~100 lines from SceneRoot | ECS Position, terrain |
+| A5 | Combat system (melee + ranged) | New: `src/game/CombatSystem.ts` | ~200 lines from SceneRoot | Health, inventory, wounds |
+| A6 | Sailing + fishing | New: `src/game/SailingFishingSystem.ts` | ~150 lines from SceneRoot | SailingSystem, store |
+| A7 | Settlement proximity + NPC trade | New: `src/game/SettlementProximity.ts` | ~100 lines from SceneRoot | settlementStore |
+| A8 | Rocket + nuclear + transit | Already split across game/ -- wire remaining pieces | ~100 lines from SceneRoot | transit/rocket stores |
+| A9 | Survival ticks (cooking, smelting, quenching, sleep) | Consolidate into existing `SurvivalSystems.ts` | ~150 lines from SceneRoot | SurvivalSystems |
+| A10 | Final cleanup -- SceneRoot as thin composition root | SceneRoot.tsx | Target: under 600 lines | All above |
+
+**Quality gate per step**: `npm run build` succeeds. SceneRoot line count drops by the expected amount. No new console errors.
+
+**Quality gate final**: SceneRoot under 600 lines. All game systems functional.
+
+---
+
+### Track B (P0): Genome-to-Behavior Validation + Testing
+**Assigned to**: `biology-prof` (via `knowledge-director`)
+**Duration**: Sprint first half
+
+The genome phenotype interface already exists in `AnimalAISystem.ts`:
+```
+speedMult, detectionRange, attackDamage, maxHealth, armorReduction, behaviorTier
+```
+
+What needs verification:
+1. **B1**: Confirm deer/wolf/boar spawn with genomes and phenotype values actually affect their runtime behavior. Log phenotype values at spawn and verify speed/detection differ between individuals.
+2. **B2**: Confirm `behaviorTier` > 0 creatures use BehaviorTree (tier 1-2) or GOAP (tier 3). Currently AnimalAISystem defines the tiers but may fall back to the same state machine for all tiers.
+3. **B3**: Test mutation on reproduction -- verify `MutationEngine.mutate()` is called when animals reproduce and offspring have varied phenotypes.
+4. **B4**: Verify `tickEcosystemBalance()` produces Lotka-Volterra oscillations over a 10-minute play session (prey population grows, predators follow, prey crashes, predators starve).
+5. **B5**: Add a `/debug genome` overlay that shows the genome phenotype of the nearest creature (dev-mode only).
+
+**Quality gate**: Screenshots or console logs showing: (a) varied phenotype values across individuals, (b) behavioral differences between high/low detection range creatures, (c) population oscillation over time.
+
+---
+
+### Track C (P1): Player Onboarding -- Contextual Hints System
+**Assigned to**: `interaction` agent
+**Duration**: Full sprint
+
+**Problem**: New players see 15+ keybinds on the click-to-play overlay and have no progressive guidance.
 
 **Deliverables**:
-1. Extract `GameLoop` into `src/game/GameLoop.ts` -- pure function taking (dt, entityId, refs)
-2. Extract resource node logic into `src/world/ResourceNodeManager.ts`
-3. Extract creature wander AI into `src/ecs/systems/CreatureWanderSystem.ts`
-4. Extract building placement into `src/game/BuildingPlacement.ts`
-5. Extract death loot pickup into `src/game/LootPickup.ts`
-6. Keep SceneRoot as a thin composition root -- only wiring, no game logic
 
-**Quality gate**: SceneRoot under 800 lines. Each extracted module has a clear single responsibility. Game behavior is identical before and after.
+| Task | Description | Target File |
+|------|-------------|-------------|
+| C1 | Create `src/ui/ContextualHints.tsx` -- a component that watches player state and shows floating hints | New file |
+| C2 | "F to gather" hint -- appears when player is within 5m of a resource node and has not gathered before | ContextualHints.tsx |
+| C3 | "G to dig" hint -- appears when on diggable terrain | ContextualHints.tsx |
+| C4 | "Tab to open inventory" hint -- appears after first successful gather | ContextualHints.tsx |
+| C5 | "C to craft" hint -- appears when player has 2+ material types in inventory | ContextualHints.tsx |
+| C6 | Reduce click-to-play overlay to: WASD (move), Mouse (look), Space (jump), F (interact). Add "Press H for all controls" for the rest | WorldBootstrapScreen.tsx or equivalent |
+| C7 | Auto-open journal with "Survival Basics" entry on first spawn | journal singleton + first-frame hook |
 
----
+**Technical spec**: Hints should be screen-space divs (not 3D), positioned bottom-center, fade in/out with CSS transitions, auto-dismiss after action is performed. Use a `hintsStore` (Zustand) to track which hints have been shown. Persist shown hints in localStorage so they don't repeat.
 
-## Priority 2 (P0): Creature AI and Biology Systems Are Disconnected
-
-**Problem**: The genome system (`GenomeEncoder`, `MutationEngine`, `SpeciesRegistry`, `EcosystemBalance`) is beautifully designed but **not connected to actual gameplay**. Creatures are spawned with random genomes but their behavior is a simple wander-and-bite state machine. The genome bits (vision, locomotion, offense, defense, neural complexity) do not influence creature behavior at all.
-
-Meanwhile, `src/ai/` contains sophisticated systems (`BehaviorTree`, `GOAP`, `EmotionModel`, `SensorySystem`, `NeuralArchitecture`, `SocialSimulation`, `MemorySystem`) that appear to be unused -- the actual creature AI is hardcoded in SceneRoot lines 1043-1094 and `AnimalAISystem.ts`.
-
-**Impact**: The core promise of the game -- "everything emerges from real physics/chemistry/biology" -- is broken for creatures. Players see animals wandering randomly regardless of their genome.
-
-**Assigned to**: `knowledge-director` -> `biology-prof` + `ai-npc`
-
-**Deliverables**:
-1. Wire genome phenotype decoding into creature behavior: vision range affects detection distance, locomotion stats affect movement speed, offense/defense affects combat, neural level determines AI complexity tier
-2. Connect `BehaviorTree` / `GOAP` systems to `AnimalAISystem` so higher-neural-level creatures exhibit more complex behavior
-3. Make `MutationEngine` actually run on creature reproduction events
-4. Wire `EcosystemBalance` Lotka-Volterra dynamics to real population control (currently only deer/wolf/boar with hardcoded respawn)
-5. Species divergence events should be visible to the player (notification + journal entry)
-
-**Quality gate**: A creature with genome bits encoding "fast swim speed, no legs" should swim and not walk. A creature with high neural complexity should exhibit learning behavior. Population dynamics should show predator-prey oscillations over time.
+**Quality gate**: A first-time player sees contextual prompts that guide them through gather -> inventory -> craft within 3 minutes without reading any external docs.
 
 ---
 
-## Priority 3 (P1): Chemistry-to-Gameplay Pipeline Gap
+## Priority Queue (After M17 Tracks Complete)
 
-**Problem**: The `ReactionEngine` has 50+ Arrhenius reactions modeled with real activation energies and enthalpies. The `SimulationEngine` runs 4 web workers (physics, fluid, thermal, chem). But the chemistry results do not feed back into observable gameplay effects beyond cooking and smelting.
-
-Reactions like photosynthesis, fermentation, acid-base chemistry, and abiogenesis are defined but produce no visible world effects. The player cannot experiment with chemistry -- they gather pre-placed resource nodes and follow hardcoded crafting recipes.
-
-**Assigned to**: `knowledge-director` -> `chemistry-prof` + `physics-prof`
-
-**Deliverables**:
-1. Expose sim-grid chemistry to player interaction: mixing materials near heat sources should trigger observable reactions with visual/audio feedback
-2. Make photosynthesis drive plant growth rates (connect to biome vegetation density)
-3. Fermentation should produce alcohol (new consumable with gameplay effects)
-4. Acid rain (SO2 + H2O -> H2SO4) should damage structures and affect soil fertility
-5. Player-discoverable reactions should unlock journal entries explaining the science
-
-**Quality gate**: Player can discover at least 5 chemical reactions through experimentation (not menus). Each reaction has a visible world effect.
-
----
-
-## Priority 4 (P1): Post-Processing and Visual Polish
-
-**Problem**: The comment on line 925-926 of SceneRoot says it all:
-> "EffectComposer (Bloom + Vignette) removed: @react-three/postprocessing 3.0.4 crashes with @react-three/fiber 8.18.0"
-
-The game has no post-processing. No bloom, no SSAO, no depth of field, no color grading, no motion blur. For a game targeting visual fidelity, this is unacceptable.
-
-Additionally:
-- Fog is a flat `fogExp2` with a single color (#c0d8f4) -- no volumetric scattering
-- Tree geometry is basic cones with no leaf billboards or LODs
-- Rock meshes are single dodecahedrons
-- No PBR textures anywhere -- everything is flat `meshStandardMaterial` with color only
-
-**Assigned to**: `ui-worker` (rendering specialist)
-
-**Deliverables**:
-1. Fix post-processing pipeline: upgrade `@react-three/postprocessing` or use raw Three.js `EffectComposer`
-2. Add bloom (sun, fire, bioluminescent creatures), SSAO, and subtle vignette
-3. Implement proper atmospheric scattering for the day/night cycle (Rayleigh + Mie)
-4. Add PBR material maps to hero assets (trees, rocks, terrain) -- at minimum roughness/normal variation
-5. Implement LOD for tree meshes (instanced low-poly at distance)
-
-**Quality gate**: Screenshot comparison shows measurable improvement in lighting depth, material variety, and atmospheric quality.
-
----
-
-## Priority 5 (P1): Player Onboarding and Discovery Flow
-
-**Problem**: New players spawn on a sphere planet with no guidance. The "click to play" overlay lists 15+ keybinds. There is no progressive disclosure of mechanics. The game philosophy is "no tech trees, no gates" but there is also no narrative thread to guide exploration.
-
-**Assigned to**: `gp-agent` + `ui-worker`
-
-**Deliverables**:
-1. Contextual hints system: show keybind hints only when relevant (show "F to gather" when near a resource, "G to dig" when standing on diggable terrain)
-2. First 5 minutes flow: spawn near obvious resources, first gather auto-opens inventory, first craft auto-opens craft panel (some of this exists but is inconsistent)
-3. Discovery journal should auto-populate initial entries explaining basic survival (hunger, thirst, shelter)
-4. Reduce "click to play" overlay to essential controls only (WASD, mouse, Space, F); show others contextually
-
-**Quality gate**: A new player can survive their first 10 minutes without reading external documentation.
-
----
-
-## Immediate Next Action
-
-**Spawning `gp-agent` now** to begin Priority 1 (SceneRoot decomposition). This unblocks all other work by making the codebase modular enough for parallel agent development.
-
-While that runs, I will prepare detailed briefs for `knowledge-director` (Priorities 2-3) and `ui-worker` (Priority 4).
+| Priority | Item | Assigned To | Status |
+|----------|------|-------------|--------|
+| P1 | Chemistry-to-gameplay pipeline (fermentation, acid rain, photosynthesis feedback) | chemistry-prof | Queued for M18 |
+| P1 | SSAO + color grading in PostProcessing pipeline | ui-worker | Queued -- bloom + vignette shipped |
+| P1 | PBR material pass (roughness/normal maps on terrain, rocks, trees) | ui-worker | Queued for M18 |
+| P2 | Atmospheric scattering (Rayleigh + Mie) for day/night | ui-worker | Queued |
+| P2 | Tree LOD (instanced low-poly at distance) | ui-worker | Queued |
+| P2 | Species divergence notifications in journal | biology-prof | Queued |
 
 ---
 
@@ -132,10 +116,12 @@ While that runs, I will prepare detailed briefs for `knowledge-director` (Priori
 
 | Decision | Rationale |
 |----------|-----------|
-| Extract game loop before adding features | Every new feature added to the 3800-line monolith compounds the debt |
-| Wire genomes to behavior before adding new species | Foundation must work before scaling |
-| Fix post-processing before adding visual assets | Pipeline must be in place before art passes |
-| Chemistry feedback before new reactions | Existing reactions should be visible before adding more |
+| Incremental extraction, not wholesale rewrite | Previous wholesale attempt corrupted SceneRoot and had to be reverted |
+| One extracted module per commit | Enables bisect if something breaks |
+| Extracted modules already exist on disk | GameLoop.ts, BuildingPlacement.ts, LootPickup.ts, CreatureWanderSystem.ts, ResourceNodeManager.ts all exist -- SceneRoot just needs to import and delegate to them |
+| PostProcessing as standalone import is the pattern | Proven in M16 -- write new file, SceneRoot imports it, no surgery on the monolith needed |
+| Genome validation before new species | Must confirm existing phenotype wiring works before adding complexity |
+| Onboarding before new features | Players cannot discover features they don't know exist |
 
 ---
 
@@ -143,7 +129,28 @@ While that runs, I will prepare detailed briefs for `knowledge-director` (Priori
 
 | Risk | Likelihood | Impact | Mitigation |
 |------|-----------|--------|------------|
-| SceneRoot refactor breaks existing gameplay | High | Critical | Incremental extraction with behavior verification after each module |
-| Post-processing upgrade introduces new crashes | Medium | High | Test on branch, keep fallback path |
-| Genome-behavior wiring creates balance issues | High | Medium | Start with observation (journal) before combat effects |
-| Multi-agent file conflicts in shared directories | Medium | Medium | Clear file ownership per AGENTS.md, coordination via status reporting |
+| SceneRoot extraction breaks gameplay (again) | High | Critical | One module per commit, build check after each, never rewrite wholesale |
+| Genome phenotypes not actually affecting behavior | Medium | High | B1-B4 explicit test plan with logging |
+| Hints system feels intrusive | Low | Medium | Auto-dismiss, localStorage persistence, no repeat |
+| Multi-agent file conflicts | Medium | Medium | Track A owns SceneRoot + src/game/, Track B owns src/biology/ + src/ecs/systems/, Track C owns src/ui/ |
+
+---
+
+## Agent Dispatch Plan
+
+| Agent | Track | First Task | Report To |
+|-------|-------|-----------|-----------|
+| `ui-worker` | Track A | A1: Wire BuildingPlacement.ts into SceneRoot, remove inline building logic | director |
+| `biology-prof` | Track B | B1: Log genome phenotype values at animal spawn, verify variation | knowledge-director -> director |
+| `interaction` | Track C | C1: Create ContextualHints.tsx with "F to gather" as first hint | director |
+| `cqa` | Code review | Review each Track A extraction commit for correctness | director |
+
+---
+
+## Immediate Next Actions
+
+1. Report M17 plan to Railway as `director`
+2. Dispatch `ui-worker` for Track A (SceneRoot decomposition, incremental approach)
+3. Dispatch `knowledge-director` to coordinate `biology-prof` for Track B (genome validation)
+4. Dispatch `interaction` for Track C (contextual hints)
+5. Update AGENTS.md if new file ownership needed

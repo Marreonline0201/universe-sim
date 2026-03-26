@@ -9,7 +9,7 @@ import { fishingSystem, type FishingSystemState, ROD_MAX_DURABILITY } from '../.
 import {
   type FishDepth,
   type FishEntry,
-  currentDepth as getInitialDepth,
+  currentDepth,
   setFishingDepth,
   rollFish,
 } from '../../game/FishingDepthSystem'
@@ -613,7 +613,7 @@ export function FishingPanel() {
   const [showGolden, setShowGolden] = useState(false)
 
   // M45: depth selector state
-  const [depth, setDepth] = useState<FishDepth>(() => getInitialDepth)
+  const [depth, setDepth] = useState<FishDepth>(currentDepth)
 
   // M45: rare catch banner (null = hidden)
   const [rareCatch, setRareCatch] = useState<{ name: string; key: number } | null>(null)

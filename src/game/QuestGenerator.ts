@@ -151,7 +151,7 @@ export function generateQuestsForSettlement(
     type: tmpl.type,
     targetId: tmpl.targetId,
     targetCount: tmpl.goalFn(tier),
-    reward: { xp: tmpl.rewardFn(tier).xp, gold: tmpl.rewardFn(tier).gold },
+    reward: tmpl.rewardFn(tier),
     accepted: false,
     progress: 0,
     completed: false,

@@ -38,11 +38,11 @@ export const FISH_TABLE: FishEntry[] = [
   { name: 'Salmon',        matId: MAT.SALMON,       weight: 18, minDepth: 'medium',  rare: false, goldValue: 12 },
   { name: 'Tuna',          matId: MAT.TUNA,         weight: 10, minDepth: 'medium',  rare: false, goldValue: 20 },
   { name: 'Cave Fish',     matId: MAT.CAVE_FISH,    weight: 8,  minDepth: 'medium',  rare: false, goldValue: 15 },
-  { name: 'Silver Perch',  matId: MAT.COOKED_FISH,  weight: 12, minDepth: 'medium',  rare: false, goldValue: 8  },
+  { name: 'Silver Perch',  matId: MAT.RAW_FISH,     weight: 12, minDepth: 'medium',  rare: false, goldValue: 8  },
 
   // ── Deep (rare & legendary) ────────────────────────────────────────────────
   { name: 'Golden Fish',       matId: MAT.GOLDEN_FISH, weight: 1,   minDepth: 'deep', rare: true, goldValue: 500 },
-  { name: 'Ancient Leviathan', matId: MAT.GOLD,        weight: 0.5, minDepth: 'deep', rare: true, goldValue: 250 },
+  { name: 'Ancient Leviathan', matId: MAT.GOLDEN_FISH, weight: 0.5, minDepth: 'deep', rare: true, goldValue: 250 },
   { name: 'Abyssal Eel',       matId: MAT.DEEP_CORAL,  weight: 2,   minDepth: 'deep', rare: true, goldValue: 120 },
   { name: 'Deep Tuna',         matId: MAT.TUNA,        weight: 6,   minDepth: 'deep', rare: false, goldValue: 40 },
 ]

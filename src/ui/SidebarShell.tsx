@@ -201,6 +201,7 @@ export function SidebarShell() {
         case 'g': case 'G':   e.preventDefault(); togglePanel('factions');  break
         case 'u': case 'U':   e.preventDefault(); togglePanel('buildings'); break
         case 'h': case 'H':   e.preventDefault(); togglePanel('home'); break
+        case 'o': case 'O':   e.preventDefault(); togglePanel('players');      break
         case 'p': case 'P':   e.preventDefault(); togglePanel('pet');          break
         case 'x': case 'X':   e.preventDefault(); togglePanel('progression'); break
         case 'y': case 'Y':   e.preventDefault(); togglePanel('alchemy');     break

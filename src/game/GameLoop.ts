@@ -3232,6 +3232,15 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
       tickQuestBoard(useGameStore.getState().simSeconds)
     }
 
+    // ── M65 Track C: NPC emotion decay tick (every 5s) ───────────────────────
+    {
+      npcEmotionTimerRef.current += dt
+      if (npcEmotionTimerRef.current >= 5) {
+        npcEmotionTimerRef.current = 0
+        tickEmotions(useGameStore.getState().simSeconds)
+      }
+    }
+
     // ── M26 Track B: Tick emote system (cleans expired remote emotes) ────────
     tickEmoteSystem()
 

@@ -45,6 +45,7 @@ import { serializeJournal, deserializeJournal } from './PlayerJournalSystem'
 import { serializeHousing, deserializeHousing } from './PlayerHousingSystem'
 import { serializeTalents, deserializeTalents } from './TalentTreeSystem'
 import { serializeQuestBoard, deserializeQuestBoard } from './DynamicQuestBoardSystem'
+import { serializeEmotions, deserializeEmotions } from './NPCEmotionSystem'
 import { Health, Metabolism, Position } from '../ecs/world'
 import { rapierWorld } from '../physics/RapierWorld'
 import { PLANET_RADIUS } from '../world/SpherePlanet'
@@ -176,6 +177,7 @@ export async function saveOffline(): Promise<boolean> {
       playerHousing: serializeHousing(),
       talents: serializeTalents(),
       questBoard: serializeQuestBoard(),
+      npcEmotions: serializeEmotions(),
     })
     const meta = JSON.stringify({
       timestamp: Date.now(),
@@ -417,6 +419,11 @@ export async function loadOffline(): Promise<boolean> {
     // M65 Track B: Restore dynamic quest board
     if (state.questBoard) {
       deserializeQuestBoard(state.questBoard)
+    }
+
+    // M65 Track C: Restore NPC emotion states
+    if (state.npcEmotions) {
+      deserializeEmotions(state.npcEmotions)
     }
 
     // Restore position

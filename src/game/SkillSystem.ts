@@ -218,7 +218,13 @@ export class SkillSystem {
     const baseMultiplier = useGameStore.getState().xpMultiplier
     const prestigeCount = useSkillStore.getState().prestigeCount
     const prestigeXpBonus = 1.0 + prestigeCount * 0.1
-    s.xp += amount * baseMultiplier * prestigeXpBonus
+    // M39 Track B: Party XP bonus (+10% when in a party with 2+ members)
+    let partyBonus = 1.0
+    try {
+      const { usePartyStore } = require('../store/partyStore') as typeof import('../store/partyStore')
+      partyBonus = usePartyStore.getState().getXpBonus()
+    } catch { /* party system not loaded */ }
+    s.xp += amount * baseMultiplier * prestigeXpBonus * partyBonus
 
     // Check for level up
     while (s.level < 10 && s.xp >= XP_THRESHOLDS[s.level + 1]) {

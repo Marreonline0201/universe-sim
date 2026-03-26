@@ -27,6 +27,9 @@ import {
   updateEventParticipants,
   type WorldEventType,
 } from '../game/WorldEventSystem'
+// M39 Track B: Chat + Party
+import { receiveChatMessage } from '../ui/ChatBox'
+import { usePartyStore } from '../store/partyStore'
 
 // Module-level reference to the active LocalSimManager.
 // Set by SceneRoot after the sim grid initialises.
@@ -894,6 +897,79 @@ export class WorldSocket {
             this._dispatch(sub)
           }
         }
+        break
+      }
+
+      // ── M39 Track B: Chat ─────────────────────────────────────────────────────
+      case 'CHAT_MESSAGE': {
+        receiveChatMessage({
+          playerId:   msg.playerId   as string,
+          username:   msg.username   as string,
+          title:      msg.title      as string | undefined,
+          titleColor: msg.titleColor as string | undefined,
+          text:       msg.text       as string,
+          channel:    (msg.channel   as 'global' | 'party' | 'system') ?? 'global',
+          timestamp:  (msg.timestamp as number) ?? Date.now(),
+        })
+        break
+      }
+
+      // ── M39 Track B: Party ────────────────────────────────────────────────────
+      case 'PARTY_INVITE': {
+        usePartyStore.getState().setPendingInvite({
+          leaderId:   msg.leaderId   as string,
+          leaderName: msg.leaderName as string,
+        })
+        useUiStore.getState().addNotification(
+          `Party invite from ${msg.leaderName as string}!`,
+          'info'
+        )
+        break
+      }
+
+      case 'PARTY_UPDATE': {
+        const partyData = msg.party as {
+          leaderId: string
+          members: Array<{ userId: string; username: string; health: number; title?: string; titleColor?: string; x?: number; y?: number; z?: number }>
+        } | null
+        if (partyData) {
+          usePartyStore.getState().setParty({ leaderId: partyData.leaderId, members: partyData.members, maxSize: 4 })
+        } else {
+          usePartyStore.getState().setParty(null)
+        }
+        break
+      }
+
+      case 'PARTY_DISBANDED': {
+        usePartyStore.getState().setParty(null)
+        useUiStore.getState().addNotification('Your party has been disbanded.', 'info')
+        break
+      }
+
+      case 'PARTY_MEMBER_LEFT': {
+        const leftUsername = msg.username as string
+        useUiStore.getState().addNotification(`${leftUsername} left the party.`, 'info')
+        const current = usePartyStore.getState().party
+        if (current) {
+          usePartyStore.getState().setParty({
+            ...current,
+            members: current.members.filter(m => m.userId !== (msg.userId as string)),
+          })
+        }
+        break
+      }
+
+      case 'PARTY_DONATION': {
+        const donor = msg.username as string
+        const buildingName = msg.buildingName as string
+        const qty = msg.qty as number
+        const matName = (msg.matName as string) ?? 'materials'
+        const current = msg.current as number
+        const needed = msg.needed as number
+        useUiStore.getState().addNotification(
+          `${donor} donated ${qty} ${matName} to ${buildingName} (${current}/${needed})`,
+          'info'
+        )
         break
       }
 

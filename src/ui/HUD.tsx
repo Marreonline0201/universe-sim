@@ -36,6 +36,10 @@ import { getEquippedTitle } from '../game/TitleSystem'
 import { getLocalUsername } from '../net/useWorldSocket'
 // M37 Track A: World events HUD
 import { WorldEventHUD } from './WorldEventHUD'
+// M39 Track B: Social features
+import { ChatBox } from './ChatBox'
+import { PartyHUD } from './PartyHUD'
+import { SpectateMode } from './SpectateMode'
 
 // ── M20: Lazy-loaded overlays (rarely shown) ─────────────────────────────────
 const FirstContactOverlay = lazy(() => import('./FirstContactOverlay').then(m => ({ default: m.FirstContactOverlay })))
@@ -2521,6 +2525,15 @@ export function HUD() {
 
       {/* ── M35 Track B: Disaster warning overlay ── */}
       <DisasterWarningOverlay />
+
+      {/* ── M39 Track B: Party HUD + invite banner ── */}
+      <PartyHUD />
+
+      {/* ── M39 Track B: In-game chat box (bottom-left, above vitals) ── */}
+      <ChatBox />
+
+      {/* ── M39 Track B: Spectate mode (shown when player is dead) ── */}
+      <SpectateMode />
 
       {/* ── M37 Track A: World event banner + indicator + history ── */}
       <WorldEventHUD />

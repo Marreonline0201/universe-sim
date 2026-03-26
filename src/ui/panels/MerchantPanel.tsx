@@ -11,6 +11,7 @@ import { inventory } from '../../game/GameSingletons'
 import { merchantSystem, type MerchantArchetype } from '../../game/MerchantSystem'
 import { usePlayerStore } from '../../store/playerStore'
 import { useUiStore } from '../../store/uiStore'
+import { useDialogueStore } from '../../store/dialogueStore'
 import { MAT, ITEM } from '../../player/Inventory'
 
 // ── Name lookup maps ──────────────────────────────────────────────────────────
@@ -221,9 +222,8 @@ export function MerchantPanel() {
   const [tab, setTab] = useState<'buy' | 'sell'>('buy')
   const gold    = usePlayerStore(s => s.gold)
 
-  // Read archetype from window (set when merchant interaction triggers)
-  const archetype: MerchantArchetype =
-    (window as unknown as Record<string, unknown>).__merchantArchetype as MerchantArchetype ?? 'general'
+  // Read archetype from dialogueStore (set in GameLoop when merchant is opened)
+  const archetype: MerchantArchetype = useDialogueStore(s => s.merchantArchetype)
 
   const archetypeLabel = archetype === 'general'
     ? 'General Store'

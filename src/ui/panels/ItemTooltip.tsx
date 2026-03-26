@@ -10,6 +10,8 @@ import { createPortal } from 'react-dom'
 import type { InventorySlot, RarityTier } from '../../player/Inventory'
 import { MAT, ITEM, RARITY_COLORS, RARITY_NAMES } from '../../player/Inventory'
 import { getItemStats, getFoodStats } from '../../player/EquipSystem'
+import { usePlayerStore } from '../../store/playerStore'
+import { inventory } from '../../game/GameSingletons'
 
 // ── Name lookups ────────────────────────────────────────────────────────────
 const MAT_NAMES: Record<number, string> = Object.fromEntries(
@@ -82,9 +84,11 @@ export const CATEGORY_LABELS: Record<ItemCategory, string> = {
 interface TooltipProps {
   slot: InventorySlot
   anchorRect: DOMRect
+  /** Slot index of currently equipped item, for stat comparison. Null if nothing equipped. */
+  equippedSlotIndex: number | null
 }
 
-function TooltipContent({ slot, anchorRect }: TooltipProps) {
+function TooltipContent({ slot, anchorRect, equippedSlotIndex }: TooltipProps) {
   const name = slot.itemId === 0
     ? (MAT_NAMES[slot.materialId] ?? `material #${slot.materialId}`)
     : (ITEM_NAMES[slot.itemId] ?? `item #${slot.itemId}`)
@@ -94,6 +98,20 @@ function TooltipContent({ slot, anchorRect }: TooltipProps) {
   const label = qualityLabel(slot.quality)
   const itemStats = slot.itemId > 0 ? getItemStats(slot.itemId) : null
   const foodStats = getFoodStats(slot.materialId)
+
+  // ── Item comparison: show delta vs currently equipped item ──────────────────
+  let damageCompare: number | null = null
+  let rangeCompare: number | null = null
+  if (itemStats && itemStats.damage > 0 && equippedSlotIndex !== null) {
+    const equippedSlot = inventory.getSlot(equippedSlotIndex)
+    if (equippedSlot && equippedSlot.itemId > 0 && equippedSlot.itemId !== slot.itemId) {
+      const equippedStats = getItemStats(equippedSlot.itemId)
+      if (equippedStats.damage > 0) {
+        damageCompare = itemStats.damage - equippedStats.damage
+        rangeCompare  = itemStats.range  - equippedStats.range
+      }
+    }
+  }
 
   // Position tooltip above the anchor, clamped to viewport
   const tooltipWidth = 200
@@ -174,7 +192,26 @@ function TooltipContent({ slot, anchorRect }: TooltipProps) {
       {/* Tool stats */}
       {itemStats && itemStats.damage > 0 && (
         <div style={{ fontSize: 10, color: '#e06c75', marginBottom: 2 }}>
-          Damage: {itemStats.damage} | Speed: {itemStats.speed.toFixed(1)} | Range: {itemStats.range.toFixed(1)}m
+          Damage: {itemStats.damage} | Range: {itemStats.range.toFixed(1)}m
+        </div>
+      )}
+
+      {/* Item comparison vs equipped */}
+      {(damageCompare !== null) && (
+        <div style={{ fontSize: 10, color: '#888', marginBottom: 2, borderTop: '1px solid #333', paddingTop: 4 }}>
+          vs. equipped:
+          {' '}
+          <span style={{ color: damageCompare > 0 ? '#98c379' : damageCompare < 0 ? '#e06c75' : '#888', fontWeight: 700 }}>
+            {damageCompare > 0 ? `+${damageCompare}` : `${damageCompare}`} dmg
+          </span>
+          {rangeCompare !== null && rangeCompare !== 0 && (
+            <>
+              {' '}
+              <span style={{ color: rangeCompare > 0 ? '#98c379' : '#e06c75' }}>
+                {rangeCompare > 0 ? `+${rangeCompare.toFixed(1)}` : rangeCompare.toFixed(1)}m rng
+              </span>
+            </>
+          )}
         </div>
       )}
 
@@ -203,6 +240,7 @@ function TooltipContent({ slot, anchorRect }: TooltipProps) {
 export function useItemTooltip() {
   const [tooltip, setTooltip] = useState<{ slot: InventorySlot; rect: DOMRect } | null>(null)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const equippedSlotIndex = usePlayerStore(s => s.equippedSlot)
 
   const onMouseEnter = useCallback((slot: InventorySlot, e: React.MouseEvent) => {
     if (timerRef.current) clearTimeout(timerRef.current)
@@ -227,7 +265,7 @@ export function useItemTooltip() {
 
   const tooltipPortal = tooltip
     ? createPortal(
-        <TooltipContent slot={tooltip.slot} anchorRect={tooltip.rect} />,
+        <TooltipContent slot={tooltip.slot} anchorRect={tooltip.rect} equippedSlotIndex={equippedSlotIndex} />,
         document.body,
       )
     : null

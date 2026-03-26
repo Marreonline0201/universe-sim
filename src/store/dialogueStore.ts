@@ -13,6 +13,9 @@ export interface DialogueMessage {
   timestamp: number
 }
 
+export type MerchantArchetypeType = 'general' | 'blacksmith' | 'alchemist'
+// ^ Mirrors MerchantArchetype from MerchantSystem — duplicated here to avoid a circular import.
+
 interface DialogueState {
   isOpen: boolean
   targetNpcId: number | null
@@ -22,6 +25,10 @@ interface DialogueState {
   messages: DialogueMessage[]
   isWaiting: boolean
   emotionState: EmotionState | null
+
+  // Merchant archetype — set when opening merchant panel, read by MerchantPanel
+  merchantArchetype: MerchantArchetypeType
+  setMerchantArchetype: (archetype: MerchantArchetypeType) => void
 
   openDialogue: (npcId: number, name: string, role: string, settlement?: string) => void
   closeDialogue: () => void
@@ -39,6 +46,9 @@ export const useDialogueStore = create<DialogueState>((set) => ({
   messages: [],
   isWaiting: false,
   emotionState: null,
+
+  merchantArchetype: 'general',
+  setMerchantArchetype: (archetype) => set({ merchantArchetype: archetype }),
 
   openDialogue: (npcId, name, role, settlement = 'Unknown') =>
     set({

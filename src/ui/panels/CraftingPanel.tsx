@@ -4,7 +4,7 @@
 // M46: Recipe unlock system — skill-gated and discovery-gated recipes shown dimmed.
 
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { inventory, questSystem } from '../../game/GameSingletons'
+import { inventory, questSystem, achievementSystem } from '../../game/GameSingletons'
 import { skillSystem } from '../../game/SkillSystem'
 import { isRecipeUnlocked, getUnlockDescription } from '../../game/RecipeUnlockSystem'
 import { MAT, ITEM, rollCraftRarity, RARITY_NAMES, type CraftingRecipe, type RarityTier } from '../../player/Inventory'
@@ -143,6 +143,7 @@ export function CraftingPanel() {
       // M23: Roll rarity for the crafted item based on recipe tier + crafting skill
       const craftLevel = skillSystem.getLevel('crafting')
       const rarity = rollCraftRarity(selectedRecipe.tier, craftLevel) as RarityTier
+      achievementSystem.onCraft(selectedRecipe.id ?? 0, rarity, selectedRecipe.requiresAlchemyTable ? 'chemical' : 'tool')
       // Find the newly crafted slot (not in prevItems) and assign rarity
       if (rarity > 0) {
         for (let i = 0; i < inventory.slotCount; i++) {

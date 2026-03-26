@@ -99,6 +99,7 @@ export class AchievementSystem {
   private totalFoodEaten = 0
   private totalFiresBuilt = 0
   private totalNightsActive = 0
+  private wasNight = false
   private biomesVisited = new Set<string>()
   private lastPx = 0
   private lastPy = 0
@@ -247,12 +248,12 @@ export class AchievementSystem {
     this.setProgress('days_10', dayCount)
     this.setProgress('days_100', dayCount)
 
-    // Night tracking (simplified: increment once per night transition)
-    if (isNight) {
-      // We'll just track total nights based on day count
-      this.totalNightsActive = dayCount
-      this.setProgress('night_owl', Math.min(this.totalNightsActive, 10))
+    // Night tracking — increment once on transition into night
+    if (isNight && !this.wasNight) {
+      this.totalNightsActive++
+      this.setProgress('night_owl', this.totalNightsActive)
     }
+    this.wasNight = isNight
 
     // Below sea level
     if (_belowSeaLevel) {
@@ -368,9 +369,9 @@ export function getPlayerStats(): AchievementPlayerStats {
  * achievements that are easier to express as a one-off check than event hooks.
  */
 export function checkAchievements(stats: AchievementPlayerStats): string[] {
+  // Note: first_blood and big_game are handled by the class-based AchievementSystem
+  // via onKill() hooks. Only stat-threshold checks that the class doesn't cover go here.
   const thresholds: Array<{ id: string; name: string; stat: number; target: number }> = [
-    { id: 'first_blood',  name: 'First Blood',    stat: stats.kills,            target: 1 },
-    { id: 'big_game',     name: 'Hunter',          stat: stats.kills,            target: 50 },
     { id: 'angler',       name: 'Angler',          stat: stats.fishCaught,       target: 10 },
     { id: 'master_angler',name: 'Master Angler',   stat: stats.fishCaught,       target: 100 },
     { id: 'craftsman',    name: 'Craftsman',       stat: stats.itemsCrafted,     target: 20 },

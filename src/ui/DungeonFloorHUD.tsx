@@ -5,7 +5,7 @@
 // and loot multiplier. Shown only when the player is underground.
 // Includes an "ADVANCE FLOOR" button (enabled when the boss/mini-boss is dead).
 
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { useCaveStore } from '../store/caveStore'
 import { useDungeonStore } from '../store/dungeonStore'
 import { generateFloor } from '../game/DungeonFloorSystem'
@@ -17,18 +17,22 @@ export function DungeonFloorHUD() {
   const advanceFloor = useDungeonStore(s => s.advanceFloor)
   const [lastEventFloor, setLastEventFloor] = useState(currentFloor)
   const [flashNew, setFlashNew] = useState(false)
+  const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Listen for floor-advanced events so the HUD briefly flashes
   useEffect(() => {
     function onFloorAdvanced(e: Event) {
       const detail = (e as CustomEvent).detail as { floor: number }
       setLastEventFloor(detail.floor)
+      if (flashTimerRef.current) clearTimeout(flashTimerRef.current)
       setFlashNew(true)
-      const t = setTimeout(() => setFlashNew(false), 1500)
-      return () => clearTimeout(t)
+      flashTimerRef.current = setTimeout(() => setFlashNew(false), 1500)
     }
     window.addEventListener('dungeon-floor-advanced', onFloorAdvanced)
-    return () => window.removeEventListener('dungeon-floor-advanced', onFloorAdvanced)
+    return () => {
+      window.removeEventListener('dungeon-floor-advanced', onFloorAdvanced)
+      if (flashTimerRef.current) clearTimeout(flashTimerRef.current)
+    }
   }, [])
 
   if (!underground) return null

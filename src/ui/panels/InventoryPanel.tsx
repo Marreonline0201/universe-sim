@@ -2,7 +2,7 @@
 // M20: 8×5 grid with rich tooltips, category badges, and quality indicators.
 
 import { useState, useEffect } from 'react'
-import { inventory } from '../../game/GameSingletons'
+import { inventory, achievementSystem } from '../../game/GameSingletons'
 import { MAT, ITEM, type InventorySlot, RARITY_COLORS, RARITY_NAMES, type RarityTier } from '../../player/Inventory'
 import { usePlayerStore } from '../../store/playerStore'
 import { getItemStats, getFoodStats } from '../../player/EquipSystem'
@@ -326,6 +326,7 @@ export function InventoryPanel() {
                     thirst: Math.max(0, current.thirst - foodStats.thirstRestore),
                   })
                 }
+                achievementSystem.onEat()
                 inventory.removeItem(selected, 1)
                 setSelected(null)
               }}

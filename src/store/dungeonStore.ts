@@ -7,7 +7,7 @@ import { create } from 'zustand'
 import { dungeonState } from '../game/DungeonSystem'
 import type { TrapState } from '../game/DungeonSystem'
 import {
-  currentFloor as getFloorCount,
+  getCurrentFloor,
   advanceFloor as floorSystemAdvance,
   resetDungeonProgress,
 } from '../game/DungeonFloorSystem'
@@ -41,7 +41,7 @@ export const useDungeonStore = create<DungeonStoreState>((set) => ({
 
   advanceFloor: () => {
     floorSystemAdvance()
-    set({ currentFloor: getFloorCount })
+    set({ currentFloor: getCurrentFloor() })
   },
 
   resetFloor: () => {
@@ -59,7 +59,7 @@ export const useDungeonStore = create<DungeonStoreState>((set) => ({
       miniBossMaxHp: dungeonState.miniBossMaxHp,
       miniBossName: dungeonState.miniBossName,
       activeTraps: [...dungeonState.activeTraps],
-      currentFloor: getFloorCount,
+      currentFloor: getCurrentFloor(),
     })
   },
 }))

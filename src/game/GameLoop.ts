@@ -517,6 +517,8 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
           if (!dodged) {
             // Still on cooldown — refund stamina
             ps38.addStamina(20)
+          } else {
+            achievementSystem.onDodge()
           }
         }
       }
@@ -3079,6 +3081,7 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
       questSystem.onDayTick(dayCount)
       const currentTier = usePlayerStore.getState().civTier ?? 0
       questSystem.onTierReached(currentTier)
+      achievementSystem.onTierReached(currentTier)
     }
 
     // ── M24: Achievement system tick ────────────────────────────────────────

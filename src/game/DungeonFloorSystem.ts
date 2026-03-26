@@ -78,3 +78,8 @@ export function resetDungeonProgress(): void {
 export function getFloorData(): DungeonFloor {
   return generateFloor(currentFloor)
 }
+
+/** Return the current floor number (live read — avoids stale import bindings). */
+export function getCurrentFloor(): number {
+  return currentFloor
+}

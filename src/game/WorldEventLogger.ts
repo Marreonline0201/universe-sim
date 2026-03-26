@@ -33,47 +33,54 @@ function weatherIcon(name: string): string {
 // Call once on app mount.  Attaches window event listeners for game systems that
 // already dispatch CustomEvents.
 
+let _loggerInitialized = false
+
 export function initWorldEventLogger(): void {
+  if (_loggerInitialized) return
+  _loggerInitialized = true
   const { addEvent } = useWorldEventStore.getState()
 
-  // siege-started
+  // siege-started — detail: { settlementId, attackingFactionId, intensity }
   window.addEventListener('siege-started', (e: Event) => {
     const detail = (e as CustomEvent).detail ?? {}
-    const settlement = detail.settlement ?? detail.settlementName ?? 'Unknown Settlement'
-    const faction = detail.faction ?? detail.attackerFaction ?? 'Unknown Faction'
+    const settlementId = detail.settlementId
+    const faction = detail.attackingFactionId ?? detail.faction ?? 'Unknown Faction'
+    const settlementLabel = settlementId != null ? `Settlement #${settlementId}` : 'Unknown Settlement'
     useWorldEventStore.getState().addEvent({
       category: 'settlement',
       icon: '⚔️',
       title: 'Siege Begins',
-      detail: `${settlement} is under attack by ${faction}!`,
+      detail: `${settlementLabel} is under attack by ${faction}!`,
     })
   })
 
-  // siege-resolved
+  // siege-resolved — detail: { siegeId, settlementId, repelled, damage }
   window.addEventListener('siege-resolved', (e: Event) => {
     const detail = (e as CustomEvent).detail ?? {}
-    const repelled = detail.repelled ?? detail.outcome === 'repelled'
-    const settlement = detail.settlement ?? detail.settlementName ?? 'Unknown Settlement'
+    const repelled = detail.repelled ?? false
+    const settlementId = detail.settlementId
+    const settlementLabel = settlementId != null ? `Settlement #${settlementId}` : 'Unknown Settlement'
     useWorldEventStore.getState().addEvent({
       category: 'settlement',
       icon: repelled ? '🛡️' : '💥',
       title: repelled ? 'Siege Repelled' : 'Settlement Damaged',
       detail: repelled
-        ? `${settlement} successfully defended!`
-        : `${settlement} has taken damage from the siege.`,
+        ? `${settlementLabel} successfully defended!`
+        : `${settlementLabel} has taken damage from the siege.`,
     })
   })
 
-  // restock-event
+  // restock-event — detail: pendingRestockEvent { merchantName, settlementId, ... }
   window.addEventListener('restock-event', (e: Event) => {
     const detail = (e as CustomEvent).detail ?? {}
-    const merchant = detail.merchant ?? detail.merchantName ?? 'A merchant'
-    const settlement = detail.settlement ?? detail.settlementName ?? 'the settlement'
+    const merchant = detail.merchantName ?? detail.merchant ?? 'A merchant'
+    const settlementId = detail.settlementId
+    const settlementLabel = settlementId != null ? `Settlement #${settlementId}` : 'the settlement'
     useWorldEventStore.getState().addEvent({
       category: 'social',
       icon: '🛒',
       title: 'Merchant Restock',
-      detail: `${merchant} in ${settlement} has new stock!`,
+      detail: `${merchant} in ${settlementLabel} has new stock!`,
     })
   })
 

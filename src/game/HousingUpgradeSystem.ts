@@ -152,7 +152,7 @@ export function applyUpgrade(upgradeId: string): void {
   }
 
   _ownedUpgrades.add(upgradeId)
-  window.dispatchEvent(new CustomEvent('housing-upgrade', { detail: { upgradeId } }))
+  window.dispatchEvent(new CustomEvent('housing-upgrade', { detail: { upgradeId, upgradeName: upgrade.name } }))
 }
 
 /** Returns array of owned upgrade IDs. */

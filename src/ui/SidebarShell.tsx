@@ -127,7 +127,7 @@ const ICON_BUTTONS: Array<{ id: PanelId; icon: string; hint: string }> = [
   { id: 'tradepost',   icon: 'TRD',  hint: 'Trade Post (T)' },
   { id: 'forge',       icon: 'FRG',  hint: 'Forge (V)' },
   { id: 'housing',     icon: 'HSE',  hint: 'Housing (N)' },
-  { id: 'worldevents', icon: '📜',   hint: 'World Events (E)' },
+  { id: 'worldevents', icon: '📜',   hint: 'World Events (L)' },
   { id: 'traderoutes', icon: '💹',   hint: 'Trading Routes' },
   { id: 'bestiary',    icon: '📖',   hint: 'Bestiary' },
   { id: 'science',     icon: ' ? ',  hint: 'Science Companion (?)' },
@@ -201,7 +201,7 @@ export function SidebarShell() {
         case 'i': case 'I':   e.preventDefault(); togglePanel('inventory');  break
         case 'c': case 'C':   e.preventDefault(); togglePanel('crafting');   break
         case 'b': case 'B':   e.preventDefault(); togglePanel('build');      break
-        case 'e': case 'E':
+        case 'l': case 'L':
           e.preventDefault()
           togglePanel('worldevents')
           break

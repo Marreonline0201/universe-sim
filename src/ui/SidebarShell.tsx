@@ -64,6 +64,8 @@ const CaveFeaturesPanel = lazy(() => import('./panels/CaveFeaturesPanel').then(m
 const RelationshipPanel = lazy(() => import('./panels/RelationshipPanel').then(m => ({ default: m.RelationshipPanel })))
 // M52 Track A: Faction War panel
 const FactionWarPanel = lazy(() => import('./panels/FactionWarPanel').then(m => ({ default: m.FactionWarPanel })))
+// M53 Track A: Seasonal events panel
+const SeasonalPanel = lazy(() => import('./panels/SeasonalPanel').then(m => ({ default: m.SeasonalPanel })))
 
 // M36 Track C: Wrapper resolves nearSettlementId from store so panel has no props
 function BuildingsPanelWrapper() {
@@ -116,6 +118,7 @@ const PANEL_LABEL: Record<PanelId, string> = {
   cavefeatures:  'CAVE FEATURES',
   relationships: 'NPC RELATIONSHIPS',
   factionwars:   'FACTION WARS',
+  seasonal:      'SEASONAL EVENTS',
 }
 
 const PANEL_WIDTH = 480
@@ -150,6 +153,7 @@ const ICON_BUTTONS: Array<{ id: PanelId; icon: string; hint: string }> = [
   { id: 'cavefeatures',  icon: '⛏',   hint: 'Cave Features' },
   { id: 'relationships', icon: '🤝',  hint: 'Relations (R)' },
   { id: 'factionwars',   icon: '⚔️',  hint: 'Faction Wars (W)' },
+  { id: 'seasonal',      icon: '🍃',   hint: 'Seasons (S)' },
   { id: 'science',       icon: ' ? ', hint: 'Science Companion (?)' },
   { id: 'settings',    icon: 'SET',  hint: 'Settings (Esc)' },
 ]
@@ -187,6 +191,7 @@ const PANEL_COMPONENTS: Record<PanelId, React.ComponentType> = {
   cavefeatures:  CaveFeaturesPanel,
   relationships: RelationshipPanel,
   factionwars:   FactionWarPanel,
+  seasonal:      SeasonalPanel,
 }
 
 export function SidebarShell() {
@@ -246,6 +251,7 @@ export function SidebarShell() {
         case 'z': case 'Z':   e.preventDefault(); togglePanel('achievements'); break
         case 'r': case 'R':   e.preventDefault(); togglePanel('relationships'); break
         case 'w': case 'W':   e.preventDefault(); togglePanel('factionwars');  break
+        case 's': case 'S':   e.preventDefault(); togglePanel('seasonal');     break
         case 'Tab':           e.preventDefault(); togglePanel('character');  break
         case 'm': case 'M':   e.preventDefault(); togglePanel('map');        break
         case '?': case '/':

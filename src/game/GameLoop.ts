@@ -200,6 +200,10 @@ import { updateForecasts } from './WeatherForecastSystem'
 import { onTimeTransition, tickDayNightEvents } from './DayNightEventSystem'
 // M52 Track A: Faction war events
 import { tickFactionWars } from './FactionWarSystem'
+// M53 Track A: Seasonal events
+import { onSeasonChange, tickSeasonalEvents, normaliseSeasonName } from './SeasonalEventSystem'
+// M53 Track C: Combo system
+import { onHit, tickCombo, getDamageMultiplier } from './ComboSystem'
 
 // Register skill system with offline save manager for serialization
 registerSkillSystem(skillSystem)
@@ -318,6 +322,8 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
   const lastTimePeriodRef = useRef<'dawn' | 'day' | 'dusk' | 'night' | null>(null)
   // M52 Track A: Faction war system tick timer — fires every 120 sim-seconds
   const warTimerRef = useRef(0)
+  // M53 Track A: Last known season for seasonal-event change detection
+  const lastSeasonRef = useRef<string | null>(null)
 
   useFrame((_, delta) => {
     // Cap dt to avoid spiral-of-death on slow frames
@@ -396,6 +402,8 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
 
     // M24: Combat system tick (cooldowns, damage numbers, health bar pruning)
     combatSystem.tick(dt)
+    // M53 Track C: Combo system tick (dt is seconds, tickCombo expects ms)
+    tickCombo(dt * 1000)
 
     // M38 Track B: Faction ability lazy registration
     {
@@ -1772,7 +1780,9 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
         const isCritical = combatSystem.rollCrit(combatLevel)
         const critMult = isCritical ? CombatSystem.CRIT_MULTIPLIER : 1.0
         const skillDmgMult = skillSystem.getBonuses().combatDamageMultiplier
-        const totalDamage = stats.damage * comboMult * critMult * skillDmgMult
+        // M53 Track C: Apply combo streak multiplier
+        const streakMult = getDamageMultiplier()
+        const totalDamage = stats.damage * comboMult * critMult * skillDmgMult * streakMult
 
         // M31 Track C: Weapon durability — reduce by 1 per attack on equipped weapon
         const eqSlot = usePlayerStore.getState().equippedSlot
@@ -1803,6 +1813,7 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
           }
         }
         if (nearestCreatureEid >= 0) {
+          onHit() // M53 Track C: register hit for combo streak
           hitCreature = true
           Health.current[nearestCreatureEid] = Math.max(0, Health.current[nearestCreatureEid] - totalDamage)
           const hp = Health.current[nearestCreatureEid]
@@ -1846,6 +1857,7 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
             const { killed, hit, loot, effectiveDamage } = animalHit
             // M24: Spawn damage number at hit position
             if (hit) {
+              onHit() // M53 Track C: register hit for combo streak
               combatSystem.spawnDamageNumber(hit.x, hit.y + 1.5, hit.z, effectiveDamage, isCritical)
               // M24: Update health bar for surviving animals
               if (!killed) {
@@ -2905,6 +2917,18 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
       // One in-game day = 1200 real seconds (matches simSeconds day/night cycle)
       festivalSystem.tick(dt, currentSeason, 1200)
       useFestivalStore.getState().sync()
+    }
+
+    // ── M53 Track A: Seasonal events ─────────────────────────────────────────
+    {
+      const simSecs53 = useGameStore.getState().simSeconds
+      const serverSeason53 = useSeasonStore.getState().season
+      if (lastSeasonRef.current !== serverSeason53) {
+        lastSeasonRef.current = serverSeason53
+        const normSeason53 = normaliseSeasonName(serverSeason53)
+        onSeasonChange(normSeason53, simSecs53)
+      }
+      tickSeasonalEvents(simSecs53)
     }
 
     // ── M10 Track B: Sailing + fishing ────────────────────────────────────────

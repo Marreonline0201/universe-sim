@@ -118,6 +118,12 @@ const NPCMemoryPanel = lazy(() => import('./panels/NPCMemoryPanel').then(m => ({
 const WorldChroniclePanel = lazy(() => import('./panels/WorldChroniclePanel').then(m => ({ default: m.WorldChroniclePanel })))
 // M64 Track B: Player housing tier & upgrade panel
 const PlayerHousingPanel = lazy(() => import('./panels/PlayerHousingPanel').then(m => ({ default: m.PlayerHousingPanel })))
+// M65 Track A: Player talent tree panel
+const TalentTreePanel = lazy(() => import('./panels/TalentTreePanel').then(m => ({ default: m.TalentTreePanel })))
+// M65 Track B: Dynamic quest board panel
+const DynamicQuestBoardPanel = lazy(() => import('./panels/DynamicQuestBoardPanel').then(m => ({ default: m.DynamicQuestBoardPanel })))
+// M65 Track C: NPC emotion state panel
+const NPCEmotionPanel = lazy(() => import('./panels/NPCEmotionPanel').then(m => ({ default: m.NPCEmotionPanel })))
 
 // M36 Track C: Wrapper resolves nearSettlementId from store so panel has no props
 function BuildingsPanelWrapper() {
@@ -197,6 +203,9 @@ const PANEL_LABEL: Record<PanelId, string> = {
   npcmemory:       'NPC MEMORY',
   chronicle:       'CHRONICLE',
   playerhouse:     'PLAYER HOUSE',
+  talentree:       'TALENT TREE',
+  questboard:      'QUEST BOARD',
+  npcemotions:     'NPC EMOTIONS',
 }
 
 const PANEL_WIDTH = 480
@@ -258,6 +267,9 @@ const ICON_BUTTONS: Array<{ id: PanelId; icon: string; hint: string }> = [
   { id: 'npcmemory',   icon: '🧠',   hint: 'NPC Memory (F4)' },
   { id: 'chronicle',   icon: '📰',   hint: 'Chronicle (F5)' },
   { id: 'playerhouse', icon: '🏠',   hint: 'Player House (F6)' },
+  { id: 'talentree',   icon: '🌳',   hint: 'Talent Tree (F7)' },
+  { id: 'questboard',  icon: '📋',   hint: 'Quest Board (F8)' },
+  { id: 'npcemotions', icon: '😊',   hint: 'NPC Emotions (F9)' },
   { id: 'settings',    icon: 'SET',  hint: 'Settings (Esc)' },
   { id: 'factionrep',  icon: '🏅',   hint: 'Faction Reputation (F)' },
 ]
@@ -322,6 +334,9 @@ const PANEL_COMPONENTS: Record<PanelId, React.ComponentType> = {
   npcmemory:       NPCMemoryPanel,
   chronicle:       WorldChroniclePanel,
   playerhouse:     PlayerHousingPanel,
+  talentree:       TalentTreePanel,
+  questboard:      DynamicQuestBoardPanel,
+  npcemotions:     NPCEmotionPanel,
 }
 
 export function SidebarShell() {
@@ -420,7 +435,11 @@ export function SidebarShell() {
         case 'F6':
           e.preventDefault(); togglePanel('playerhouse'); break
         case 'F7':
-          e.preventDefault(); togglePanel('housing'); break
+          e.preventDefault(); togglePanel('talentree'); break
+        case 'F8':
+          e.preventDefault(); togglePanel('questboard'); break
+        case 'F9':
+          e.preventDefault(); togglePanel('npcemotions'); break
         case 'Escape':
           e.preventDefault()
           if (isFishingActive()) { cancelFishing(); useGameStore.getState().setGatherPrompt(null) }

@@ -35,6 +35,9 @@ import { initNPCMemorySystem } from './game/NPCMemorySystem'
 import { initWorldChronicle } from './game/WorldChronicleSystem'
 import { initSeasonalEventSystem } from './game/SeasonalEventSystem'
 import { initPlayerHousing } from './game/PlayerHousingSystem'
+import { initTalentTree } from './game/TalentTreeSystem'
+import { initDynamicQuestBoard } from './game/DynamicQuestBoardSystem'
+import { initNPCEmotionSystem } from './game/NPCEmotionSystem'
 
 // ── M20: Lazy-load AdminPanel (dev/admin only) ──────────────────────────────
 const AdminPanel = lazy(() => import('./ui/AdminPanel').then(m => ({ default: m.AdminPanel })))
@@ -110,6 +113,9 @@ function DevGame() {
     initWorldChronicle()
     initPlayerHousing()
     initSeasonalEventSystem()
+    initTalentTree()
+    initDynamicQuestBoard(0)
+    initNPCEmotionSystem()
   }, [])
 
   return (
@@ -190,6 +196,9 @@ function GameWithSave() {
     initWorldChronicle()
     initSeasonalEventSystem()
     initPlayerHousing()
+    initTalentTree()
+    initDynamicQuestBoard(0)
+    initNPCEmotionSystem()
   }, [])
 
   // Load save on first sign-in

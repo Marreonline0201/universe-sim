@@ -43,6 +43,8 @@ import { serializeChronicle, deserializeChronicle } from './WorldChronicleSystem
 import { serializeSeasons, deserializeSeasons } from './SeasonalEventSystem'
 import { serializeJournal, deserializeJournal } from './PlayerJournalSystem'
 import { serializeHousing, deserializeHousing } from './PlayerHousingSystem'
+import { serializeTalents, deserializeTalents } from './TalentTreeSystem'
+import { serializeQuestBoard, deserializeQuestBoard } from './DynamicQuestBoardSystem'
 import { Health, Metabolism, Position } from '../ecs/world'
 import { rapierWorld } from '../physics/RapierWorld'
 import { PLANET_RADIUS } from '../world/SpherePlanet'
@@ -172,6 +174,8 @@ export async function saveOffline(): Promise<boolean> {
       seasonalEvents: serializeSeasons(),
       playerJournal: serializeJournal(),
       playerHousing: serializeHousing(),
+      talents: serializeTalents(),
+      questBoard: serializeQuestBoard(),
     })
     const meta = JSON.stringify({
       timestamp: Date.now(),
@@ -403,6 +407,16 @@ export async function loadOffline(): Promise<boolean> {
     // M64 Track B: Restore player housing
     if (state.playerHousing) {
       deserializeHousing(state.playerHousing)
+    }
+
+    // M65 Track A: Restore talent tree
+    if (state.talents) {
+      deserializeTalents(state.talents)
+    }
+
+    // M65 Track B: Restore dynamic quest board
+    if (state.questBoard) {
+      deserializeQuestBoard(state.questBoard)
     }
 
     // Restore position

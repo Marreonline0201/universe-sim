@@ -8,7 +8,6 @@ import { useSkillStore } from '../store/skillStore'
 import { skillSystem } from './SkillSystem'
 import { useUiStore } from '../store/uiStore'
 import { usePlayerStatsStore } from '../store/playerStatsStore'
-import { useUiStore as _ui } from '../store/uiStore'
 
 export interface PlayerTitle {
   id: string

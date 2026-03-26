@@ -231,6 +231,8 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
   const puzzleResetCheckRef     = useRef<Record<string, number>>({}) // roomId → reset timestamp
   // M37 Track A: World event completion tracking
   const worldEventCompletedRef  = useRef<string | null>(null)  // eventId that was completed this session
+  // M37 Track C: Distance tracking for stats
+  const lastStatsPos            = useRef<{ x: number; z: number } | null>(null)
 
   useFrame((_, delta) => {
     // Cap dt to avoid spiral-of-death on slow frames
@@ -391,6 +393,19 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
     const py = Position.y[entityId]
     const pz = Position.z[entityId]
     setPosition(px, py, pz)
+
+    // M37 Track C: accumulate distance traveled
+    if (lastStatsPos.current !== null) {
+      const ddx = px - lastStatsPos.current.x
+      const ddz = pz - lastStatsPos.current.z
+      const moved = Math.sqrt(ddx * ddx + ddz * ddz)
+      if (moved > 0.05) {
+        usePlayerStatsStore.getState().incrementStat('distanceTraveled', moved)
+        lastStatsPos.current = { x: px, z: pz }
+      }
+    } else {
+      lastStatsPos.current = { x: px, z: pz }
+    }
 
     // ── M37 Track A: World event proximity / participation ────────────────────
     {
@@ -2382,6 +2397,9 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
                   'discovery',
                 )
                 window.dispatchEvent(new CustomEvent('golden-fish-caught'))
+                // M37 Track C: Track golden fish stat
+                usePlayerStatsStore.getState().incrementStat('goldenFishCaught')
+                checkNewTitles()
               } else {
                 useUiStore.getState().addNotification(
                   `Caught ${caught.rarity} ${caught.name}! Added to inventory.`,

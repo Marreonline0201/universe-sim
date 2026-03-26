@@ -50,6 +50,8 @@ import { serializeTradingNetwork, deserializeTradingNetwork } from './ResourceTr
 import { serializeTitles as serializePlayerTitles, deserializeTitles as deserializePlayerTitles } from './PlayerTitleSystem'
 import { serializeScheduler, deserializeScheduler } from './WorldEventSchedulerSystem'
 import { serializeCodex, deserializeCodex } from './WorldHistoryCodexSystem'
+import { serializeAchievementJournal, deserializeAchievementJournal } from './PlayerAchievementJournalSystem'
+import { serializeRelations, deserializeRelations } from './SettlementRelationsSystem'
 import { Health, Metabolism, Position } from '../ecs/world'
 import { rapierWorld } from '../physics/RapierWorld'
 import { PLANET_RADIUS } from '../world/SpherePlanet'
@@ -186,6 +188,8 @@ export async function saveOffline(): Promise<boolean> {
       playerTitles: serializePlayerTitles(),
       worldEventScheduler: serializeScheduler(),
       worldHistoryCodex: serializeCodex(),
+      achievementJournal: serializeAchievementJournal(),
+      settlementRelations: serializeRelations(),
     })
     const meta = JSON.stringify({
       timestamp: Date.now(),
@@ -452,6 +456,16 @@ export async function loadOffline(): Promise<boolean> {
     // M67 Track A: Restore world history codex
     if (state.worldHistoryCodex) {
       deserializeCodex(state.worldHistoryCodex)
+    }
+
+    // M67 Track B: Restore player achievement journal
+    if (state.achievementJournal) {
+      deserializeAchievementJournal(state.achievementJournal)
+    }
+
+    // M67 Track C: Restore settlement relations
+    if (state.settlementRelations) {
+      deserializeRelations(state.settlementRelations)
     }
 
     // Restore position

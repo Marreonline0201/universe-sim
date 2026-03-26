@@ -134,6 +134,8 @@ const ResourceTradingNetworkPanel = lazy(() => import('./panels/ResourceTradingN
 const WorldHistoryCodexPanel = lazy(() => import('./panels/WorldHistoryCodexPanel').then(m => ({ default: m.WorldHistoryCodexPanel })))
 // M67 Track B: Player Achievement Journal (Adventure Log) panel
 const PlayerAchievementJournalPanel = lazy(() => import('./panels/PlayerAchievementJournalPanel').then(m => ({ default: m.PlayerAchievementJournalPanel })))
+// M67 Track C: Settlement Relations panel
+const SettlementRelationsPanel = lazy(() => import('./panels/SettlementRelationsPanel').then(m => ({ default: m.SettlementRelationsPanel })))
 
 // M36 Track C: Wrapper resolves nearSettlementId from store so panel has no props
 function BuildingsPanelWrapper() {
@@ -221,6 +223,7 @@ const PANEL_LABEL: Record<PanelId, string> = {
   tradenetwork:    'TRADE NETWORK',
   worldhistory:    'WORLD HISTORY CODEX',
   achievejournal:  'ADVENTURE LOG',
+  settlementrel:   'SETTLEMENT RELATIONS',
 }
 
 const PANEL_WIDTH = 480
@@ -292,6 +295,7 @@ const ICON_BUTTONS: Array<{ id: PanelId; icon: string; hint: string }> = [
   { id: 'factionrep',  icon: '🏅',   hint: 'Faction Reputation (F)' },
   { id: 'worldhistory',   icon: '📜', hint: 'World Codex (F13)' },
   { id: 'achievejournal', icon: '📓', hint: 'Adventure Log (F14)' },
+  { id: 'settlementrel',  icon: '🤝', hint: 'Settlement Relations' },
 ]
 
 const PANEL_COMPONENTS: Record<PanelId, React.ComponentType> = {
@@ -362,6 +366,7 @@ const PANEL_COMPONENTS: Record<PanelId, React.ComponentType> = {
   tradenetwork:    ResourceTradingNetworkPanel,
   worldhistory:    WorldHistoryCodexPanel,
   achievejournal:  PlayerAchievementJournalPanel,
+  settlementrel:   SettlementRelationsPanel,
 }
 
 export function SidebarShell() {
@@ -473,6 +478,8 @@ export function SidebarShell() {
           e.preventDefault(); togglePanel('tradenetwork'); break
         case 'F13':
           e.preventDefault(); togglePanel('worldhistory'); break
+        case 'F14':
+          e.preventDefault(); togglePanel('achievejournal'); break
         case 'Escape':
           e.preventDefault()
           if (isFishingActive()) { cancelFishing(); useGameStore.getState().setGatherPrompt(null) }

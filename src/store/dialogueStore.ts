@@ -30,6 +30,10 @@ interface DialogueState {
   merchantArchetype: MerchantArchetypeType
   setMerchantArchetype: (archetype: MerchantArchetypeType) => void
 
+  // M35: Active settlement ID for market pricing
+  merchantSettlementId: string
+  setMerchantSettlementId: (id: string) => void
+
   openDialogue: (npcId: number, name: string, role: string, settlement?: string) => void
   closeDialogue: () => void
   addMessage: (sender: 'player' | 'npc', text: string) => void
@@ -49,6 +53,9 @@ export const useDialogueStore = create<DialogueState>((set) => ({
 
   merchantArchetype: 'general',
   setMerchantArchetype: (archetype) => set({ merchantArchetype: archetype }),
+
+  merchantSettlementId: 'default',
+  setMerchantSettlementId: (id) => set({ merchantSettlementId: id }),
 
   openDialogue: (npcId, name, role, settlement = 'Unknown') =>
     set({

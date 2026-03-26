@@ -5,6 +5,8 @@
 import { useEffect, useRef } from 'react'
 import { create } from 'zustand'
 import type { RemotePlayer } from '../store/multiplayerStore'
+import { openPlayerTradePanel, buildTradeRequest } from './panels/TradePanel'
+import { getLocalUserId, getLocalUsername } from '../net/useWorldSocket'
 
 // ── Store ──────────────────────────────────────────────────────────────────────
 interface InspectPlayerState {
@@ -169,9 +171,38 @@ export function InspectPlayerOverlay() {
           )}
         </div>
 
+        {/* M35: Trade button */}
+        <button
+          onClick={() => {
+            const request = buildTradeRequest(getLocalUserId(), getLocalUsername(), p)
+            closeInspect()
+            openPlayerTradePanel(request)
+          }}
+          style={{
+            display: 'block',
+            width: '100%',
+            marginTop: 14,
+            padding: '7px 0',
+            fontFamily: '"Courier New", monospace',
+            fontSize: 11,
+            fontWeight: 700,
+            letterSpacing: 1,
+            background: 'rgba(205,68,32,0.14)',
+            border: '1px solid #cd4420',
+            borderRadius: 5,
+            color: '#cd4420',
+            cursor: 'pointer',
+            transition: 'all 0.12s',
+          }}
+          onMouseEnter={e => { e.currentTarget.style.background = 'rgba(205,68,32,0.28)' }}
+          onMouseLeave={e => { e.currentTarget.style.background = 'rgba(205,68,32,0.14)' }}
+        >
+          TRADE
+        </button>
+
         {/* Footer hint */}
         <div style={{
-          marginTop: 16,
+          marginTop: 10,
           fontSize: 9,
           color: '#333',
           textAlign: 'center',

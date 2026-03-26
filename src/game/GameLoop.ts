@@ -123,6 +123,9 @@ import { useSettlementQuestStore } from '../store/settlementQuestStore'
 import { consumeFood, tickFoodBuffs } from './FoodBuffSystem'
 // M34 Track B: Boss system
 import { trySpawnBoss, damageBoss, currentBoss } from './BossSystem'
+// M35 Track C: Faction system
+import { useFactionStore } from '../store/factionStore'
+import { FACTIONS, getFactionRelationship, FACTION_IDS } from './FactionSystem'
 
 // Register skill system with offline save manager for serialization
 registerSkillSystem(skillSystem)
@@ -191,10 +194,19 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
   const rainFireTimerRef        = useRef(0)    // 10s rain extinguishes fires check
   const lightningTimerRef       = useRef(0)    // countdown to next lightning strike
   const warmthStormMultRef      = useRef(1)    // storm movement speed multiplier
+  // M35 Track B: Disaster system timers
+  const tornadoSpawnTimerRef    = useRef(300 + Math.random() * 300)  // seconds until next tornado attempt
+  const earthquakeTimerRef      = useRef(3600 + Math.random() * 3600) // seconds until next earthquake chance
+  const earthquakeActiveRef     = useRef(0)   // countdown for active shake (0 = inactive)
+  const volcanicAshTimerRef     = useRef(0)   // accumulates time near volcano
+  const lavaCheckTimerRef       = useRef(0)   // 0.5s tick for lava damage
   // M32: pending tame — animal id waiting for name input
   const pendingTameAnimalRef    = useRef<number | null>(null)
   // M34 Track A: home placement mode (true when player pressed B with HOME_DEED)
   const homePlacementModeRef    = useRef(false)
+  // M35 Track C: faction war event timers
+  const factionWarTimerRef      = useRef(0)  // seconds since last war check (fires every 60s)
+  const factionHealTimerRef     = useRef(0)  // seconds since last settlement health tick (every 60s)
 
   useFrame((_, delta) => {
     // Cap dt to avoid spiral-of-death on slow frames
@@ -215,6 +227,14 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
 
     // 1. Player movement + camera (computes desired movement, calls Rapier KCC)
     controllerRef.current?.update(dt, camera)
+
+    // M35 Track B: Earthquake camera shake — sinusoidal offset
+    if (earthquakeActiveRef.current > 0) {
+      const shakeIntensity = Math.min(1, earthquakeActiveRef.current / 3) * 0.3
+      camera.position.x += Math.sin(Date.now() * 0.05) * shakeIntensity
+      camera.position.y += Math.sin(Date.now() * 0.07 + 1.2) * shakeIntensity * 0.5
+      camera.position.z += Math.cos(Date.now() * 0.04 + 0.8) * shakeIntensity
+    }
 
     // 2. Step Rapier physics world (commits kinematic body positions)
     rapierWorld.step(dt)
@@ -646,6 +666,7 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
           // Find nearest settlement for NPC name/role
           const settlements = useSettlementStore.getState().settlements
           let npcSettlement = 'Wanderer'
+          let npcSettlementId = 'default'
           let nearestSettDist = Infinity
           for (const [, sett] of settlements) {
             const sdx = sett.x - closestNpc.x, sdy = sett.y - closestNpc.y, sdz = sett.z - closestNpc.z
@@ -653,6 +674,7 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
             if (sdist < nearestSettDist) {
               nearestSettDist = sdist
               npcSettlement = sett.name
+              npcSettlementId = String(sett.id)
             }
           }
           const NPC_ROLES = ['villager', 'guard', 'elder', 'trader', 'artisan', 'scout']
@@ -665,9 +687,11 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
             gs.setGatherPrompt(null)
             if (isMerchant) {
               // M27: Open merchant panel with appropriate archetype
+              // M35: Also store settlement ID for dynamic market pricing
               const civTier = usePlayerStore.getState().civTier
               const archetype = merchantSystem.getArchetypeForSettlementTier(civTier)
               useDialogueStore.getState().setMerchantArchetype(archetype)
+              useDialogueStore.getState().setMerchantSettlementId(npcSettlementId)
               useUiStore.getState().openPanel('merchant')
             } else {
               useDialogueStore.getState().openDialogue(closestNpc.id, npcName, npcRole, npcSettlement)
@@ -1537,6 +1561,9 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
       if (settlementCheckTimerRef.current >= SETTLEMENT_CHECK_INTERVAL) {
         settlementCheckTimerRef.current = 0
         const settlementStore = useSettlementStore.getState()
+        // M35 Track C: ensure all settlements have faction assignments
+        const settlementIds = Array.from(settlementStore.settlements.keys())
+        useFactionStore.getState().assignSettlementFactions(settlementIds)
         let nearestId: number | null = null
         let nearestDistSq = Infinity
         for (const s of settlementStore.settlements.values()) {
@@ -1731,6 +1758,130 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
         }
       } else {
         lightningTimerRef.current = 0
+      }
+    }
+
+    // ── M35 Track B: Disaster system ─────────────────────────────────────────
+    {
+      const wStore35  = useWeatherStore.getState()
+      const pw35      = wStore35.getPlayerWeather()
+      const wState35  = pw35?.state ?? 'CLEAR'
+
+      // ─ Tornado spawning during STORM (10% chance per 5-minute window) ────
+      if (wState35 === 'STORM' && !wStore35.tornadoPos) {
+        tornadoSpawnTimerRef.current -= dt
+        if (tornadoSpawnTimerRef.current <= 0) {
+          // 10% chance of tornado spawning
+          if (Math.random() < 0.10) {
+            const angle    = Math.random() * Math.PI * 2
+            const spawnDist = 80 + Math.random() * 60
+            wStore35.setTornadoPos({
+              x: px + Math.cos(angle) * spawnDist,
+              y: py,
+              z: pz + Math.sin(angle) * spawnDist,
+            })
+            useUiStore.getState().addNotification('⚠️ TORNADO FORMING — seek shelter!', 'error')
+          }
+          // Reset timer for next attempt (5 minutes)
+          tornadoSpawnTimerRef.current = 300 + Math.random() * 60
+        }
+      } else if (wState35 !== 'STORM') {
+        // Clear tornado when storm ends
+        if (wStore35.tornadoPos) wStore35.setTornadoPos(null)
+        tornadoSpawnTimerRef.current = 300
+      }
+
+      // ─ BLIZZARD: faster warmth drain (3× STORM rate) ─────────────────────
+      if (wState35 === 'BLIZZARD' && !inventory.isGodMode()) {
+        // 3× faster than STORM drain (STORM rate = 3.0/s from M29 block)
+        usePlayerStore.getState().addWarmth(-9.0 * dt)
+        // Notify player about blizzard effects
+        window.dispatchEvent(new CustomEvent('blizzard-active'))
+      }
+
+      // ─ VOLCANIC_ASH: damage player if not protected ──────────────────────
+      if (wState35 === 'VOLCANIC_ASH' && !inventory.isGodMode()) {
+        Health.current[entityId] = Math.max(0, Health.current[entityId] - 2 * dt)
+        window.dispatchEvent(new CustomEvent('volcanic-ash-active'))
+        // Extinguish nearby campfires (20% per 10s)
+        volcanicAshTimerRef.current += dt
+        if (volcanicAshTimerRef.current >= 10) {
+          volcanicAshTimerRef.current = 0
+          const campfireBuildings35 = buildingSystem.getAllBuildings().filter(b =>
+            b.typeId === 'campfire_pit' || b.typeId === 'campfire'
+          )
+          for (const b of campfireBuildings35) {
+            if (Math.random() < 0.20) {
+              if (simManagerRef.current) {
+                simManagerRef.current.suppressFire(b.position[0], b.position[1], b.position[2], 3)
+              }
+              const dx = px - b.position[0], dy = py - b.position[1], dz = pz - b.position[2]
+              if (dx * dx + dy * dy + dz * dz < 400) {
+                useUiStore.getState().addNotification('Volcanic ash smothered your campfire!', 'warning')
+              }
+            }
+          }
+        }
+      } else {
+        volcanicAshTimerRef.current = 0
+      }
+
+      // ─ Earthquake: rare random trigger ───────────────────────────────────
+      if (earthquakeActiveRef.current <= 0) {
+        earthquakeTimerRef.current -= dt
+        if (earthquakeTimerRef.current <= 0) {
+          // 1% chance per hour near volcano or heavy STORM
+          const isNearVolcano = false  // TODO: use biome flag when available
+          if (Math.random() < 0.01 || isNearVolcano) {
+            const shakeDuration = 5 + Math.random() * 5
+            earthquakeActiveRef.current = shakeDuration
+            wStore35.setEarthquake(true, 0.8)
+            useUiStore.getState().addNotification('🌋 Earthquake!', 'error')
+            window.dispatchEvent(new CustomEvent('earthquake-start', { detail: { duration: shakeDuration } }))
+          }
+          // Reset timer: next check in ~1 hour
+          earthquakeTimerRef.current = 3200 + Math.random() * 800
+        }
+      } else {
+        earthquakeActiveRef.current -= dt
+        const intensity = Math.min(1, earthquakeActiveRef.current / 2)
+        wStore35.setEarthquake(earthquakeActiveRef.current > 0, intensity)
+        if (earthquakeActiveRef.current <= 0) {
+          wStore35.setEarthquake(false, 0)
+          window.dispatchEvent(new CustomEvent('earthquake-end'))
+        }
+      }
+
+      // ─ Lava pools (volcano biome): constant damage within 3m of seeded positions
+      // Volcano biome positions are seeded around y > planet_radius + 50 and high terrain
+      lavaCheckTimerRef.current += dt
+      if (lavaCheckTimerRef.current >= 0.5) {
+        lavaCheckTimerRef.current = 0
+        // Approximate volcano area: high Y + specific XZ region
+        // Use a simple heuristic: player is "near volcano" if very high up
+        const aboveGroundY = Math.sqrt(px * px + py * py + pz * pz) - 4000
+        if (aboveGroundY > 80) {
+          // Seed deterministic lava pool positions
+          const LAVA_POOLS = [
+            { ox: 20, oz: 15 }, { ox: -18, oz: 22 }, { ox: 5, oz: -25 },
+            { ox: -10, oz: 10 }, { ox: 30, oz: -5 }, { ox: -5, oz: 30 },
+          ]
+          const volcanoPeakX = 0, volcanoPeakZ = 0  // approximate volcano center
+          for (const pool of LAVA_POOLS) {
+            const lpx = volcanoPeakX + pool.ox
+            const lpz = volcanoPeakZ + pool.oz
+            const dx = px - lpx, dz = pz - lpz
+            const dist2 = dx * dx + dz * dz
+            if (dist2 < 25) {  // within 5m show warning
+              if (dist2 < 9 && !inventory.isGodMode()) {  // within 3m — lava damage
+                Health.current[entityId] = Math.max(0, Health.current[entityId] - 15 * 0.5)
+                window.dispatchEvent(new CustomEvent('lava-damage'))
+              }
+              window.dispatchEvent(new CustomEvent('lava-warning'))
+              break
+            }
+          }
+        }
       }
     }
 
@@ -2041,6 +2192,120 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
       const hasCampfire = buildingSystem.getAllBuildings().some((b: any) => b.type === 'campfire')
       const hasAttackedAnimal = combatSystem.isInCombat
       tutorialSystem.tick(dt, px, py, pz, hasWood, hasStoneAxe, equippedIsAxe, hasCampfire, hasAttackedAnimal, 0)
+    }
+
+    // ── M35 Track C: Faction war events — raid check every 60s ───────────────
+    {
+      const WAR_CHECK_INTERVAL = 60    // seconds between war event checks
+      const HEAL_INTERVAL = 60         // seconds between passive heal ticks
+      const RAID_CHANCE = 0.20         // 20% chance per warring faction pair per tick
+      const RAID_DAMAGE = 10           // settlement loses 10% health per undefended raid
+      const HEAL_RATE = 5              // 5% health regen per minute when peaceful
+
+      factionWarTimerRef.current += dt
+      factionHealTimerRef.current += dt
+
+      if (factionHealTimerRef.current >= HEAL_INTERVAL) {
+        factionHealTimerRef.current = 0
+        const fStore = useFactionStore.getState()
+        const settStore = useSettlementStore.getState()
+        for (const s of settStore.settlements.values()) {
+          // Only heal if no active raid against this settlement
+          const hasActiveRaid = fStore.raidEvents.some(r => r.active && r.defendingSettlementId === s.id)
+          if (!hasActiveRaid) {
+            fStore.healSettlement(s.id, HEAL_RATE)
+          }
+        }
+      }
+
+      if (factionWarTimerRef.current >= WAR_CHECK_INTERVAL) {
+        factionWarTimerRef.current = 0
+        const fStore = useFactionStore.getState()
+        const settStore = useSettlementStore.getState()
+        const uiStore = useUiStore.getState()
+
+        // Assign faction IDs to all settlements if not done yet
+        const settlementIdList = Array.from(settStore.settlements.keys())
+        fStore.assignSettlementFactions(settlementIdList)
+
+        // Check each warring faction pair
+        const checkedPairs = new Set<string>()
+        for (const [aId, a] of settStore.settlements) {
+          for (const [bId, b] of settStore.settlements) {
+            if (aId === bId) continue
+            const pairKey = [Math.min(aId, bId), Math.max(aId, bId)].join('-')
+            if (checkedPairs.has(pairKey)) continue
+            checkedPairs.add(pairKey)
+
+            const factionA = fStore.getSettlementFaction(aId)
+            const factionB = fStore.getSettlementFaction(bId)
+            if (!factionA || !factionB) continue
+            if (factionA === factionB) continue
+
+            const rel = getFactionRelationship(factionA, factionB)
+            if (rel !== 'war') continue
+
+            // 20% chance to trigger a raid
+            if (Math.random() > RAID_CHANCE) continue
+
+            // Pick the "weaker" settlement as the defender (lower health)
+            const healthA = fStore.getSettlementHealth(aId)
+            const healthB = fStore.getSettlementHealth(bId)
+            const [attackerSettId, defenderSettId] = healthA > healthB
+              ? [aId, bId] : [bId, aId]
+            const defenderFaction = fStore.getSettlementFaction(defenderSettId)!
+            const attackerFaction = fStore.getSettlementFaction(attackerSettId)!
+
+            // Start raid event
+            fStore.startRaid(attackerFaction, defenderSettId, defenderFaction)
+
+            // Check if player is near the defending settlement and in defending faction
+            const defSett = settStore.settlements.get(defenderSettId)
+            const playerFaction = fStore.playerFaction
+            if (defSett) {
+              const dxR = px - defSett.x, dzR = pz - defSett.z
+              const distR = Math.sqrt(dxR * dxR + dzR * dzR)
+              const isNear = distR < 200
+
+              const defenderFactionData = FACTIONS[defenderFaction]
+              const attackerFactionData = FACTIONS[attackerFaction]
+              const dir = distR > 0 ? Math.round(Math.atan2(defSett.z - pz, defSett.x - px) * 180 / Math.PI) : 0
+
+              // Notify player regardless
+              const distText = isNear ? 'nearby' : `${Math.round(distR)}m`
+              const bearing = distR > 50 ? ` ${distText}` : ''
+              uiStore.addNotification(
+                `[RAID] ${attackerFactionData.icon} ${attackerFactionData.name} attacks ${defSett.name}${bearing}`,
+                'warning'
+              )
+
+              // Dispatch raid alert event for the RaidAlertBanner in HUD
+              window.dispatchEvent(new CustomEvent('faction-raid-alert', {
+                detail: {
+                  message: `[RAID] ${attackerFactionData.icon} ${attackerFactionData.name} attacks ${defenderFactionData.icon} ${defSett.name}${bearing}`,
+                },
+              }))
+
+              // If player is near and in defending faction, they can earn XP
+              if (isNear && playerFaction && (
+                playerFaction === defenderFaction ||
+                getFactionRelationship(playerFaction, defenderFaction) === 'ally'
+              )) {
+                // Player is defending — award XP and gold
+                usePlayerStore.getState().addGold(50)
+                fStore.addFactionXp(100)
+                uiStore.addNotification(
+                  `You defended ${defSett.name}! +100 Faction XP, +50 Gold`,
+                  'discovery'
+                )
+              } else {
+                // Undefended — damage settlement
+                fStore.damageSettlement(defenderSettId, RAID_DAMAGE)
+              }
+            }
+          }
+        }
+      }
     }
 
     // ── M7 T2: NPC guard aggro ────────────────────────────────────────────────

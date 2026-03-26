@@ -22,8 +22,13 @@ import { getLocalEmote } from '../game/EmoteSystem'
 import { skillSystem, SkillSystem, type SkillId } from '../game/SkillSystem'
 import { RemotePlayerNameTagsOverlay } from './RemotePlayerNameTags'
 import { InspectPlayerOverlay } from './InspectPlayerOverlay'
+import { TradePanel } from './panels/TradePanel'
 import { useUiStore } from '../store/uiStore'
 import { useSettlementQuestStore } from '../store/settlementQuestStore'
+// M35 Track C: Faction system
+import { useFactionStore } from '../store/factionStore'
+import { useSettlementStore } from '../store/settlementStore'
+import { FACTIONS, getFactionRelationship, getRelationshipColor } from '../game/FactionSystem'
 
 // ── M20: Lazy-loaded overlays (rarely shown) ─────────────────────────────────
 const FirstContactOverlay = lazy(() => import('./FirstContactOverlay').then(m => ({ default: m.FirstContactOverlay })))
@@ -1032,6 +1037,26 @@ function SkillXpBar() {
           80%  { opacity: 1; transform: translateX(-50%) translateY(0); }
           100% { opacity: 0; transform: translateX(-50%) translateY(-6px); }
         }
+        @keyframes tornadoPulse {
+          0%   { box-shadow: 0 0 0 0 rgba(255,170,0,0.6); border-color: #ffaa00; }
+          50%  { box-shadow: 0 0 0 8px rgba(255,170,0,0); border-color: #ffcc44; }
+          100% { box-shadow: 0 0 0 0 rgba(255,170,0,0.6); border-color: #ffaa00; }
+        }
+        @keyframes blizzardPulse {
+          0%   { opacity: 0.7; }
+          50%  { opacity: 1.0; }
+          100% { opacity: 0.7; }
+        }
+        @keyframes volcanicFlicker {
+          0%   { border-color: #cc4400; box-shadow: 0 0 12px rgba(204,68,0,0.5); }
+          50%  { border-color: #ff6600; box-shadow: 0 0 24px rgba(255,102,0,0.8); }
+          100% { border-color: #cc4400; box-shadow: 0 0 12px rgba(204,68,0,0.5); }
+        }
+        @keyframes earthquakeFlash {
+          0%   { background: rgba(220,40,40,0.12); }
+          50%  { background: rgba(220,40,40,0.25); }
+          100% { background: rgba(220,40,40,0.12); }
+        }
       `}</style>
     </>
   )
@@ -1205,6 +1230,469 @@ export function BossHPBar() {
       </div>
     </div>
   )
+}
+
+// ── M35 Track C: Faction Badge (top-left) ─────────────────────────────────────
+
+function FactionBadgeWidget() {
+  const playerFaction = useFactionStore(s => s.playerFaction)
+  const togglePanel   = useUiStore(s => s.togglePanel)
+
+  if (!playerFaction) return null
+
+  const f = FACTIONS[playerFaction]
+
+  return (
+    <div
+      onClick={() => togglePanel('factions')}
+      title={`${f.name} — click to open Factions panel (G)`}
+      style={{
+        position: 'fixed',
+        top: 14,
+        left: 258,
+        display: 'flex',
+        alignItems: 'center',
+        gap: 5,
+        background: 'rgba(0,0,0,0.55)',
+        border: `1px solid ${f.color}55`,
+        borderLeft: `3px solid ${f.color}`,
+        borderRadius: 3,
+        padding: '3px 8px',
+        cursor: 'pointer',
+        zIndex: 110,
+        pointerEvents: 'auto',
+        fontFamily: 'monospace',
+        fontSize: 9,
+        color: f.color,
+        letterSpacing: 1,
+        fontWeight: 700,
+      }}
+    >
+      <span style={{ fontSize: 13, lineHeight: 1 }}>{f.icon}</span>
+      <span style={{ textTransform: 'uppercase' }}>{f.name}</span>
+    </div>
+  )
+}
+
+// ── M35 Track C: Settlement Territory Banner ──────────────────────────────────
+
+function SettlementTerritoryBanner() {
+  const [banner, setBanner] = useState<{
+    name: string
+    factionName: string
+    factionIcon: string
+    factionColor: string
+    relColor: string
+    relLabel: string
+  } | null>(null)
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const playerFaction = useFactionStore(s => s.playerFaction)
+  const nearSettlementId = useSettlementStore(s => s.nearSettlementId)
+  const settlements = useSettlementStore(s => s.settlements)
+
+  useEffect(() => {
+    if (nearSettlementId === null) {
+      // Clear banner when leaving
+      if (timerRef.current) clearTimeout(timerRef.current)
+      setBanner(null)
+      return
+    }
+    const s = settlements.get(nearSettlementId)
+    if (!s) return
+
+    const npcFaction = s.factionId
+    if (!npcFaction) return
+
+    const f = FACTIONS[npcFaction]
+    let relColor = '#aaaaaa'
+    let relLabel = ''
+    if (playerFaction) {
+      const rel = getFactionRelationship(playerFaction, npcFaction)
+      relColor = getRelationshipColor(rel)
+      relLabel = rel === 'war' ? ' — HOSTILE TERRITORY' : rel === 'ally' ? ' — ALLIED TERRITORY' : ''
+    }
+
+    setBanner({
+      name: s.name,
+      factionName: f.name,
+      factionIcon: f.icon,
+      factionColor: f.color,
+      relColor,
+      relLabel,
+    })
+
+    // Auto-hide after 3 seconds
+    if (timerRef.current) clearTimeout(timerRef.current)
+    timerRef.current = setTimeout(() => setBanner(null), 3000)
+
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nearSettlementId])
+
+  if (!banner) return null
+
+  return (
+    <div style={{
+      position: 'fixed',
+      top: 60,
+      left: '50%',
+      transform: 'translateX(-50%)',
+      background: 'rgba(0,0,0,0.82)',
+      border: `1px solid ${banner.factionColor}55`,
+      borderTop: `2px solid ${banner.factionColor}`,
+      borderRadius: 4,
+      padding: '6px 20px',
+      zIndex: 350,
+      pointerEvents: 'none',
+      textAlign: 'center',
+      fontFamily: 'monospace',
+      animation: 'chestLootSlideUp 0.3s ease-out',
+    }}>
+      <div style={{ fontSize: 9, color: '#888', letterSpacing: 2, marginBottom: 2 }}>
+        ENTERING
+      </div>
+      <div style={{ fontSize: 13, color: '#fff', fontWeight: 700, letterSpacing: 1 }}>
+        {banner.name}
+      </div>
+      <div style={{ fontSize: 10, color: banner.relColor, letterSpacing: 1, marginTop: 2 }}>
+        {banner.factionIcon} {banner.factionName}{banner.relLabel}
+      </div>
+    </div>
+  )
+}
+
+// ── M35 Track C: Raid notification banner ─────────────────────────────────────
+
+export function RaidAlertBanner() {
+  const [alert, setAlert] = useState<{ message: string; key: number } | null>(null)
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const keyRef = useRef(0)
+
+  useEffect(() => {
+    function onRaidAlert(e: Event) {
+      const { message } = (e as CustomEvent<{ message: string }>).detail
+      const key = ++keyRef.current
+      setAlert({ message, key })
+      if (timerRef.current) clearTimeout(timerRef.current)
+      timerRef.current = setTimeout(() => setAlert(null), 5000)
+    }
+    window.addEventListener('faction-raid-alert', onRaidAlert)
+    return () => {
+      window.removeEventListener('faction-raid-alert', onRaidAlert)
+      if (timerRef.current) clearTimeout(timerRef.current)
+    }
+  }, [])
+
+  if (!alert) return null
+
+  return (
+    <div
+      key={alert.key}
+      style={{
+        position: 'fixed',
+        top: 100,
+        left: '50%',
+        transform: 'translateX(-50%)',
+        background: 'rgba(0,0,0,0.88)',
+        border: '2px solid #cc3333',
+        borderRadius: 4,
+        padding: '8px 20px',
+        zIndex: 900,
+        pointerEvents: 'none',
+        fontFamily: 'monospace',
+        fontSize: 11,
+        color: '#ff6666',
+        fontWeight: 700,
+        letterSpacing: 1,
+        animation: 'bossPulse 0.8s ease-in-out infinite',
+      }}
+    >
+      {alert.message}
+    </div>
+  )
+}
+
+// ── M35 Track B: Disaster Warning Overlay ────────────────────────────────────
+
+type DisasterType = 'tornado' | 'blizzard' | 'volcanic_ash' | 'earthquake' | 'lava' | null
+
+/** Priority stack: shows the highest-severity active disaster warning. */
+export function DisasterWarningOverlay() {
+  const [tornadoDist, setTornadoDist]       = useState<number>(-1)
+  const [blizzardActive, setBlizzardActive] = useState(false)
+  const [ashActive, setAshActive]           = useState(false)
+  const [earthquakeActive, setEarthquake]   = useState(false)
+  const [lavaWarning, setLavaWarning]       = useState(false)
+  const [lavaOnFire, setLavaOnFire]         = useState(false)
+  const ashTimerRef        = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const blizzardTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const earthquakeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const lavaTimerRef       = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    const onTornado = (e: Event) => {
+      const d = (e as CustomEvent<{ distance: number }>).detail
+      setTornadoDist(d.distance)
+    }
+    const onBlizzard = () => {
+      setBlizzardActive(true)
+      if (blizzardTimerRef.current) clearTimeout(blizzardTimerRef.current)
+      blizzardTimerRef.current = setTimeout(() => setBlizzardActive(false), 3000)
+    }
+    const onAsh = () => {
+      setAshActive(true)
+      if (ashTimerRef.current) clearTimeout(ashTimerRef.current)
+      ashTimerRef.current = setTimeout(() => setAshActive(false), 3000)
+    }
+    const onEarthquakeStart = () => {
+      setEarthquake(true)
+      if (earthquakeTimerRef.current) clearTimeout(earthquakeTimerRef.current)
+    }
+    const onEarthquakeEnd = () => {
+      setEarthquake(false)
+    }
+    const onLavaWarning = () => {
+      setLavaWarning(true)
+      if (lavaTimerRef.current) clearTimeout(lavaTimerRef.current)
+      lavaTimerRef.current = setTimeout(() => setLavaWarning(false), 1500)
+    }
+    const onLavaDamage = () => {
+      setLavaOnFire(true)
+      if (lavaTimerRef.current) clearTimeout(lavaTimerRef.current)
+      lavaTimerRef.current = setTimeout(() => { setLavaWarning(false); setLavaOnFire(false) }, 1500)
+    }
+
+    window.addEventListener('tornado-warning', onTornado)
+    window.addEventListener('blizzard-active', onBlizzard)
+    window.addEventListener('volcanic-ash-active', onAsh)
+    window.addEventListener('earthquake-start', onEarthquakeStart)
+    window.addEventListener('earthquake-end', onEarthquakeEnd)
+    window.addEventListener('lava-warning', onLavaWarning)
+    window.addEventListener('lava-damage', onLavaDamage)
+
+    return () => {
+      window.removeEventListener('tornado-warning', onTornado)
+      window.removeEventListener('blizzard-active', onBlizzard)
+      window.removeEventListener('volcanic-ash-active', onAsh)
+      window.removeEventListener('earthquake-start', onEarthquakeStart)
+      window.removeEventListener('earthquake-end', onEarthquakeEnd)
+      window.removeEventListener('lava-warning', onLavaWarning)
+      window.removeEventListener('lava-damage', onLavaDamage)
+      if (ashTimerRef.current) clearTimeout(ashTimerRef.current)
+      if (blizzardTimerRef.current) clearTimeout(blizzardTimerRef.current)
+      if (earthquakeTimerRef.current) clearTimeout(earthquakeTimerRef.current)
+      if (lavaTimerRef.current) clearTimeout(lavaTimerRef.current)
+    }
+  }, [])
+
+  // Priority: earthquake > lava > tornado > volcanic_ash > blizzard
+  let activeDisaster: DisasterType = null
+  if (earthquakeActive)              activeDisaster = 'earthquake'
+  else if (lavaOnFire || lavaWarning) activeDisaster = 'lava'
+  else if (tornadoDist >= 0)         activeDisaster = 'tornado'
+  else if (ashActive)                activeDisaster = 'volcanic_ash'
+  else if (blizzardActive)           activeDisaster = 'blizzard'
+
+  if (!activeDisaster) return null
+
+  if (activeDisaster === 'earthquake') {
+    return (
+      <>
+        {/* Full-screen red tint + screen shake text */}
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(220,40,40,0.18)',
+          pointerEvents: 'none',
+          zIndex: 1800,
+          animation: 'earthquakeFlash 0.4s ease-in-out infinite',
+        }} />
+        <div style={{
+          position: 'fixed',
+          top: 80,
+          left: '50%',
+          transform: 'translateX(-50%)',
+          background: 'rgba(0,0,0,0.85)',
+          border: '2px solid #cc0000',
+          borderRadius: 6,
+          padding: '8px 24px',
+          zIndex: 1850,
+          pointerEvents: 'none',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          gap: 3,
+          animation: 'bossPulse 0.5s ease-in-out infinite',
+        }}>
+          <span style={{ fontSize: 13, color: '#ff4444', fontFamily: 'monospace', fontWeight: 'bold', letterSpacing: 2 }}>
+            &#127755; EARTHQUAKE
+          </span>
+          <span style={{ fontSize: 10, color: '#ff8888', fontFamily: 'monospace' }}>
+            Speed reduced — brace yourself!
+          </span>
+        </div>
+      </>
+    )
+  }
+
+  if (activeDisaster === 'lava') {
+    return (
+      <div style={{
+        position: 'fixed',
+        bottom: 160,
+        left: '50%',
+        transform: 'translateX(-50%)',
+        background: 'rgba(12,4,0,0.92)',
+        border: `2px solid ${lavaOnFire ? '#ff3300' : '#ff6600'}`,
+        borderRadius: 6,
+        padding: '8px 20px',
+        zIndex: 1800,
+        pointerEvents: 'none',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+        animation: 'volcanicFlicker 0.6s ease-in-out infinite',
+        boxShadow: `0 0 20px rgba(255,${lavaOnFire ? '50' : '100'},0,0.7)`,
+      }}>
+        <span style={{ fontSize: 11, color: '#ff5500', fontFamily: 'monospace', fontWeight: 'bold', letterSpacing: 1 }}>
+          {lavaOnFire ? '&#128293; LAVA \u2014 Move!' : '&#9888; Lava nearby \u2014 danger!'}
+        </span>
+      </div>
+    )
+  }
+
+  if (activeDisaster === 'tornado') {
+    return (
+      <>
+        {/* Amber pulsing border */}
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          border: '4px solid #ffaa00',
+          pointerEvents: 'none',
+          zIndex: 1750,
+          animation: 'tornadoPulse 0.8s ease-in-out infinite',
+          borderRadius: 0,
+        }} />
+        <div style={{
+          position: 'fixed',
+          top: 80,
+          left: '50%',
+          transform: 'translateX(-50%)',
+          background: 'rgba(8,6,0,0.90)',
+          border: '2px solid #ffaa00',
+          borderRadius: 6,
+          padding: '8px 20px',
+          zIndex: 1760,
+          pointerEvents: 'none',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          gap: 3,
+          boxShadow: '0 0 20px rgba(255,170,0,0.4)',
+        }}>
+          <span style={{ fontSize: 13, color: '#ffcc00', fontFamily: 'monospace', fontWeight: 'bold', letterSpacing: 2, animation: 'tornadoPulse 0.8s ease-in-out infinite' }}>
+            &#9888;&#65039; TORNADO APPROACHING
+          </span>
+          <span style={{ fontSize: 10, color: '#ffdd88', fontFamily: 'monospace' }}>
+            {tornadoDist > 0 ? `${tornadoDist}m away \u2014 run!` : 'DANGER ZONE'}
+          </span>
+        </div>
+      </>
+    )
+  }
+
+  if (activeDisaster === 'volcanic_ash') {
+    return (
+      <>
+        {/* Orange corner overlays */}
+        {(['topLeft', 'topRight', 'bottomLeft', 'bottomRight'] as const).map(corner => (
+          <div key={corner} style={{
+            position: 'fixed',
+            ...(corner.includes('top')    ? { top: 0 }    : { bottom: 0 }),
+            ...(corner.includes('Left')   ? { left: 0 }   : { right: 0 }),
+            width: 120,
+            height: 120,
+            background: corner.includes('top')
+              ? `radial-gradient(circle at ${corner.includes('Left') ? '0% 0%' : '100% 0%'}, rgba(180,80,0,0.35), transparent 80%)`
+              : `radial-gradient(circle at ${corner.includes('Left') ? '0% 100%' : '100% 100%'}, rgba(180,80,0,0.35), transparent 80%)`,
+            pointerEvents: 'none',
+            zIndex: 1700,
+            animation: 'volcanicFlicker 1.5s ease-in-out infinite',
+          }} />
+        ))}
+        <div style={{
+          position: 'fixed',
+          top: 80,
+          left: '50%',
+          transform: 'translateX(-50%)',
+          background: 'rgba(10,5,0,0.90)',
+          border: '2px solid #cc4400',
+          borderRadius: 6,
+          padding: '8px 20px',
+          zIndex: 1710,
+          pointerEvents: 'none',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          gap: 3,
+          animation: 'volcanicFlicker 1.5s ease-in-out infinite',
+        }}>
+          <span style={{ fontSize: 12, color: '#ff6600', fontFamily: 'monospace', fontWeight: 'bold', letterSpacing: 1 }}>
+            &#9729;&#65039; Volcanic Ash \u2014 take cover!
+          </span>
+          <span style={{ fontSize: 10, color: '#ffaa66', fontFamily: 'monospace' }}>
+            Taking 2 damage/s \u2014 seek shelter
+          </span>
+        </div>
+      </>
+    )
+  }
+
+  if (activeDisaster === 'blizzard') {
+    return (
+      <>
+        {/* Blue-white vignette edges */}
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'radial-gradient(ellipse at center, transparent 40%, rgba(140,190,255,0.25) 100%)',
+          pointerEvents: 'none',
+          zIndex: 1650,
+          animation: 'blizzardPulse 2s ease-in-out infinite',
+        }} />
+        <div style={{
+          position: 'fixed',
+          top: 80,
+          left: '50%',
+          transform: 'translateX(-50%)',
+          background: 'rgba(4,8,20,0.90)',
+          border: '2px solid #aaddff',
+          borderRadius: 6,
+          padding: '8px 20px',
+          zIndex: 1660,
+          pointerEvents: 'none',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          gap: 3,
+          boxShadow: '0 0 16px rgba(140,190,255,0.4)',
+        }}>
+          <span style={{ fontSize: 12, color: '#aaddff', fontFamily: 'monospace', fontWeight: 'bold', letterSpacing: 1 }}>
+            &#10052; BLIZZARD \u2014 Seek shelter!
+          </span>
+          <span style={{ fontSize: 10, color: '#ddeeff', fontFamily: 'monospace' }}>
+            Warmth draining rapidly
+          </span>
+        </div>
+      </>
+    )
+  }
+
+  return null
 }
 
 // ── M34 Track A: Home indicator (top-left, above vitals) ──────────────────────
@@ -1897,16 +2385,27 @@ export function HUD() {
       {/* ── M29 Track C4: Inspect player modal overlay ── */}
       <InspectPlayerOverlay />
 
+      {/* ── M35 Track A: Player trade panel overlay ── */}
+      <TradePanel />
+
       {/* ── M33 Track A: Quest tracker widget (bottom-right) ── */}
       <QuestTrackerWidget />
 
       {/* ── M34 Track A: Home indicator ── */}
       <HomeIndicatorWidget />
 
+      {/* ── M35 Track C: Faction badge + settlement territory banner ── */}
+      <FactionBadgeWidget />
+      <SettlementTerritoryBanner />
+      <RaidAlertBanner />
+
       {/* ── M34 Track B: World boss alerts ── */}
       <BossSpawnAlert />
       <BossKillAnnouncement />
       <BossHPBar />
+
+      {/* ── M35 Track B: Disaster warning overlay ── */}
+      <DisasterWarningOverlay />
 
       {/* ── M32 Track C: Fast travel fade-to-black overlay ── */}
       <div style={{

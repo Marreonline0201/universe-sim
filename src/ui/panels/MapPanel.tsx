@@ -22,10 +22,14 @@ import { useMultiplayerStore } from '../../store/multiplayerStore'
 import { useSettlementStore } from '../../store/settlementStore'
 import { useWeatherStore } from '../../store/weatherStore'
 import { useUiStore, MINIMAP_ZOOM_LEVELS, computeFastTravelCost, type FastTravelTarget } from '../../store/uiStore'
+import { useFactionStore } from '../../store/factionStore'
+import { FACTIONS } from '../../game/FactionSystem'
 import { RESOURCE_NODES } from '../../world/ResourceNodeManager'
 import { terrainHeightAt, biomeColor } from '../../world/SpherePlanet'
 import { useCaveStore } from '../../store/caveStore'
 import { generateAllCaveChests, isChestAvailable } from '../../game/ChestSystem'
+import { marketSystem } from '../../game/MarketSystem'
+import { merchantSystem } from '../../game/MerchantSystem'
 
 const SETTLEMENT_DISCOVERY_RADIUS = 150   // world units — player must be within this to discover
 
@@ -158,6 +162,8 @@ export function MapPanel() {
   const py                    = usePlayerStore(s => s.y)
   // ── M33 Track C: Underground state for chest markers ─────────────────────
   const underground           = useCaveStore(s => s.underground)
+  // ── M35 Track C: Settlement health from faction store ─────────────────────
+  const settlementHealth      = useFactionStore(s => s.settlementHealth)
 
   // ── A3: NPC animation pulse time ─────────────────────────────────────────
   const startTimeRef = useRef(performance.now())
@@ -169,6 +175,10 @@ export function MapPanel() {
   // ── Waypoint hover state ──────────────────────────────────────────────────
   const [hoveredWpIndex, setHoveredWpIndex] = useState<number>(-1)
   const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number } | null>(null)
+
+  // ── M35: Settlement economy tooltip ──────────────────────────────────────
+  const [hoveredSettlementId, setHoveredSettlementId] = useState<number | null>(null)
+  const [settlementTooltipPos, setSettlementTooltipPos] = useState<{ x: number; y: number } | null>(null)
 
   // ── Sync visitedCellsRef Set from the persisted store array ─────────────
   useEffect(() => {
@@ -247,7 +257,7 @@ export function MapPanel() {
     addWaypoint({ x: wx, z: wz })
   }, [waypoints, px, pz, worldRange, addWaypoint, removeWaypoint])
 
-  // ── Mouse move → detect waypoint hover ───────────────────────────────────
+  // ── Mouse move → detect waypoint and settlement hover ────────────────────
   const handleMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     const rect = canvasRef.current?.getBoundingClientRect()
     if (!rect) return
@@ -264,7 +274,20 @@ export function MapPanel() {
     }
     setHoveredWpIndex(found)
     setTooltipPos(found >= 0 ? { x: e.clientX - rect.left, y: e.clientY - rect.top } : null)
-  }, [waypoints, px, pz, worldRange])
+
+    // M35: Settlement economy tooltip
+    let foundSettlement: number | null = null
+    for (const s of settlements.values()) {
+      const [scx, scy] = worldToCanvas(s.x, s.z, px, pz, worldRange)
+      const dist = Math.sqrt((cx - scx) ** 2 + (cy - scy) ** 2)
+      if (dist < 14) { foundSettlement = s.id; break }
+    }
+    setHoveredSettlementId(foundSettlement)
+    setSettlementTooltipPos(foundSettlement !== null
+      ? { x: e.clientX - rect.left, y: e.clientY - rect.top }
+      : null
+    )
+  }, [waypoints, settlements, px, pz, worldRange])
 
   // ── Left-click → fast travel to settlement or waypoint ───────────────────
   const handleClick = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -434,16 +457,37 @@ export function MapPanel() {
         if (cx < -20 || cx > MAP_SIZE + 20 || cy < -20 || cy > MAP_SIZE + 20) continue
 
         const isDiscovered = discoveredSnap.has(String(s.id))
-        const fillColor = isDiscovered ? settlementColor(s.civLevel) : '#555566'
+        // M35 Track C: use faction color for discovered settlements
+        const factionSnap = useFactionStore.getState().settlementHealth
+        const healthVal = factionSnap.get(s.id) ?? 100
+        const factionId = s.factionId
+        const factionColor = factionId && FACTIONS[factionId] ? FACTIONS[factionId].color : null
+        const fillColor = isDiscovered ? (factionColor ?? settlementColor(s.civLevel)) : '#555566'
         const strokeColor = isDiscovered ? 'rgba(255,255,255,0.4)' : 'rgba(150,150,180,0.3)'
 
         drawDiamond(ctx, cx, cy, 5, fillColor, strokeColor)
+
+        // M35 Track C: health bar under diamond (small arc)
+        if (isDiscovered) {
+          const barW = 14
+          const barH = 3
+          const barX = cx - barW / 2
+          const barY = cy + 7
+          // background
+          ctx.fillStyle = 'rgba(0,0,0,0.6)'
+          ctx.fillRect(barX, barY, barW, barH)
+          // fill
+          const hPct = Math.max(0, Math.min(1, healthVal / 100))
+          const hColor = hPct < 0.3 ? '#cc3333' : hPct < 0.7 ? '#ddaa00' : '#44cc44'
+          ctx.fillStyle = hColor
+          ctx.fillRect(barX, barY, barW * hPct, barH)
+        }
 
         // A4: label (8px text; undiscovered shows "???")
         ctx.fillStyle = isDiscovered ? '#ffffff' : '#888899'
         ctx.font = '8px monospace'
         ctx.textAlign = 'center'
-        ctx.fillText(isDiscovered ? s.name : '???', cx, cy + 15)
+        ctx.fillText(isDiscovered ? s.name : '???', cx, cy + 18)
       }
 
       // ── A3: Animated NPC dots ──────────────────────────────────────────────
@@ -595,7 +639,12 @@ export function MapPanel() {
           onClick={handleClick}
           onContextMenu={handleContextMenu}
           onMouseMove={handleMouseMove}
-          onMouseLeave={() => { setHoveredWpIndex(-1); setTooltipPos(null) }}
+          onMouseLeave={() => {
+            setHoveredWpIndex(-1)
+            setTooltipPos(null)
+            setHoveredSettlementId(null)
+            setSettlementTooltipPos(null)
+          }}
           style={{
             borderRadius: 8,
             border: '1px solid rgba(255,255,255,0.1)',
@@ -625,6 +674,76 @@ export function MapPanel() {
             {wpDistance}m · left-click to travel · right-click to remove
           </div>
         )}
+
+        {/* M35: Settlement economy tooltip */}
+        {hoveredSettlementId !== null && settlementTooltipPos && !fastTravelTarget && (() => {
+          const sett = settlements.get(hoveredSettlementId)
+          if (!sett) return null
+          const sid = String(hoveredSettlementId)
+          const archetype = merchantSystem.getArchetypeForSettlementTier(sett.civLevel)
+          const sellList  = merchantSystem.getSellList(archetype)
+
+          // Find best deal (lowest mult) and most expensive (highest mult)
+          let cheapestLabel = ''
+          let cheapestMult  = Infinity
+          let expensiveLabel = ''
+          let expensiveMult  = 0
+
+          for (const item of sellList) {
+            const mult = marketSystem.getMultiplier(sid, item.materialId, item.itemId)
+            const label = item.name
+            if (mult < cheapestMult) { cheapestMult = mult; cheapestLabel = label }
+            if (mult > expensiveMult) { expensiveMult = mult; expensiveLabel = label }
+          }
+
+          const hasTrends = Math.abs(cheapestMult - 1.0) > 0.05 || Math.abs(expensiveMult - 1.0) > 0.05
+
+          return (
+            <div
+              style={{
+                position: 'absolute',
+                left: Math.min(settlementTooltipPos.x + 14, MAP_SIZE - 170),
+                top: Math.max(settlementTooltipPos.y - 60, 4),
+                background: 'rgba(8,8,12,0.95)',
+                border: '1px solid rgba(255,255,255,0.12)',
+                borderLeft: '2px solid #cd4420',
+                borderRadius: 5,
+                padding: '7px 10px',
+                fontFamily: 'monospace',
+                fontSize: 10,
+                color: '#ccc',
+                pointerEvents: 'none',
+                minWidth: 150,
+                maxWidth: 200,
+                zIndex: 5,
+                boxShadow: '0 4px 16px rgba(0,0,0,0.6)',
+              }}
+            >
+              <div style={{ fontWeight: 700, color: '#fff', marginBottom: 4, fontSize: 11, letterSpacing: 0.5 }}>
+                {sett.name}
+              </div>
+              <div style={{ color: '#888', marginBottom: 5, fontSize: 9, letterSpacing: 0.5 }}>
+                ECONOMY · {archetype.toUpperCase()}
+              </div>
+              {hasTrends ? (
+                <>
+                  {Math.abs(cheapestMult - 1.0) > 0.05 && (
+                    <div style={{ color: '#2ecc71', marginBottom: 2 }}>
+                      ↓ {cheapestLabel} — cheap
+                    </div>
+                  )}
+                  {Math.abs(expensiveMult - 1.0) > 0.05 && (
+                    <div style={{ color: '#e74c3c' }}>
+                      ↑ {expensiveLabel} — expensive
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div style={{ color: '#555' }}>Prices stable</div>
+              )}
+            </div>
+          )
+        })()}
 
         {/* M32 Track C: Fast travel confirmation dialog */}
         {fastTravelTarget && (

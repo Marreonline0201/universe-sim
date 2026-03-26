@@ -11,6 +11,8 @@ import { usePlayerStore } from '../../store/playerStore'
 import { useUiStore } from '../../store/uiStore'
 import { useSettlementQuestStore } from '../../store/settlementQuestStore'
 import { ENCHANTS, applyEnchant, activeWeaponEnchant, activeArmorEnchant, type Enchant } from '../../game/EnchantSystem'
+import { usePlayerStatsStore } from '../../store/playerStatsStore'
+import { checkNewTitles } from '../../game/TitleSystem'
 
 const MAT_NAMES: Record<number, string> = Object.fromEntries(
   Object.entries(MAT).map(([k, v]) => [v, k.toLowerCase().replace(/_/g, ' ')])
@@ -155,6 +157,9 @@ export function CraftingPanel() {
       setFloatingText(`+1 ${selectedRecipe.name}${rarityLabel}`)
       setTimeout(() => setCraftFlash(false), 400)
       setTimeout(() => setFloatingText(null), 1200)
+      // M37 Track C: Track craft stat + check titles
+      usePlayerStatsStore.getState().incrementStat('itemsCrafted')
+      checkNewTitles()
 
       // M22: Crafting XP — 15-50 based on recipe tier
       import('../../game/SkillSystem').then(m => {

@@ -11,6 +11,12 @@ export interface RemotePlayer {
   murderCount?: number  // M5: criminal record — skull icon shown when > 0
   lastMovedAt?: number  // M29: timestamp of last position change (ms) for AFK detection
   equippedWeapon?: string // M29: visible weapon name for inspect panel
+  // M37 Track C: Title / progression fields
+  title?: string        // equipped title name (e.g. "Warrior")
+  titleColor?: string   // title hex color
+  totalLevel?: number   // sum of all skill levels (0–70)
+  gold?: number         // player's current gold
+  prestigeCount?: number // prestige count
 }
 
 export interface RemoteNpc {

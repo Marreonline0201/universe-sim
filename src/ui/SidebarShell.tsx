@@ -34,6 +34,8 @@ const HomePanel        = lazy(() => import('./panels/HomePanel').then(m => ({ de
 const FactionPanel     = lazy(() => import('./panels/FactionPanel').then(m => ({ default: m.FactionPanel })))
 // M36 Track C: Buildings panel (wrapper reads settlementId from store)
 const BuildingsPanelLazy = lazy(() => import('./panels/BuildingsPanel').then(m => ({ default: m.BuildingsPanel })))
+// M37 Track C: Progression panel (titles, stats, milestones)
+const ProgressionPanel = lazy(() => import('./panels/ProgressionPanel').then(m => ({ default: m.ProgressionPanel })))
 
 // M36 Track C: Wrapper resolves nearSettlementId from store so panel has no props
 function BuildingsPanelWrapper() {
@@ -72,49 +74,52 @@ const PANEL_LABEL: Record<PanelId, string> = {
   home:         'HOME BASE',
   factions:     'FACTIONS',
   buildings:    'SETTLEMENT BUILDINGS',
+  progression:  'PROGRESSION & TITLES',
 }
 
 const PANEL_WIDTH = 480
 
 // Right-edge icon strip entries — order determines vertical position
 const ICON_BUTTONS: Array<{ id: PanelId; icon: string; hint: string }> = [
-  { id: 'inventory',  icon: 'INV',  hint: 'Inventory (I)' },
-  { id: 'crafting',   icon: 'CRF',  hint: 'Crafting (C)' },
-  { id: 'build',      icon: 'BLD',  hint: 'Build (B)' },
-  { id: 'journal',    icon: 'JRN',  hint: 'Journal (J)' },
-  { id: 'character',  icon: 'CHR',  hint: 'Character (Tab)' },
-  { id: 'map',        icon: 'MAP',  hint: 'Map (M)' },
-  { id: 'skills',     icon: 'SKL',  hint: 'Skills (K)' },
-  { id: 'quests',     icon: 'QST',  hint: 'Quests (Q)' },
-  { id: 'achievements', icon: 'ACH', hint: 'Achievements' },
-  { id: 'fishing',    icon: 'FSH',  hint: 'Fishing (F near water)' },
-  { id: 'home',       icon: 'HME',  hint: 'Home Base (H)' },
-  { id: 'players',    icon: 'PLR',  hint: 'Players Online (P)' },
-  { id: 'factions',   icon: 'FCT',  hint: 'Factions (G)' },
-  { id: 'buildings',  icon: 'BLD',  hint: 'Settlement Buildings (U)' },
-  { id: 'science',    icon: ' ? ',  hint: 'Science Companion (?)' },
-  { id: 'settings',   icon: 'SET',  hint: 'Settings (Esc)' },
+  { id: 'inventory',   icon: 'INV',  hint: 'Inventory (I)' },
+  { id: 'crafting',    icon: 'CRF',  hint: 'Crafting (C)' },
+  { id: 'build',       icon: 'BLD',  hint: 'Build (B)' },
+  { id: 'journal',     icon: 'JRN',  hint: 'Journal (J)' },
+  { id: 'character',   icon: 'CHR',  hint: 'Character (Tab)' },
+  { id: 'map',         icon: 'MAP',  hint: 'Map (M)' },
+  { id: 'skills',      icon: 'SKL',  hint: 'Skills (K)' },
+  { id: 'quests',      icon: 'QST',  hint: 'Quests (Q)' },
+  { id: 'achievements',icon: 'ACH',  hint: 'Achievements' },
+  { id: 'progression', icon: 'TTL',  hint: 'Progression & Titles (X)' },
+  { id: 'fishing',     icon: 'FSH',  hint: 'Fishing (F near water)' },
+  { id: 'home',        icon: 'HME',  hint: 'Home Base (H)' },
+  { id: 'players',     icon: 'PLR',  hint: 'Players Online (P)' },
+  { id: 'factions',    icon: 'FCT',  hint: 'Factions (G)' },
+  { id: 'buildings',   icon: 'STL',  hint: 'Settlement Buildings (U)' },
+  { id: 'science',     icon: ' ? ',  hint: 'Science Companion (?)' },
+  { id: 'settings',    icon: 'SET',  hint: 'Settings (Esc)' },
 ]
 
 const PANEL_COMPONENTS: Record<PanelId, React.ComponentType> = {
-  inventory:  InventoryPanel,
-  crafting:   CraftingPanel,
-  build:      BuildPanel,
-  journal:    JournalPanel,
-  character:  CharacterPanel,
-  map:        MapPanel,
-  settings:   SettingsPanel,
-  science:    SciencePanel,
-  dialogue:   DialoguePanel,
-  skills:     SkillTreePanel,
-  quests:     QuestPanel,
-  achievements: AchievementPanel,
-  fishing:      FishingPanel,
-  merchant:     MerchantPanel,
-  players:      PlayerListPanel,
-  home:         HomePanel,
-  factions:     FactionPanel,
-  buildings:    BuildingsPanelWrapper,
+  inventory:   InventoryPanel,
+  crafting:    CraftingPanel,
+  build:       BuildPanel,
+  journal:     JournalPanel,
+  character:   CharacterPanel,
+  map:         MapPanel,
+  settings:    SettingsPanel,
+  science:     SciencePanel,
+  dialogue:    DialoguePanel,
+  skills:      SkillTreePanel,
+  quests:      QuestPanel,
+  achievements:  AchievementPanel,
+  fishing:       FishingPanel,
+  merchant:      MerchantPanel,
+  players:       PlayerListPanel,
+  home:          HomePanel,
+  factions:      FactionPanel,
+  buildings:     BuildingsPanelWrapper,
+  progression:   ProgressionPanel,
 }
 
 export function SidebarShell() {
@@ -159,6 +164,7 @@ export function SidebarShell() {
         case 'u': case 'U':   e.preventDefault(); togglePanel('buildings'); break
         case 'h': case 'H':   e.preventDefault(); togglePanel('home'); break
         case 'p': case 'P':   e.preventDefault(); togglePanel('players');     break
+        case 'x': case 'X':   e.preventDefault(); togglePanel('progression'); break
         case 'Tab':           e.preventDefault(); togglePanel('character');  break
         case 'm': case 'M':   e.preventDefault(); togglePanel('map');        break
         case '?': case '/':

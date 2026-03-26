@@ -289,6 +289,8 @@ export function DialoguePanel() {
   const getBuildingProgress = useBuildingStore(s => s.getBuildingProgress)
   const isBldgComplete      = useBuildingStore(s => s.isBuildingComplete)
   const getAvailableBuildings = useBuildingStore(s => s.getAvailableBuildings)
+  const buildingsMap        = useBuildingStore(s => s.buildings)  // subscribe for reactivity
+  const getBuilding         = useBuildingStore(s => s.getBuilding)
 
   const availableBuildings = currentSettlement
     ? getAvailableBuildings(currentSettlement.civLevel).filter(
@@ -703,7 +705,7 @@ export function DialoguePanel() {
                     </div>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                       {def.donationRequirements.map(req => {
-                        const donated = useBuildingStore.getState().getBuilding(currentSettlement.id, type)?.donated[req.matId] ?? 0
+                        const donated = getBuilding(currentSettlement.id, type)?.donated[req.matId] ?? 0
                         const stillNeeded = Math.max(0, req.qty - donated)
                         const inInv = inventory.countMaterial(req.matId)
                         const canGive = Math.min(inInv, stillNeeded)

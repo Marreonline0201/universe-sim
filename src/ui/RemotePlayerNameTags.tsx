@@ -31,6 +31,8 @@ interface NameTagData {
   opacity: number
   isAFK: boolean
   pingMs: number | undefined
+  title?: string       // M37: equipped title name
+  titleColor?: string  // M37: title color
 }
 
 // ── Inner component — runs inside R3F Canvas context ──────────────────────────
@@ -88,6 +90,8 @@ function NameTagsOverlayInner({
         opacity,
         isAFK,
         pingMs: playerPings.get(p.userId),
+        title: p.title,
+        titleColor: p.titleColor,
       })
     }
 
@@ -153,17 +157,34 @@ export function RemotePlayerNameTagsOverlay() {
             flexShrink: 0,
             boxShadow: `0 0 4px ${pingColor(tag.pingMs)}99`,
           }} />
-          {/* Name */}
-          <span style={{
-            fontFamily: 'monospace',
-            fontSize: 11,
-            color: '#ffffff',
-            textShadow: '0 0 3px #000, 1px 1px 2px #000, -1px -1px 2px #000',
-            whiteSpace: 'nowrap',
-            letterSpacing: 0.3,
-          }}>
-            {tag.username}
-          </span>
+          {/* Title + Name column */}
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
+            {/* M37: Equipped title */}
+            {tag.title && (
+              <span style={{
+                fontFamily: 'monospace',
+                fontSize: 9,
+                color: tag.titleColor ?? '#aaaaaa',
+                textShadow: '0 0 3px #000, 1px 1px 2px #000',
+                whiteSpace: 'nowrap',
+                letterSpacing: 0.5,
+                lineHeight: 1,
+              }}>
+                [{tag.title}]
+              </span>
+            )}
+            {/* Name */}
+            <span style={{
+              fontFamily: 'monospace',
+              fontSize: 11,
+              color: '#ffffff',
+              textShadow: '0 0 3px #000, 1px 1px 2px #000, -1px -1px 2px #000',
+              whiteSpace: 'nowrap',
+              letterSpacing: 0.3,
+            }}>
+              {tag.username}
+            </span>
+          </div>
           {/* Online/AFK status dot */}
           <div style={{
             width: 5,

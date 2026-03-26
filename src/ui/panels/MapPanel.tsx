@@ -32,6 +32,8 @@ import { generateAllDungeonRooms, isDungeonRoomActive } from '../../game/Dungeon
 import { marketSystem } from '../../game/MarketSystem'
 import { merchantSystem } from '../../game/MerchantSystem'
 import { useSettlementQuestStore } from '../../store/settlementQuestStore'
+import { usePlayerStatsStore } from '../../store/playerStatsStore'
+import { checkNewTitles } from '../../game/TitleSystem'
 
 const SETTLEMENT_DISCOVERY_RADIUS = 150   // world units — player must be within this to discover
 
@@ -204,6 +206,9 @@ export function MapPanel() {
       if (dist <= SETTLEMENT_DISCOVERY_RADIUS) {
         discoverSettlement(id)
         addNotification(`Discovered ${s.name}!`, 'discovery')
+        // M37 Track C: Track settlement discovery stat
+        usePlayerStatsStore.getState().incrementStat('settlementsDiscovered')
+        checkNewTitles()
         // Complete active explore quests on new settlement discovery
         useSettlementQuestStore.getState().activeQuests
           .filter(q => q.type === 'explore' && !q.completed)

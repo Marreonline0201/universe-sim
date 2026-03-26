@@ -495,6 +495,9 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
                   // Consume 1 food item on success
                   inventory.removeItem(foodSlotIdx, 1)
                   skillSystem.addXp('husbandry', 50)
+                  // M37 Track C: Track tame stat
+                  usePlayerStatsStore.getState().incrementStat('animalsTamed')
+                  checkNewTitles()
                   pendingTameAnimalRef.current = result.animal.id
                   // Show name-input popup via custom event
                   const specName = result.animal.species
@@ -1447,6 +1450,8 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
               if (killed.boss && currentBoss && currentBoss.entityId === killed.id) {
                 damageBoss(effectiveDamage, 'Player', inventory)
                 skillSystem.addXp('combat', 500)  // bonus XP for boss kill
+                // M37 Track C: Track boss kill
+                usePlayerStatsStore.getState().incrementStat('bossesKilled')
               }
               skillSystem.addXp('combat', 50) // M22: Combat XP on animal kill
               // M23: Quest progress on kill

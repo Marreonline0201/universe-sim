@@ -138,22 +138,96 @@ FishingPanel.tsx (M25 Track C). 7-state machine: idle > casting > waiting > biti
 
 ## Merchant system (session 6)
 
-MerchantSystem.ts + MerchantPanel.tsx (M27 Track B). NPC with id%6==3 (trader role) triggers "[F] Trade with X 🛍" prompt when within range. F opens merchant panel with archetype set via window.__merchantArchetype (general/blacksmith/alchemist). Buy/Sell tabs. Gold balance displayed. Inventory full on buy: refund. Merchant not interested on sell: notification.
+MerchantSystem.ts + MerchantPanel.tsx (M27 Track B, updated M35 Track A). NPC with id%6==3 (trader role) triggers "[F] Trade with X 🛍" prompt when within range. F opens merchant panel. Archetype set via dialogueStore.merchantArchetype; settlement ID via dialogueStore.merchantSettlementId (String(sett.id), defaults to 'default'). Now has 3 tabs: Buy / Sell / Trends. Dynamic prices via MarketSystem singleton. TrendArrow component shows ↑/↓/= per item. Price caps: 2.0x (buy pressure) and 0.5x floor (sell pressure). 5% rebalance toward 1.0 every 60s.
 
-## Known bugs / issues (updated 2026-03-26 session 7 / M31 verification)
+## M35-M36 new systems (session 8)
+
+### M35 Track A: Market System (MarketSystem.ts + MerchantPanel.tsx)
+- Buy 5x of same item → price multiplier increases by 1.05^5 = ~1.28x (capped 2.0x). Sell 5x → price * 0.95^5 = ~0.77x (floored 0.5x).
+- Trend arrow: ↑ red (mult > 1.05), ↓ green (mult < 0.95), = grey (flat).
+- Trends tab: shows top 3 cheapest and top 3 most expensive. Shows "Market prices are stable." when all items within 5% of base.
+- MerchantPanel now has 3 tabs: Buy / Sell / Trends.
+- settlementId wired via dialogueStore.merchantSettlementId (set to String(sett.id) in GameLoop). Falls back to 'default' if player not near any settlement (can happen if NPC spawns 8m from spawn but no settlement is nearby).
+- Rebalance: 5% toward 1.0 every 60 real seconds. Clean-up threshold: abs(mult - 1.0) < 0.005.
+
+### M35 Track B: Weather Disasters (WeatherRenderer.tsx + WeatherStore + HUD.tsx)
+- TORNADO_WARNING weather state: GameLoop spawns tornado at wStore.setTornadoPos if STORM active. TornadoRenderer.tsx moves tornado, fires 'tornado-warning' event with distance. DisasterWarningOverlay listens.
+- BLIZZARD weather state: GameLoop checks wState35 === 'BLIZZARD', drains warmth 3x faster, fires 'blizzard-active' every frame. DisasterWarningOverlay shows 3s banner. Blizzard visual: 800 snow particles with 6x wind mult + 2.5x descent speed, tighter 0.4x spread.
+- DisasterWarningOverlay priority: earthquake > lava > tornado > volcanic_ash > blizzard. Shows distinct full-screen or banner UI per type.
+- WeatherStore has tornadoPos, earthquakeActive/Intensity, volcanicAshActive fields.
+- VOLCANIC_ASH: 600 ash particles. Fog density 0.005 (BLIZZARD = 0.009, thickest).
+- BLIZZARD FOG: fog density 0.009 — 3x STORM density.
+- Weather icon SVGs fully implemented for all 7 states.
+
+### M35 Track C: Faction System (FactionSystem.ts + FactionPanel.tsx + HUD.tsx)
+- 4 factions: rangers/merchants/scholars/outlaws. Each has bonuses, relationships.
+- G key opens FactionPanel (SidebarShell line 158).
+- Join confirmation: 2-click (Join → Confirm Join?). 60s switch cooldown with countdown display.
+- FactionBadgeWidget: shows at top-left (position: fixed, top:14, left:258) when player has joined a faction. Clickable → opens factions panel.
+- SettlementTerritoryBanner: fires when nearSettlementId changes, shows 3s banner "ENTERING {name} / {icon} {factionName}{relLabel}". Only fires if settlement has factionId set. Relies on settlement.factionId being populated by assignSettlementFactions().
+- RaidAlertBanner: listens for 'faction-raid-alert' CustomEvent, shows 5s red pulsing banner.
+- IMPORTANT BUG: SettlementTerritoryBanner reads s.factionId from settlement store, but settlementStore does NOT have a factionId field on settlements — faction assignment lives in factionStore.settlementFactions Map. The banner checks `s.factionId` which will always be undefined → banner never shows. This is a data-path disconnect.
+
+### M36 Track A: Skill Tree (SkillSystem.ts + SkillPanel.tsx + skillStore.ts)
+- K key opens SkillPanel (unchanged hotkey). Panel now has 2 tabs: SKILLS and TREE.
+- SKILLS tab: 7 skills (gathering/crafting/combat/survival/exploration/smithing/husbandry), XP bars, level indicators.
+- TREE tab: SkillTreeSection per skill, nodes grouped by row (tier 1=Lv5, tier 2=Lv10, tier 3=Lv15).
+- Total 23 nodes across 7 skills. Node unlock requires: prerequisite nodes + tier level + skill points.
+- Skill points: 1 per skill level-up. Stored in skillStore (separate from playerStore to avoid circular deps).
+- Prestige: all 7 skills at level 10 → gold border appears on PrestigeSection. Button resets all skills to 0 XP, keeps unlocked nodes, +10% XP per prestige permanently.
+- NOTE: SkillPanel re-exports as SkillTreePanel for SidebarShell (line 420: `export { SkillPanel as SkillTreePanel }`). SkillTreePanel.tsx is a separate older file (simple 2x3 grid, no tree tab) — appears to be superseded but still in codebase. Potential confusion.
+- PrestigeSection only appears in the TREE tab.
+- canPrestige() checks all 7 skillIds including 'husbandry' which was added in M35. Prestige requires ALL 7 at Lv10.
+
+### M36 Track B: Dungeon Rooms (DungeonSystem.ts + MapPanel.tsx + GameLoop.ts)
+- 4 room types: guardian / puzzle / shrine / boss_lair. 1-2 rooms per cave, generated deterministically.
+- MapPanel shows dungeon room icons ONLY when underground (useCaveStore.getState().underground). Icons: ⚔ guardian, 🧩 puzzle, 🌟 shrine, ☠ boss_lair. Cleared rooms shown at 0.35 opacity.
+- Guardian room: proximity triggers guardian spawn (Cave Stalkers, 80HP, 1.5x speed, 18 atk dmg). Kill all → 'dungeon-room-cleared' event. Respawn: 20 min.
+- Puzzle room: 3-4 pressure plates with Fisher-Yates shuffled correct order. Wrong plate → 3s reset delay.
+- Shrine room: interact with F near shrine → offer 5 Iron Ore → +200 XP to random skill. shrineUsed prevents re-use until respawn.
+- Boss lair: Stone Golem, 300HP, 30 dmg. Drop table: 5x Iron Ore (matId 14), 3x Velar Crystal (matId 40), 8x Coal (matId 5), 150 gold.
+- NOTE: matId 40 (Velar Crystal) referenced in boss drop table. Need to verify MAT enum has id 40 = VELAR_CRYSTAL. Likely correct given velarStore exists, but worth checking.
+
+### M36 Track C: Settlement Buildings (BuildingSystem.ts + BuildingsPanel.tsx + BuildingStore.ts)
+- 6 building types: barracks / library / market / watchtower / healer_hut / forge.
+- U key opens BuildingsPanelWrapper (SidebarShell line 159). Shows "You need to be near a settlement" if nearSettlementId is null.
+- BuildingsPanelWrapper reads nearSettlementId from settlementStore — correctly proxied.
+- BuildingsPanel: 2 tabs (Under Construction / Completed). Donate overlay shows per-material progress bars with +1/+5/+max buttons.
+- Donation flow: removes from player inventory via inventory.removeItemForce(). Records in buildingStore.buildings Map. Completion triggers BuildingAnnouncement.
+- BuildingAnnouncementHUD: imported in HUD.tsx line 33.
+- DialoguePanel: NPC dialogue has "🏗 Help build the settlement" accordion that lists available buildings inline with quick-donate buttons (without opening BuildingsPanel).
+- IMPORTANT BUG: DialoguePanel line 706 calls `useBuildingStore.getState().getBuilding(...)` inside JSX render loop (map callback). This is calling a Zustand hook equivalent inside a render context without a subscription — won't trigger re-renders correctly. Values will be stale.
+- Forge requires tierRequired=2. Barracks and Library require tierRequired=1. Market/Watchtower/Healer_Hut are tierRequired=0.
+
+## Known bugs / issues (updated 2026-03-26 session 8 / M35-M36 playtest)
 
 CRITICAL: None.
 
 IMPORTANT:
-- Q-KEY CONFLICT: Q opens Quests panel (SidebarShell line 121) AND is the attack key in-game. When not pointer-locked (panel mode), Q triggers quest panel. When pointer-locked, Q attacks. This is intentionally split by pointerLockElement check. No bug, but could confuse players who see Q in the hints and are in the wrong mode.
-- CHEMISTRYHUD REACT HOOK BUG (session 5): ChemistryHUD.tsx useEffect at line 22 has `events.length` in its dependency array — stale closure + unnecessary re-subscriptions.
-- DAMAGE NUMBERS FIXED (M31): CombatHUD.tsx DamageNumbers now calls worldToScreen(dn.x, dn.y, dn.z) and projects creature world position to screen coords. Falls back to screen center only if camera not initialized. FIXED in session 7.
+- SETTLEMENT TERRITORY BANNER BROKEN (M35): SettlementTerritoryBanner reads `settlement.factionId` from settlementStore, but settlements have no `factionId` field there — faction assignment is in factionStore.settlementFactions Map. Banner will always skip display because factionId is always undefined.
+- DIALOGUE PANEL BUILDING STORE STALE DATA (M36): Line 706 of DialoguePanel.tsx calls `useBuildingStore.getState().getBuilding(...)` inside a map() inside JSX — bypasses React subscription. Donated quantities won't update live in the quick-donate view without re-opening the dialogue.
+- Q-KEY CONFLICT: Q opens Quests panel (SidebarShell) AND is the attack key in-game. Split by pointerLockElement. Intentional but potentially confusing.
+- CHEMISTRYHUD REACT HOOK BUG (session 5): ChemistryHUD.tsx useEffect at line 22 has `events.length` in dependency array — stale closure.
 - GATHER PROMPT PRIORITY: no priority system, first match wins.
 - BONE/HIDE NODES RENDERED AS ROCKS: visually indistinguishable from stone. Status unverified.
-- MapPanel compass labels inaccurate off spawn north pole. Status unverified.
 - E KEY DUAL BINDING: E triggers both interact and popEat in same frame in-game.
-- FOG OF WAR PERSISTENCE FIXED (M31): Previously visitedCellsRef was a useRef(new Set()) that reset on MapPanel unmount. Fixed: visitedCells is now stored in uiStore (Zustand) as a string[] array. MapPanel syncs the ref from the store on mount. Survives map open/close.
-- WEATHER SPEED: STORM gives 0.6x speed penalty; RAIN gives NO speed penalty (setWeatherSpeedMult only triggers for STORM). May or may not be intentional.
+- WEATHER SPEED: STORM gives 0.6x speed penalty; RAIN gives NO speed penalty. May or may not be intentional.
+
+NICE TO HAVE (M35-M36 additions):
+- BLD icon appears TWICE in ICON_BUTTONS strip (id:'build' and id:'buildings' both use icon:'BLD'). Visual collision in sidebar.
+- SkillTreePanel.tsx (old simple grid) still exists alongside SkillPanel.tsx (new). Dead code risk — SidebarShell imports from SkillPanel.tsx only.
+- Prestige requires 7 skills at Lv10 (including husbandry). Tutorial/documentation should clarify the 7th skill (husbandry) was added with M35.
+- Dungeon room markers only visible when underground. Players have no surface-level map hint that caves contain dungeons.
+- npcSettlementId defaults to 'default' in GameLoop if no settlement found near NPC — this means merchant market prices won't accumulate correctly if NPCs spawn far from settlements.
+- Boss drop matId 40 (Velar Crystal) should be verified against MAT enum for accuracy.
+
+PREVIOUSLY NOTED NICE-TO-HAVE (still present):
+- Clay shows Eat button in inventory -- confusing
+- Hotbar 1-6 keys non-functional (no assignment UI)
+- Node respawn 60s -- fast for survival pacing
+- DevGame (dev bypass) does not call loadSave/saveGame -- no persistence in dev mode
+- Admin Give All Materials: 41 MAT entries into 40-slot inventory -- 41st silently dropped
+- CHEMISTRYHUD ALCOHOL TODO: fermentation rewards MAT.COOKED_MEAT as placeholder
 
 NICE TO HAVE:
 - Clay shows Eat button in inventory -- confusing

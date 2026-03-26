@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { usePlayerStatsStore } from './playerStatsStore'
 
 // ── Wound system (Slice 5) ────────────────────────────────────────────────────
 export interface Wound {
@@ -134,7 +135,13 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
 
   // M27: Gold currency
   gold: 0,
-  addGold: (amount) => set((s) => ({ gold: s.gold + Math.max(0, amount) })),
+  addGold: (amount) => {
+    const earned = Math.max(0, amount)
+    if (earned > 0) {
+      usePlayerStatsStore.getState().incrementStat('totalGoldEarned', earned)
+    }
+    set((s) => ({ gold: s.gold + earned }))
+  },
   spendGold: (amount) => {
     let success = false
     set((s) => {

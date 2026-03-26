@@ -1347,7 +1347,7 @@ function SettlementTerritoryBanner() {
     const s = settlements.get(nearSettlementId)
     if (!s) return
 
-    const npcFaction = s.factionId
+    const npcFaction = useFactionStore.getState().getSettlementFaction(nearSettlementId)
     if (!npcFaction) return
 
     const f = FACTIONS[npcFaction]

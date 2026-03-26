@@ -965,6 +965,20 @@ export function MapPanel() {
       <div style={{ fontSize: 10, color: '#555', fontFamily: 'monospace' }}>
         {worldRange}m · ({Math.round(px)}, {Math.round(pz)}) · {waypoints.length}/5 waypoints
       </div>
+
+      {/* M43 Track C: Exploration footer */}
+      <div style={{
+        fontSize: 10,
+        fontFamily: 'monospace',
+        color: '#6a9',
+        letterSpacing: '0.04em',
+        padding: '2px 8px',
+        background: 'rgba(0,0,0,0.3)',
+        borderRadius: 4,
+        border: '1px solid rgba(100,200,120,0.15)',
+      }}>
+        Explored: {explorationPct}% | Discoveries: {mapDiscoveries.filter(d => d.type !== 'settlement').length} locations
+      </div>
     </div>
   )
 }

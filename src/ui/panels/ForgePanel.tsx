@@ -47,7 +47,7 @@ function matName(matId: number): string {
 // ── ForgePanel component ────────────────────────────────────────────────────────
 
 export function ForgePanel() {
-  const addNotification = useUiStore(s => s.addNotification)
+  const addNotification = useUiStore((s: ReturnType<typeof useUiStore.getState>) => s.addNotification)
   const equippedSlot    = usePlayerStore(s => s.equippedSlot)
   const nearSettlementId = useSettlementStore(s => s.nearSettlementId)
   const isBuildingComplete = useBuildingStore(s => s.isBuildingComplete)

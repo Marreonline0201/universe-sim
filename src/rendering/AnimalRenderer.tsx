@@ -343,9 +343,11 @@ export function AnimalRenderer() {
 }
 
 // ── M32: Tamed animal label overlay ──────────────────────────────────────────
-// Projects tamed animal world positions to screen space each frame and renders
-// a green heart + pet name as absolutely-positioned DOM elements.
-// Kept outside the Canvas so it can be a plain HTML overlay layer.
+// Bridge pattern (same as RemotePlayerNameTags):
+//   - TamedAnimalOverlay: runs INSIDE the R3F Canvas, uses useThree/useFrame,
+//     projects world positions, dispatches a custom DOM event each frame.
+//   - TamedAnimalOverlayDOM: runs OUTSIDE the Canvas, listens for the event,
+//     renders absolutely-positioned heart + name labels.
 
 interface TamedLabelEntry {
   id: number
@@ -354,35 +356,48 @@ interface TamedLabelEntry {
   petName: string
 }
 
-const _worldPos3 = new THREE.Vector3()
-const _screenVec = new THREE.Vector3()
+const _tamedPos  = new THREE.Vector3()
+const _tamedProj = new THREE.Vector3()
 
+/** Mount INSIDE the R3F Canvas. Projects tamed animal positions each frame and
+ *  dispatches '__tamedLabelsUpdate' so TamedAnimalOverlayDOM can render them. */
 export function TamedAnimalOverlay() {
   const { camera, size } = useThree()
-  const [labels, setLabels] = useState<TamedLabelEntry[]>([])
 
   useFrame(() => {
     const next: TamedLabelEntry[] = []
     for (const a of animalRegistry.values()) {
       if (!a.tamed || a.behavior === 'DEAD') continue
-      _worldPos3.set(a.x, a.y + 2.2, a.z)
-      _screenVec.copy(_worldPos3).project(camera)
-      // NDC to pixel coords
-      const sx = (_screenVec.x * 0.5 + 0.5) * size.width
-      const sy = (-_screenVec.y * 0.5 + 0.5) * size.height
-      // Skip if behind camera
-      if (_screenVec.z > 1) continue
+      _tamedPos.set(a.x, a.y + 2.2, a.z)
+      _tamedProj.copy(_tamedPos).project(camera)
+      if (_tamedProj.z > 1) continue  // behind camera
+      const sx = (_tamedProj.x  *  0.5 + 0.5) * size.width
+      const sy = (-_tamedProj.y * 0.5 + 0.5) * size.height
       next.push({ id: a.id, screenX: sx, screenY: sy, petName: a.petName })
     }
-    setLabels(next)
+    window.dispatchEvent(new CustomEvent<TamedLabelEntry[]>('__tamedLabelsUpdate', { detail: next }))
   })
+
+  return null
+}
+
+/** Mount OUTSIDE the R3F Canvas (in the HUD layer). Renders heart + name
+ *  labels for all tamed animals visible on screen. */
+export function TamedAnimalOverlayDOM() {
+  const [labels, setLabels] = useState<TamedLabelEntry[]>([])
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      setLabels((e as CustomEvent<TamedLabelEntry[]>).detail)
+    }
+    window.addEventListener('__tamedLabelsUpdate', handler)
+    return () => window.removeEventListener('__tamedLabelsUpdate', handler)
+  }, [])
 
   if (labels.length === 0) return null
 
   return (
-    <div
-      style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden' }}
-    >
+    <div style={{ position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 100 }}>
       {labels.map(lbl => (
         <div
           key={lbl.id}
@@ -399,7 +414,7 @@ export function TamedAnimalOverlay() {
             userSelect: 'none',
           }}
         >
-          <span style={{ fontSize: 14, lineHeight: 1 }}>♥</span>
+          <span style={{ fontSize: 14, lineHeight: 1, color: '#a8e6a3' }}>♥</span>
           <span style={{
             fontFamily: 'monospace',
             fontSize: 10,

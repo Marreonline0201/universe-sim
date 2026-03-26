@@ -44,7 +44,7 @@ import {
   rebuildResourceNodes,
 } from '../world/ResourceNodeManager'
 
-import { AnimalRenderer, TamedAnimalOverlay, TamedAnimalNamePrompt } from './AnimalRenderer'
+import { AnimalRenderer, TamedAnimalOverlay, TamedAnimalOverlayDOM, TamedAnimalNamePrompt } from './AnimalRenderer'
 import { ServerNpcsRenderer } from './entities/ServerNpcsRenderer'
 import { LocalNpcsRenderer } from './entities/LocalNpcsRenderer'
 import { PlayerMesh, EquippedItemMesh } from './entities/PlayerRenderer'
@@ -636,6 +636,8 @@ export function SceneRoot() {
     {(pointerLocked || bypassPointerLock) && <ContextualHints />}
     {/* M32 Track A: Seasonal events HTML overlay — festival banner + XP indicator */}
     <SeasonalEventsUI />
+    {/* M32 Track B: Tamed animal heart + name labels (DOM layer) */}
+    <TamedAnimalOverlayDOM />
     {/* M32 Track B: Pet naming popup — shown after successful taming */}
     <TamedAnimalNamePrompt />
     </>

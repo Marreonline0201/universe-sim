@@ -21,6 +21,7 @@ import { TradeEconomy } from './TradeEconomy.js'
 import { migrateSchema as migrateDiscoverySchema, recordDecode, recordProbe } from './DiscoveryDb.js'
 import { UniverseRegistry } from './UniverseRegistry.js'
 import * as AgentBus from './AgentBus.js'
+import * as Telegram from './TelegramAgent.js'
 
 const PORT = parseInt(process.env.PORT ?? '8080', 10)
 const PERSIST_INTERVAL_MS = 30_000 // save simTime to DB every 30 s
@@ -203,6 +204,7 @@ async function main() {
   clock.start()
   scheduler.start()
   await slack.start()
+  Telegram.setWebhook('https://questions-production-63a2.up.railway.app').catch(() => {})
 
   // M5 Track 1 deployment notification — fires once on server boot after this deploy
   if (process.env.M5_NOTIFY_SENT !== 'true') {
@@ -247,6 +249,9 @@ async function main() {
         try {
           const data = JSON.parse(body)
           const state = AgentBus.updateAgent(data.agentId, data.status, data.task, data.message, data.to)
+            if (data.status === 'blocked') {
+              Telegram.sendBlockedAlert(data.agentId, data.task, data.message).catch(() => {})
+            }
           wss.clients.forEach(client => {
             if (client.readyState === WebSocket.OPEN) {
               client.send(JSON.stringify({ type: 'AGENT_UPDATE', ...state }))
@@ -259,6 +264,52 @@ async function main() {
           res.end(JSON.stringify({ ok: false, error: String(e) }))
         }
       })
+      return
+    }
+
+    // POST /telegram-webhook — Telegram button callbacks (approve/reject)
+    if (req.method === 'POST' && normalizedPath === '/telegram-webhook') {
+      let body = ''
+      req.on('data', chunk => body += chunk)
+      req.on('end', () => {
+        try {
+          const data = JSON.parse(body)
+          const cq = data.callback_query
+          if (cq) {
+            const [action, agentId] = (cq.data || '').split(':')
+            if (action === 'approve') {
+              AgentBus.approveAgent(agentId)
+              Telegram.answerCallback(cq.id, 'Approved').catch(() => {})
+              Telegram.sendMessage('Agent ' + agentId + ' approved.').catch(() => {})
+              const state = AgentBus.updateAgent(agentId, 'active', undefined, 'Approved by owner via Telegram')
+              wss.clients.forEach(client => {
+                if (client.readyState === WebSocket.OPEN)
+                  client.send(JSON.stringify({ type: 'AGENT_UPDATE', ...state }))
+              })
+            } else if (action === 'reject') {
+              AgentBus.rejectAgent(agentId)
+              Telegram.answerCallback(cq.id, 'Rejected').catch(() => {})
+              Telegram.sendMessage('Agent ' + agentId + ' rejected.').catch(() => {})
+              const state = AgentBus.updateAgent(agentId, 'idle', undefined, 'Rejected by owner via Telegram')
+              wss.clients.forEach(client => {
+                if (client.readyState === WebSocket.OPEN)
+                  client.send(JSON.stringify({ type: 'AGENT_UPDATE', ...state }))
+              })
+            }
+          }
+        } catch(e) { /* ignore malformed */ }
+        res.writeHead(200)
+        res.end('ok')
+      })
+      return
+    }
+
+    // GET /agent-approval?agentId=xxx — agents poll this to check if approved/rejected
+    if (req.method === 'GET' && normalizedPath === '/agent-approval') {
+      const agentId = new URL(req.url, 'http://localhost').searchParams.get('agentId')
+      const approval = agentId ? AgentBus.checkApproval(agentId) : null
+      res.writeHead(200, { 'Content-Type': 'application/json', ...corsHeaders })
+      res.end(JSON.stringify({ approval }))
       return
     }
 

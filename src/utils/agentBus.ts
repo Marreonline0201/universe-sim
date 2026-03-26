@@ -55,3 +55,31 @@ export async function reportStatus(
     // Network unavailable — don't crash agent work
   }
 }
+
+/**
+ * Poll the server for an approval/rejection decision from the user's phone.
+ * Call this after reportStatus(agentId, 'blocked', ...) to wait for user input.
+ *
+ * Returns 'approved', 'rejected', or null (no decision yet).
+ * The result is consumed once — a second call returns null until the user taps again.
+ *
+ * @example
+ * await reportStatus('gp-agent', 'blocked', 'Needs permission to delete saves')
+ * let approval = null
+ * while (!approval) {
+ *   await new Promise(r => setTimeout(r, 5000))
+ *   approval = await checkApproval('gp-agent')
+ * }
+ * if (approval === 'approved') { ... }
+ */
+export async function checkApproval(agentId: AgentId): Promise<'approved' | 'rejected' | null> {
+  const base = getServerUrl()
+  if (!base) return null
+  try {
+    const res = await fetch(`${base}/agent-approval?agentId=${agentId}`)
+    const data = await res.json() as { approval: 'approved' | 'rejected' | null }
+    return data.approval ?? null
+  } catch {
+    return null
+  }
+}

@@ -59,6 +59,30 @@ export function resetAgent(agentId) {
   }
 }
 
+// ── Approval store ─────────────────────────────────────────────────────────────
+// Telegram approve/reject buttons write here; agents poll GET /agent-approval.
+
+/** @type {Map<string, 'approved'|'rejected'>} */
+const approvals = new Map()
+
+/** Called by Telegram webhook handler when user taps Approve. */
+export function approveAgent(agentId) { approvals.set(agentId, 'approved') }
+
+/** Called by Telegram webhook handler when user taps Reject. */
+export function rejectAgent(agentId)  { approvals.set(agentId, 'rejected') }
+
+/**
+ * Returns and clears the approval decision for an agent (consume-once).
+ * Returns null if no decision yet.
+ * @param {string} agentId
+ * @returns {'approved'|'rejected'|null}
+ */
+export function checkApproval(agentId) {
+  const result = approvals.get(agentId) ?? null
+  if (result) approvals.delete(agentId)
+  return result
+}
+
 /**
  * Returns the full serializable state.
  */

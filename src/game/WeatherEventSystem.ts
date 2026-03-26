@@ -7,6 +7,9 @@ import { useWeatherStore } from '../store/weatherStore'
 import { useSeasonStore } from '../store/seasonStore'
 import { useGameStore } from '../store/gameStore'
 
+// Map server WeatherState values to lowercase for trigger matching
+// Server enum: 'CLEAR' | 'CLOUDY' | 'RAIN' | 'STORM' | 'BLIZZARD' | 'TORNADO_WARNING' | 'VOLCANIC_ASH' | 'ACID_RAIN'
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface WeatherEvent {
@@ -40,7 +43,7 @@ export const WEATHER_EVENTS: WeatherEvent[] = [
     id: 'lightning_strike',
     name: 'Lightning Strike',
     icon: '⚡',
-    weatherTrigger: ['storm', 'thunder'],
+    weatherTrigger: 'storm',
     probability: 0.35,
     duration: 10,
     description: 'A nearby resource node is struck — depleted instantly, but +50 XP awarded.',
@@ -55,19 +58,19 @@ export const WEATHER_EVENTS: WeatherEvent[] = [
     description: 'Rising waters slow movement for 30 seconds.',
   },
   {
-    id: 'fog_of_war',
-    name: 'Fog of War',
+    id: 'volcanic_haze',
+    name: 'Volcanic Haze',
     icon: '🌫️',
-    weatherTrigger: 'fog',
+    weatherTrigger: 'volcanic_ash',
     probability: 0.40,
     duration: 60,
-    description: 'Dense fog shrinks visibility to 50 m for 60 seconds.',
+    description: 'Ash clouds shrink visibility to 50 m for 60 seconds.',
   },
   {
     id: 'blizzard_gust',
     name: 'Blizzard Gust',
     icon: '❄️',
-    weatherTrigger: ['snow', 'blizzard'],
+    weatherTrigger: 'blizzard',
     probability: 0.30,
     duration: 8,
     description: 'A violent gust staggers the player for 2 seconds.',
@@ -85,7 +88,7 @@ export const WEATHER_EVENTS: WeatherEvent[] = [
     id: 'heatwave',
     name: 'Heat Wave',
     icon: '🔥',
-    weatherTrigger: ['sunny', 'clear'],
+    weatherTrigger: 'clear',
     seasonTrigger: ['SUMMER'],
     probability: 0.28,
     duration: 60,
@@ -95,7 +98,7 @@ export const WEATHER_EVENTS: WeatherEvent[] = [
     id: 'drought_warning',
     name: 'Drought Warning',
     icon: '🏜️',
-    weatherTrigger: ['sunny', 'clear'],
+    weatherTrigger: 'clear',
     probability: 0.20,
     duration: 60,
     description: 'Prolonged sun scorches the land — resource nodes yield 50% for 60 seconds.',
@@ -104,7 +107,7 @@ export const WEATHER_EVENTS: WeatherEvent[] = [
     id: 'perfect_harvest',
     name: 'Perfect Harvest',
     icon: '🌾',
-    weatherTrigger: ['sunny', 'clear'],
+    weatherTrigger: 'clear',
     seasonTrigger: ['AUTUMN'],
     probability: 0.30,
     duration: 30,
@@ -130,22 +133,22 @@ export const WEATHER_EVENTS: WeatherEvent[] = [
     description: 'Storm energy supercharges spells — all spell cooldowns halved for 30 seconds.',
   },
   {
-    id: 'acid_mist',
-    name: 'Acid Mist',
+    id: 'acid_rain_burn',
+    name: 'Acid Rain Burn',
     icon: '☠️',
-    weatherTrigger: ['fog', 'rain'],
-    probability: 0.15,
+    weatherTrigger: 'acid_rain',
+    probability: 0.50,
     duration: 40,
-    description: 'Toxic droplets in the air cause periodic damage over 40 seconds.',
+    description: 'Toxic rain causes periodic damage over 40 seconds.',
   },
   {
-    id: 'wind_boost',
-    name: 'Tailwind',
-    icon: '💨',
-    weatherTrigger: 'wind',
-    probability: 0.40,
+    id: 'tornado_chase',
+    name: 'Tornado Chase',
+    icon: '🌪️',
+    weatherTrigger: 'tornado_warning',
+    probability: 0.60,
     duration: 20,
-    description: 'A powerful tailwind increases movement speed by 20% for 20 seconds.',
+    description: 'A tornado nearby — wind knocks back the player and boosts speed.',
   },
 ]
 
@@ -207,21 +210,21 @@ export function isWeatherEventActive(id: string): boolean {
 export function initWeatherEventSystem(): void {
   if (_initialized) return
   _initialized = true
-
-  window.addEventListener('weather-changed', (e: Event) => {
-    const detail = (e as CustomEvent).detail ?? {}
-    _currentWeather = (detail.weather ?? detail.type ?? detail.name ?? 'clear').toLowerCase()
-    // Reset sunny tick counter when weather changes away from sunny/clear
-    if (_currentWeather !== 'sunny' && _currentWeather !== 'clear') {
-      _sunnyTickCount = 0
-    }
-  })
+  // _currentWeather is read from the store directly in tickWeatherEvents
 }
 
 // ── Tick ──────────────────────────────────────────────────────────────────────
 
 export function tickWeatherEvents(simSeconds: number): void {
   const now = simSeconds
+
+  // Read current weather directly from the store (lowercase for trigger matching)
+  _currentWeather = (useWeatherStore.getState().getPlayerWeather()?.state ?? 'CLEAR').toLowerCase()
+
+  // Reset sunny tick counter when weather changes away from clear
+  if (_currentWeather !== 'clear') {
+    _sunnyTickCount = 0
+  }
 
   // 1. Expire old events
   const toExpire = _activeEvents.filter(ae => now >= ae.endsAt)
@@ -232,8 +235,8 @@ export function tickWeatherEvents(simSeconds: number): void {
     if (weatherEventLog.length > EVENT_LOG_MAX) weatherEventLog.length = EVENT_LOG_MAX
   }
 
-  // 2. Track sunny ticks for drought_warning
-  if (_currentWeather === 'sunny' || _currentWeather === 'clear') {
+  // 2. Track clear ticks for drought_warning
+  if (_currentWeather === 'clear') {
     _sunnyTickCount++
   }
 
@@ -280,7 +283,6 @@ export function tickWeatherEvents(simSeconds: number): void {
 function _fireConsequences(evt: WeatherEvent, _now: number): void {
   switch (evt.id) {
     case 'lightning_strike':
-      dispatch('weather-flood-start', {})   // reuse flood channel for XP hint
       dispatch('lightning-resource-strike', { xpBonus: 50 })
       break
     case 'flash_flood':
@@ -311,11 +313,15 @@ function _fireConsequences(evt: WeatherEvent, _now: number): void {
     case 'electric_storm_surge':
       dispatch('spell-surge', { cooldownMult: 0.5, durationSeconds: evt.duration })
       break
-    case 'acid_mist':
+    case 'acid_rain_burn':
       dispatch('acid-mist-active', { durationSeconds: evt.duration })
       break
-    case 'wind_boost':
-      dispatch('wind-boost-active', { speedMult: 1.2, durationSeconds: evt.duration })
+    case 'volcanic_haze':
+      dispatch('fog-vision-reduced', { visibilityMeters: 50, durationSeconds: evt.duration })
+      break
+    case 'tornado_chase':
+      dispatch('wind-boost-active', { speedMult: 1.3, durationSeconds: evt.duration })
+      dispatch('player-stunned', { durationSeconds: 1 })
       break
     default:
       break

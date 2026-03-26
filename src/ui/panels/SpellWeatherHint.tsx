@@ -27,7 +27,6 @@ function getWeatherHintMessage(spellId: SpellId, multiplier: number, weatherCond
       case 'storm':    return 'Storm amplified!'
       case 'rain':     return 'Rain amplifies lightning'
       case 'blizzard': return 'Blizzard empowers ice'
-      case 'sunny':
       case 'clear':    return 'Dry weather boosts fire'
       default:         return 'Weather boosted!'
     }
@@ -36,7 +35,6 @@ function getWeatherHintMessage(spellId: SpellId, multiplier: number, weatherCond
       case 'rain':     return 'Rain reduces fire'
       case 'storm':    return 'Storm weakens fire'
       case 'blizzard': return 'Blizzard douses fire'
-      case 'sunny':
       case 'clear':    return 'Dry air weakens lightning'
       default:         return 'Weather reduced'
     }
@@ -45,7 +43,6 @@ function getWeatherHintMessage(spellId: SpellId, multiplier: number, weatherCond
 
 export function SpellWeatherHint(): React.ReactElement | null {
   const equippedSpells = useSpellStore(s => s.equippedSpells)
-  const weatherStore = useWeatherStore.getState()
 
   // Track hint state with a 2-second poll interval
   const [hint, setHint] = useState<{ spellId: SpellId; multiplier: number; condition: string } | null>(null)

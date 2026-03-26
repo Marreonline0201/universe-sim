@@ -86,7 +86,7 @@ export function rollLoot(
     let rand = Math.random() * totalWeight
     for (const entry of entries) {
       rand -= entry.weight
-      if (rand <= 0) {
+      if (rand < 0) {
         const qty = entry.minQty + Math.floor(Math.random() * (entry.maxQty - entry.minQty + 1))
         const existing = results.find(d => d.materialId === entry.materialId)
         if (existing) {

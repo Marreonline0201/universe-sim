@@ -15,7 +15,6 @@ import type { SpellId } from './SpellSystem'
 export const SPELL_WEATHER_MODIFIERS: Record<SpellId, Partial<Record<string, number>>> = {
   fireball: {
     clear:    1.2,
-    sunny:    1.3,
     rain:     0.7,
     storm:    0.5,
     blizzard: 0.4,
@@ -24,12 +23,10 @@ export const SPELL_WEATHER_MODIFIERS: Record<SpellId, Partial<Record<string, num
     storm:   2.0,
     rain:    1.5,
     clear:   0.8,
-    sunny:   0.7,
   },
   ice_shard: {
     blizzard: 1.5,
     clear:    0.9,
-    sunny:    0.7,
   },
   // Non-damaging or weather-neutral spells — empty tables (always return 1.0)
   heal:         {},

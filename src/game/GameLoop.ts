@@ -166,6 +166,11 @@ import { useSpellStore } from '../store/spellStore'
 // M41 Track B: Mount and riding system
 import { useMountStore } from '../store/mountStore'
 import { setMountSpeedMult } from '../player/PlayerController'
+// M42 Track B: Shelter system + cave entrances for shelter detection
+import { updateShelterState, shelterState } from './ShelterSystem'
+import { getCaveEntrancePositions } from '../rendering/CaveEntrances'
+// M42 Track C: NPC reputation system
+import { useReputationStore } from '../store/reputationStore'
 
 // Register skill system with offline save manager for serialization
 registerSkillSystem(skillSystem)
@@ -241,6 +246,9 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
   const rainFireTimerRef        = useRef(0)    // 10s rain extinguishes fires check
   const lightningTimerRef       = useRef(0)    // countdown to next lightning strike
   const warmthStormMultRef      = useRef(1)    // storm movement speed multiplier
+  // M42 Track B: Shelter update timer (every 2s) + heat exhaustion notify timer
+  const shelterUpdateTimerRef   = useRef(0)    // shelter check every 2s
+  const heatExhaustionNotifRef  = useRef(0)    // heat exhaustion warning throttle
   // M35 Track B: Disaster system timers
   const tornadoSpawnTimerRef    = useRef(300 + Math.random() * 300)  // seconds until next tornado attempt
   const earthquakeTimerRef      = useRef(3600 + Math.random() * 3600) // seconds until next earthquake chance
@@ -859,6 +867,14 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
                     `Quest Complete: "${q.title}" +${q.reward.xp} XP +${q.reward.gold} gold`,
                     'discovery'
                   )
+                  // M42 Track C: Quest completion → reputation gain
+                  {
+                    const nearId = useSettlementStore.getState().nearSettlementId
+                    if (nearId !== null) {
+                      const sName = useSettlementStore.getState().settlements.get(nearId)?.name ?? 'Unknown'
+                      useReputationStore.getState().addPoints(nearId, sName, 50)
+                    }
+                  }
                 }
               }
             }
@@ -1851,6 +1867,14 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
                         `Quest Complete: "${q.title}" +${q.reward.xp} XP +${q.reward.gold} gold`,
                         'discovery'
                       )
+                      // M42 Track C: Quest completion → reputation gain
+                      {
+                        const nearId = useSettlementStore.getState().nearSettlementId
+                        if (nearId !== null) {
+                          const sName = useSettlementStore.getState().settlements.get(nearId)?.name ?? 'Unknown'
+                          useReputationStore.getState().addPoints(nearId, sName, 50)
+                        }
+                      }
                     }
                   }
                 }
@@ -1916,6 +1940,9 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
                   'You attacked a settlement member! They will remember this.',
                   'warning'
                 )
+                // M42 Track C: NPC murder → reputation penalty
+                const settlementName = useSettlementStore.getState().settlements.get(nearSettlementId)?.name ?? 'Unknown'
+                useReputationStore.getState().addPoints(nearSettlementId, settlementName, -100)
               }
               hitCreature = true
               break
@@ -2296,24 +2323,86 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
         }
       }
 
-      if (wState === 'STORM' || wState === 'RAIN') {
+      if (wState === 'STORM' || wState === 'RAIN' || wState === 'ACID_RAIN') {
         const storedTemp = usePlayerStore.getState().ambientTemp
         const windChill = Math.max(wTemp - (playerWeather?.windSpeed ?? 0) * 0.5, wTemp - 12)
         const rate = wState === 'STORM' ? 2.0 : 0.8
         const newTemp = storedTemp + (windChill - storedTemp) * Math.min(1, rate * dt)
         usePlayerStore.getState().setAmbientTemp(newTemp)
 
-        if (newTemp < 0 && !inventory.isGodMode()) {
+        if (newTemp < 0 && !inventory.isGodMode() && !shelterState.isSheltered) {
           const coldDps = wState === 'STORM' ? 1.5 : 0.5
           Health.current[entityId] = Math.max(0, Health.current[entityId] - coldDps * dt)
           markColdDamage()
         }
+      } else if (wState === 'BLIZZARD') {
+        // M42 Track B: Blizzard — push ambient to -40°C
+        usePlayerStore.getState().setAmbientTemp(-40)
       } else {
         const storedTemp = usePlayerStore.getState().ambientTemp
         if (Math.abs(storedTemp - wTemp) > 0.1) {
           const newTemp = storedTemp + (wTemp - storedTemp) * Math.min(1, 0.4 * dt)
           usePlayerStore.getState().setAmbientTemp(newTemp)
         }
+      }
+
+      // M42 Track B: ACID_RAIN — 3 dps bypassing armor, skipped when sheltered
+      if (wState === 'ACID_RAIN' && !inventory.isGodMode() && !shelterState.isSheltered) {
+        Health.current[entityId] = Math.max(0, Health.current[entityId] - 3 * dt)
+        useUiStore.getState().addNotification('Acid rain is corroding you!', 'error')
+      }
+
+      // M42 Track B: Heat exhaustion — ambient > 45°C
+      if (!inventory.isGodMode()) {
+        const ambientT = usePlayerStore.getState().ambientTemp
+        if (ambientT > 45) {
+          const pState = usePlayerStore.getState()
+          // 3× faster thirst drain + energy drain
+          const newThirst = Math.min(1, pState.thirst + 3 * 0.0002 * dt)
+          const newEnergy = Math.max(0, pState.energy - 0.01 * dt)
+          pState.updateVitals({ thirst: newThirst, energy: newEnergy })
+          heatExhaustionNotifRef.current += dt
+          if (heatExhaustionNotifRef.current >= 10) {
+            heatExhaustionNotifRef.current = 0
+            useUiStore.getState().addNotification('Heat exhaustion! Find shade or water!', 'warning')
+          }
+        } else {
+          heatExhaustionNotifRef.current = 0
+        }
+      }
+
+      // M42 Track B: Pollution > 0.7 converts RAIN/STORM to ACID_RAIN
+      {
+        const wStore42 = useWeatherStore.getState()
+        if (wStore42.pollutionLevel > 0.7 && (wState === 'RAIN' || wState === 'STORM')) {
+          const sId = wStore42.playerSectorId
+          const sec = wStore42.sectors.find(s => s.sectorId === sId)
+          if (sec && sec.state !== 'ACID_RAIN') {
+            wStore42.updateSector({ ...sec, state: 'ACID_RAIN' })
+            wStore42.setWeatherTransition(sec.state, 'ACID_RAIN')
+            useUiStore.getState().addNotification('Pollution has turned the rain acidic!', 'error')
+          }
+        }
+      }
+    }
+
+    // ── M42 Track B: Shelter update (every 2s) ────────────────────────────────
+    {
+      shelterUpdateTimerRef.current += dt
+      if (shelterUpdateTimerRef.current >= 2) {
+        shelterUpdateTimerRef.current = 0
+        const homePos = usePlayerStore.getState().homePosition
+        const homePosXZ = homePos ? { x: homePos[0], z: homePos[2] } : null
+        const caveEntrances = getCaveEntrancePositions().map(v => ({ x: v.x, y: v.y, z: v.z }))
+        const nearBuildingTypes: string[] = []
+        const SHELTER_BUILDING_RADIUS_SQ = 10 * 10
+        for (const b of buildingSystem.getAllBuildings()) {
+          const dx = px - b.position[0], dy = py - b.position[1], dz = pz - b.position[2]
+          if (dx * dx + dy * dy + dz * dz < SHELTER_BUILDING_RADIUS_SQ) {
+            nearBuildingTypes.push(b.typeId)
+          }
+        }
+        updateShelterState(px, py, pz, homePosXZ, caveEntrances, nearBuildingTypes)
       }
     }
 
@@ -2323,15 +2412,21 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
       const pw29       = wStore29.getPlayerWeather()
       const wState29   = pw29?.state ?? 'CLEAR'
 
-      // B4: Storm/rain movement penalty
-      setWeatherSpeedMult(wState29 === 'STORM' ? 0.6 : wState29 === 'RAIN' ? 0.85 : 1.0)
+      // B4: Storm/rain movement penalty (M42: BLIZZARD -40%, ACID_RAIN same as STORM)
+      setWeatherSpeedMult(
+        wState29 === 'BLIZZARD'   ? 0.6 :
+        wState29 === 'STORM'      ? 0.6 :
+        wState29 === 'ACID_RAIN'  ? 0.6 :
+        wState29 === 'RAIN'       ? 0.85 : 1.0
+      )
 
       // B1: Warmth drain by weather type
       const dayAngle29 = getDayAngle()
       const isNight29  = Math.sin(dayAngle29) <= 0
       const nightMult  = isNight29 ? 2.0 : 1.0
-      const drainRates: Record<string, number> = { CLEAR: 0, CLOUDY: 0.5, RAIN: 1.5, STORM: 3.0 }
-      const drainRate29 = (drainRates[wState29] ?? 0) * nightMult
+      // M42: shelter blocks warmth drain; ACID_RAIN same drain as STORM
+      const drainRates: Record<string, number> = { CLEAR: 0, CLOUDY: 0.5, RAIN: 1.5, STORM: 3.0, ACID_RAIN: 3.0 }
+      const drainRate29 = shelterState.isSheltered ? 0 : (drainRates[wState29] ?? 0) * nightMult
       if (drainRate29 > 0 && !inventory.isGodMode()) {
         usePlayerStore.getState().addWarmth(-drainRate29 * dt)
       }
@@ -2360,8 +2455,8 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
         }
       }
 
-      // B1: Cold damage when warmth < 20 — every 10s deal -1 HP
-      if (!inventory.isGodMode()) {
+      // B1: Cold damage when warmth < 20 — every 10s deal -1 HP (M42: skip when sheltered)
+      if (!inventory.isGodMode() && !shelterState.isSheltered) {
         const warmth29 = usePlayerStore.getState().warmth
         if (warmth29 < 20) {
           coldDamageTimerRef.current += dt
@@ -2474,10 +2569,18 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
         tornadoSpawnTimerRef.current = 300
       }
 
-      // ─ BLIZZARD: faster warmth drain (3× STORM rate) ─────────────────────
+      // ─ BLIZZARD: M35 + M42 Track B — extreme cold, -40% speed, 2x cold damage
       if (wState35 === 'BLIZZARD' && !inventory.isGodMode()) {
-        // 3× faster than STORM drain (STORM rate = 3.0/s from M29 block)
-        usePlayerStore.getState().addWarmth(-9.0 * dt)
+        // 3× faster warmth drain than STORM (STORM rate = 3.0/s from M29 block)
+        if (!shelterState.isSheltered) {
+          usePlayerStore.getState().addWarmth(-9.0 * dt)
+        }
+        // M42 Track B: 2x cold damage rate during blizzard when not sheltered
+        const ambientT35 = usePlayerStore.getState().ambientTemp
+        if (ambientT35 < 0 && !shelterState.isSheltered) {
+          Health.current[entityId] = Math.max(0, Health.current[entityId] - 3.0 * dt)  // 2x STORM coldDps
+          markColdDamage()
+        }
         // Notify player about blizzard effects
         window.dispatchEvent(new CustomEvent('blizzard-active'))
       }

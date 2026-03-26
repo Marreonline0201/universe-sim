@@ -14,6 +14,8 @@ import { useSettlementStore } from '../store/settlementStore'
 import { useMultiplayerStore } from '../store/multiplayerStore'
 import { usePlayerStore } from '../store/playerStore'
 import { useOutlawStore } from '../store/outlawStore'
+// M42 Track C: Reputation gain on trade
+import { useReputationStore } from '../store/reputationStore'
 
 const WANTED_THRESHOLD = 5
 
@@ -67,6 +69,12 @@ export function SettlementHUD() {
       playerGives:    pendingOffer.wantMats,
       playerReceives: pendingOffer.offerMats,
     })
+    // M42 Track C: Trade → reputation gain
+    useReputationStore.getState().addPoints(
+      pendingOffer.settlementId,
+      pendingOffer.settlementName,
+      10
+    )
     setPendingOffer(null)
   }, [pendingOffer, socket, setPendingOffer])
 

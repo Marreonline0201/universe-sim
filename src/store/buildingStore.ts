@@ -12,6 +12,8 @@ import {
   isBuildingComplete,
 } from '../game/BuildingSystem'
 import { inventory } from '../game/GameSingletons'
+// M42 Track C: Reputation gain on donation
+import { useReputationStore } from './reputationStore'
 
 // ── Announcement queue ─────────────────────────────────────────────────────────
 
@@ -148,6 +150,9 @@ export const useBuildingStore = create<BuildingState>((set, get) => ({
         }
       }
     } catch { /* party system not loaded */ }
+
+    // M42 Track C: Donation → reputation gain
+    useReputationStore.getState().addPoints(settlementId, settlementName, 25)
 
     return true
   },

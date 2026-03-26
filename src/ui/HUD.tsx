@@ -14,6 +14,8 @@ import { MobileControls } from './MobileControls'
 import { inventory } from '../game/GameSingletons'
 import { MAT, ITEM } from '../player/Inventory'
 import { cookingProgress } from '../game/SurvivalSystems'
+// M42 Track B: Shelter state
+import { shelterState } from '../game/ShelterSystem'
 import { activeFoodBuffs } from '../game/FoodBuffSystem'
 import { useVelarStore } from '../store/velarStore'
 import { getReactorTemp, isCleanupActive, getCleanupTimeRemaining, SAFE_TEMP_CELSIUS, MELT_THRESHOLD_C } from '../game/NuclearReactorSystem'
@@ -49,6 +51,8 @@ import { useCivStore, CIV_LEVEL_LABELS, CIV_LEVEL_ICONS } from '../store/civStor
 
 // M41 Track C: Seasonal festival events
 const FestivalHUD = lazy(() => import('./FestivalHUD').then(m => ({ default: m.FestivalHUD })))
+// M42 Track C: Reputation tier toast
+const ReputationToast = lazy(() => import('./ReputationToast').then(m => ({ default: m.ReputationToast })))
 
 // ── M20: Lazy-loaded overlays (rarely shown) ─────────────────────────────────
 const FirstContactOverlay = lazy(() => import('./FirstContactOverlay').then(m => ({ default: m.FirstContactOverlay })))
@@ -286,6 +290,43 @@ function StaminaBar({ stamina, maxStamina }: { stamina: number; maxStamina: numb
   )
 }
 
+// ── M42 Track B: Shelter indicator ───────────────────────────────────────────
+
+function ShelterIndicator() {
+  const [snap, setSnap] = useState({ isSheltered: false, shelterType: null as string | null, shelterName: '' })
+  useEffect(() => {
+    const id = setInterval(() => {
+      setSnap({
+        isSheltered: shelterState.isSheltered,
+        shelterType: shelterState.shelterType,
+        shelterName: shelterState.shelterName,
+      })
+    }, 500)
+    return () => clearInterval(id)
+  }, [])
+
+  if (!snap.isSheltered) return null
+
+  const label =
+    snap.shelterType === 'home'     ? '[ HOME ]'     :
+    snap.shelterType === 'cave'     ? '[ CAVE ]'     :
+    snap.shelterType === 'building' ? `[ ${snap.shelterName.toUpperCase()} ]` :
+    '[ SHELTER ]'
+
+  return (
+    <div style={{
+      marginTop: 4,
+      fontSize: 9,
+      color: '#44ff88',
+      fontFamily: 'monospace',
+      letterSpacing: 1,
+      fontWeight: 700,
+    }}>
+      {label}
+    </div>
+  )
+}
+
 // ── Hotbar slot ─────────────────────────────────────────────────────────────────
 // Live-wired to inventory. Reads slot data every 200ms so newly gathered items
 // appear immediately. Click to equip/unequip.
@@ -499,6 +540,7 @@ function WeatherWidget({ state, tempC }: WeatherWidgetProps) {
     state === 'TORNADO_WARNING' ? '#ffaa00' :
     state === 'VOLCANIC_ASH'   ? '#cc6600' :
     state === 'BLIZZARD'       ? '#aaddff' :
+    state === 'ACID_RAIN'      ? '#aaff44' :
     state === 'STORM'          ? '#e74c3c' :
     state === 'RAIN'           ? '#6699cc' :
     state === 'CLOUDY'         ? '#aabbcc' : '#f1c40f'
@@ -2610,6 +2652,11 @@ export function HUD() {
       {/* ── M41 Track C: Seasonal festival banner + corner indicator ── */}
       <Suspense fallback={null}>
         <FestivalHUD />
+      </Suspense>
+
+      {/* ── M42 Track C: Reputation tier-change toast ── */}
+      <Suspense fallback={null}>
+        <ReputationToast />
       </Suspense>
 
       {/* ── M39 Track C: Civilization level-up and milestone banners ── */}

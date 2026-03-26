@@ -24,6 +24,8 @@ import { skillSystem } from '../../game/SkillSystem'
 import { useNPCMemoryStore } from '../../store/npcMemoryStore'
 import { getCurrentActivity, getActivityDescription, isNighttime } from '../../game/NPCScheduleSystem'
 import { useGameStore } from '../../store/gameStore'
+// M42 Track C: Settlement reputation display
+import { useReputationStore, type ReputationTier } from '../../store/reputationStore'
 
 // ── Procedural fallback dialogue (no LLM key) ──────────────────────────────
 
@@ -339,6 +341,22 @@ function pickRandom<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)]
 }
 
+// M42 Track C: Reputation star display
+const TIER_STARS: Record<ReputationTier, string> = {
+  hostile:  '★☆☆☆☆',
+  neutral:  '★★☆☆☆',
+  friendly: '★★★☆☆',
+  honored:  '★★★★☆',
+  revered:  '★★★★★',
+}
+const TIER_LABELS_SHORT: Record<ReputationTier, string> = {
+  hostile:  'HOSTILE',
+  neutral:  'NEUTRAL',
+  friendly: 'FRIENDLY',
+  honored:  'HONORED',
+  revered:  'REVERED',
+}
+
 // ── DialoguePanel Component ─────────────────────────────────────────────────
 
 export function DialoguePanel() {
@@ -398,6 +416,10 @@ export function DialoguePanel() {
     }
     return null
   })
+
+  // M42 Track C: Settlement reputation
+  const nearSettlementId = useSettlementStore(s => s.nearSettlementId)
+  const repTier = useReputationStore(s => nearSettlementId !== null ? s.getTier(nearSettlementId) : null)
   const donateToBuilding    = useBuildingStore(s => s.donateToBuilding)
   const getBuildingProgress = useBuildingStore(s => s.getBuildingProgress)
   const isBldgComplete      = useBuildingStore(s => s.isBuildingComplete)
@@ -640,6 +662,12 @@ export function DialoguePanel() {
         {emotionState && (
           <div style={{ fontSize: 10, color: '#666', marginTop: 4 }}>
             Mood: {emotionLabel}
+          </div>
+        )}
+        {/* M42 Track C: Settlement reputation */}
+        {repTier && targetSettlement && (
+          <div style={{ fontSize: 10, color: '#7a9ec2', marginTop: 3 }}>
+            Rep with {targetSettlement}: {TIER_STARS[repTier]} {TIER_LABELS_SHORT[repTier]}
           </div>
         )}
       </div>

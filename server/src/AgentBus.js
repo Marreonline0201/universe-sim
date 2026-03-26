@@ -96,7 +96,7 @@ export function getState() {
 
 // ── Auto-idle timeout ───────────────────────────────────────────────────────
 // Agents that haven't reported in 5 minutes are reset to idle automatically.
-const IDLE_TIMEOUT_MS = 5 * 60 * 1000
+const IDLE_TIMEOUT_MS = 30 * 1000
 
 /**
  * Reset any agent that hasn't checked in within IDLE_TIMEOUT_MS.

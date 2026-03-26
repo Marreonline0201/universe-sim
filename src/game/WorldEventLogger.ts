@@ -203,6 +203,32 @@ export function initWorldEventLogger(): void {
       detail: `Claimed bounty on ${species} (posted by ${poster}) — +${gold} gold, +${rep} rep`,
     })
   })
+
+  // guild-rank-up — M54 Track A: merchant guild rank promotion
+  window.addEventListener('guild-rank-up', (e: Event) => {
+    const detail = (e as CustomEvent).detail ?? {}
+    const rank: string = detail.rank ?? 'journeyman'
+    useWorldEventStore.getState().addEvent({
+      category: 'social',
+      icon: '🏪',
+      title: 'Guild Rank Up',
+      detail: `You rose to the rank of ${rank.charAt(0).toUpperCase() + rank.slice(1)} in the Merchant Guild!`,
+    })
+  })
+
+  // contract-completed — M54 Track A: merchant guild contract completed
+  window.addEventListener('contract-completed', (e: Event) => {
+    const detail = (e as CustomEvent).detail ?? {}
+    const name: string = detail.contractName ?? 'a contract'
+    const gold: number = detail.reward?.gold ?? 0
+    const xp: number   = detail.reward?.guildXp ?? 0
+    useWorldEventStore.getState().addEvent({
+      category: 'social',
+      icon: '📦',
+      title: 'Contract Completed',
+      detail: `Fulfilled "${name}" — +${gold} gold, +${xp} guild XP`,
+    })
+  })
 }
 
 // ── Helper functions for game systems ────────────────────────────────────────

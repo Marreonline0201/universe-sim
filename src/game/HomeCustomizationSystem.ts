@@ -79,6 +79,7 @@ export function purchaseDecoration(id: string, _playerGold: number): boolean {
   if (!spent) return false
 
   dec.owned = true
+  window.dispatchEvent(new CustomEvent('home-customized', { detail: { decorationId: id, decorationName: dec.name, theme: dec.theme } }))
   return true
 }
 
@@ -115,6 +116,7 @@ export function unequipDecoration(id: string): void {
   if (!dec) return
   dec.equipped = false
   _syncEquippedList()
+  window.dispatchEvent(new CustomEvent('home-customized', { detail: { decorationId: id, decorationName: dec.name, theme: dec.theme } }))
 }
 
 export function setHomeName(name: string): void {

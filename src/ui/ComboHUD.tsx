@@ -5,7 +5,7 @@
 // Only visible when comboState.active === true.
 // Subscribes to updates via setInterval (100ms).
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { getComboState, type ComboState } from '../game/ComboSystem'
 
 const COMBO_WINDOW_MS = 3000
@@ -14,7 +14,7 @@ export function ComboHUD() {
   const [combo, setCombo] = useState<ComboState>(getComboState())
   const [visible, setVisible] = useState(false)
   const [fadingOut, setFadingOut] = useState(false)
-  const [fadeTimer, setFadeTimer] = useState<ReturnType<typeof setTimeout> | null>(null)
+  const fadeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     const id = setInterval(() => {
@@ -24,27 +24,31 @@ export function ComboHUD() {
       if (state.active) {
         setVisible(true)
         setFadingOut(false)
-        if (fadeTimer) {
-          clearTimeout(fadeTimer)
-          setFadeTimer(null)
+        if (fadeTimerRef.current) {
+          clearTimeout(fadeTimerRef.current)
+          fadeTimerRef.current = null
         }
-      } else if (visible) {
-        // Trigger fade-out
-        setFadingOut(true)
-        const t = setTimeout(() => {
-          setVisible(false)
-          setFadingOut(false)
-        }, 600)
-        setFadeTimer(t)
+      } else {
+        setVisible(prev => {
+          if (prev && !fadeTimerRef.current) {
+            // Trigger fade-out
+            setFadingOut(true)
+            fadeTimerRef.current = setTimeout(() => {
+              setVisible(false)
+              setFadingOut(false)
+              fadeTimerRef.current = null
+            }, 600)
+          }
+          return prev
+        })
       }
     }, 100)
 
     return () => {
       clearInterval(id)
-      if (fadeTimer) clearTimeout(fadeTimer)
+      if (fadeTimerRef.current) clearTimeout(fadeTimerRef.current)
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible])
+  }, [])
 
   if (!visible) return null
 

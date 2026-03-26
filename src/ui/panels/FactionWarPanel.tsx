@@ -162,7 +162,7 @@ function WarCard({ war }: WarCardProps) {
 }
 
 function HistoryEntry({ war }: { war: FactionWar }) {
-  const isAttackerVictor = war.victor && war.victor !== 'ceasefire'
+  const hasVictor = war.victor && war.victor !== 'ceasefire'
   const victorName = war.victor === 'ceasefire'
     ? 'Ceasefire'
     : war.victor
@@ -188,7 +188,7 @@ function HistoryEntry({ war }: { war: FactionWar }) {
         </span>
       </span>
       <span style={{ color: outcomeColor, fontWeight: 700 }}>
-        {isAttackerVictor ? '🏆 ' : ''}{victorName}
+        {hasVictor ? '🏆 ' : ''}{victorName}
       </span>
     </div>
   )

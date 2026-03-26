@@ -8,6 +8,7 @@ import { MAT, ITEM, rollCraftRarity, RARITY_NAMES, type CraftingRecipe, type Rar
 import { CRAFTING_RECIPES } from '../../player/CraftingRecipes'
 import { usePlayerStore } from '../../store/playerStore'
 import { useUiStore } from '../../store/uiStore'
+import { useSettlementQuestStore } from '../../store/settlementQuestStore'
 
 const MAT_NAMES: Record<number, string> = Object.fromEntries(
   Object.entries(MAT).map(([k, v]) => [v, k.toLowerCase().replace(/_/g, ' ')])
@@ -118,6 +119,26 @@ export function CraftingPanel() {
 
       // M23: Quest progress on craft
       questSystem.onCraft(selectedRecipe.id)
+      // M33: Settlement quest board progress on craft
+      {
+        const sqStore = useSettlementQuestStore.getState()
+        const active = sqStore.getActiveQuests()
+        for (const q of active) {
+          if (q.type === 'craft' && (q.targetId === 0 || q.targetId === selectedRecipe.id)) {
+            sqStore.updateProgress(q.id, 1)
+            const updated = useSettlementQuestStore.getState().quests[q.id]
+            if (updated && updated.progress >= updated.targetCount) {
+              sqStore.completeQuest(q.id)
+              usePlayerStore.getState().addGold(q.reward.gold)
+              skillSystem.addXp('crafting', q.reward.xp)
+              useUiStore.getState().addNotification(
+                `Quest Complete: "${q.title}" +${q.reward.xp} XP +${q.reward.gold} gold`,
+                'discovery'
+              )
+            }
+          }
+        }
+      }
 
       // Craft flash animation
       setCraftFlash(true)

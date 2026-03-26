@@ -22,6 +22,7 @@ import { skillSystem, SkillSystem, type SkillId } from '../game/SkillSystem'
 import { RemotePlayerNameTagsOverlay } from './RemotePlayerNameTags'
 import { InspectPlayerOverlay } from './InspectPlayerOverlay'
 import { useUiStore } from '../store/uiStore'
+import { useSettlementQuestStore } from '../store/settlementQuestStore'
 
 // ── M20: Lazy-loaded overlays (rarely shown) ─────────────────────────────────
 const FirstContactOverlay = lazy(() => import('./FirstContactOverlay').then(m => ({ default: m.FirstContactOverlay })))
@@ -887,6 +888,121 @@ function SkillXpBar() {
   )
 }
 
+// ── M33 Track A: Quest Tracker Widget ────────────────────────────────────────
+
+const QUEST_TYPE_ICONS: Record<string, string> = {
+  gather: '🌿',
+  hunt: '⚔',
+  explore: '🗺',
+  craft: '🔨',
+}
+
+function QuestTrackerWidget() {
+  const [collapsed, setCollapsed] = useState(false)
+  const [, setTick] = useState(0)
+  const togglePanel = useUiStore(s => s.togglePanel)
+
+  // Poll every 750ms for progress updates
+  useEffect(() => {
+    const id = setInterval(() => setTick(t => t + 1), 750)
+    return () => clearInterval(id)
+  }, [])
+
+  const activeQuests = useSettlementQuestStore(s => s.getActiveQuests())
+  if (activeQuests.length === 0) return null
+
+  const shown = activeQuests.slice(0, 3)
+
+  return (
+    <div
+      style={{
+        position: 'fixed',
+        bottom: 160,
+        right: 60,
+        zIndex: 300,
+        fontFamily: '"Courier New", monospace',
+        pointerEvents: 'auto',
+        minWidth: 160,
+        maxWidth: 200,
+      }}
+    >
+      {/* Header */}
+      <div
+        onClick={() => setCollapsed(c => !c)}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 5,
+          background: 'rgba(0,0,0,0.7)',
+          border: '1px solid rgba(205,68,32,0.3)',
+          borderRadius: collapsed ? 3 : '3px 3px 0 0',
+          padding: '4px 7px',
+          cursor: 'pointer',
+          fontSize: 9,
+          color: '#cd4420',
+          fontWeight: 700,
+          letterSpacing: 1,
+        }}
+      >
+        <span>QUESTS ({activeQuests.length})</span>
+        <div style={{ flex: 1 }} />
+        <span
+          onClick={(e) => { e.stopPropagation(); togglePanel('quests') }}
+          title="Open Quest Panel"
+          style={{ color: '#555', cursor: 'pointer', fontSize: 10 }}
+        >
+          [Q]
+        </span>
+        <span style={{ color: '#555', marginLeft: 3 }}>{collapsed ? '▲' : '▼'}</span>
+      </div>
+
+      {/* Quest list */}
+      {!collapsed && (
+        <div style={{
+          background: 'rgba(0,0,0,0.7)',
+          border: '1px solid rgba(205,68,32,0.2)',
+          borderTop: 'none',
+          borderRadius: '0 0 3px 3px',
+          padding: '4px 6px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 5,
+        }}>
+          {shown.map(q => {
+            const pct = q.targetCount > 0 ? Math.min(100, (q.progress / q.targetCount) * 100) : 0
+            const icon = QUEST_TYPE_ICONS[q.type] ?? '?'
+            return (
+              <div key={q.id}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 2 }}>
+                  <span style={{ fontSize: 11 }}>{icon}</span>
+                  <span style={{ fontSize: 9, color: '#ccc', flex: 1, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
+                    {q.title}
+                  </span>
+                  <span style={{ fontSize: 8, color: '#888' }}>{q.progress}/{q.targetCount}</span>
+                </div>
+                <div style={{ height: 2, background: 'rgba(255,255,255,0.08)', borderRadius: 1, overflow: 'hidden' }}>
+                  <div style={{
+                    width: `${pct}%`,
+                    height: '100%',
+                    background: pct >= 100 ? '#2ecc71' : '#cd4420',
+                    borderRadius: 1,
+                    transition: 'width 0.4s',
+                  }} />
+                </div>
+              </div>
+            )
+          })}
+          {activeQuests.length > 3 && (
+            <div style={{ fontSize: 8, color: '#555', textAlign: 'center' }}>
+              +{activeQuests.length - 3} more
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Main HUD ──────────────────────────────────────────────────────────────────
 
 export function HUD() {
@@ -1403,6 +1519,9 @@ export function HUD() {
 
       {/* ── M29 Track C4: Inspect player modal overlay ── */}
       <InspectPlayerOverlay />
+
+      {/* ── M33 Track A: Quest tracker widget (bottom-right) ── */}
+      <QuestTrackerWidget />
 
       {/* ── M32 Track C: Fast travel fade-to-black overlay ── */}
       <div style={{

@@ -111,6 +111,9 @@ import { tickChemistryGameplay } from './ChemistryGameplay'
 import { CreatureBody } from '../ecs/world'
 import { skillSystem } from './SkillSystem'
 import { saveOffline, registerSkillSystem, registerQuestSystem, registerAchievementSystem, registerTutorialSystem } from './OfflineSaveManager'
+import { useSettlementQuestStore } from '../store/settlementQuestStore'
+// M33 Track B: Food buff system
+import { consumeFood, tickFoodBuffs } from './FoodBuffSystem'
 
 // Register skill system with offline save manager for serialization
 registerSkillSystem(skillSystem)
@@ -492,6 +495,26 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
           skillSystem.addXp('gathering', isOre ? 25 : 15)
           // M23: Quest progress on gather
           questSystem.onGather(nearNode.matId, qty)
+          // M33: Settlement quest board progress on gather
+          {
+            const sqStore = useSettlementQuestStore.getState()
+            const active = sqStore.getActiveQuests()
+            for (const q of active) {
+              if (q.type === 'gather' && (q.targetId === 0 || q.targetId === nearNode.matId)) {
+                sqStore.updateProgress(q.id, qty)
+                const updated = useSettlementQuestStore.getState().quests[q.id]
+                if (updated && updated.progress >= updated.targetCount) {
+                  sqStore.completeQuest(q.id)
+                  usePlayerStore.getState().addGold(q.reward.gold)
+                  skillSystem.addXp('gathering', q.reward.xp)
+                  useUiStore.getState().addNotification(
+                    `Quest Complete: "${q.title}" +${q.reward.xp} XP +${q.reward.gold} gold`,
+                    'discovery'
+                  )
+                }
+              }
+            }
+          }
           const addNotification = useUiStore.getState().addNotification
           addNotification(
             `✓ Gathered ${qty > 1 ? qty + '× ' : ''}${nearNode.label} — [I] to view items`,
@@ -686,6 +709,20 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
 
     // ── Slice 4: Food cooking thermodynamics ──────────────────────────────────
     tickFoodCooking(dt, inventory, simManagerRef.current, px, py, pz)
+
+    // ── M33 Track B: Food buff tick — apply hp regen, warmth regen ────────────
+    {
+      const dtMs = dt * 1000
+      tickFoodBuffs(dtMs, buff => {
+        if (buff.hpRegenPerSec && entityId !== null) {
+          const maxHp = Health.max[entityId] || 100
+          Health.current[entityId] = Math.min(maxHp + (buff.maxHpBonus ?? 0), Health.current[entityId] + buff.hpRegenPerSec * dt)
+        }
+        if (buff.warmthRegenPerSec) {
+          usePlayerStore.getState().addWarmth(buff.warmthRegenPerSec * dt)
+        }
+      })
+    }
 
     // ── Slice 5: Wound + infection system ─────────────────────────────────────
     tickWoundSystem(dt, entityId ?? 0)
@@ -997,6 +1034,26 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
               skillSystem.addXp('combat', 50) // M22: Combat XP on animal kill
               // M23: Quest progress on kill
               questSystem.onKill(killed.species)
+              // M33: Settlement quest board progress on kill
+              {
+                const sqStore = useSettlementQuestStore.getState()
+                const active = sqStore.getActiveQuests()
+                for (const q of active) {
+                  if (q.type === 'hunt') {
+                    sqStore.updateProgress(q.id, 1)
+                    const updated = useSettlementQuestStore.getState().quests[q.id]
+                    if (updated && updated.progress >= updated.targetCount) {
+                      sqStore.completeQuest(q.id)
+                      usePlayerStore.getState().addGold(q.reward.gold)
+                      skillSystem.addXp('combat', q.reward.xp)
+                      useUiStore.getState().addNotification(
+                        `Quest Complete: "${q.title}" +${q.reward.xp} XP +${q.reward.gold} gold`,
+                        'discovery'
+                      )
+                    }
+                  }
+                }
+              }
               // M24: Achievement progress on kill
               achievementSystem.onKill(killed.species)
               achievementSystem.onDealDamage(effectiveDamage)
@@ -1133,6 +1190,21 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
         if (gs.gatherPrompt === null) gs.setGatherPrompt('[E] Drink grain spirit (+warmth)')
       } else if (inventory.countMaterial(MAT.MEAD) > 0) {
         if (gs.gatherPrompt === null) gs.setGatherPrompt('[E] Drink mead (+warmth +hunger)')
+      }
+      // M33 Track B: Show eat prompt for cooked buff foods
+      const buffFoodIds = [MAT.COOKED_FISH, MAT.MUSHROOM_SOUP, MAT.BERRY_JAM, MAT.HERBAL_TEA, MAT.HEARTY_STEW]
+      for (const fid of buffFoodIds) {
+        if (inventory.countMaterial(fid) > 0) {
+          const labels: Record<number, string> = {
+            [MAT.COOKED_FISH]:   '[E] Eat cooked fish (+HP regen)',
+            [MAT.MUSHROOM_SOUP]: '[E] Eat mushroom soup (+speed)',
+            [MAT.BERRY_JAM]:     '[E] Eat berry jam (+speed burst)',
+            [MAT.HERBAL_TEA]:    '[E] Drink herbal tea (+warmth)',
+            [MAT.HEARTY_STEW]:   '[E] Eat hearty stew (full meal!)',
+          }
+          if (gs.gatherPrompt === null) gs.setGatherPrompt(labels[fid] ?? '[E] Eat food')
+          break
+        }
       }
       if (psNow.wounds.length > 0 && inventory.countMaterial(MAT.LEAF) > 0) {
         const herbLabel = '[H] Apply herb to wound'

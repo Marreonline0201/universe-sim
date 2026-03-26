@@ -3,6 +3,7 @@
 // Singleton managing mana, spell slots, cooldowns, and casting effects.
 
 import { usePlayerStore } from '../store/playerStore'
+import { getWeatherSpellMultiplier, onSpellCastWeatherEffect } from './WeatherSpellSystem'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -84,9 +85,13 @@ class SpellSystemClass {
       this.shieldHp = 60
     }
 
+    // M44 Track C: Apply weather multiplier and trigger side effects
+    const weatherMult = getWeatherSpellMultiplier(id)
+    onSpellCastWeatherEffect(id)
+
     // Dispatch event for GameLoop to handle damage / heal
     window.dispatchEvent(new CustomEvent('spell-cast', {
-      detail: { spellId: id, entityId },
+      detail: { spellId: id, entityId, weatherMult },
     }))
   }
 

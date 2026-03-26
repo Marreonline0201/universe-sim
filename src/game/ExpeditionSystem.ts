@@ -106,7 +106,7 @@ export interface ActiveExpedition {
   destinationId: string
   startedAt: number    // simTime
   endsAt: number       // simTime
-  status: 'ongoing' | 'returned' | 'failed'
+  status: 'ongoing' | 'returned'
   result?: ExpeditionResult
 }
 
@@ -293,7 +293,7 @@ export function tickExpeditions(simSeconds: number): void {
       usePlayerStore.getState().addGold(result.goldEarned)
     }
 
-    _activeExpedition.status = result.success ? 'returned' : 'returned'
+    _activeExpedition.status = 'returned'
     _activeExpedition.result = result
 
     window.dispatchEvent(new CustomEvent('expedition-returned', { detail: { result, destinationId: _activeExpedition.destinationId } }))

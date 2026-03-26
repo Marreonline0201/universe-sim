@@ -3213,3 +3213,74 @@ Dungeons are getting more dangerous and rewarding:
 - A boss health bar that appears on screen when you are fighting a dungeon boss
 
 ---
+
+## Session Log — 2026-03-26
+
+### SSO Login Loop Fixed
+
+**What happened:** Players visiting the game site (universe-sim-beryl.vercel.app) were getting stuck in a loop. The web address would show `#/sso-callback` and the page would never load properly.
+
+**Why it happened:** The login system (called Clerk — think of it like a digital bouncer at the door) did not know where to send a player after they successfully signed in. So it just kept spinning in circles.
+
+**What was fixed:** Two small instructions were added to the login setup in the game's code: one telling Clerk "after someone signs in, send them to the home page" and another saying "after someone signs up, also send them to the home page." Like telling a bouncer: "Once you've checked their ID, let them walk through the front door."
+
+**One thing still needed:** The owner must manually add `universe-sim-beryl.vercel.app` as an allowed website in the Clerk dashboard (Clerk's settings panel online). This is a security step — Clerk needs to know which websites are allowed to use its login service. Until this is done, the fix is in place but login may still be blocked on that specific web address.
+
+---
+
+### M65 Code Quality Audit — All Clear
+
+**What happened:** A code quality agent reviewed all of the code written during M65. M65 added three big systems: the Talent Tree (skill upgrades for the player), the Dynamic Quest Board (quests that appear and refresh over time), and the NPC Emotion System (NPCs that react with feelings based on what happens around them).
+
+**What was found:** One small bug was discovered and fixed.
+
+- **The bug:** In the Dynamic Quest Board code, there was a value called `REFRESH_INTERVAL` (think of it like a timer that says "check for new quests every X seconds"). The code was trying to use this timer before it had been officially defined — like trying to set an alarm using a clock that hasn't been plugged in yet.
+- **The fix:** The timer definition was moved to earlier in the code, so it exists before anything tries to use it.
+
+**Everything else:** All three panels were properly connected. All save and load functions worked correctly. No TypeScript errors (TypeScript is a tool that checks code for mistakes before the game runs — a clean check means no hidden problems).
+
+---
+
+### M66 Track B — Player Title System — Done
+
+**What it is:** Players can now earn special Titles — things like "The Brave" or "Master Crafter" — that show up next to their name in the game. Think of it like earning a badge or a nickname that others can see.
+
+**How it works:**
+- There are 20 titles total, spread across 4 rarity levels:
+  - **Common** — earned easily, like reaching a low level or crafting basic items
+  - **Rare** — earned by doing more challenging things, like defeating a faction boss
+  - **Epic** — earned through significant achievements, like reaching high reputation with a faction
+  - **Legendary** — the rarest titles, earned by doing truly exceptional things in the game
+- Titles unlock automatically when a player meets the right conditions (killing bosses, crafting items, leveling up, building faction reputation, etc.)
+- Players can choose one title to have active at a time — it shows up with a glowing colored border around it so it stands out
+- The Title Panel can be opened by pressing the **F11** key
+- All title progress is saved when you quit and loaded back when you return
+
+**Status:** Fully complete and live in the game as of commit ecaf989.
+
+---
+
+### M66 Tracks A and C — In Progress (Background Agents)
+
+Two more M66 features are still being built by background agents running in parallel:
+
+**Track A — World Event Scheduler**
+This system will make large, timed events happen across the game world — things like storms, invasions, or festivals that the whole map can react to. Think of it like a game-master behind the scenes scheduling surprises.
+
+**Track C — Resource Trading Network**
+This system will let settlements and factions trade resources with each other automatically, creating a living economy across the world. Prices and supply will shift depending on what is available where.
+
+Both of these tracks have their keyboard shortcut slots already reserved in the sidebar:
+- Track A will open with **F10**
+- Track C will open with **F12**
+
+When the agents finish, the code will be committed and these entries will be updated.
+
+---
+
+### Current Game Version
+
+**Commit:** ecaf989
+**What it includes:** M66 Track B (Player Title System) fully complete, plus all M65 bug fixes applied.
+
+---

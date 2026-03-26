@@ -10,6 +10,7 @@ import { SidebarShell } from './SidebarShell'
 import { NotificationSystem } from './NotificationSystem'
 import { CombatHUD } from './CombatHUD'
 import { TutorialOverlay } from './TutorialOverlay'
+import { MobileControls } from './MobileControls'
 import { inventory } from '../game/GameSingletons'
 import { MAT, ITEM } from '../player/Inventory'
 import { cookingProgress } from '../game/SurvivalSystems'
@@ -1005,6 +1006,9 @@ export function HUD() {
 
       {/* ── Toast notifications ── */}
       <NotificationSystem />
+
+      {/* ── M25: Mobile touch controls (joystick + action buttons) ── */}
+      <MobileControls />
     </>
   )
 }

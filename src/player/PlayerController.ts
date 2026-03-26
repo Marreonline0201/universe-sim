@@ -15,6 +15,7 @@ import { world, Position, Velocity, Rotation } from '../ecs/world'
 import { useGameStore } from '../store/gameStore'
 import { PLANET_RADIUS, SEA_LEVEL, surfaceRadiusAt } from '../world/SpherePlanet'
 import { rapierWorld } from '../physics/RapierWorld'
+import { useJoystickStore } from '../ui/MobileControls'
 
 export type CameraMode = 'first_person' | 'third_person' | 'orbit'
 
@@ -234,6 +235,18 @@ export class PlayerController {
     this.input.crouch   = k.has('ControlLeft')
     this.input.interact = k.has('KeyE') || k.has('KeyF')
     this.input.attack   = k.has('MouseLeft') || k.has('KeyQ')
+
+    // ── Virtual joystick (mobile touch) ──────────────────────────────────────
+    // Blend joystick direction into movement flags so the rest of the pipeline
+    // needs no changes. dy < 0 = up on screen = forward.
+    const joy = useJoystickStore.getState()
+    if (joy.active) {
+      const DEAD = 0.15
+      if (joy.dy < -DEAD) this.input.forward  = true
+      if (joy.dy >  DEAD) this.input.backward = true
+      if (joy.dx < -DEAD) this.input.left     = true
+      if (joy.dx >  DEAD) this.input.right    = true
+    }
   }
 
   // ── Movement ───────────────────────────────────────────────────────────────

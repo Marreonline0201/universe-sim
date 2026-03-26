@@ -15,6 +15,7 @@ import { initBountyBoard } from './game/BountyBoardSystem'
 import { initMerchantGuildSystem, refreshContracts } from './game/MerchantGuildSystem'
 import { initResourceDepletion } from './game/ResourceDepletionSystem'
 import { initWorldThreatSystem } from './game/WorldThreatSystem'
+import { initTradeRouteSystem } from './game/TradeRouteSystem'
 
 // ── M20: Lazy-load AdminPanel (dev/admin only) ──────────────────────────────
 const AdminPanel = lazy(() => import('./ui/AdminPanel').then(m => ({ default: m.AdminPanel })))
@@ -69,6 +70,7 @@ function DevGame() {
     refreshContracts(0)
     initResourceDepletion()
     initWorldThreatSystem()
+    initTradeRouteSystem()
   }, [])
 
   return (
@@ -128,6 +130,7 @@ function GameWithSave() {
     refreshContracts(0)
     initResourceDepletion()
     initWorldThreatSystem()
+    initTradeRouteSystem()
   }, [])
 
   // Load save on first sign-in

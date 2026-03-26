@@ -212,6 +212,8 @@ import { onKill as bountyOnKill, tickBountyBoard } from './BountyBoardSystem'
 import { checkDiscoveries } from './ExplorationDiscoverySystem'
 // M55 Track B: Resource depletion & respawn system
 import { tickResourceRespawn } from './ResourceDepletionSystem'
+// M56 Track A: Dynamic NPC trade routes
+import { tickTradeRoutes } from './TradeRouteSystem'
 
 // Register skill system with offline save manager for serialization
 registerSkillSystem(skillSystem)
@@ -340,6 +342,8 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
   const discoveryTimerRef = useRef(0)
   // M55 Track B: Resource respawn tick timer — fires every 5s
   const resourceRespawnTimerRef = useRef(0)
+  // M56 Track A: NPC trade route tick timer — fires every 30s
+  const tradeRouteTimerRef = useRef(0)
 
   useFrame((_, delta) => {
     // Cap dt to avoid spiral-of-death on slow frames
@@ -3484,6 +3488,15 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
       if (resourceRespawnTimerRef.current >= 5) {
         resourceRespawnTimerRef.current = 0
         tickResourceRespawn(useGameStore.getState().simSeconds)
+      }
+    }
+
+    // ── M56 Track A: NPC trade route tick (every 30s) ────────────────────────
+    {
+      tradeRouteTimerRef.current += dt
+      if (tradeRouteTimerRef.current >= 30) {
+        tradeRouteTimerRef.current = 0
+        tickTradeRoutes(useGameStore.getState().simSeconds)
       }
     }
 

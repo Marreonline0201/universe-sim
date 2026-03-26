@@ -50,8 +50,10 @@ const HousingPanel = lazy(() => import('./panels/HousingPanel').then(m => ({ def
 const PetPanel = lazy(() => import('./panels/PetPanel').then(m => ({ default: m.PetPanel })))
 // M48 Track C: World events log panel
 const WorldEventsPanel = lazy(() => import('./panels/WorldEventsPanel').then(m => ({ default: m.WorldEventsPanel })))
-// M49 Track B: Trading routes panel
+// M49 Track B: Trading routes panel (player-established routes)
 const TradingRoutesPanel = lazy(() => import('./panels/TradingRoutesPanel').then(m => ({ default: m.TradingRoutesPanel })))
+// M56 Track A: Dynamic NPC trade routes panel
+const TradeRoutesPanel = lazy(() => import('./panels/TradeRoutesPanel').then(m => ({ default: m.TradeRoutesPanel })))
 // M49 Track C: Bestiary panel
 const BestiaryPanel = lazy(() => import('./panels/BestiaryPanel').then(m => ({ default: m.BestiaryPanel })))
 // M50 Track A: Reputation titles panel
@@ -78,6 +80,8 @@ const NPCSchedulePanel = lazy(() => import('./panels/NPCSchedulePanel').then(m =
 const ResourceTrackerPanel = lazy(() => import('./panels/ResourceTrackerPanel').then(m => ({ default: m.ResourceTrackerPanel })))
 // M55 Track C: World threat tracker panel
 const WorldThreatPanel = lazy(() => import('./panels/WorldThreatPanel').then(m => ({ default: m.WorldThreatPanel })))
+// M56 Track C: Recipe feasibility scanner panel
+const RecipeFeasibilityPanel = lazy(() => import('./panels/RecipeFeasibilityPanel').then(m => ({ default: m.RecipeFeasibilityPanel })))
 // M56 Track B: Faction standing panel
 const FactionStandingPanel = lazy(() => import('./panels/FactionStandingPanel').then(m => ({ default: m.FactionStandingPanel })))
 
@@ -140,6 +144,7 @@ const PANEL_LABEL: Record<PanelId, string> = {
   resources:     'RESOURCE TRACKER',
   threats:        'WORLD THREAT TRACKER',
   factionstanding: 'FACTION STANDING',
+  recipescan:      'RECIPE SCANNER',
 }
 
 const PANEL_WIDTH = 480
@@ -182,6 +187,7 @@ const ICON_BUTTONS: Array<{ id: PanelId; icon: string; hint: string }> = [
   { id: 'resources',     icon: '🌲',   hint: 'Resources' },
   { id: 'threats',       icon: '⚠️',   hint: 'World Threats (A)' },
   { id: 'factionstanding', icon: '🌟',  hint: 'Faction Standing (6)' },
+  { id: 'recipescan',      icon: '🔍',  hint: 'Recipe Scanner (7)' },
   { id: 'science',         icon: ' ? ', hint: 'Science Companion (?)' },
   { id: 'settings',    icon: 'SET',  hint: 'Settings (Esc)' },
 ]
@@ -212,7 +218,7 @@ const PANEL_COMPONENTS: Record<PanelId, React.ComponentType> = {
   housing:       HousingPanel,
   pet:           PetPanel,
   worldevents:   WorldEventsPanel,
-  traderoutes:   TradingRoutesPanel,
+  traderoutes:   TradeRoutesPanel,
   bestiary:      BestiaryPanel,
   titles:        ReputationTitlesPanel,
   forecast:      WeatherForecastPanel,
@@ -227,6 +233,7 @@ const PANEL_COMPONENTS: Record<PanelId, React.ComponentType> = {
   resources:     ResourceTrackerPanel,
   threats:         WorldThreatPanel,
   factionstanding: FactionStandingPanel,
+  recipescan:      RecipeFeasibilityPanel,
 }
 
 export function SidebarShell() {
@@ -299,6 +306,8 @@ export function SidebarShell() {
           e.preventDefault(); togglePanel('bountboard'); break
         case '6':
           e.preventDefault(); togglePanel('factionstanding'); break
+        case '7':
+          e.preventDefault(); togglePanel('recipescan'); break
         case '1': case '2': case '3': case '4':
           if (!document.pointerLockElement) break  // only when in-game (pointer locked)
           if (activePanel !== null) break

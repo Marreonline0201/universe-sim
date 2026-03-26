@@ -183,7 +183,7 @@ const ICON_BUTTONS: Array<{ id: PanelId; icon: string; hint: string }> = [
   { id: 'bountboard',    icon: '📋',   hint: 'Bounties (5)' },
   { id: 'discoveries',   icon: '🗺',   hint: 'Discoveries (D)' },
   { id: 'merchantguild', icon: '🏪',   hint: 'Guild (E)' },
-  { id: 'npcschedule',   icon: '📅',   hint: 'NPC Schedules' },
+  { id: 'npcschedule',   icon: '📅',   hint: 'NPC Schedules (8)' },
   { id: 'resources',     icon: '🌲',   hint: 'Resources' },
   { id: 'threats',       icon: '⚠️',   hint: 'World Threats (A)' },
   { id: 'factionstanding', icon: '🌟',  hint: 'Faction Standing (6)' },
@@ -308,6 +308,8 @@ export function SidebarShell() {
           e.preventDefault(); togglePanel('factionstanding'); break
         case '7':
           e.preventDefault(); togglePanel('recipescan'); break
+        case '8':
+          e.preventDefault(); togglePanel('npcschedule'); break
         case '1': case '2': case '3': case '4':
           if (!document.pointerLockElement) break  // only when in-game (pointer locked)
           if (activePanel !== null) break

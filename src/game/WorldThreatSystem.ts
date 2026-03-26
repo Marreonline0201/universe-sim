@@ -87,14 +87,15 @@ export function initWorldThreatSystem(): void {
   window.addEventListener('faction-war-resolved', (e: Event) => {
     const detail = (e as CustomEvent).detail ?? {}
     const war = detail.war ?? {}
-    // Mark matching war threat with short expiry so it auto-clears
-    const match = _threats.find(t => t.type === 'faction-war' && t.id === `threat_war_${war.id}`)
+    const expectedDetail = `${war.attackingFactionId ?? 'Unknown'} vs ${war.defendingFactionId ?? 'Unknown'}`
+    // Match by faction IDs in the detail string (IDs are never fabricated)
+    const match = _threats.find(t => t.type === 'faction-war' && t.detail === expectedDetail)
     if (match) {
       match.expiresAt = Date.now() + 10_000
     } else {
-      // Best effort: expire the most recent faction-war threat
-      const recent = _threats.find(t => t.type === 'faction-war')
-      if (recent) recent.expiresAt = Date.now() + 10_000
+      // Best effort: expire the oldest faction-war threat
+      const oldest = _threats.filter(t => t.type === 'faction-war').sort((a, b) => a.startedAt - b.startedAt)[0]
+      if (oldest) oldest.expiresAt = Date.now() + 10_000
     }
   })
 

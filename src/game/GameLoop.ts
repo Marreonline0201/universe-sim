@@ -211,7 +211,21 @@ import { onKill as bountyOnKill, tickBountyBoard } from './BountyBoardSystem'
 // M54 Track C: Exploration discovery system
 import { checkDiscoveries } from './ExplorationDiscoverySystem'
 // M55 Track B: Resource depletion & respawn system
-import { tickResourceRespawn } from './ResourceDepletionSystem'
+import { tickResourceRespawn, harvestNode as depleteNode, getNearbyNodes, recordDepletedAt } from './ResourceDepletionSystem'
+
+// M55 Track B: Map world node types to ResourceDepletionSystem types for harvest linking
+const WORLD_TO_DEPLETION_TYPE: Record<string, string> = {
+  wood: 'tree', bark: 'tree', ancient_wood: 'tree',
+  iron_ore: 'ore_vein', copper_ore: 'ore_vein', coal: 'ore_vein', tin_ore: 'ore_vein',
+  gold: 'ore_vein', silver: 'ore_vein', uranium: 'ore_vein', shadow_iron: 'ore_vein',
+  luminite: 'ore_vein', sulfur: 'ore_vein', saltpeter: 'ore_vein',
+  fiber: 'herb_patch', leaf: 'herb_patch', rubber: 'herb_patch',
+  berry: 'berry_bush',
+  stone: 'stone_deposit', flint: 'stone_deposit', clay: 'stone_deposit',
+  sand: 'stone_deposit', glacier_ice: 'stone_deposit', desert_crystal: 'stone_deposit',
+  volcanic_glass: 'stone_deposit',
+  mushroom: 'mushroom_ring',
+}
 // M56 Track A: Dynamic NPC trade routes
 import { tickTradeRoutes } from './TradeRouteSystem'
 
@@ -926,6 +940,23 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
           })
           if (nearNode.matId === MAT.STONE || nearNode.matId === MAT.FLINT) {
             inventory.discoverRecipe(1)
+          }
+          // M55 Track B: Deduct a charge from the nearest ResourceDepletionSystem node
+          {
+            const deplType = WORLD_TO_DEPLETION_TYPE[nearNode.type]
+            if (deplType) {
+              const nearby = getNearbyNodes(px, pz, 200).filter(n => n.type === deplType && !n.depleted)
+              if (nearby.length > 0) {
+                const closest = nearby.reduce((a, b) => {
+                  const da = (a.position.x - px) ** 2 + (a.position.z - pz) ** 2
+                  const db = (b.position.x - px) ** 2 + (b.position.z - pz) ** 2
+                  return da < db ? a : b
+                })
+                if (depleteNode(closest.id)) {
+                  recordDepletedAt(closest.id, useGameStore.getState().simSeconds)
+                }
+              }
+            }
           }
           // M22: Gathering XP (10-30 based on ore vs basic)
           skillSystem.addXp('gathering', isOre ? 25 : 15)

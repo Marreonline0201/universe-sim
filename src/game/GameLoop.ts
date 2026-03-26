@@ -139,6 +139,7 @@ import { useFactionStore } from '../store/factionStore'
 import { FACTIONS, getFactionRelationship, FACTION_IDS } from './FactionSystem'
 // M36 Track B: Dungeon room system
 // M40 Track C: mini_boss + spike_trap rooms
+// M47 Track C: scaled boss/mini-boss HP per floor
 import {
   generateAllDungeonRooms,
   isDungeonRoomActive,
@@ -154,6 +155,8 @@ import {
   disarmTrap,
   initMiniBossRoom,
   initSpikeTrapRoom,
+  getScaledBossHp,
+  getScaledMiniBossHp,
   type DungeonRoom,
 } from './DungeonSystem'
 import { useDungeonStore } from '../store/dungeonStore'
@@ -182,7 +185,7 @@ import { tickSiege, startSiege, activeSiege } from './SiegeSystem'
 // M46 Track C: Recipe unlock — skill milestone discoveries
 import { discoverRecipe } from './RecipeUnlockSystem'
 // M47 Track B: Environmental hazards
-import { getActiveHazard, HAZARD_DEFS } from './HazardSystem'
+import { getActiveHazard, HAZARD_DEFS, HAZARD_ZONE_TYPE_BY_ID } from './HazardSystem'
 import { isPotionFireImmune } from './PotionSystem'
 
 // Register skill system with offline save manager for serialization
@@ -2724,6 +2727,41 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
               window.dispatchEvent(new CustomEvent('lava-warning'))
               break
             }
+          }
+        }
+      }
+    }
+
+    // ── M47 Track B: Environmental hazard damage ─────────────────────────────
+    {
+      const hazardZone = getActiveHazard(px, pz)
+      if (hazardZone) {
+        const def = HAZARD_DEFS[hazardZone.type]
+
+        // Fire immunity from potions skips lava damage
+        const skipDamage = hazardZone.type === 'lava_pool' && isPotionFireImmune()
+
+        if (!skipDamage && def.dps > 0 && !inventory.isGodMode()) {
+          Health.current[entityId] = Math.max(0, Health.current[entityId] - def.dps * dt)
+        }
+
+        // Dispatch hazard-enter only on first entry (or when zone changes)
+        if (activeHazardIdRef.current !== hazardZone.id) {
+          activeHazardIdRef.current = hazardZone.id
+          window.dispatchEvent(new CustomEvent('hazard-enter', { detail: { type: hazardZone.type } }))
+          // For quicksand: also emit speed event
+          if (hazardZone.type === 'quicksand') {
+            window.dispatchEvent(new CustomEvent('quicksand-enter'))
+          }
+        }
+      } else {
+        // Player has left all hazards
+        if (activeHazardIdRef.current !== null) {
+          const prevType = HAZARD_ZONE_TYPE_BY_ID[activeHazardIdRef.current]
+          activeHazardIdRef.current = null
+          window.dispatchEvent(new CustomEvent('hazard-exit'))
+          if (prevType === 'quicksand') {
+            window.dispatchEvent(new CustomEvent('quicksand-exit'))
           }
         }
       }

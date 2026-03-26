@@ -42,6 +42,8 @@ import { WorldEventHUD } from './WorldEventHUD'
 import { ChatBox } from './ChatBox'
 import { PartyHUD } from './PartyHUD'
 import { SpectateMode } from './SpectateMode'
+// M47 Track C: Dungeon floor HUD
+import { DungeonFloorHUD } from './DungeonFloorHUD'
 // M40 Track B: Magic spell system
 const SpellBar = lazy(() => import('./SpellBar').then(m => ({ default: m.SpellBar })))
 // M44 Track C: Weather-spell interaction hint
@@ -62,6 +64,8 @@ const FirstContactOverlay = lazy(() => import('./FirstContactOverlay').then(m =>
 const LootOverlay = lazy(() => import('./panels/LootOverlay').then(m => ({ default: m.LootOverlay })))
 // M46 Track B: Settlement siege HUD
 const SiegeHUD = lazy(() => import('./panels/SiegeHUD').then(m => ({ default: m.SiegeHUD })))
+// M47 Track B: Environmental hazard warning bar
+const HazardWarning = lazy(() => import('./HazardWarning').then(m => ({ default: m.HazardWarning })))
 
 // ── Armor slot visual constants ────────────────────────────────────────────────
 const STEEL_BLUE = '#4a9eff'
@@ -2707,6 +2711,14 @@ export function HUD() {
       {/* ── M44 Track A: Dungeon loot drop overlay ── */}
       <Suspense fallback={null}>
         <LootOverlay />
+      </Suspense>
+
+      {/* ── M47 Track C: Dungeon floor indicator (shown underground) ── */}
+      <DungeonFloorHUD />
+
+      {/* ── M47 Track B: Environmental hazard warning bar ── */}
+      <Suspense fallback={null}>
+        <HazardWarning />
       </Suspense>
 
       {/* ── M32 Track C: Fast travel fade-to-black overlay ── */}

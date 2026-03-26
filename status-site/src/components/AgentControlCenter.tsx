@@ -85,7 +85,7 @@ function SpeechBubble({ text, fromId, toId }: { text: string; fromId: string; to
       fontSize: 8,
       color: 'rgba(220,235,255,0.9)',
       whiteSpace: 'normal',
-      maxWidth: 240,
+      width: 200,
       wordBreak: 'break-word',
       lineHeight: 1.5,
       zIndex: 20,

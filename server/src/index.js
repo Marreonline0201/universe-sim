@@ -313,8 +313,49 @@ async function main() {
           }
           // Handle plain text messages — forward to Claude and reply
           if (data.message && data.message.text) {
-            const userText = data.message.text
+            const userText = data.message.text.trim()
             const chatId   = String(data.message.chat?.id ?? 'default')
+            // ── Built-in commands (no Claude API needed) ──────────────────────
+            if (userText.toLowerCase() === 'check') {
+              ;(async () => {
+                const blocked = AgentBus.getBlockedAgents()
+                const state   = AgentBus.getState()
+                const active  = Object.entries(state.agents).filter(([,a]) => a.status === 'active')
+                let reply = ''
+                if (blocked.length > 0) {
+                  reply += `✅ Approving ${blocked.length} blocked agent(s):\n`
+                  for (const { id, task } of blocked) {
+                    AgentBus.approveAgent(id)
+                    AgentBus.updateAgent(id, 'active', undefined, 'Approved via Telegram check')
+                    reply += `  • ${id}: ${task || '(no task)'}\n`
+                  }
+                  reply += '\nAll approved — they will resume automatically.\n'
+                } else {
+                  reply += 'No blocked agents.\n'
+                }
+                if (active.length > 0) {
+                  reply += `\n🟢 Currently running (${active.length}):\n`
+                  for (const [id, a] of active) reply += `  • ${id}: ${a.task || '...'}\n`
+                } else {
+                  reply += '\n💤 No agents currently running.'
+                }
+                await Telegram.sendMessage(reply)
+              })()
+              return
+            }
+            const runMatch = userText.match(/^run\s+([a-z\-]+)$/i)
+            if (runMatch) {
+              const agentId = runMatch[1].toLowerCase()
+              ;(async () => {
+                await Telegram.sendMessage(
+                  `To restart *${agentId}*, run this in Claude Code:\n\n` +
+                  `\`\`\`\nClause Code → type your task prompt mentioning "${agentId}"\`\`\`\n\n` +
+                  `Or from the terminal in the project folder, agents are launched via the Claude Code agent system. ` +
+                  `The director agent can also spawn it — type *run director* to restart the director first.`
+                )
+              })()
+              return
+            }
             // Fire-and-forget async Claude call
             ;(async () => {
               try {
@@ -399,14 +440,24 @@ Rules:
 
   // ── Agent sweep (every 15 s) — idle timeout + heartbeat messages ─────────────
   setInterval(() => {
-    const idleChanged      = AgentBus.tickIdleTimeout()
+    const wentIdle         = AgentBus.tickIdleTimeout()
     const heartbeatChanged = AgentBus.tickHeartbeats()
-    if (idleChanged || heartbeatChanged) {
+    if (wentIdle.length > 0 || heartbeatChanged) {
       const state = AgentBus.getState()
       wss.clients.forEach(client => {
         if (client.readyState === WebSocket.OPEN)
           client.send(JSON.stringify({ type: 'AGENT_UPDATE', ...state }))
       })
+    }
+    // Notify owner on Telegram when active agents go silent/idle
+    for (const { id, prevStatus, task } of wentIdle) {
+      if (prevStatus === 'active') {
+        Telegram.sendMessage(
+          `⚠️ *${id.toUpperCase()}* stopped\n\n` +
+          `Was working on: ${task || '(no task)'}\n\n` +
+          `Reply *run ${id}* in this chat and I'll tell you how to restart it.`
+        ).catch(() => {})
+      }
     }
   }, 15_000)
 

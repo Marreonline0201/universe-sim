@@ -127,19 +127,30 @@ export function tickHeartbeats() {
 
 /**
  * Reset any agent that hasn't checked in within its status-appropriate timeout.
- * Returns true if any agents were reset (caller should broadcast).
+ * Returns list of agents that went idle (so caller can send Telegram notifications).
  */
 export function tickIdleTimeout() {
   const now = Date.now()
-  let changed = false
-  for (const [, entry] of agents.entries()) {
+  const wentIdle = []
+  for (const [id, entry] of agents.entries()) {
     if (entry.status === 'idle' || entry.lastSeen === 0) continue
     const timeout = entry.status === 'done' ? DONE_TIMEOUT_MS : ACTIVE_TIMEOUT_MS
     if (now - entry.lastSeen > timeout) {
+      wentIdle.push({ id, prevStatus: entry.status, task: entry.task })
       entry.status = 'idle'
       entry.task   = ''
-      changed = true
     }
   }
-  return changed
+  return wentIdle
+}
+
+/**
+ * Returns all currently blocked agents (waiting for approval).
+ */
+export function getBlockedAgents() {
+  const blocked = []
+  for (const [id, entry] of agents.entries()) {
+    if (entry.status === 'blocked') blocked.push({ id, task: entry.task })
+  }
+  return blocked
 }

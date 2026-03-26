@@ -64,6 +64,8 @@ const FirstContactOverlay = lazy(() => import('./FirstContactOverlay').then(m =>
 const LootOverlay = lazy(() => import('./panels/LootOverlay').then(m => ({ default: m.LootOverlay })))
 // M46 Track B: Settlement siege HUD
 const SiegeHUD = lazy(() => import('./panels/SiegeHUD').then(m => ({ default: m.SiegeHUD })))
+// M48 Track B: Merchant restock event banner
+const RestockEventBanner = lazy(() => import('./panels/RestockEventBanner').then(m => ({ default: m.RestockEventBanner })))
 // M47 Track B: Environmental hazard warning bar
 const HazardWarning = lazy(() => import('./HazardWarning').then(m => ({ default: m.HazardWarning })))
 
@@ -2719,6 +2721,11 @@ export function HUD() {
       {/* ── M47 Track B: Environmental hazard warning bar ── */}
       <Suspense fallback={null}>
         <HazardWarning />
+      </Suspense>
+
+      {/* ── M48 Track B: NPC Merchant restock event banner (bottom-center) ── */}
+      <Suspense fallback={null}>
+        <RestockEventBanner />
       </Suspense>
 
       {/* ── M32 Track C: Fast travel fade-to-black overlay ── */}

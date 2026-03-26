@@ -187,6 +187,8 @@ import { discoverRecipe } from './RecipeUnlockSystem'
 // M47 Track B: Environmental hazards
 import { getActiveHazard, HAZARD_DEFS, HAZARD_ZONE_TYPE_BY_ID } from './HazardSystem'
 import { isPotionFireImmune } from './PotionSystem'
+// M48 Track B: NPC Merchant Restocking Events
+import { tickRestockEvent, triggerRestockEvent } from './MerchantRestockSystem'
 
 // Register skill system with offline save manager for serialization
 registerSkillSystem(skillSystem)
@@ -297,6 +299,8 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
   const discoveredCaveIdsRef = useRef<Set<string>>(new Set())
   // M46 Track B: Siege trigger timer — check every 600s (10 minutes)
   const siegeTriggerTimerRef = useRef(0)
+  // M48 Track B: Merchant restock trigger timer — check every 300s (5 minutes)
+  const restockTriggerTimerRef = useRef(0)
 
   useFrame((_, delta) => {
     // Cap dt to avoid spiral-of-death on slow frames
@@ -3253,6 +3257,24 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
 
     // ── M43 Track B: Market restock tick ─────────────────────────────────────
     marketSystem.restockTick(dt)
+
+    // ── M48 Track B: Merchant restock event tick + trigger (every 5 minutes) ──
+    {
+      tickRestockEvent(dt * 1000)
+      const RESTOCK_TRIGGER_INTERVAL = 300  // seconds
+      restockTriggerTimerRef.current += dt
+      if (restockTriggerTimerRef.current >= RESTOCK_TRIGGER_INTERVAL) {
+        restockTriggerTimerRef.current = 0
+        const settStore48 = useSettlementStore.getState()
+        const settList48 = Array.from(settStore48.settlements.values())
+        if (settList48.length > 0) {
+          const s48 = settList48[Math.floor(Math.random() * settList48.length)]
+          const merchantNames = ['Aldric', 'Mira', 'Torben', 'Seyla', 'Oryn']
+          const mName = merchantNames[Math.floor(Math.random() * merchantNames.length)]
+          triggerRestockEvent(s48.id, mName)
+        }
+      }
+    }
 
     // ── M43 Track C: Exploration tracking (every 5s) ─────────────────────────
     {

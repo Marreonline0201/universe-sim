@@ -41,6 +41,10 @@ interface SettlementState {
   // Last settlement the player was near (for NPC_ATTACKED routing)
   nearSettlementId: number | null
   setNearSettlement: (id: number | null) => void
+
+  // Last trade timestamp per settlement (epoch ms) — used for 💰 activity indicator
+  lastTradeTime: Map<number, number>
+  recordTrade: (settlementId: number) => void
 }
 
 export const useSettlementStore = create<SettlementState>((set) => ({
@@ -76,4 +80,12 @@ export const useSettlementStore = create<SettlementState>((set) => ({
 
   nearSettlementId: null,
   setNearSettlement: (id) => set({ nearSettlementId: id }),
+
+  lastTradeTime: new Map(),
+  recordTrade: (settlementId) =>
+    set((state) => {
+      const next = new Map(state.lastTradeTime)
+      next.set(settlementId, Date.now())
+      return { lastTradeTime: next }
+    }),
 }))

@@ -2,6 +2,10 @@
 // M6: Renders NPC settlements in the 3D world.
 // M21 Track B: Visual upgrades — roofs, chimneys, smoke particles, market stalls,
 //              NPC activity dots, street paths.
+// M31 Track B: Settlement growth visuals —
+//              • Tier-based PointLight color (T0 campfire orange → T5 cool blue-white)
+//              • Population counter overlay: 👥 {npcCount} + colored T{civLevel} badge
+//              • Activity indicators: 💰 recent trade, 🔨 crafting hint, ⚔ combat hint
 //
 // Each settlement renders:
 //   - 3–6 building footprints scaled by civLevel (simple box meshes, PBR materials)
@@ -11,6 +15,7 @@
 //   - NPC activity dots (animated small spheres)
 //   - Dirt path lines between buildings at civLevel >= 2
 //   - A central fire/torch glow (emissive point mesh, drives Bloom)
+//   - A tier-appropriate ambient PointLight
 //   - A floating population/name label (HTML overlay via drei Html)
 //   - Territory boundary ring (faint circle on terrain, helps player understand range)
 //
@@ -25,6 +30,41 @@ import { useSettlementStore } from '../store/settlementStore'
 import { usePlayerStore } from '../store/playerStore'
 
 const TERRITORY_RADIUS = 150
+
+// ── Tier-based PointLight config ──────────────────────────────────────────────
+// T0: campfire orange  T1: warm amber  T2: lantern yellow
+// T3: lantern warm-white  T4: bright warm white  T5: cool blue-white
+
+interface TierLightConfig {
+  color:     string
+  intensity: number
+  distance:  number
+}
+
+const TIER_LIGHTS: TierLightConfig[] = [
+  { color: '#ff6a10', intensity: 3,   distance: 18  },   // T0 campfire orange
+  { color: '#ff8c30', intensity: 3.5, distance: 22  },   // T1 warm amber
+  { color: '#ffa84c', intensity: 4,   distance: 28  },   // T2 lantern yellow
+  { color: '#ffe0a0', intensity: 5,   distance: 36  },   // T3 lantern warm-white
+  { color: '#fff5e0', intensity: 6,   distance: 45  },   // T4 bright warm-white
+  { color: '#c0e0ff', intensity: 7,   distance: 60  },   // T5 cool blue-white
+]
+
+function getTierLight(civLevel: number): TierLightConfig {
+  const idx = Math.max(0, Math.min(civLevel, TIER_LIGHTS.length - 1))
+  return TIER_LIGHTS[idx]
+}
+
+// ── Tier badge color ───────────────────────────────────────────────────────────
+
+function getTierBadgeColor(civLevel: number): string {
+  if (civLevel <= 0)  return '#66cc66'   // green  T0
+  if (civLevel === 1) return '#99cc44'   // lime   T1
+  if (civLevel === 2) return '#cccc22'   // yellow T2
+  if (civLevel === 3) return '#cc8822'   // orange T3
+  if (civLevel === 4) return '#cc4422'   // red-orange T4
+  return '#ff2244'                       // red    T5+
+}
 
 // ── Building layouts per civ level ────────────────────────────────────────────
 
@@ -47,31 +87,30 @@ function getBuildingLayout(civLevel: number) {
 // ── Materials ─────────────────────────────────────────────────────────────────
 
 function makeBuildingMaterial(civLevel: number): THREE.MeshStandardMaterial {
+  // T3+ gets a reddish-orange brick tone; lower tiers stay earthy brown-grey
+  if (civLevel >= 3) {
+    const t = Math.min((civLevel - 3) / 2, 1)
+    const r = Math.round(160 - t * 30)
+    const g = Math.round(80  - t * 20)
+    const b = Math.round(60  - t * 10)
+    return new THREE.MeshStandardMaterial({ color: `rgb(${r},${g},${b})`, roughness: 0.82, metalness: 0.04 })
+  }
   const t = Math.min(civLevel / 3, 1)
   const r = Math.round(110 + (1 - t) * 30)
   const g = Math.round(90  + (1 - t) * 20)
   const b = Math.round(70  + (1 - t) * 10)
-  const color = `rgb(${r},${g},${b})`
-  return new THREE.MeshStandardMaterial({ color, roughness: 0.88, metalness: 0.03 })
+  return new THREE.MeshStandardMaterial({ color: `rgb(${r},${g},${b})`, roughness: 0.88, metalness: 0.03 })
 }
 
 function makeRoofMaterial(civLevel: number): THREE.MeshStandardMaterial {
-  // Tier 0-1: straw/thatch brown; Tier 2+: slate grey
+  // Tier 0-1: straw/thatch brown; Tier 2+: slate grey; Tier 5: metallic sheen
+  if (civLevel >= 5) return new THREE.MeshStandardMaterial({ color: '#a0b8c8', roughness: 0.3, metalness: 0.55 })
   const color = civLevel >= 2 ? '#556677' : '#8B7355'
   return new THREE.MeshStandardMaterial({ color, roughness: 0.92, metalness: 0.01 })
 }
 
 // Market stall awning colors
 const AWNING_COLORS = ['#b85c2c', '#8b2222', '#c49620', '#3a6b3a']
-
-function makeAwningMaterial(index: number): THREE.MeshStandardMaterial {
-  return new THREE.MeshStandardMaterial({
-    color: AWNING_COLORS[index % AWNING_COLORS.length],
-    roughness: 0.85,
-    metalness: 0.01,
-    side: THREE.DoubleSide,
-  })
-}
 
 // ── Smoke particles (per-settlement instanced spheres) ────────────────────────
 
@@ -85,10 +124,10 @@ function SmokeParticles({ chimneyX, chimneyY, chimneyZ }: { chimneyX: number; ch
   const positions = useMemo(() => {
     const arr = new Float32Array(SMOKE_COUNT * 4)  // x, y, z, age
     for (let i = 0; i < SMOKE_COUNT; i++) {
-      arr[i * 4 + 0] = 0  // x offset
-      arr[i * 4 + 1] = Math.random() * SMOKE_MAX_HEIGHT  // y offset (stagger start)
-      arr[i * 4 + 2] = 0  // z offset
-      arr[i * 4 + 3] = Math.random() * 3  // age (seconds)
+      arr[i * 4 + 0] = 0
+      arr[i * 4 + 1] = Math.random() * SMOKE_MAX_HEIGHT
+      arr[i * 4 + 2] = 0
+      arr[i * 4 + 3] = Math.random() * 3
     }
     return arr
   }, [])
@@ -111,7 +150,6 @@ function SmokeParticles({ chimneyX, chimneyY, chimneyZ }: { chimneyX: number; ch
       oz += (Math.cos(age * 1.5) * SMOKE_WIND_FACTOR * 0.5) * dt
       age += dt
 
-      // Reset when too high
       if (oy > SMOKE_MAX_HEIGHT) {
         ox = (Math.random() - 0.5) * 0.3
         oy = 0
@@ -124,9 +162,8 @@ function SmokeParticles({ chimneyX, chimneyY, chimneyZ }: { chimneyX: number; ch
       positions[i * 4 + 2] = oz
       positions[i * 4 + 3] = age
 
-      // Opacity fades with height (0.4 -> 0 over max height)
       const heightFrac = oy / SMOKE_MAX_HEIGHT
-      const scale = 0.15 + heightFrac * 0.25  // grow as they rise
+      const scale = 0.15 + heightFrac * 0.25
 
       mat4.makeTranslation(chimneyX + ox, chimneyY + oy, chimneyZ + oz)
       _scaleVec.set(scale, scale, scale)
@@ -147,28 +184,27 @@ function SmokeParticles({ chimneyX, chimneyY, chimneyZ }: { chimneyX: number; ch
 // ── NPC activity dots (animated spheres moving within settlement) ──────────────
 
 const NPC_DOT_SPEED = 0.3
-const NPC_DOT_RADIUS = 5  // wander radius from settlement center
+const NPC_DOT_RADIUS = 5
 const NPC_DOT_SIZE = 0.15
 
 function NpcActivityDots({ npcCount, settlementX, settlementY, settlementZ }: {
   npcCount: number; settlementX: number; settlementY: number; settlementZ: number
 }) {
-  const count = Math.min(npcCount, 12)  // cap for performance
+  const count = Math.min(npcCount, 12)
   const meshRef = useRef<THREE.InstancedMesh>(null)
   const _dotScale = useMemo(() => new THREE.Vector3(NPC_DOT_SIZE, NPC_DOT_SIZE, NPC_DOT_SIZE), [])
   const dotState = useMemo(() => {
-    // Each dot: x, z, targetX, targetZ, timer
     const arr = new Float32Array(count * 5)
     for (let i = 0; i < count; i++) {
       const angle = Math.random() * Math.PI * 2
       const r = Math.random() * NPC_DOT_RADIUS
-      arr[i * 5 + 0] = Math.cos(angle) * r  // x
-      arr[i * 5 + 1] = Math.sin(angle) * r  // z
+      arr[i * 5 + 0] = Math.cos(angle) * r
+      arr[i * 5 + 1] = Math.sin(angle) * r
       const tAngle = Math.random() * Math.PI * 2
       const tR = Math.random() * NPC_DOT_RADIUS
-      arr[i * 5 + 2] = Math.cos(tAngle) * tR  // targetX
-      arr[i * 5 + 3] = Math.sin(tAngle) * tR  // targetZ
-      arr[i * 5 + 4] = 2 + Math.random() * 2  // timer (seconds before new target)
+      arr[i * 5 + 2] = Math.cos(tAngle) * tR
+      arr[i * 5 + 3] = Math.sin(tAngle) * tR
+      arr[i * 5 + 4] = 2 + Math.random() * 2
     }
     return arr
   }, [count])
@@ -186,7 +222,6 @@ function NpcActivityDots({ npcCount, settlementX, settlementY, settlementZ }: {
       const tz = dotState[i * 5 + 3]
       let timer = dotState[i * 5 + 4]
 
-      // Move toward target
       const toX = tx - dx, toZ = tz - dz
       const dist = Math.sqrt(toX * toX + toZ * toZ)
       if (dist > 0.2) {
@@ -196,7 +231,6 @@ function NpcActivityDots({ npcCount, settlementX, settlementY, settlementZ }: {
 
       timer -= dt
       if (timer <= 0 || dist < 0.2) {
-        // New random target
         const angle = Math.random() * Math.PI * 2
         const r = Math.random() * NPC_DOT_RADIUS
         dotState[i * 5 + 2] = Math.cos(angle) * r
@@ -247,7 +281,6 @@ function MarketStalls({ civLevel }: { civLevel: number }) {
 
   const stalls = useMemo(() => {
     const s = []
-    // Place stalls offset from center
     for (let i = 0; i < stallCount; i++) {
       const angle = (i / stallCount) * Math.PI * 2 + Math.PI * 0.25
       const dist = 2.5 + civLevel * 0.5
@@ -270,13 +303,15 @@ function MarketStalls({ civLevel }: { civLevel: number }) {
             <meshStandardMaterial color="#8B6914" roughness={0.9} metalness={0.01} />
           </mesh>
           {/* Table legs */}
-          {[[-0.5, 0, -0.3], [0.5, 0, -0.3], [-0.5, 0, 0.3], [0.5, 0, 0.3]].map(([lx, _, lz], li) => (
-            <mesh key={li} position={[lx, 0.2, lz]}>
-              <boxGeometry args={[0.06, 0.4, 0.06]} />
-              <meshStandardMaterial color="#6B4E14" roughness={0.9} />
-            </mesh>
-          ))}
-          {/* Awning (angled plane) */}
+          {([-0.5, 0.5] as const).flatMap((lx) =>
+            ([-0.3, 0.3] as const).map((lz, li) => (
+              <mesh key={`${lx}-${lz}-${li}`} position={[lx, 0.2, lz]}>
+                <boxGeometry args={[0.06, 0.4, 0.06]} />
+                <meshStandardMaterial color="#6B4E14" roughness={0.9} />
+              </mesh>
+            ))
+          )}
+          {/* Awning */}
           <mesh position={[0, 1.1, -0.1]} rotation={[-0.3, 0, 0]} castShadow>
             <planeGeometry args={[1.6, 1.0]} />
             <meshStandardMaterial
@@ -306,18 +341,11 @@ function MarketStalls({ civLevel }: { civLevel: number }) {
 function StreetPaths({ layout, civLevel }: { layout: Array<{ ox: number; oz: number; w: number; h: number; d: number }>; civLevel: number }) {
   if (civLevel < 2 || layout.length < 2) return null
 
-  // Create paths connecting adjacent buildings
   const paths = useMemo(() => {
     const result: Array<{ x1: number; z1: number; x2: number; z2: number }> = []
     for (let i = 0; i < Math.min(layout.length - 1, 3); i++) {
-      result.push({
-        x1: layout[i].ox,
-        z1: layout[i].oz,
-        x2: layout[i + 1].ox,
-        z2: layout[i + 1].oz,
-      })
+      result.push({ x1: layout[i].ox, z1: layout[i].oz, x2: layout[i + 1].ox, z2: layout[i + 1].oz })
     }
-    // Connect last to first for a loop
     if (layout.length >= 3) {
       result.push({
         x1: layout[layout.length - 1].ox,
@@ -340,23 +368,97 @@ function StreetPaths({ layout, civLevel }: { layout: Array<{ ox: number; oz: num
         const cz = (p.z1 + p.z2) / 2
 
         return (
-          <mesh
-            key={i}
-            position={[cx, 0.02, cz]}
-            rotation={[0, angle, 0]}
-            receiveShadow
-          >
+          <mesh key={i} position={[cx, 0.02, cz]} rotation={[0, angle, 0]} receiveShadow>
             <planeGeometry args={[0.5, length]} />
-            <meshStandardMaterial
-              color="#5a4a32"
-              roughness={0.95}
-              metalness={0.0}
-              side={THREE.DoubleSide}
-            />
+            <meshStandardMaterial color="#5a4a32" roughness={0.95} metalness={0.0} side={THREE.DoubleSide} />
           </mesh>
         )
       })}
     </>
+  )
+}
+
+// ── Population + Activity label (HTML overlay) ────────────────────────────────
+
+const TRADE_ACTIVE_MS = 60_000  // 60 seconds
+
+function SettlementLabel({
+  settlementId,
+  name,
+  civLevel,
+  npcCount,
+  closedGates,
+  labelHeight,
+}: {
+  settlementId: number
+  name:         string
+  civLevel:     number
+  npcCount:     number
+  closedGates:  boolean
+  labelHeight:  number
+}) {
+  // Read last trade time from store
+  const lastTradeTime = useSettlementStore(s => s.lastTradeTime.get(settlementId) ?? 0)
+  const tradeActive   = (Date.now() - lastTradeTime) < TRADE_ACTIVE_MS
+
+  const tierColor = getTierBadgeColor(civLevel)
+
+  // Activity icons — crafting hint for T2+ (always has a forge), combat for T3+ (has guards)
+  const activityIcons: string[] = []
+  if (tradeActive)    activityIcons.push('💰')
+  if (civLevel >= 2)  activityIcons.push('🔨')
+  if (civLevel >= 3)  activityIcons.push('⚔')
+
+  return (
+    <Html
+      position={[0, labelHeight + 1.8, 0]}
+      center
+      distanceFactor={80}
+      style={{ pointerEvents: 'none', userSelect: 'none', whiteSpace: 'nowrap' }}
+    >
+      <div style={{
+        fontFamily:    'monospace',
+        fontSize:      11,
+        color:         closedGates ? '#c05050' : '#c8b880',
+        letterSpacing: 2,
+        textTransform: 'uppercase',
+        textShadow:    '0 1px 4px rgba(0,0,0,0.9)',
+        background:    'rgba(0,0,0,0.6)',
+        padding:       '3px 7px 2px',
+        borderRadius:  3,
+        display:       'flex',
+        flexDirection: 'column',
+        alignItems:    'center',
+        gap:           2,
+      }}>
+        {/* Name row */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          {closedGates ? 'GATES CLOSED' : name}
+        </div>
+
+        {/* Stats row: population + tier badge */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 9, letterSpacing: 1 }}>
+          <span style={{ color: '#9abfd8' }}>👥 {npcCount}</span>
+          <span style={{
+            color:         tierColor,
+            fontWeight:    700,
+            border:        `1px solid ${tierColor}`,
+            borderRadius:  2,
+            padding:       '0px 4px',
+            fontSize:      8,
+          }}>
+            T{civLevel}
+          </span>
+        </div>
+
+        {/* Activity icons row */}
+        {activityIcons.length > 0 && (
+          <div style={{ fontSize: 10, letterSpacing: 3 }}>
+            {activityIcons.join(' ')}
+          </div>
+        )}
+      </div>
+    </Html>
   )
 }
 
@@ -368,6 +470,9 @@ function SettlementMesh({ settlement }: { settlement: any }) {
   const mat = useMemo(() => makeBuildingMaterial(civLevel), [civLevel])
   const roofMat = useMemo(() => makeRoofMaterial(civLevel), [civLevel])
   const closedGates = useSettlementStore(s => s.closedGates.has(id))
+
+  // Tier-based point light config
+  const tierLight = useMemo(() => getTierLight(civLevel), [civLevel])
 
   // Check if player is within 100m (for NPC dots LOD)
   const playerX = usePlayerStore(s => s.x)
@@ -381,7 +486,10 @@ function SettlementMesh({ settlement }: { settlement: any }) {
   const mainBuilding = layout[0]
   const chimneyX = mainBuilding.ox + mainBuilding.w * 0.35
   const chimneyZ = mainBuilding.oz + mainBuilding.d * 0.35
-  const chimneyTopY = mainBuilding.h + mainBuilding.h * 0.4 + 0.8  // above roof peak
+  const chimneyTopY = mainBuilding.h + mainBuilding.h * 0.4 + 0.8
+
+  // Label height: just above roof peak of tallest building
+  const labelHeight = Math.max(...layout.map(b => b.h + b.h * 0.4))
 
   return (
     <group position={[x, y, z]}>
@@ -392,20 +500,11 @@ function SettlementMesh({ settlement }: { settlement: any }) {
         return (
           <group key={i}>
             {/* Building body */}
-            <mesh
-              position={[b.ox, b.h / 2, b.oz]}
-              material={mat}
-              castShadow
-              receiveShadow
-            >
+            <mesh position={[b.ox, b.h / 2, b.oz]} material={mat} castShadow receiveShadow>
               <boxGeometry args={[b.w, b.h, b.d]} />
             </mesh>
             {/* Pyramid roof */}
-            <mesh
-              position={[b.ox, b.h + roofHeight / 2, b.oz]}
-              material={roofMat}
-              castShadow
-            >
+            <mesh position={[b.ox, b.h + roofHeight / 2, b.oz]} material={roofMat} castShadow>
               <coneGeometry args={[roofRadius, roofHeight, 4]} />
             </mesh>
           </group>
@@ -415,17 +514,11 @@ function SettlementMesh({ settlement }: { settlement: any }) {
       {/* Chimney + smoke (civLevel >= 2) */}
       {civLevel >= 2 && (
         <>
-          {/* Chimney box */}
           <mesh position={[chimneyX, mainBuilding.h + mainBuilding.h * 0.2 + 0.4, chimneyZ]} castShadow>
             <boxGeometry args={[0.3, 0.8, 0.3]} />
             <meshStandardMaterial color="#444444" roughness={0.85} metalness={0.02} />
           </mesh>
-          {/* Smoke particles */}
-          <SmokeParticles
-            chimneyX={chimneyX}
-            chimneyY={chimneyTopY}
-            chimneyZ={chimneyZ}
-          />
+          <SmokeParticles chimneyX={chimneyX} chimneyY={chimneyTopY} chimneyZ={chimneyZ} />
         </>
       )}
 
@@ -437,12 +530,7 @@ function SettlementMesh({ settlement }: { settlement: any }) {
 
       {/* NPC activity dots (only when player is within 100m) */}
       {playerNear && npcCount > 0 && (
-        <NpcActivityDots
-          npcCount={npcCount}
-          settlementX={0}
-          settlementY={0.3}
-          settlementZ={0}
-        />
+        <NpcActivityDots npcCount={npcCount} settlementX={0} settlementY={0.3} settlementZ={0} />
       )}
 
       {/* Central fire glow — emissive, drives Bloom postprocessing */}
@@ -456,30 +544,32 @@ function SettlementMesh({ settlement }: { settlement: any }) {
         />
       </mesh>
 
-      {/* Settlement name label */}
-      <Html
-        position={[0, Math.max(...layout.map(b => b.h + b.h * 0.4)) + 1.8, 0]}
-        center
-        distanceFactor={80}
-        style={{ pointerEvents: 'none', userSelect: 'none', whiteSpace: 'nowrap' }}
-      >
-        <div style={{
-          fontFamily:    'monospace',
-          fontSize:      11,
-          color:         closedGates ? '#c05050' : '#c8b880',
-          letterSpacing: 2,
-          textTransform: 'uppercase',
-          textShadow:    '0 1px 4px rgba(0,0,0,0.9)',
-          background:    'rgba(0,0,0,0.55)',
-          padding:       '2px 6px',
-          borderRadius:  2,
-        }}>
-          {closedGates ? 'GATES CLOSED' : name}
-          <span style={{ color: '#6a9abf', marginLeft: 6, fontSize: 9 }}>
-            CIV {civLevel} | {npcCount} pop
-          </span>
-        </div>
-      </Html>
+      {/* Tier-appropriate ambient PointLight — color shifts T0→T5 */}
+      <pointLight
+        position={[0, mainBuilding.h * 0.5 + 1, 0]}
+        color={tierLight.color}
+        intensity={closedGates ? tierLight.intensity * 0.25 : tierLight.intensity}
+        distance={tierLight.distance}
+        decay={2}
+      />
+
+      {/* T5: street lights — two additional cool point lights on settlement perimeter */}
+      {civLevel >= 5 && (
+        <>
+          <pointLight position={[8, 3, 0]}  color="#c8e8ff" intensity={3} distance={20} decay={2} />
+          <pointLight position={[-8, 3, 0]} color="#c8e8ff" intensity={3} distance={20} decay={2} />
+        </>
+      )}
+
+      {/* Population + name + activity label */}
+      <SettlementLabel
+        settlementId={id}
+        name={name}
+        civLevel={civLevel}
+        npcCount={npcCount}
+        closedGates={closedGates}
+        labelHeight={labelHeight}
+      />
 
       {/* Territory ring */}
       <TerritoryRing x={0} y={0} z={0} />

@@ -269,6 +269,11 @@ export class WorldSocket {
             inventory.addItem({ itemId: 0, materialId: parseInt(matIdStr), quantity: qty, quality: 0.8 })
           }
           useUiStore.getState().addNotification('Trade complete!', 'info')
+          // Record trade time for the settlement — drives 💰 activity indicator
+          const tradedSettlementId = useSettlementStore.getState().nearSettlementId
+          if (tradedSettlementId !== null) {
+            useSettlementStore.getState().recordTrade(tradedSettlementId)
+          }
         } else if (msg.result) {
           useUiStore.getState().addNotification(`Trade failed: ${msg.result}`, 'warning')
         }

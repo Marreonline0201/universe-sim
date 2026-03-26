@@ -232,6 +232,8 @@ import { tickTradeRoutes } from './TradeRouteSystem'
 import { checkAndUpdateMilestones } from './AchievementShowcaseSystem'
 // M57 Track C: Weather gather multiplier
 import { getWeatherGatherMult } from './WeatherEffectsSystem'
+// M59 Track A: Weather event system
+import { tickWeatherEvents } from './WeatherEventSystem'
 // M58 Track C: Pet advancement
 import { addPetXp } from './PetAdvancementSystem'
 
@@ -366,6 +368,8 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
   const resourceRespawnTimerRef = useRef(0)
   // M56 Track A: NPC trade route tick timer — fires every 30s
   const tradeRouteTimerRef = useRef(0)
+  // M59 Track A: Weather event tick timer — fires every 15s
+  const weatherEventsTimerRef = useRef(0)
 
   useFrame((_, delta) => {
     // Cap dt to avoid spiral-of-death on slow frames
@@ -3551,6 +3555,15 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
       if (tradeRouteTimerRef.current >= 30) {
         tradeRouteTimerRef.current = 0
         tickTradeRoutes(useGameStore.getState().simSeconds)
+      }
+    }
+
+    // ── M59 Track A: Weather event system tick (every 15s) ───────────────────
+    {
+      weatherEventsTimerRef.current += dt
+      if (weatherEventsTimerRef.current >= 15) {
+        weatherEventsTimerRef.current = 0
+        tickWeatherEvents(useGameStore.getState().simSeconds)
       }
     }
 

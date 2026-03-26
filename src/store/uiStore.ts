@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 
-export type PanelId = 'inventory' | 'crafting' | 'journal' | 'character' | 'map' | 'settings' | 'build' | 'science' | 'dialogue' | 'skills' | 'quests' | 'achievements' | 'fishing' | 'merchant' | 'players' | 'home' | 'factions' | 'buildings' | 'progression' | 'alchemy' | 'tradepost' | 'forge' | 'housing' | 'pet' | 'worldevents' | 'traderoutes' | 'bestiary' | 'titles' | 'forecast' | 'cavefeatures' | 'relationships' | 'factionwars' | 'seasonal' | 'bountboard' | 'discoveries' | 'merchantguild' | 'npcschedule' | 'resources' | 'threats' | 'factionstanding' | 'recipescan' | 'npcroutes' | 'codex' | 'showcase'
+export type PanelId = 'inventory' | 'crafting' | 'journal' | 'character' | 'map' | 'settings' | 'build' | 'science' | 'dialogue' | 'skills' | 'quests' | 'achievements' | 'fishing' | 'merchant' | 'players' | 'home' | 'factions' | 'buildings' | 'progression' | 'alchemy' | 'tradepost' | 'forge' | 'housing' | 'pet' | 'worldevents' | 'traderoutes' | 'bestiary' | 'titles' | 'forecast' | 'cavefeatures' | 'relationships' | 'factionwars' | 'seasonal' | 'bountboard' | 'discoveries' | 'merchantguild' | 'npcschedule' | 'resources' | 'threats' | 'factionstanding' | 'recipescan' | 'npcroutes' | 'codex' | 'showcase' | 'weatherevents' | 'market' | 'titleprogress'
 
 // ── M32 Track C: Fast travel ──────────────────────────────────────────────────
 export interface FastTravelTarget {

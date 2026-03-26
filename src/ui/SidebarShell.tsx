@@ -88,6 +88,12 @@ const FactionStandingPanel = lazy(() => import('./panels/FactionStandingPanel').
 const CodexPanel = lazy(() => import('./panels/CodexPanel').then(m => ({ default: m.CodexPanel })))
 // M57 Track A: Achievement Showcase panel
 const AchievementShowcasePanel = lazy(() => import('./panels/AchievementShowcasePanel').then(m => ({ default: m.AchievementShowcasePanel })))
+// M59 Track A: Weather events panel
+const WeatherEventsPanel = lazy(() => import('./panels/WeatherEventsPanel').then(m => ({ default: m.WeatherEventsPanel })))
+// M59 Track C: Market price panel
+const MarketPricePanel = lazy(() => import('./panels/MarketPricePanel').then(m => ({ default: m.MarketPricePanel })))
+// M59 Track B: Title progression panel
+const TitleProgressionPanel = lazy(() => import('./panels/TitleProgressionPanel').then(m => ({ default: m.TitleProgressionPanel })))
 
 // M36 Track C: Wrapper resolves nearSettlementId from store so panel has no props
 function BuildingsPanelWrapper() {
@@ -152,6 +158,9 @@ const PANEL_LABEL: Record<PanelId, string> = {
   recipescan:      'RECIPE SCANNER',
   codex:           'WORLD CODEX',
   showcase:        'ACHIEVEMENT SHOWCASE',
+  weatherevents:   'WEATHER EVENTS',
+  market:          'RESOURCE MARKET',
+  titleprogress:   'TITLE PROGRESSION',
 }
 
 const PANEL_WIDTH = 480
@@ -198,6 +207,9 @@ const ICON_BUTTONS: Array<{ id: PanelId; icon: string; hint: string }> = [
   { id: 'recipescan',      icon: '🔍',  hint: 'Recipe Scanner (7)' },
   { id: 'codex',           icon: '📖',  hint: 'Codex (0)' },
   { id: 'showcase',        icon: '🏅',  hint: 'Showcase (9)' },
+  { id: 'weatherevents',   icon: '⛈',   hint: 'Weather Events' },
+  { id: 'market',          icon: '📊',  hint: 'Market Prices' },
+  { id: 'titleprogress',   icon: '👑',  hint: 'Titles' },
   { id: 'science',         icon: ' ? ', hint: 'Science Companion (?)' },
   { id: 'settings',    icon: 'SET',  hint: 'Settings (Esc)' },
 ]
@@ -247,6 +259,9 @@ const PANEL_COMPONENTS: Record<PanelId, React.ComponentType> = {
   recipescan:      RecipeFeasibilityPanel,
   codex:           CodexPanel,
   showcase:        AchievementShowcasePanel,
+  weatherevents:   WeatherEventsPanel,
+  market:          MarketPricePanel,
+  titleprogress:   TitleProgressionPanel,
 }
 
 export function SidebarShell() {

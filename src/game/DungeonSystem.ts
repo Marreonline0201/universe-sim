@@ -8,6 +8,10 @@
 //   shrine    — ancient altar: offer 5 Iron Ore → random skill +200 XP
 //   boss_lair — one named cave boss (Stone Golem, 300 HP), unique loot
 //
+// M40 Track C additions:
+//   mini_boss  — named elite with 3× HP; drops rare item + 50-100 gold
+//   spike_trap — pressure-plate traps dealing 15 dmg each; disarm via E
+//
 // Interaction is handled in GameLoop.ts (proximity checks + E/F key input).
 
 import * as THREE from 'three'

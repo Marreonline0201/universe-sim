@@ -258,6 +258,8 @@ import { tickScheduler } from './WorldEventSchedulerSystem'
 import { tickRelations } from './SettlementRelationsSystem'
 // M68 Track C: Expedition system
 import { tickExpeditions } from './ExpeditionSystem'
+// M68 Track B: NPC Daily Schedule System
+import { tickSchedule } from './NPCScheduleSystem'
 
 // Register skill system with offline save manager for serialization
 registerSkillSystem(skillSystem)
@@ -411,6 +413,8 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
   const tradeNetworkTimerRef = useRef(0)
   // M68 Track C: Expedition tick timer — fires every 10s
   const expeditionTimerRef = useRef(0)
+  // M68 Track B: NPC schedule tick timer — fires every 10s
+  const npcScheduleTimerRef = useRef(0)
 
   useFrame((_, delta) => {
     // Cap dt to avoid spiral-of-death on slow frames
@@ -3682,6 +3686,15 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
       if (expeditionTimerRef.current >= 10) {
         expeditionTimerRef.current = 0
         tickExpeditions(useGameStore.getState().simSeconds)
+      }
+    }
+
+    // ── M68 Track B: NPC schedule tick (every 10s) ───────────────────────────
+    {
+      npcScheduleTimerRef.current += dt
+      if (npcScheduleTimerRef.current >= 10) {
+        npcScheduleTimerRef.current = 0
+        tickSchedule(useGameStore.getState().simSeconds)
       }
     }
 

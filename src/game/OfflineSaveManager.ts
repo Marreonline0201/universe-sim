@@ -54,6 +54,7 @@ import { serializeAchievementJournal, deserializeAchievementJournal } from './Pl
 import { serializeRelations, deserializeRelations } from './SettlementRelationsSystem'
 import { serializeRecipeBook, deserializeRecipeBook, type RecipeBookSaveData } from './RecipeBookSystem'
 import { serializeExpeditions, deserializeExpeditions, type ExpeditionSaveData } from './ExpeditionSystem'
+import { serializeSchedule, deserializeSchedule, type ScheduleSaveData } from './NPCScheduleSystem'
 import { Health, Metabolism, Position } from '../ecs/world'
 import { rapierWorld } from '../physics/RapierWorld'
 import { PLANET_RADIUS } from '../world/SpherePlanet'
@@ -194,6 +195,7 @@ export async function saveOffline(): Promise<boolean> {
       settlementRelations: serializeRelations(),
       recipeBook: serializeRecipeBook(),
       expeditions: serializeExpeditions(),
+      npcSchedule: serializeSchedule(),
     })
     const meta = JSON.stringify({
       timestamp: Date.now(),
@@ -480,6 +482,11 @@ export async function loadOffline(): Promise<boolean> {
     // M68 Track C: Restore expedition state
     if (state.expeditions) {
       deserializeExpeditions(state.expeditions as ExpeditionSaveData)
+    }
+
+    // M68 Track B: Restore NPC schedule state
+    if (state.npcSchedule) {
+      deserializeSchedule(state.npcSchedule as ScheduleSaveData)
     }
 
     // Restore position

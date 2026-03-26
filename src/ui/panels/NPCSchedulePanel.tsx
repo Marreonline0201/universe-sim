@@ -1,372 +1,243 @@
-// ── NPCSchedulePanel.tsx ───────────────────────────────────────────────────
-// M55 Track A: NPC Daily Schedules Display.
-// Shows all NPC roles, their current activity, and a 24-hour schedule timeline.
+// -- NPCSchedulePanel.tsx
+// M68 Track B: NPC Daily Schedule System UI
 
-import React, { useState, useEffect } from 'react'
-import { useGameStore } from '../../store/gameStore'
+import { useState, useEffect } from 'react'
 import {
-  SCHEDULES,
-  NPC_ROLE_SCHEDULES,
-  getCurrentActivity,
-  getInGameHour,
-  getNPCName,
-  getActivityDescription,
-  getTimeOfDay,
-  type NPCActivity,
+  getAllNPCActivities,
+  getNPCFullSchedule,
+  getCurrentTimeOfDay,
+  getDayProgress,
+  SCHEDULED_NPCS,
+  type TimeOfDay,
+  type ScheduleEntry,
 } from '../../game/NPCScheduleSystem'
 
-// ── Constants ───────────────────────────────────────────────────────────────
+const TIME_BLOCKS: Array<{ id: TimeOfDay; label: string; icon: string }> = [
+  { id: 'dawn',      label: 'Dawn',      icon: '🌅' },
+  { id: 'morning',   label: 'Morning',   icon: '☀️' },
+  { id: 'afternoon', label: 'Afternoon', icon: '🌤' },
+  { id: 'evening',   label: 'Evening',   icon: '🌇' },
+  { id: 'night',     label: 'Night',     icon: '🌙' },
+]
 
-const ROLE_ICONS: Record<string, string> = {
-  guard:      '⚔️',
-  trader:     '💰',
-  villager:   '🏘️',
-  elder:      '📜',
-  scout:      '🏹',
-  artisan:    '🔨',
-  healer:     '💊',
-  blacksmith: '⚒️',
-  scholar:    '📚',
+const MOOD_COLORS: Record<string, string> = {
+  peaceful: '#a78bfa',
+  focused: '#38bdf8',
+  absorbed: '#34d399',
+  serene: '#c084fc',
+  tired: '#94a3b8',
+  grumpy: '#f97316',
+  industrious: '#fb923c',
+  busy: '#fbbf24',
+  relaxed: '#4ade80',
+  exhausted: '#64748b',
+  vigilant: '#60a5fa',
+  stern: '#ef4444',
+  alert: '#facc15',
+  methodical: '#38bdf8',
+  weary: '#94a3b8',
+  content: '#86efac',
+  cheerful: '#fde68a',
+  compassionate: '#f9a8d4',
+  restful: '#c4b5fd',
+  hurried: '#f87171',
+  energetic: '#4ade80',
+  shrewd: '#fb923c',
+  calculating: '#94a3b8',
+  satisfied: '#86efac',
 }
 
-const ROLE_DISPLAY: Record<string, string> = {
-  guard:      'Guard',
-  trader:     'Merchant',
-  villager:   'Villager',
-  elder:      'Elder',
-  scout:      'Scout',
-  artisan:    'Artisan',
-  healer:     'Healer',
-  blacksmith: 'Blacksmith',
-  scholar:    'Scholar',
+function getMoodColor(mood: string): string {
+  return MOOD_COLORS[mood] ?? '#6b7280'
 }
 
-const ACTIVITY_COLORS: Record<NPCActivity, string> = {
-  working:    '#2ecc71',
-  eating:     '#e6b93a',
-  sleeping:   '#555',
-  patrolling: '#3498db',
-  socializing:'#9b59b6',
+interface NPCCardProps {
+  npc: typeof SCHEDULED_NPCS[number]
+  current: ScheduleEntry
+  currentTimeOfDay: TimeOfDay
 }
 
-const ACTIVITY_ICONS: Record<NPCActivity, string> = {
-  working:    '⚙️',
-  eating:     '🍖',
-  sleeping:   '💤',
-  patrolling: '👁️',
-  socializing:'🗣️',
-}
-
-// AVAILABLE when working, eating, socializing, patrolling. SLEEPING is not.
-function getStatusBadge(activity: NPCActivity): { label: string; color: string; bg: string } {
-  if (activity === 'sleeping') {
-    return { label: 'SLEEPING', color: '#888', bg: 'rgba(80,80,80,0.25)' }
-  }
-  if (activity === 'working' || activity === 'eating') {
-    return { label: 'BUSY', color: '#e6b93a', bg: 'rgba(230,185,58,0.18)' }
-  }
-  // socializing, patrolling → available
-  return { label: 'AVAILABLE', color: '#2ecc71', bg: 'rgba(46,204,113,0.18)' }
-}
-
-// All NPC roles from the SCHEDULES object
-const ALL_ROLES = Object.keys(SCHEDULES)
-
-// Build display NPC list: one per role, seeded from settlement 1
-const NPC_LIST = ALL_ROLES.map((role, index) => ({
-  role,
-  name: getNPCName(1, role, index),
-  icon: ROLE_ICONS[role] ?? '👤',
-  displayRole: ROLE_DISPLAY[role] ?? role.charAt(0).toUpperCase() + role.slice(1),
-}))
-
-// ── Timeline bar ────────────────────────────────────────────────────────────
-
-function ScheduleTimeline({ role, currentHour }: { role: string; currentHour: number }) {
-  const schedule = SCHEDULES[role] ?? SCHEDULES.villager
-  const totalWidth = 100 // percent
-
-  return (
-    <div style={{ position: 'relative', height: 10, borderRadius: 4, overflow: 'hidden', background: '#1a1a1a', marginTop: 6 }}>
-      {schedule.map((entry, i) => {
-        const start = entry.startHour
-        const end = entry.endHour
-        // Handle midnight-wrap segments (e.g. sleeping 21–6)
-        if (start > end) {
-          // Split into two segments: start→24 and 0→end
-          const seg1Width = ((24 - start) / 24) * totalWidth
-          const seg1Left  = (start / 24) * totalWidth
-          const seg2Width = (end / 24) * totalWidth
-          return (
-            <React.Fragment key={i}>
-              <div style={{
-                position: 'absolute',
-                left: `${seg1Left}%`,
-                width: `${seg1Width}%`,
-                height: '100%',
-                background: ACTIVITY_COLORS[entry.activity],
-                opacity: 0.85,
-              }} title={entry.activity} />
-              <div style={{
-                position: 'absolute',
-                left: '0%',
-                width: `${seg2Width}%`,
-                height: '100%',
-                background: ACTIVITY_COLORS[entry.activity],
-                opacity: 0.85,
-              }} title={entry.activity} />
-            </React.Fragment>
-          )
-        }
-        const segWidth = ((end - start) / 24) * totalWidth
-        const segLeft  = (start / 24) * totalWidth
-        return (
-          <div
-            key={i}
-            style={{
-              position: 'absolute',
-              left: `${segLeft}%`,
-              width: `${segWidth}%`,
-              height: '100%',
-              background: ACTIVITY_COLORS[entry.activity],
-              opacity: 0.85,
-            }}
-            title={entry.activity}
-          />
-        )
-      })}
-      {/* Current time cursor */}
-      <div style={{
-        position: 'absolute',
-        left: `${(currentHour / 24) * 100}%`,
-        top: 0,
-        bottom: 0,
-        width: 2,
-        background: '#fff',
-        opacity: 0.9,
-        borderRadius: 1,
-      }} />
-    </div>
-  )
-}
-
-// ── NPC Card ─────────────────────────────────────────────────────────────────
-
-function NPCCard({ npc, currentHour }: { npc: typeof NPC_LIST[0]; currentHour: number }) {
-  const currentEntry = getCurrentActivity(npc.role, (currentHour / 24) * 2 * Math.PI)
-  const status = getStatusBadge(currentEntry.activity)
-  const activityIcon = ACTIVITY_ICONS[currentEntry.activity] ?? '❓'
-
-  // Get verbose description from time-of-day system
-  const tod = getTimeOfDay(currentHour)
-  const roleSchedule = NPC_ROLE_SCHEDULES[npc.role]
-  const todSlot = roleSchedule?.[tod]
-  const activityDesc = todSlot
-    ? todSlot.activity.charAt(0).toUpperCase() + todSlot.activity.slice(1)
-    : getActivityDescription(currentEntry.activity, npc.name, npc.role).replace(`${npc.name} is `, '')
+function NPCCard({ npc, current, currentTimeOfDay }: NPCCardProps) {
+  const [expanded, setExpanded] = useState(false)
+  const fullSchedule = getNPCFullSchedule(npc.id)
 
   return (
     <div style={{
-      background: 'rgba(255,255,255,0.03)',
-      border: '1px solid #222',
-      borderRadius: 6,
-      padding: '10px 12px',
+      background: 'rgba(255,255,255,0.04)',
+      border: '1px solid rgba(255,255,255,0.1)',
+      borderRadius: 8,
+      padding: '12px 14px',
       marginBottom: 8,
-      transition: 'border-color 0.15s',
-    }}
-      onMouseEnter={e => (e.currentTarget.style.borderColor = '#333')}
-      onMouseLeave={e => (e.currentTarget.style.borderColor = '#222')}
-    >
-      {/* Top row: icon + name + role badge + status */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
-        <span style={{ fontSize: 16 }}>{npc.icon}</span>
-        <span style={{ color: '#ddd', fontFamily: 'monospace', fontSize: 12, fontWeight: 700, flex: 1 }}>
-          {npc.name}
-        </span>
-        <span style={{
-          fontFamily: 'monospace', fontSize: 9, fontWeight: 700,
-          color: '#aaa', background: 'rgba(255,255,255,0.06)',
-          padding: '2px 6px', borderRadius: 3, letterSpacing: 1,
-        }}>
-          {npc.displayRole.toUpperCase()}
-        </span>
-        <span style={{
-          fontFamily: 'monospace', fontSize: 9, fontWeight: 700,
-          color: status.color, background: status.bg,
-          padding: '2px 6px', borderRadius: 3, letterSpacing: 1,
-        }}>
-          {status.label}
-        </span>
-      </div>
-
-      {/* Activity row */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-        <span style={{ fontSize: 12 }}>{activityIcon}</span>
-        <span style={{ color: '#999', fontFamily: 'monospace', fontSize: 11 }}>
-          {activityDesc}
-          {todSlot && (
-            <span style={{ color: '#555', marginLeft: 6 }}>
-              @ {todSlot.location}
-            </span>
-          )}
-        </span>
-      </div>
-
-      {/* 24h timeline */}
-      <ScheduleTimeline role={npc.role} currentHour={currentHour} />
-
-      {/* Hour labels */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 2 }}>
-        {[0, 6, 12, 18, 24].map(h => (
-          <span key={h} style={{ color: '#333', fontFamily: 'monospace', fontSize: 8 }}>
-            {h === 24 ? '0' : h}
-          </span>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-// ── Legend ───────────────────────────────────────────────────────────────────
-
-function ActivityLegend() {
-  const activities: NPCActivity[] = ['working', 'patrolling', 'eating', 'socializing', 'sleeping']
-  const labels: Record<NPCActivity, string> = {
-    working:    'Working',
-    patrolling: 'Patrol',
-    eating:     'Eating',
-    socializing:'Social',
-    sleeping:   'Sleeping',
-  }
-
-  return (
-    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
-      {activities.map(act => (
-        <div key={act} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-          <div style={{ width: 10, height: 10, borderRadius: 2, background: ACTIVITY_COLORS[act] }} />
-          <span style={{ fontFamily: 'monospace', fontSize: 9, color: '#666' }}>{labels[act]}</span>
+    }}>
+      {/* NPC header */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+        <span style={{ fontSize: 24 }}>{npc.icon}</span>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontWeight: 700, color: '#e2e8f0', fontSize: 14 }}>{npc.name}</div>
+          <div style={{ fontSize: 11, color: '#64748b', letterSpacing: 1 }}>{npc.role.toUpperCase()}</div>
         </div>
-      ))}
+        <div style={{
+          fontSize: 11,
+          color: getMoodColor(current.mood),
+          background: 'rgba(0,0,0,0.3)',
+          padding: '2px 8px',
+          borderRadius: 12,
+          border: `1px solid ${getMoodColor(current.mood)}44`,
+        }}>
+          {current.mood}
+        </div>
+      </div>
+
+      {/* Current activity */}
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+        background: 'rgba(0,0,0,0.2)',
+        borderRadius: 6,
+        padding: '8px 10px',
+        marginBottom: 8,
+      }}>
+        <span style={{ fontSize: 20 }}>{current.icon}</span>
+        <div>
+          <div style={{ color: '#cbd5e1', fontSize: 13 }}>{current.location}</div>
+          <div style={{ color: '#94a3b8', fontSize: 12, fontStyle: 'italic' }}>{current.activity}</div>
+        </div>
+      </div>
+
+      {/* Expand toggle */}
+      <button
+        onClick={() => setExpanded(e => !e)}
+        style={{
+          background: 'none',
+          border: '1px solid rgba(255,255,255,0.1)',
+          borderRadius: 4,
+          color: '#64748b',
+          fontSize: 11,
+          cursor: 'pointer',
+          padding: '3px 10px',
+          width: '100%',
+          letterSpacing: 0.5,
+        }}
+      >
+        {expanded ? 'HIDE SCHEDULE' : 'VIEW FULL SCHEDULE'}
+      </button>
+
+      {/* Full schedule expansion */}
+      {expanded && (
+        <div style={{ marginTop: 8 }}>
+          {fullSchedule.map(({ timeOfDay, entry }) => {
+            const block = TIME_BLOCKS.find(b => b.id === timeOfDay)
+            const isActive = timeOfDay === currentTimeOfDay
+            return (
+              <div
+                key={timeOfDay}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  padding: '5px 8px',
+                  borderRadius: 4,
+                  marginBottom: 3,
+                  background: isActive ? 'rgba(99,102,241,0.15)' : 'transparent',
+                  border: isActive ? '1px solid rgba(99,102,241,0.3)' : '1px solid transparent',
+                }}
+              >
+                <span style={{ fontSize: 14, opacity: isActive ? 1 : 0.5 }}>{block?.icon}</span>
+                <div style={{ minWidth: 60, fontSize: 11, color: isActive ? '#a5b4fc' : '#475569' }}>
+                  {block?.label}
+                </div>
+                <span style={{ fontSize: 16 }}>{entry.icon}</span>
+                <div>
+                  <div style={{ fontSize: 12, color: isActive ? '#cbd5e1' : '#64748b' }}>{entry.location}</div>
+                  <div style={{ fontSize: 11, color: '#475569', fontStyle: 'italic' }}>{entry.activity}</div>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }
-
-// ── Main Panel ───────────────────────────────────────────────────────────────
 
 export function NPCSchedulePanel() {
-  const dayAngle = useGameStore(s => s.dayAngle)
-  const [search, setSearch] = useState('')
-  const [availableOnly, setAvailableOnly] = useState(false)
-  const [tick, setTick] = useState(0)
+  const [activities, setActivities] = useState(() => getAllNPCActivities())
+  const [tod, setTod] = useState<TimeOfDay>(() => getCurrentTimeOfDay())
+  const [progress, setProgress] = useState(() => getDayProgress())
 
-  // Re-render every 5 real seconds to reflect time advances
+  // Refresh on schedule change event
   useEffect(() => {
-    const id = setInterval(() => setTick(t => t + 1), 5000)
-    return () => clearInterval(id)
+    function onScheduleChanged() {
+      setActivities(getAllNPCActivities())
+      setTod(getCurrentTimeOfDay())
+      setProgress(getDayProgress())
+    }
+    window.addEventListener('npc-schedule-changed', onScheduleChanged)
+    return () => window.removeEventListener('npc-schedule-changed', onScheduleChanged)
   }, [])
 
-  const currentHour = getInGameHour(dayAngle)
-  const hourDisplay = `${String(Math.floor(currentHour)).padStart(2, '0')}:${String(Math.floor((currentHour % 1) * 60)).padStart(2, '0')}`
-  const tod = getTimeOfDay(currentHour)
-
-  // Filter NPCs
-  const filtered = NPC_LIST.filter(npc => {
-    const q = search.trim().toLowerCase()
-    if (q && !npc.name.toLowerCase().includes(q) && !npc.role.toLowerCase().includes(q) && !npc.displayRole.toLowerCase().includes(q)) {
-      return false
-    }
-    if (availableOnly) {
-      const entry = getCurrentActivity(npc.role, dayAngle)
-      const status = getStatusBadge(entry.activity)
-      if (status.label !== 'AVAILABLE') return false
-    }
-    return true
-  })
-
-  const availableCount = NPC_LIST.filter(npc => {
-    const entry = getCurrentActivity(npc.role, dayAngle)
-    return getStatusBadge(entry.activity).label === 'AVAILABLE'
-  }).length
+  const todBlock = TIME_BLOCKS.find(b => b.id === tod)
 
   return (
-    <div style={{ fontFamily: 'monospace', color: '#ccc' }}>
-      {/* Time header */}
-      <div style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        marginBottom: 12, padding: '8px 12px',
-        background: 'rgba(255,255,255,0.03)', borderRadius: 6, border: '1px solid #222',
-      }}>
-        <div>
-          <div style={{ fontSize: 11, color: '#555', marginBottom: 2 }}>IN-GAME TIME</div>
-          <div style={{ fontSize: 18, color: '#fff', fontWeight: 700, letterSpacing: 2 }}>{hourDisplay}</div>
+    <div style={{ padding: '12px 14px', fontFamily: 'monospace', color: '#e2e8f0' }}>
+      {/* Header */}
+      <div style={{ marginBottom: 14 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, letterSpacing: 2, color: '#94a3b8', marginBottom: 4 }}>
+          NPC DAILY SCHEDULES
         </div>
-        <div style={{ textAlign: 'right' }}>
-          <div style={{ fontSize: 11, color: '#555', marginBottom: 2 }}>PERIOD</div>
-          <div style={{ fontSize: 12, color: '#e6b93a', letterSpacing: 1 }}>{tod.toUpperCase()}</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+          <span style={{ fontSize: 18 }}>{todBlock?.icon}</span>
+          <span style={{ fontSize: 14, color: '#e2e8f0' }}>{todBlock?.label}</span>
         </div>
-        <div style={{ textAlign: 'right' }}>
-          <div style={{ fontSize: 11, color: '#555', marginBottom: 2 }}>AVAILABLE</div>
-          <div style={{ fontSize: 18, color: '#2ecc71', fontWeight: 700 }}>{availableCount}/{NPC_LIST.length}</div>
+        {/* Day progress bar */}
+        <div style={{ background: 'rgba(255,255,255,0.06)', borderRadius: 4, height: 6, overflow: 'hidden' }}>
+          <div style={{
+            width: `${progress * 100}%`,
+            height: '100%',
+            background: 'linear-gradient(90deg, #6366f1, #8b5cf6)',
+            transition: 'width 0.5s ease',
+          }} />
+        </div>
+        <div style={{ fontSize: 10, color: '#475569', marginTop: 3, textAlign: 'right' }}>
+          Day {Math.round(progress * 100)}% complete
         </div>
       </div>
 
-      {/* Search bar */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
-        <input
-          type="text"
-          placeholder="Search by name or role..."
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          style={{
-            flex: 1,
-            background: 'rgba(255,255,255,0.05)',
-            border: '1px solid #333',
-            borderRadius: 4,
-            padding: '6px 10px',
-            color: '#ccc',
-            fontFamily: 'monospace',
-            fontSize: 11,
-            outline: 'none',
-          }}
+      {/* Time block indicator row */}
+      <div style={{ display: 'flex', gap: 4, marginBottom: 14 }}>
+        {TIME_BLOCKS.map(block => {
+          const isActive = block.id === tod
+          return (
+            <div
+              key={block.id}
+              style={{
+                flex: 1,
+                textAlign: 'center',
+                padding: '4px 2px',
+                borderRadius: 4,
+                background: isActive ? 'rgba(99,102,241,0.25)' : 'rgba(255,255,255,0.04)',
+                border: isActive ? '1px solid rgba(99,102,241,0.5)' : '1px solid rgba(255,255,255,0.07)',
+              }}
+            >
+              <div style={{ fontSize: 14 }}>{block.icon}</div>
+              <div style={{ fontSize: 9, color: isActive ? '#a5b4fc' : '#475569', letterSpacing: 0.5 }}>
+                {block.label.toUpperCase()}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      {/* NPC activity cards */}
+      {activities.map(({ npc, current }) => (
+        <NPCCard
+          key={npc.id}
+          npc={npc}
+          current={current}
+          currentTimeOfDay={tod}
         />
-        <button
-          onClick={() => setAvailableOnly(v => !v)}
-          style={{
-            padding: '6px 10px',
-            background: availableOnly ? 'rgba(46,204,113,0.18)' : 'rgba(255,255,255,0.04)',
-            border: `1px solid ${availableOnly ? '#2ecc71' : '#333'}`,
-            borderRadius: 4,
-            color: availableOnly ? '#2ecc71' : '#666',
-            fontFamily: 'monospace',
-            fontSize: 10,
-            fontWeight: 700,
-            cursor: 'pointer',
-            letterSpacing: 0.5,
-            whiteSpace: 'nowrap',
-          }}
-        >
-          AVAILABLE NOW
-        </button>
-      </div>
-
-      {/* Legend */}
-      <ActivityLegend />
-
-      {/* NPC count */}
-      <div style={{ fontSize: 10, color: '#444', marginBottom: 8, letterSpacing: 1 }}>
-        SHOWING {filtered.length} OF {NPC_LIST.length} NPCs
-      </div>
-
-      {/* NPC cards */}
-      {filtered.length === 0 ? (
-        <div style={{ color: '#444', fontSize: 12, textAlign: 'center', padding: 24 }}>
-          No NPCs match your filters.
-        </div>
-      ) : (
-        filtered.map(npc => (
-          <NPCCard key={npc.role} npc={npc} currentHour={currentHour} />
-        ))
-      )}
+      ))}
     </div>
   )
 }

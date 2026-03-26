@@ -23,6 +23,7 @@ import { useSkillStore } from '../store/skillStore'
 import { inventory, journal, buildingSystem } from './GameSingletons'
 import { serializeSpecs, deserializeSpecs } from './SkillSpecializationSystem'
 import { serializeRoutes, deserializeRoutes } from './TradingRouteSystem'
+import { serializeRepTitles, deserializeRepTitles } from './ReputationTitleSystem'
 import { Health, Metabolism, Position } from '../ecs/world'
 import { rapierWorld } from '../physics/RapierWorld'
 import { PLANET_RADIUS } from '../world/SpherePlanet'
@@ -132,6 +133,7 @@ export async function saveOffline(): Promise<boolean> {
       achievements: _achievementSystem ? _achievementSystem.serialize() : null,
       tutorialStep: _tutorialSystem ? _tutorialSystem.serialize() : null,
       tradeRoutes: serializeRoutes(),
+      repTitles: serializeRepTitles(),
     })
     const meta = JSON.stringify({
       timestamp: Date.now(),
@@ -263,6 +265,11 @@ export async function loadOffline(): Promise<boolean> {
     // Restore trading routes (M49 Track B)
     if (state.tradeRoutes) {
       deserializeRoutes(state.tradeRoutes)
+    }
+
+    // Restore reputation titles (M50 Track A)
+    if (state.repTitles) {
+      deserializeRepTitles(state.repTitles)
     }
 
     // Restore position

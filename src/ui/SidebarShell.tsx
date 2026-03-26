@@ -54,6 +54,12 @@ const WorldEventsPanel = lazy(() => import('./panels/WorldEventsPanel').then(m =
 const TradingRoutesPanel = lazy(() => import('./panels/TradingRoutesPanel').then(m => ({ default: m.TradingRoutesPanel })))
 // M49 Track C: Bestiary panel
 const BestiaryPanel = lazy(() => import('./panels/BestiaryPanel').then(m => ({ default: m.BestiaryPanel })))
+// M50 Track A: Reputation titles panel
+const ReputationTitlesPanel = lazy(() => import('./panels/ReputationTitlesPanel').then(m => ({ default: m.ReputationTitlesPanel })))
+// M50 Track B: Weather forecast panel
+const WeatherForecastPanel = lazy(() => import('./panels/WeatherForecastPanel').then(m => ({ default: m.WeatherForecastPanel })))
+// Cave features panel
+const CaveFeaturesPanel = lazy(() => import('./panels/CaveFeaturesPanel').then(m => ({ default: m.CaveFeaturesPanel })))
 
 // M36 Track C: Wrapper resolves nearSettlementId from store so panel has no props
 function BuildingsPanelWrapper() {
@@ -101,6 +107,9 @@ const PANEL_LABEL: Record<PanelId, string> = {
   worldevents:  'WORLD EVENTS LOG',
   traderoutes:  'TRADING ROUTES',
   bestiary:     'BESTIARY',
+  titles:       'TITLES & REPUTATION',
+  forecast:     'WEATHER FORECAST',
+  cavefeatures: 'CAVE FEATURES',
 }
 
 const PANEL_WIDTH = 480
@@ -130,6 +139,9 @@ const ICON_BUTTONS: Array<{ id: PanelId; icon: string; hint: string }> = [
   { id: 'worldevents', icon: '📜',   hint: 'World Events (L)' },
   { id: 'traderoutes', icon: '💹',   hint: 'Trading Routes' },
   { id: 'bestiary',    icon: '📖',   hint: 'Bestiary' },
+  { id: 'titles',      icon: '🎖',   hint: 'Titles & Reputation' },
+  { id: 'forecast',      icon: '🌤',   hint: 'Weather Forecast' },
+  { id: 'cavefeatures', icon: '⛏',   hint: 'Cave Features' },
   { id: 'science',     icon: ' ? ',  hint: 'Science Companion (?)' },
   { id: 'settings',    icon: 'SET',  hint: 'Settings (Esc)' },
 ]
@@ -162,6 +174,9 @@ const PANEL_COMPONENTS: Record<PanelId, React.ComponentType> = {
   worldevents:   WorldEventsPanel,
   traderoutes:   TradingRoutesPanel,
   bestiary:      BestiaryPanel,
+  titles:        ReputationTitlesPanel,
+  forecast:      WeatherForecastPanel,
+  cavefeatures:  CaveFeaturesPanel,
 }
 
 export function SidebarShell() {

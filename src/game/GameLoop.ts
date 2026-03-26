@@ -194,6 +194,8 @@ import { tickRestockEvent, triggerRestockEvent } from './MerchantRestockSystem'
 import { logCombatEvent } from './WorldEventLogger'
 // M49 Track B: Trading routes
 import { tickRoutes } from './TradingRouteSystem'
+// M50 Track B: Weather forecast system
+import { updateForecasts } from './WeatherForecastSystem'
 
 // Register skill system with offline save manager for serialization
 registerSkillSystem(skillSystem)
@@ -306,6 +308,8 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
   const siegeTriggerTimerRef = useRef(0)
   // M48 Track B: Merchant restock trigger timer — check every 300s (5 minutes)
   const restockTriggerTimerRef = useRef(0)
+  // M50 Track B: Weather forecast refresh timer — every 60 game-seconds
+  const forecastTimerRef = useRef(0)
 
   useFrame((_, delta) => {
     // Cap dt to avoid spiral-of-death on slow frames

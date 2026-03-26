@@ -254,6 +254,8 @@ import { tickTradeNetwork } from './ResourceTradingNetwork'
 import { initPlayerJournal } from './PlayerJournalSystem'
 // M66 Track A: World event scheduler
 import { tickScheduler } from './WorldEventSchedulerSystem'
+// M67 Track C: Settlement relations system
+import { tickRelations } from './SettlementRelationsSystem'
 
 // Register skill system with offline save manager for serialization
 registerSkillSystem(skillSystem)
@@ -397,6 +399,8 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
   const weatherEventsTimerRef = useRef(0)
   // M61 Track B: Settlement economy tick timer — fires every 60s
   const economyTimerRef = useRef(0)
+  // M67 Track C: Settlement relations tick timer — fires every 10s
+  const relationsTimerRef = useRef(0)
   // M65 Track B: Dynamic quest board tick timer — fires every 60s
   const questBoardTimerRef = useRef(0)
   // M65 Track C: NPC emotion decay tick timer — fires every 5s
@@ -3656,6 +3660,15 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
       if (economyTimerRef.current >= 60) {
         economyTimerRef.current = 0
         tickSettlementEconomy(useGameStore.getState().simSeconds)
+      }
+    }
+
+    // ── M67 Track C: Settlement relations tick (every 10s) ────────────────────
+    {
+      relationsTimerRef.current += dt
+      if (relationsTimerRef.current >= 10) {
+        relationsTimerRef.current = 0
+        tickRelations(useGameStore.getState().simSeconds, 10)
       }
     }
 

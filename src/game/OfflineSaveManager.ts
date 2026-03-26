@@ -28,6 +28,7 @@ import { serializeRepTitles, deserializeRepTitles } from './ReputationTitleSyste
 import { serializeDiscovery, deserializeDiscovery } from './RecipeDiscoverySystem'
 import { serializeDiscoveries, deserializeDiscoveries } from './ExplorationDiscoverySystem'
 import { serializeNodes, deserializeNodes } from './ResourceDepletionSystem'
+import { serializeMilestones, deserializeMilestones } from './AchievementShowcaseSystem'
 import { Health, Metabolism, Position } from '../ecs/world'
 import { rapierWorld } from '../physics/RapierWorld'
 import { PLANET_RADIUS } from '../world/SpherePlanet'
@@ -142,6 +143,7 @@ export async function saveOffline(): Promise<boolean> {
       homeCustomization: serializeHome(),
       explorationDiscoveries: serializeDiscoveries(),
       resourceNodes: serializeNodes(),
+      achievementShowcase: serializeMilestones(),
     })
     const meta = JSON.stringify({
       timestamp: Date.now(),
@@ -298,6 +300,11 @@ export async function loadOffline(): Promise<boolean> {
     // M55 Track B: Restore resource node depletion state
     if (state.resourceNodes) {
       deserializeNodes(state.resourceNodes)
+    }
+
+    // M57 Track A: Restore achievement showcase milestones
+    if (state.achievementShowcase) {
+      deserializeMilestones(state.achievementShowcase)
     }
 
     // Restore position

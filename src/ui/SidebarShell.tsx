@@ -151,6 +151,7 @@ const PANEL_LABEL: Record<PanelId, string> = {
   factionstanding: 'FACTION STANDING',
   recipescan:      'RECIPE SCANNER',
   codex:           'WORLD CODEX',
+  showcase:        'ACHIEVEMENT SHOWCASE',
 }
 
 const PANEL_WIDTH = 480
@@ -196,6 +197,7 @@ const ICON_BUTTONS: Array<{ id: PanelId; icon: string; hint: string }> = [
   { id: 'factionstanding', icon: '🌟',  hint: 'Faction Standing (6)' },
   { id: 'recipescan',      icon: '🔍',  hint: 'Recipe Scanner (7)' },
   { id: 'codex',           icon: '📖',  hint: 'Codex' },
+  { id: 'showcase',        icon: '🏅',  hint: 'Showcase (9)' },
   { id: 'science',         icon: ' ? ', hint: 'Science Companion (?)' },
   { id: 'settings',    icon: 'SET',  hint: 'Settings (Esc)' },
 ]
@@ -243,6 +245,8 @@ const PANEL_COMPONENTS: Record<PanelId, React.ComponentType> = {
   threats:         WorldThreatPanel,
   factionstanding: FactionStandingPanel,
   recipescan:      RecipeFeasibilityPanel,
+  codex:           CodexPanel,
+  showcase:        AchievementShowcasePanel,
 }
 
 export function SidebarShell() {
@@ -319,6 +323,8 @@ export function SidebarShell() {
           e.preventDefault(); togglePanel('recipescan'); break
         case '8':
           e.preventDefault(); togglePanel('npcschedule'); break
+        case '9':
+          e.preventDefault(); togglePanel('showcase'); break
         case '1': case '2': case '3': case '4':
           if (!document.pointerLockElement) break  // only when in-game (pointer locked)
           if (activePanel !== null) break

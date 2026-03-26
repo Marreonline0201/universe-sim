@@ -24,6 +24,19 @@ import * as AgentBus from './AgentBus.js'
 import * as Telegram from './TelegramAgent.js'
 import Anthropic from '@anthropic-ai/sdk'
 
+// ── Telegram conversation history (per chat_id, in-memory, last 20 turns) ────
+const telegramHistory = new Map() // chatId → Array<{role, content}>
+const MAX_HISTORY = 20
+function getTelegramHistory(chatId) {
+  if (!telegramHistory.has(chatId)) telegramHistory.set(chatId, [])
+  return telegramHistory.get(chatId)
+}
+function pushTelegramHistory(chatId, role, content) {
+  const h = getTelegramHistory(chatId)
+  h.push({ role, content })
+  if (h.length > MAX_HISTORY) h.splice(0, h.length - MAX_HISTORY)
+}
+
 const PORT = parseInt(process.env.PORT ?? '8080', 10)
 const PERSIST_INTERVAL_MS = 30_000 // save simTime to DB every 30 s
 
@@ -301,6 +314,7 @@ async function main() {
           // Handle plain text messages — forward to Claude and reply
           if (data.message && data.message.text) {
             const userText = data.message.text
+            const chatId   = String(data.message.chat?.id ?? 'default')
             // Fire-and-forget async Claude call
             ;(async () => {
               try {
@@ -318,14 +332,18 @@ ${agentSummary}
 
 Recent agent messages:
 ${recentMessages || '  (none)'}`
+                // Append user message to history
+                pushTelegramHistory(chatId, 'user', userText)
                 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
                 const response = await anthropic.messages.create({
                   model: 'claude-sonnet-4-6',
                   max_tokens: 1024,
                   system: systemPrompt,
-                  messages: [{ role: 'user', content: userText }],
+                  messages: getTelegramHistory(chatId),
                 })
                 const reply = response.content[0]?.text ?? 'No response.'
+                // Append assistant reply to history
+                pushTelegramHistory(chatId, 'assistant', reply)
                 await Telegram.sendMessage(reply)
               } catch(e) {
                 await Telegram.sendMessage('Error calling Claude: ' + e.message)
@@ -372,8 +390,8 @@ ${recentMessages || '  (none)'}`
     console.log(`[server] Listening on port ${PORT} (HTTP + WebSocket)`)
   })
 
-  // ── Agent idle-timeout sweep (every 60 s) ────────────────────────────────────
-  // Agents that haven't reported in 5 min are auto-reset to idle and broadcasted.
+  // ── Agent idle-timeout sweep (every 15 s) ────────────────────────────────────
+  // Agents that haven't reported in 30s are auto-reset to idle and broadcasted.
   setInterval(() => {
     const changed = AgentBus.tickIdleTimeout()
     if (changed) {
@@ -383,7 +401,7 @@ ${recentMessages || '  (none)'}`
           client.send(JSON.stringify({ type: 'AGENT_UPDATE', ...state }))
       })
     }
-  }, 60_000)
+  }, 15_000)
 
   wss.on('connection', (ws, req) => {
     const ip = req.socket.remoteAddress

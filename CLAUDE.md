@@ -10,10 +10,10 @@ curl -s -X POST https://questions-production-63a2.up.railway.app/agent \
   -H "Content-Type: application/json" \
   -d '{"agentId":"YOUR_AGENT_ID","status":"active","task":"What you are doing","message":"Optional message for the feed"}'
 
-# Report done
+# Report idle when finished (ALWAYS use this as your final report — clears your card on the status site)
 curl -s -X POST https://questions-production-63a2.up.railway.app/agent \
   -H "Content-Type: application/json" \
-  -d '{"agentId":"YOUR_AGENT_ID","status":"done","task":"Finished X","message":"Brief summary of what was completed"}'
+  -d '{"agentId":"YOUR_AGENT_ID","status":"idle","task":"","message":"Brief summary of what was completed"}'
 
 # Report blocked (triggers Telegram alert to owner)
 curl -s -X POST https://questions-production-63a2.up.railway.app/agent \
@@ -29,7 +29,7 @@ curl -s -X POST https://questions-production-63a2.up.railway.app/agent \
 **Rules:**
 - Call the curl report at the START of your task
 - Call it again every time you start a new significant step
-- Call it at the END with status "done" and a summary message
+- Call it at the END with status "idle" and a summary message — this clears your card on the status site immediately
 - Never go more than 2 minutes without reporting (the owner monitors the status site on their phone)
 
 ## Waiting for Owner Approval

@@ -75,6 +75,49 @@ export function getSpeciationProgress(event: SpeciationEvent): number {
   return Math.min(1, elapsed / SPECIATION_EVENT_TTL_MS)
 }
 
+// ── M76: Birth event ring buffer for visual pulse ────────────────────────
+interface BirthEvent {
+  eid: number
+  parentEid: number
+  timestamp: number
+}
+
+const MAX_BIRTH_EVENTS = 30
+const BIRTH_EVENT_TTL_MS = 1500  // 1.5 seconds visible pulse
+
+const birthEvents: BirthEvent[] = []
+
+export function getActiveBirthEvents(): BirthEvent[] {
+  const now = performance.now()
+  while (birthEvents.length > 0 && now - birthEvents[0].timestamp > BIRTH_EVENT_TTL_MS) {
+    birthEvents.shift()
+  }
+  return birthEvents
+}
+
+export function getBirthProgress(event: BirthEvent): number {
+  const elapsed = performance.now() - event.timestamp
+  return Math.min(1, elapsed / BIRTH_EVENT_TTL_MS)
+}
+
+// ── M78: Population history ring buffer for dashboard chart ─────────────
+interface PopulationSnapshot {
+  tick: number
+  organismCount: number
+  speciesCount: number
+}
+
+const MAX_HISTORY = 200
+const populationHistory: PopulationSnapshot[] = []
+
+/**
+ * Get population history for the last 200 ticks.
+ * Called by EcosystemDashboard to render the line chart.
+ */
+export function getPopulationHistory(): PopulationSnapshot[] {
+  return populationHistory
+}
+
 // ── Genome -> ECS mapping helpers ────────────────────────────────────────────
 
 /**
@@ -153,6 +196,7 @@ export function initializeSimulation(seed = 42): number {
       neuralLevel: phenotype.neuralLevel as 0|1|2|3|4,
       mass,
       size,
+      dietaryType: phenotype.dietaryType,
     })
 
     orgToEcs.set(org.id, eid)
@@ -189,14 +233,49 @@ export function tickSimulation(simTime: number): SelectionTickResult | null {
 
   const selectionSystem = bootstrapResult.selectionSystem
 
-  // Provide environment for each organism (simplified: all in warm shallow water)
+  // M79: Dynamic environment — light varies with day/night cycle, temperature with latitude
+  // Day/night cycle: simTime in seconds, 1 full cycle = 600s (10 min real time)
+  const dayPhase = (simTime % 600) / 600  // 0-1, where 0.0-0.5 is day, 0.5-1.0 is night
+  const sunIntensity = Math.max(0, Math.cos(dayPhase * Math.PI * 2))  // 1 at noon, 0 at midnight
+  const baseLight = 30 + sunIntensity * 220  // 30-250 range (never fully dark for deep-sea chemoautotrophs)
+
+  const popDensity = selectionSystem.getOrganismCount() / 10000
+
   const result = selectionSystem.tick(
-    (_org) => ({
-      temperature: 28,         // warm shallow water
-      light: 200,              // bright photic zone
-      predationPressure: 0,    // no predators yet in primordial soup
-      populationDensity: selectionSystem.getOrganismCount() / 10000,
-    }),
+    (org) => {
+      // Per-organism environment based on their ECS position (latitude -> temperature)
+      const eid = orgToEcs.get(org.id)
+      let temperature = 28  // default warm water
+      let light = baseLight
+
+      if (eid !== undefined) {
+        // Latitude from y-position on sphere: y/radius gives sin(latitude)
+        const py = Position.y[eid]
+        const r = Math.sqrt(
+          Position.x[eid] * Position.x[eid] +
+          Position.y[eid] * Position.y[eid] +
+          Position.z[eid] * Position.z[eid]
+        )
+        if (r > 10) {
+          const sinLat = py / r  // -1 (south pole) to 1 (north pole)
+          // Temperature: equator ~30C, poles ~-5C
+          temperature = 30 - Math.abs(sinLat) * 35
+          // Light reduction at high latitudes (oblique sun angle)
+          light = baseLight * (0.3 + 0.7 * (1 - Math.abs(sinLat)))
+        }
+      }
+
+      // M77: Calculate predation pressure from heterotroph density in area
+      // Simple approximation: ratio of heterotrophs to total organisms
+      const predationPressure = popDensity * 0.3  // mild predation scales with density
+
+      return {
+        temperature,
+        light,
+        predationPressure,
+        populationDensity: popDensity,
+      }
+    },
     simTime,
   )
 
@@ -247,8 +326,33 @@ export function tickSimulation(simTime: number): SelectionTickResult | null {
       const size = sizeFromGenome(phenotype.sizeClass)
       const mass = massFromGenome(phenotype.sizeClass)
 
-      // Spawn near parent's biome area (equatorial)
-      const [x, y, z] = generateOrganismPosition(posRng)
+      // M76: Spawn offspring near parent (find any organism of same species as proxy)
+      let x: number, y: number, z: number
+      let foundParent = false
+      for (const [oId, eId] of orgToEcs) {
+        if (oId !== org.id) {
+          const px = Position.x[eId], py = Position.y[eId], pz = Position.z[eId]
+          if (px !== 0 || py !== 0 || pz !== 0) {
+            const offsetAngle = posRng() * Math.PI * 2
+            const offsetDist = 5 + posRng() * 15
+            x = px + Math.cos(offsetAngle) * offsetDist
+            y = py
+            z = pz + Math.sin(offsetAngle) * offsetDist
+            const len = Math.sqrt(x*x + y*y + z*z)
+            if (len > 10) {
+              const r = PLANET_RADIUS + 1
+              x = (x/len) * r
+              y = (y/len) * r
+              z = (z/len) * r
+            }
+            foundParent = true
+            break
+          }
+        }
+      }
+      if (!foundParent) {
+        [x, y, z] = generateOrganismPosition(posRng)
+      }
 
       const eid = createCreatureEntity(world, {
         x, y, z,
@@ -257,6 +361,7 @@ export function tickSimulation(simTime: number): SelectionTickResult | null {
         neuralLevel: phenotype.neuralLevel as 0|1|2|3|4,
         mass,
         size,
+        dietaryType: phenotype.dietaryType,
       })
 
       orgToEcs.set(org.id, eid)
@@ -271,6 +376,19 @@ export function tickSimulation(simTime: number): SelectionTickResult | null {
         vz: Math.sin(bornAngle) * bornSpeed,
         timer: 2 + posRng() * 6,
       })
+
+      // M76: Record birth event for visual pulse
+      if (birthEvents.length >= MAX_BIRTH_EVENTS) {
+        birthEvents.shift()
+      }
+      let parentEid = 0
+      for (const [oId, eId] of orgToEcs) {
+        if (oId !== org.id && eId !== eid) {
+          parentEid = eId
+          break
+        }
+      }
+      birthEvents.push({ eid, parentEid, timestamp: performance.now() })
 
       // M74: If this organism belongs to a species not seen before this tick,
       // it is a speciation event — emit a visual pulse
@@ -289,6 +407,18 @@ export function tickSimulation(simTime: number): SelectionTickResult | null {
   totalSpeciations += result.speciations
   tickCount++
   lastTickResult = result
+
+  // M78: Record population snapshot for history chart
+  const orgCount = bootstrapResult.selectionSystem.getOrganismCount()
+  const specCount = bootstrapResult.registry.getAllSpecies().length
+  if (populationHistory.length >= MAX_HISTORY) {
+    populationHistory.shift()
+  }
+  populationHistory.push({
+    tick: tickCount,
+    organismCount: orgCount,
+    speciesCount: specCount,
+  })
 
   return result
 }
@@ -325,4 +455,78 @@ export function getSimulationStats() {
  */
 export function isSimulationActive(): boolean {
   return bootstrapResult !== null
+}
+
+/**
+ * M80: Spawn a new random organism at a specific world position.
+ * Used by player [O] key to seed organisms in spectator mode.
+ * Creates a random genome (mild mutations from primordial), registers with
+ * NaturalSelectionSystem, and creates the ECS entity.
+ *
+ * @returns ECS entity ID of the spawned organism, or -1 if simulation not active
+ */
+export function spawnOrganismAt(x: number, y: number, z: number): number {
+  if (!bootstrapResult || !encoder) return -1
+
+  const selectionSystem = bootstrapResult.selectionSystem
+  const registry = bootstrapResult.registry
+
+  // Create a random genome by mutating a primordial template
+  const primordial = encoder.createPrimordialGenome()
+  const rng = () => Math.random()
+
+  // Randomize some genome bytes for diversity (simple approach — flip random bits)
+  for (let i = 0; i < 10; i++) {
+    const byteIdx = Math.floor(rng() * 32)
+    const bitIdx = Math.floor(rng() * 8)
+    primordial[byteIdx] ^= (1 << bitIdx)  // flip a random bit
+  }
+
+  // Register with NaturalSelectionSystem
+  const org = selectionSystem.addOrganism(
+    registry.getAllSpecies()[0]?.id ?? 1,
+    primordial,
+    'coral_reef'
+  )
+
+  // Update population count
+  registry.updatePopulation(org.speciesId, 1)
+
+  // Create ECS entity
+  const phenotype = encoder.decode(org.genome)
+  const size = sizeFromGenome(phenotype.sizeClass)
+  const mass = massFromGenome(phenotype.sizeClass)
+
+  const eid = createCreatureEntity(world, {
+    x, y, z,
+    speciesId: org.speciesId,
+    genome: org.genome,
+    neuralLevel: phenotype.neuralLevel as 0|1|2|3|4,
+    mass,
+    size,
+    dietaryType: phenotype.dietaryType,
+  })
+
+  orgToEcs.set(org.id, eid)
+  ecsToOrg.set(eid, org.id)
+
+  // Register with wander system
+  const angle = Math.random() * Math.PI * 2
+  const speed = 0.1 + Math.random() * 0.2
+  creatureWander.set(eid, {
+    vx: Math.cos(angle) * speed,
+    vy: 0,
+    vz: Math.sin(angle) * speed,
+    timer: 2 + Math.random() * 6,
+  })
+
+  // Record birth event
+  if (birthEvents.length >= MAX_BIRTH_EVENTS) {
+    birthEvents.shift()
+  }
+  birthEvents.push({ eid, parentEid: 0, timestamp: performance.now() })
+
+  console.log('[SimIntegration] M80: Player-seeded organism at', x.toFixed(1), y.toFixed(1), z.toFixed(1))
+
+  return eid
 }

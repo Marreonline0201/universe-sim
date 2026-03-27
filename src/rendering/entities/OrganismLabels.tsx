@@ -12,7 +12,7 @@ import { useFrame, useThree } from '@react-three/fiber'
 import { Html } from '@react-three/drei'
 import { useRef, useState, useEffect, useSyncExternalStore } from 'react'
 import { Vector3 } from 'three'
-import { world, Position, CreatureBody } from '../../ecs/world'
+import { world, Position, CreatureBody, DietaryType } from '../../ecs/world'
 import { defineQuery, Not } from 'bitecs'
 import { PlayerControlled } from '../../ecs/world'
 import { isSpectatorActive, subscribeSpectator } from '../SpectatorCamera'
@@ -29,6 +29,7 @@ interface LabelData {
   z: number
   speciesId: number
   size: number
+  dietType: number  // M77
 }
 
 function useSpectatorMode(): boolean {
@@ -74,6 +75,7 @@ export function OrganismLabels() {
         z: cz,
         speciesId: CreatureBody.speciesId[eid],
         size: CreatureBody.size[eid],
+        dietType: DietaryType.type[eid],
       })
     }
 
@@ -111,6 +113,9 @@ export function OrganismLabels() {
               </div>
               <div style={{ opacity: 0.8 }}>
                 Size: {l.size.toFixed(1)}m
+              </div>
+              <div style={{ opacity: 0.8 }}>
+                {['Autotroph','Heterotroph','Mixotroph','Chemoauto'][l.dietType] || 'Unknown'}
               </div>
             </div>
           </Html>

@@ -134,7 +134,7 @@ export class NaturalSelectionSystem {
       cooldown:  Math.floor(this.rng() * MIN_REPRO_COOLDOWN),
       age:       0,
       biome,
-      energy:    1.0, // M75: start at full energy
+      energy:    0.5, // M76: offspring start with half energy
     }
     this.organisms.set(org.id, org)
     return org
@@ -222,7 +222,7 @@ export class NaturalSelectionSystem {
       }
 
       // ── Reproduction ──────────────────────────────────────────────────
-      if (org.cooldown === 0) {
+      if (org.cooldown === 0 && org.energy > 0.7) {
         const reproProb = org.fitness * org.fitness * BASE_REPRO_PROB
 
         if (this.rng() < reproProb) {
@@ -268,6 +268,9 @@ export class NaturalSelectionSystem {
 
             toAdd.push({ speciesId: childSpeciesId, genome: childGenome, biome: org.biome })
             births++
+
+            // M76: Parent energy cost — reproduction splits energy with offspring
+            org.energy *= 0.5
 
             // Reset cooldown
             org.cooldown = MIN_REPRO_COOLDOWN + Math.floor(this.rng() * MIN_REPRO_COOLDOWN)

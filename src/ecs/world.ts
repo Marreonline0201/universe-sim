@@ -47,6 +47,11 @@ export const Metabolism = defineComponent({
   metabolicRate: Types.f32, // J/s base consumption
 })
 
+/** Dietary classification for predator/prey behavior (M77) */
+export const DietaryType = defineComponent({
+  type: Types.ui8,   // 0=autotroph, 1=heterotroph, 2=mixotroph, 3=chemoautotroph
+})
+
 /** Genome reference (stores index into a genome buffer) */
 export const Genome = defineComponent({
   bufferIndex: Types.ui32,  // index into genomeBuffer SharedArrayBuffer
@@ -124,6 +129,7 @@ export function createCreatureEntity(
     neuralLevel: 0|1|2|3|4
     mass: number
     size: number
+    dietaryType: number
   }
 ): number {
   const eid = addEntity(w)
@@ -154,6 +160,8 @@ export function createCreatureEntity(
   addComponent(w, Genome, eid)
   Genome.bufferIndex[eid] = eid  // use entity ID as genome buffer index
   writeGenome(eid, opts.genome)
+  addComponent(w, DietaryType, eid)
+  DietaryType.type[eid] = opts.dietaryType
   addComponent(w, BrainState, eid)
   addComponent(w, Social, eid)
   return eid
@@ -163,7 +171,7 @@ export function createCreatureEntity(
 export function createPlayerEntity(w: ReturnType<typeof createWorld>, x: number, y: number, z: number): number {
   const eid = createCreatureEntity(w, {
     x, y, z, speciesId: 0, genome: new Uint8Array(32),
-    neuralLevel: 4, mass: 70, size: 1.8
+    neuralLevel: 4, mass: 70, size: 1.8, dietaryType: 1  // heterotroph (omnivore human)
   })
   addComponent(w, PlayerControlled, eid)
   return eid

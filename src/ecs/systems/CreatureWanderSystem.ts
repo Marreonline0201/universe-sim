@@ -5,7 +5,7 @@
  * Handles: wander direction changes, surface-hugging movement, bite damage.
  */
 import * as THREE from 'three'
-import { Position, Health, CreatureBody } from '../world'
+import { Position, Health, CreatureBody, DietaryType, Metabolism } from '../world'
 import { terrainHeightAt, PLANET_RADIUS } from '../../world/SpherePlanet'
 import { inflictWound, markCombatDamage } from '../../game/SurvivalSystems'
 
@@ -14,6 +14,10 @@ import { inflictWound, markCombatDamage } from '../../game/SurvivalSystems'
 // Stored outside React state (module-level) for zero-allocation per-frame access.
 export interface WanderState { vx: number; vy: number; vz: number; timer: number }
 export const creatureWander = new Map<number, WanderState>()
+
+// M77: Track which organisms are actively hunting (for visual feedback)
+// Maps heterotroph eid -> target eid (0 if not hunting)
+export const huntingTargets = new Map<number, number>()
 
 // M9 T3: Scratch Vector3 for creature wander terrain projection — reused each frame
 const _creatureDir3 = new THREE.Vector3()
@@ -34,13 +38,59 @@ export function tickCreatureWander(
 ): void {
   for (const [eid, ws] of creatureWander) {
     ws.timer -= dt
+    const diet = DietaryType.type[eid]  // 0=auto, 1=hetero, 2=mixo, 3=chemoauto
+
     if (ws.timer <= 0) {
-      // Pick a new random tangent-plane direction
-      const angle = Math.random() * Math.PI * 2
-      const speed = 0.3 + Math.random() * 0.5
-      ws.vx = Math.cos(angle) * speed
-      ws.vz = Math.sin(angle) * speed
-      ws.timer = 2 + Math.random() * 4
+      // M77: Heterotrophs steer toward nearest autotroph
+      if (diet === 1) {
+        let bestDist2 = 900  // 30m search radius squared
+        let targetEid = 0
+        let tx = 0, ty = 0, tz = 0
+        const cx = Position.x[eid], cy = Position.y[eid], cz = Position.z[eid]
+        for (const [otherId] of creatureWander) {
+          if (otherId === eid) continue
+          const otherDiet = DietaryType.type[otherId]
+          if (otherDiet !== 0) continue  // only hunt autotrophs
+          const ox = Position.x[otherId], oy = Position.y[otherId], oz = Position.z[otherId]
+          const dx = ox - cx, dy = oy - cy, dz = oz - cz
+          const d2 = dx*dx + dy*dy + dz*dz
+          if (d2 < bestDist2 && d2 > 0.01) {
+            bestDist2 = d2
+            targetEid = otherId
+            tx = ox; ty = oy; tz = oz
+          }
+        }
+        if (targetEid > 0) {
+          // Steer toward target
+          const dx = tx - Position.x[eid], dz = tz - Position.y[eid] // approximate: use xz plane steering
+          const toTargetX = tx - Position.x[eid]
+          const toTargetZ = tz - Position.z[eid]
+          const dist = Math.sqrt(toTargetX*toTargetX + toTargetZ*toTargetZ)
+          if (dist > 0.1) {
+            const speed = 0.5 + Math.random() * 0.3  // heterotrophs move faster when hunting
+            ws.vx = (toTargetX / dist) * speed
+            ws.vz = (toTargetZ / dist) * speed
+          }
+          ws.timer = 1 + Math.random() * 2  // re-evaluate more frequently when hunting
+          huntingTargets.set(eid, targetEid)
+        } else {
+          // No prey nearby — wander randomly
+          const angle = Math.random() * Math.PI * 2
+          const speed = 0.3 + Math.random() * 0.5
+          ws.vx = Math.cos(angle) * speed
+          ws.vz = Math.sin(angle) * speed
+          ws.timer = 2 + Math.random() * 4
+          huntingTargets.delete(eid)
+        }
+      } else {
+        // Non-heterotrophs: normal random wander
+        const angle = Math.random() * Math.PI * 2
+        const speed = 0.3 + Math.random() * 0.5
+        ws.vx = Math.cos(angle) * speed
+        ws.vz = Math.sin(angle) * speed
+        ws.timer = 2 + Math.random() * 4
+        huntingTargets.delete(eid)
+      }
     }
     // Move creature along surface: advance position, then re-project onto sphere
     const cx = Position.x[eid], cy = Position.y[eid], cz = Position.z[eid]
@@ -65,6 +115,25 @@ export function tickCreatureWander(
       }
     }
     Position.x[eid] = nx; Position.y[eid] = ny; Position.z[eid] = nz
+
+    // M77: Heterotroph energy transfer — consume autotroph on contact
+    if (diet === 1) {
+      const target = huntingTargets.get(eid)
+      if (target && target > 0) {
+        const tx = Position.x[target], ty = Position.y[target], tz = Position.z[target]
+        const dx = nx - tx, dy = ny - ty, dz = nz - tz
+        const d2 = dx*dx + dy*dy + dz*dz
+        const contactRadius = (CreatureBody.size[eid] + CreatureBody.size[target]) * 0.5
+        if (d2 < contactRadius * contactRadius) {
+          // Transfer energy: heterotroph gains, autotroph loses
+          const transfer = 0.15  // 15% energy per bite
+          Metabolism.energy[eid] = Math.min(1.0, Metabolism.energy[eid] + transfer)
+          Metabolism.energy[target] = Math.max(0, Metabolism.energy[target] - transfer)
+          Metabolism.hunger[eid] = Math.max(0, Metabolism.hunger[eid] - 0.2)  // satiate hunger
+          huntingTargets.delete(eid)  // consumed, find new target next tick
+        }
+      }
+    }
 
     // Slice 5: Larger creatures (size >= 0.65m) can bite the player
     const cSize = CreatureBody.size[eid] || 0.3

@@ -1,10 +1,11 @@
 import { useFrame, useThree } from '@react-three/fiber'
 import { useRef, useMemo } from 'react'
 import { InstancedMesh, Matrix4, Color, MeshStandardMaterial, Vector3 } from 'three'
-import { world, Position, CreatureBody, PlayerControlled } from '../../ecs/world'
+import { world, Position, CreatureBody, PlayerControlled, DietaryType } from '../../ecs/world'
 import { defineQuery, Not } from 'bitecs'
 // M74: Speciation visual pulse — flash newly speciated organisms
-import { getActiveSpeciationEvents, getSpeciationProgress } from '../../biology/SimulationIntegration'
+import { getActiveSpeciationEvents, getSpeciationProgress, getActiveBirthEvents, getBirthProgress } from '../../biology/SimulationIntegration'
+import { huntingTargets } from '../../ecs/systems/CreatureWanderSystem'
 
 // Exclude the player entity — it has its own humanoid mesh
 const creatureQuery = defineQuery([Position, CreatureBody, Not(PlayerControlled)])
@@ -93,6 +94,13 @@ export function CreatureRenderer() {
       speciationMap.set(activeEvents[e].eid, getSpeciationProgress(activeEvents[e]))
     }
 
+    // M76: Build birth event lookup for green pulse VFX
+    const birthMap = new Map<number, number>()
+    const activeBirths = getActiveBirthEvents()
+    for (let b = 0; b < activeBirths.length; b++) {
+      birthMap.set(activeBirths[b].eid, getBirthProgress(activeBirths[b]))
+    }
+
     for (let i = 0; i < total; i++) {
       const eid = entities[i]
 
@@ -108,6 +116,15 @@ export function CreatureRenderer() {
         // Ease-out pulse: starts at 1.5x, decays back to 1.0x over 2 seconds
         const pulse = 1.0 + 0.5 * (1.0 - speciationProgress!) * (1.0 - speciationProgress!)
         size *= pulse
+      }
+
+      // M76: Birth pulse — gentle green glow, smaller scale boost
+      const birthProgress = birthMap.get(eid)
+      const isBorn = birthProgress !== undefined
+      if (isBorn && !isSpeciating) {
+        // Ease-out pulse: starts at 1.3x, decays back to 1.0x over 1.5 seconds
+        const birthPulse = 1.0 + 0.3 * (1.0 - birthProgress!) * (1.0 - birthProgress!)
+        size *= birthPulse
       }
 
       // Distance-based LOD selection — squared distance, no sqrt
@@ -142,10 +159,29 @@ export function CreatureRenderer() {
           ng + (0.95 - ng) * (1.0 - t),
           nb + (0.6 - nb) * (1.0 - t),
         )
+      } else if (isBorn) {
+        // M76: Birth flash — lerp from bright green to normal species color
+        const t = birthProgress!
+        const speciesId = CreatureBody.speciesId[eid] || 0
+        const hue = (speciesId * 137.5) % 360
+        color.setHSL(hue / 360, 0.7, 0.55)
+        const nr = color.r, ng = color.g, nb = color.b
+        // Flash color: bright green (0.3, 1.0, 0.4)
+        color.setRGB(
+          nr + (0.3 - nr) * (1.0 - t),
+          ng + (1.0 - ng) * (1.0 - t),
+          nb + (0.4 - nb) * (1.0 - t),
+        )
       } else {
         const speciesId = CreatureBody.speciesId[eid] || 0
         const hue = (speciesId * 137.5) % 360
         color.setHSL(hue / 360, 0.7, 0.55)
+        // M77: Tint hunting heterotrophs with a red shift
+        if (huntingTargets.has(eid)) {
+          color.r = Math.min(1.0, color.r + 0.25)
+          color.g *= 0.7
+          color.b *= 0.7
+        }
       }
       targetMesh.setColorAt(instIdx, color)
     }

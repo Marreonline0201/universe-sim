@@ -26,6 +26,8 @@ import { useThree, useFrame } from '@react-three/fiber'
 import { useEffect, useRef } from 'react'
 import * as THREE from 'three'
 import { useGameStore } from '../store/gameStore'
+import { spawnOrganismAt } from '../biology/SimulationIntegration'
+import { PLANET_RADIUS } from '../world/SpherePlanet'
 
 // ── Module-level state (shared with SpectatorBadge DOM component) ───────────
 
@@ -72,6 +74,9 @@ export function SpectatorCamera() {
   const _move    = useRef(new THREE.Vector3())
   const _euler   = useRef(new THREE.Euler(0, 0, 0, 'YXZ'))
 
+  // M80: Scratch objects for organism seeding raycast
+  const _rayDir = useRef(new THREE.Vector3())
+
   // Toggle on [G] key press
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -94,6 +99,41 @@ export function SpectatorCamera() {
         } else {
           // Leaving spectator: unblock player input
           useGameStore.getState().setInputBlocked(false)
+        }
+      }
+
+      // M80: Press [O] to seed a new organism at camera look-at point on planet surface
+      if (e.code === 'KeyO' && activeRef.current && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        const tag = (e.target as HTMLElement)?.tagName
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
+
+        // Raycast from camera position along look direction to find planet surface
+        const camPos = camera.position
+        camera.getWorldDirection(_rayDir.current)
+        const dir = _rayDir.current
+
+        // Analytical ray-sphere intersection with planet (sphere at origin, radius PLANET_RADIUS)
+        // Ray: P = camPos + t * dir
+        // Sphere: |P|^2 = R^2
+        // Solving: t^2(dir.dir) + 2t(camPos.dir) + (camPos.camPos - R^2) = 0
+        const R = PLANET_RADIUS + 2  // spawn slightly above surface
+        const a = dir.dot(dir)
+        const b = 2 * camPos.dot(dir)
+        const c = camPos.dot(camPos) - R * R
+        const discriminant = b * b - 4 * a * c
+
+        if (discriminant >= 0) {
+          const sqrtD = Math.sqrt(discriminant)
+          const t1 = (-b - sqrtD) / (2 * a)
+          const t2 = (-b + sqrtD) / (2 * a)
+          // Use nearest positive intersection
+          const t = t1 > 0.1 ? t1 : t2 > 0.1 ? t2 : -1
+          if (t > 0) {
+            const spawnX = camPos.x + dir.x * t
+            const spawnY = camPos.y + dir.y * t
+            const spawnZ = camPos.z + dir.z * t
+            spawnOrganismAt(spawnX, spawnY, spawnZ)
+          }
         }
       }
 

@@ -12,7 +12,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react'
-import { getSimulationStats, isSimulationActive } from '../biology/SimulationIntegration'
+import { getSimulationStats, isSimulationActive, getPopulationHistory } from '../biology/SimulationIntegration'
 import { useGameStore } from '../store/gameStore'
 
 const POLL_INTERVAL_MS = 500  // refresh stats twice per second
@@ -30,6 +30,7 @@ interface SimStats {
 export function EcosystemDashboard() {
   const [visible, setVisible] = useState(true)
   const [stats, setStats] = useState<SimStats | null>(null)
+  const [history, setHistory] = useState<Array<{tick: number; organismCount: number; speciesCount: number}>>([]);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const epoch = useGameStore(s => s.epoch)
   const simTime = useGameStore(s => s.simTime)
@@ -53,6 +54,7 @@ export function EcosystemDashboard() {
     function poll() {
       if (isSimulationActive()) {
         setStats(getSimulationStats())
+        setHistory(getPopulationHistory().slice())  // copy to trigger re-render
       }
     }
     poll()
@@ -129,6 +131,14 @@ export function EcosystemDashboard() {
         color={stats.lastTickMs > 5 ? '#e74c3c' : '#636e72'}
       />
 
+      {/* M78: Population history chart */}
+      {history.length > 1 && (
+        <>
+          <div style={{ height: 1, background: 'rgba(255,255,255,0.06)', margin: '4px 0' }} />
+          <PopulationChart data={history} />
+        </>
+      )}
+
       {/* Toggle hint */}
       <div style={{
         fontSize: 8,
@@ -147,6 +157,69 @@ function Row({ label, value, color }: { label: string; value: string; color: str
     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
       <span style={{ color: '#888' }}>{label}</span>
       <span style={{ color, fontWeight: 600 }}>{value}</span>
+    </div>
+  )
+}
+
+function PopulationChart({ data }: { data: Array<{tick: number; organismCount: number; speciesCount: number}> }) {
+  if (data.length < 2) return null
+
+  const W = 170  // chart width in px
+  const H = 60   // chart height in px
+  const PAD = 2
+
+  // Find ranges for scaling
+  const maxOrg = Math.max(1, ...data.map(d => d.organismCount))
+  const maxSpec = Math.max(1, ...data.map(d => d.speciesCount))
+
+  // Build SVG polyline points for organism count
+  const orgPoints = data.map((d, i) => {
+    const x = PAD + (i / (data.length - 1)) * (W - PAD * 2)
+    const y = H - PAD - (d.organismCount / maxOrg) * (H - PAD * 2)
+    return `${x.toFixed(1)},${y.toFixed(1)}`
+  }).join(' ')
+
+  // Build SVG polyline points for species count (scaled to its own range)
+  const specPoints = data.map((d, i) => {
+    const x = PAD + (i / (data.length - 1)) * (W - PAD * 2)
+    const y = H - PAD - (d.speciesCount / maxSpec) * (H - PAD * 2)
+    return `${x.toFixed(1)},${y.toFixed(1)}`
+  }).join(' ')
+
+  return (
+    <div style={{ marginTop: 4 }}>
+      <div style={{ fontSize: 8, color: '#888', marginBottom: 2 }}>
+        <span style={{ color: '#74b9ff' }}>-- Pop ({maxOrg})</span>
+        {' '}
+        <span style={{ color: '#a29bfe' }}>-- Spp ({maxSpec})</span>
+      </div>
+      <svg
+        width={W}
+        height={H}
+        style={{ display: 'block', background: 'rgba(255,255,255,0.03)', borderRadius: 3 }}
+      >
+        {/* Grid lines */}
+        <line x1={PAD} y1={H/2} x2={W-PAD} y2={H/2} stroke="rgba(255,255,255,0.06)" strokeWidth={0.5} />
+        <line x1={PAD} y1={H*0.25} x2={W-PAD} y2={H*0.25} stroke="rgba(255,255,255,0.04)" strokeWidth={0.5} />
+        <line x1={PAD} y1={H*0.75} x2={W-PAD} y2={H*0.75} stroke="rgba(255,255,255,0.04)" strokeWidth={0.5} />
+        {/* Organism count line */}
+        <polyline
+          fill="none"
+          stroke="#74b9ff"
+          strokeWidth={1.5}
+          strokeLinejoin="round"
+          points={orgPoints}
+        />
+        {/* Species count line */}
+        <polyline
+          fill="none"
+          stroke="#a29bfe"
+          strokeWidth={1}
+          strokeLinejoin="round"
+          strokeDasharray="3,2"
+          points={specPoints}
+        />
+      </svg>
     </div>
   )
 }

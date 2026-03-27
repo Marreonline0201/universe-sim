@@ -582,7 +582,6 @@ export function SidebarShell() {
             key={activePanel}
             initial={{ x: PANEL_WIDTH }}
             animate={{ x: 0 }}
-            exit={{ x: PANEL_WIDTH }}
             transition={{ type: 'spring', stiffness: 300, damping: 30 }}
             style={{
               position: 'fixed',

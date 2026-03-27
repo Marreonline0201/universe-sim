@@ -1,407 +1,48 @@
-// ── SettingsPanel ──────────────────────────────────────────────────────────────
-// Graphics, audio, keybinds, time controls (admin), logout.
-
-import { useState } from 'react'
-import { useClerk, useAuth } from '@clerk/react'
+// SettingsPanel — game settings
+import React from 'react'
 import { useGameStore } from '../../store/gameStore'
-import { usePlayerStore } from '../../store/playerStore'
 import { useUiStore } from '../../store/uiStore'
-import { Health, Metabolism } from '../../ecs/world'
-import { ambientAudio } from '../../audio/AmbientAudioEngine'
-import { saveOffline, loadOffline, getSaveMeta } from '../../game/OfflineSaveManager'
-
-const TIME_SCALES = [0.1, 0.5, 1, 10, 100, 1000, 10000, 100000, 1000000, 1e8, 1e9, 1e10, 1e12]
-const LABELS      = ['0.1×', '0.5×', '1×', '10×', '100×', '1k×', '10k×', '100k×', '1M×', '100M×', '1B×', '10B×', '1T×']
-
-const HOTKEYS = [
-  { key: 'I', action: 'Open Inventory' },
-  { key: 'C', action: 'Open Crafting' },
-  { key: 'E', action: 'Eat food' },
-  { key: 'J', action: 'Open Journal' },
-  { key: 'Tab', action: 'Open Character' },
-  { key: 'M', action: 'Open Map' },
-  { key: 'K', action: 'Open Skills' },
-  { key: 'Esc', action: 'Settings / Close panel' },
-  { key: 'V', action: 'Cycle camera mode' },
-  { key: 'W/A/S/D', action: 'Move' },
-  { key: 'Space', action: 'Jump' },
-  { key: 'Shift', action: 'Sprint' },
-  { key: 'Ctrl', action: 'Crouch' },
-]
 
 export function SettingsPanel() {
-  const { signOut } = useClerk()
-  const { userId, getToken } = useAuth()
-  const { paused, togglePause, timeScale, setTimeScale, flyMode, setFlyMode, adminSpeedMult, setAdminSpeedMult } = useGameStore()
-  const { health, hunger, thirst, energy, fatigue, civTier, updateVitals, setCivTier } = usePlayerStore()
-  const addNotification = useUiStore(s => s.addNotification)
+  const { shadowsEnabled, setShadowsEnabled, renderScale, setRenderScale, showFps, setShowFps } = useGameStore()
   const closePanel = useUiStore(s => s.closePanel)
-  const graphicsSettings = useGameStore(s => ({
-    graphicsQuality: s.graphicsQuality, setGraphicsQuality: s.setGraphicsQuality,
-    showFps: s.showFps, setShowFps: s.setShowFps,
-    renderScale: s.renderScale, setRenderScale: s.setRenderScale,
-    shadowsEnabled: s.shadowsEnabled, setShadowsEnabled: s.setShadowsEnabled,
-    bloomEnabled: s.bloomEnabled, setBloomEnabled: s.setBloomEnabled,
-    vignetteEnabled: s.vignetteEnabled, setVignetteEnabled: s.setVignetteEnabled,
-  }))
-  const DEV_BYPASS = import.meta.env.DEV && import.meta.env.VITE_DEV_BYPASS_AUTH === 'true'
-  const isAdmin = DEV_BYPASS || userId === import.meta.env.VITE_ADMIN_USER_ID
-
-  async function handleSetTimeScale(s: number) {
-    setTimeScale(s)
-    try {
-      const { sendAdminSetTime } = await import('../../net/useWorldSocket')
-      sendAdminSetTime(s, paused)
-    } catch { /* no WS configured */ }
-    getToken().then(token => {
-      if (!token) return
-      fetch('/api/world-settings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ timeScale: s }),
-      }).catch(() => {})
-    })
-  }
-
-  async function handleTogglePause() {
-    const newPaused = !paused
-    togglePause()
-    try {
-      const { sendAdminSetTime } = await import('../../net/useWorldSocket')
-      sendAdminSetTime(timeScale, newPaused)
-    } catch { /* no WS configured */ }
-  }
-
-  async function handleLogout() {
-    closePanel()
-    if (DEV_BYPASS) {
-      // No Clerk session in dev bypass mode — just reload to simulate logout
-      window.location.reload()
-      return
-    }
-    await signOut()
-    addNotification('Logged out', 'info')
-  }
 
   return (
-    <div style={{ color: '#fff', fontFamily: 'monospace', display: 'flex', flexDirection: 'column', gap: 20 }}>
+    <div style={{ padding: 16, fontFamily: 'monospace', color: '#ccc', fontSize: 12 }}>
+      <div style={{ color: '#888', marginBottom: 16, letterSpacing: 2 }}>SETTINGS</div>
 
-      {/* Admin: Time Controls */}
-      {isAdmin && (
-        <section>
-          <div style={{ fontSize: 10, color: '#555', letterSpacing: 2, marginBottom: 10 }}>
-            TIME CONTROLS (ADMIN)
-          </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 8 }}>
-            <button
-              onClick={handleTogglePause}
-              style={{
-                color: paused ? '#e74c3c' : '#2ecc71',
-                background: 'none',
-                border: `1px solid ${paused ? '#e74c3c' : '#2ecc71'}`,
-                borderRadius: 4, padding: '4px 10px', cursor: 'pointer', fontSize: 14,
-              }}
-            >
-              {paused ? '▶' : '⏸'}
-            </button>
-            {TIME_SCALES.map((s, i) => (
-              <button
-                key={s}
-                onClick={() => handleSetTimeScale(s)}
-                style={{
-                  color: timeScale === s ? '#f1c40f' : '#888',
-                  background: timeScale === s ? 'rgba(241,196,15,0.15)' : 'none',
-                  border: `1px solid ${timeScale === s ? '#f1c40f' : '#333'}`,
-                  borderRadius: 4, padding: '3px 7px', cursor: 'pointer',
-                  fontSize: 10, fontFamily: 'monospace',
-                }}
-              >
-                {LABELS[i]}
-              </button>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* Admin: Movement + Fly + Vitals */}
-      {isAdmin && (
-        <section>
-          <div style={{ fontSize: 10, color: '#555', letterSpacing: 2, marginBottom: 10 }}>
-            MOVEMENT (ADMIN)
-          </div>
-          {/* Fly mode toggle */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-            <button
-              onClick={() => setFlyMode(!flyMode)}
-              style={{
-                color: flyMode ? '#3af' : '#888',
-                background: flyMode ? 'rgba(51,170,255,0.15)' : 'none',
-                border: `1px solid ${flyMode ? '#3af' : '#333'}`,
-                borderRadius: 4, padding: '4px 12px', cursor: 'pointer', fontSize: 12,
-              }}
-            >
-              {flyMode ? '✈ FLY ON' : '✈ FLY OFF'}
-            </button>
-            <span style={{ fontSize: 10, color: '#555' }}>Space=rise  Ctrl=descend</span>
-          </div>
-          {/* Speed multiplier */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
-            <span style={{ fontSize: 11, color: '#888', width: 70 }}>Speed ×{adminSpeedMult.toFixed(1)}</span>
-            <input
-              type="range" min={0.1} max={50} step={0.1}
-              value={adminSpeedMult}
-              onChange={e => setAdminSpeedMult(parseFloat(e.target.value))}
-              style={{ flex: 1, accentColor: '#3af' }}
-            />
-            <button onClick={() => setAdminSpeedMult(1)} style={{ fontSize: 10, background: 'none', border: '1px solid #333', color: '#666', borderRadius: 3, padding: '2px 6px', cursor: 'pointer' }}>reset</button>
-          </div>
-        </section>
-      )}
-
-      {/* Admin: Editable Vitals */}
-      {isAdmin && (
-        <section>
-          <div style={{ fontSize: 10, color: '#555', letterSpacing: 2, marginBottom: 10 }}>
-            PLAYER VARIABLES (ADMIN)
-          </div>
-          {([
-            { label: 'Health',  value: health,  key: 'health',  color: '#4caf50' },
-            { label: 'Hunger',  value: hunger,  key: 'hunger',  color: '#ff9800' },
-            { label: 'Thirst',  value: thirst,  key: 'thirst',  color: '#2196f3' },
-            { label: 'Energy',  value: energy,  key: 'energy',  color: '#ffeb3b' },
-            { label: 'Fatigue', value: fatigue, key: 'fatigue', color: '#e91e63' },
-          ] as Array<{label:string;value:number;key:string;color:string}>).map(({ label, value, key, color }) => (
-            <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-              <span style={{ fontSize: 11, color: '#888', width: 56 }}>{label}</span>
-              <input
-                type="range" min={0} max={1} step={0.01}
-                value={value}
-                onChange={e => {
-                  const v = parseFloat(e.target.value)
-                  updateVitals({ [key]: v })
-                  // Also write directly to ECS so the GameLoop doesn't overwrite on next frame
-                  const eid = usePlayerStore.getState().entityId
-                  if (eid !== null) {
-                    if (key === 'health') Health.current[eid] = v * (Health.max[eid] || 100)
-                    else if (key === 'hunger')  Metabolism.hunger[eid]  = v
-                    else if (key === 'thirst')  Metabolism.thirst[eid]  = v
-                    else if (key === 'energy')  Metabolism.energy[eid]  = v
-                    else if (key === 'fatigue') Metabolism.fatigue[eid] = v
-                  }
-                }}
-                style={{ flex: 1, accentColor: color }}
-              />
-              <span style={{ fontSize: 10, color, width: 32, textAlign: 'right' }}>{(value * 100).toFixed(0)}%</span>
-            </div>
-          ))}
-          {/* Civ Tier */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-            <span style={{ fontSize: 11, color: '#888', width: 56 }}>Civ Tier</span>
-            <input
-              type="range" min={0} max={9} step={1}
-              value={civTier}
-              onChange={e => setCivTier(parseInt(e.target.value))}
-              style={{ flex: 1, accentColor: '#a0f' }}
-            />
-            <span style={{ fontSize: 10, color: '#a0f', width: 32, textAlign: 'right' }}>T{civTier}</span>
-          </div>
-        </section>
-      )}
-
-      {/* M22: Save/Load */}
-      <section>
-        <div style={{ fontSize: 10, color: '#555', letterSpacing: 2, marginBottom: 10 }}>
-          SAVE / LOAD
-        </div>
-        <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-          <button
-            onClick={async () => {
-              const ok = await saveOffline()
-              addNotification(ok ? 'Game saved locally!' : 'Save failed', ok ? 'info' : 'error')
-            }}
-            style={{
-              flex: 1, padding: '8px 0',
-              background: 'rgba(46,204,113,0.12)', border: '1px solid rgba(46,204,113,0.4)',
-              borderRadius: 6, color: '#2ecc71', cursor: 'pointer', fontSize: 11,
-              fontFamily: 'monospace', letterSpacing: 1,
-            }}
-          >
-            SAVE GAME
-          </button>
-          <button
-            onClick={async () => {
-              if (!confirm('Load saved game? This will overwrite current progress.')) return
-              const ok = await loadOffline()
-              addNotification(ok ? 'Game loaded!' : 'No save found', ok ? 'info' : 'warning')
-            }}
-            style={{
-              flex: 1, padding: '8px 0',
-              background: 'rgba(52,152,219,0.12)', border: '1px solid rgba(52,152,219,0.4)',
-              borderRadius: 6, color: '#3498db', cursor: 'pointer', fontSize: 11,
-              fontFamily: 'monospace', letterSpacing: 1,
-            }}
-          >
-            LOAD GAME
-          </button>
-        </div>
-        {(() => {
-          const meta = getSaveMeta()
-          if (!meta) return <div style={{ fontSize: 10, color: '#555' }}>No local save found</div>
-          const date = new Date(meta.timestamp)
-          const playMins = Math.floor(meta.playTime / 60)
-          return (
-            <div style={{ fontSize: 10, color: '#666', lineHeight: 1.6 }}>
-              Last save: {date.toLocaleDateString()} {date.toLocaleTimeString()}<br />
-              Civ Tier: {meta.civTier} | Play time: {playMins} min
-            </div>
-          )
-        })()}
-      </section>
-
-      {/* M21: Audio Volume */}
-      <section>
-        <div style={{ fontSize: 10, color: '#555', letterSpacing: 2, marginBottom: 10 }}>
-          AUDIO
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-          <span style={{ fontSize: 11, color: '#888', width: 56 }}>Volume</span>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
           <input
-            type="range" min={0} max={1} step={0.01}
-            defaultValue={ambientAudio.getMasterVolume()}
-            onChange={e => {
-              ambientAudio.setMasterVolume(parseFloat(e.target.value))
-            }}
-            style={{ flex: 1, accentColor: '#9b59b6' }}
+            type="checkbox"
+            checked={shadowsEnabled}
+            onChange={e => setShadowsEnabled(e.target.checked)}
           />
-          <span style={{ fontSize: 10, color: '#9b59b6', width: 32, textAlign: 'right' }}>
-            {Math.round(ambientAudio.getMasterVolume() * 100)}%
-          </span>
-        </div>
-        <div style={{ fontSize: 9, color: '#555', marginTop: 4 }}>
-          Wind, rain, thunder, footsteps, fire, ocean waves
-        </div>
-      </section>
+          Shadows
+        </label>
 
-      {/* M69 Track B: Graphics Quality */}
-      <section>
-        <div style={{ fontSize: 10, color: '#555', letterSpacing: 2, marginBottom: 10 }}>
-          GRAPHICS
-        </div>
-        {/* Quality presets */}
-        <div style={{ display: 'flex', gap: 5, marginBottom: 10 }}>
-          {(['low', 'medium', 'high', 'ultra'] as const).map(q => (
-            <button
-              key={q}
-              onClick={() => graphicsSettings.setGraphicsQuality(q)}
-              style={{
-                flex: 1, padding: '5px 0', fontSize: 10, fontFamily: 'monospace',
-                textTransform: 'uppercase', letterSpacing: 1, cursor: 'pointer',
-                color: graphicsSettings.graphicsQuality === q ? '#f1c40f' : '#888',
-                background: graphicsSettings.graphicsQuality === q ? 'rgba(241,196,15,0.12)' : 'none',
-                border: `1px solid ${graphicsSettings.graphicsQuality === q ? '#f1c40f' : '#333'}`,
-                borderRadius: 4,
-              }}
-            >
-              {q}
-            </button>
-          ))}
-        </div>
-        {/* Individual toggles */}
-        {([
-          { label: 'Shadows',  value: graphicsSettings.shadowsEnabled,  toggle: graphicsSettings.setShadowsEnabled },
-          { label: 'Bloom',    value: graphicsSettings.bloomEnabled,    toggle: graphicsSettings.setBloomEnabled },
-          { label: 'Vignette', value: graphicsSettings.vignetteEnabled, toggle: graphicsSettings.setVignetteEnabled },
-          { label: 'FPS Counter', value: graphicsSettings.showFps,     toggle: graphicsSettings.setShowFps },
-        ] as Array<{label: string; value: boolean; toggle: (v: boolean) => void}>).map(({ label, value, toggle }) => (
-          <div key={label} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-            <span style={{ fontSize: 11, color: '#888' }}>{label}</span>
-            <button
-              onClick={() => toggle(!value)}
-              style={{
-                width: 36, height: 18, borderRadius: 9, cursor: 'pointer',
-                background: value ? 'rgba(46,204,113,0.4)' : 'rgba(255,255,255,0.08)',
-                border: `1px solid ${value ? 'rgba(46,204,113,0.6)' : 'rgba(255,255,255,0.15)'}`,
-                position: 'relative', transition: 'all 0.15s',
-              }}
-            >
-              <div style={{
-                width: 12, height: 12, borderRadius: 6,
-                background: value ? '#2ecc71' : '#555',
-                position: 'absolute', top: 2,
-                left: value ? 20 : 2,
-                transition: 'all 0.15s',
-              }} />
-            </button>
-          </div>
-        ))}
-        {/* Render scale slider */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
-          <span style={{ fontSize: 11, color: '#888', width: 80 }}>Render Scale</span>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
           <input
-            type="range" min={0.25} max={2.0} step={0.25}
-            value={graphicsSettings.renderScale}
-            onChange={e => graphicsSettings.setRenderScale(parseFloat(e.target.value))}
-            style={{ flex: 1, accentColor: '#e67e22' }}
+            type="checkbox"
+            checked={showFps}
+            onChange={e => setShowFps(e.target.checked)}
           />
-          <span style={{ fontSize: 10, color: '#e67e22', width: 32, textAlign: 'right' }}>
-            {graphicsSettings.renderScale.toFixed(2)}x
-          </span>
-        </div>
-      </section>
+          Show FPS
+        </label>
 
-      {/* Keybinds */}
-      <section>
-        <div style={{ fontSize: 10, color: '#555', letterSpacing: 2, marginBottom: 10 }}>
-          KEYBINDS
+        <div>
+          <div style={{ marginBottom: 6, color: '#888' }}>Render Scale: {renderScale}x</div>
+          <input
+            type="range"
+            min={0.5}
+            max={2}
+            step={0.25}
+            value={renderScale}
+            onChange={e => setRenderScale(Number(e.target.value))}
+            style={{ width: '100%' }}
+          />
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-          {HOTKEYS.map(({ key, action }) => (
-            <div key={key} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11 }}>
-              <span style={{
-                background: 'rgba(255,255,255,0.08)',
-                border: '1px solid rgba(255,255,255,0.15)',
-                borderRadius: 3, padding: '1px 6px',
-                color: '#ccc', fontFamily: 'monospace', fontSize: 10,
-                minWidth: 48, textAlign: 'center',
-              }}>
-                {key}
-              </span>
-              <span style={{ color: '#888', marginLeft: 10, flex: 1 }}>{action}</span>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* About */}
-      <section>
-        <div style={{ fontSize: 10, color: '#555', letterSpacing: 2, marginBottom: 8 }}>ABOUT</div>
-        <div style={{ fontSize: 11, color: '#666', lineHeight: 1.6 }}>
-          Universe Simulation v0.1<br />
-          A scientifically grounded multi-scale simulation.
-        </div>
-      </section>
-
-      {/* Logout */}
-      <section>
-        <button
-          onClick={handleLogout}
-          style={{
-            width: '100%',
-            padding: '10px 0',
-            background: 'rgba(231,76,60,0.15)',
-            border: '1px solid rgba(231,76,60,0.4)',
-            borderRadius: 6,
-            color: '#e74c3c',
-            cursor: 'pointer',
-            fontSize: 12,
-            fontFamily: 'monospace',
-            letterSpacing: 1,
-            transition: 'all 0.15s',
-          }}
-        >
-          LOG OUT
-        </button>
-      </section>
+      </div>
     </div>
   )
 }

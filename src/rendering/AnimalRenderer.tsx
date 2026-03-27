@@ -16,7 +16,10 @@ import { useFrame, useThree } from '@react-three/fiber'
 import { useRef, useMemo, useState, useEffect } from 'react'
 import { animalRegistry, renameTamedAnimal } from '../ecs/systems/AnimalAISystem'
 import type { AnimalEntity, AnimalSpecies } from '../ecs/systems/AnimalAISystem'
-import { currentBoss, syncBossPosition, getBossDistanceAndDirection } from '../game/BossSystem'
+// BossSystem removed
+const currentBoss: { position: [number, number, number]; hp: number; maxHp: number; killed: boolean } | null = null
+function syncBossPosition() {}
+function getBossDistanceAndDirection() { return null }
 
 // ── Procedural geometry builders ─────────────────────────────────────────────
 //

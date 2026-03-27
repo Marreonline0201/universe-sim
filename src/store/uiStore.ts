@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 
-export type PanelId = 'inventory' | 'crafting' | 'journal' | 'character' | 'map' | 'settings' | 'build' | 'science' | 'dialogue' | 'skills' | 'quests' | 'achievements' | 'fishing' | 'merchant' | 'players' | 'home' | 'factions' | 'buildings' | 'progression' | 'alchemy' | 'tradepost' | 'forge' | 'housing' | 'pet' | 'worldevents' | 'traderoutes' | 'bestiary' | 'titles' | 'forecast' | 'cavefeatures' | 'relationships' | 'factionwars' | 'seasonal' | 'bountboard' | 'discoveries' | 'merchantguild' | 'npcschedule' | 'resources' | 'threats' | 'factionstanding' | 'recipescan' | 'npcroutes' | 'codex' | 'showcase' | 'weatherevents' | 'market' | 'titleprogress' | 'craftmastery' | 'statsdash' | 'worldboss' | 'combos' | 'dungeon' | 'economy' | 'factionrep' | 'trophies' | 'blueprints' | 'npcmemory' | 'chronicle' | 'playerhouse' | 'talentree' | 'npcemotions' | 'questboard' | 'playertitles' | 'eventcalendar' | 'tradenetwork' | 'worldhistory' | 'achievejournal' | 'settlementrel' | 'recipebook' | 'expedition'
+export type PanelId = 'map' | 'settings' | 'players'
 
 // ── M32 Track C: Fast travel ──────────────────────────────────────────────────
 export interface FastTravelTarget {
@@ -157,13 +157,9 @@ export const useUiStore = create<UiState>((set, get) => ({
   travelFading: false,
   setTravelFading: (v) => set({ travelFading: v }),
 
-  // M44 Track B: Housing panel
+  // housingOpen and petOpen removed with RPG systems
   housingOpen: false,
-  toggleHousing: () =>
-    set((s) => ({ activePanel: s.activePanel === 'housing' ? null : 'housing', housingOpen: s.activePanel !== 'housing' })),
-
-  // M45 Track A: Pet panel
+  toggleHousing: () => {},
   petOpen: false,
-  togglePet: () =>
-    set((s) => ({ activePanel: s.activePanel === 'pet' ? null : 'pet', petOpen: s.activePanel !== 'pet' })),
+  togglePet: () => {},
 }))

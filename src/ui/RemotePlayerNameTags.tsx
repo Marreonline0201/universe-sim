@@ -10,7 +10,7 @@ import { useThree, useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { useMultiplayerStore } from '../store/multiplayerStore'
 import { usePlayerStore } from '../store/playerStore'
-import { usePartyStore } from '../store/partyStore'
+// partyStore removed
 import { useAuth } from '@clerk/react'
 
 const AFK_THRESHOLD_MS = 60_000
@@ -53,8 +53,7 @@ function NameTagsOverlayInner({
 
   const tmpVec = useRef(new THREE.Vector3())
   const now = Date.now()
-  const partyMembers = usePartyStore(s => s.party?.members)
-  const partyMemberIds = useMemo(() => partyMembers?.map(m => m.userId) ?? [], [partyMembers])
+  const partyMemberIds: string[] = []
 
   useFrame(() => {
     const tags: NameTagData[] = []

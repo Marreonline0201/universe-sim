@@ -8,11 +8,9 @@ import { useAuth } from '@clerk/react'
 import { useUser } from '@clerk/react'
 import { WorldSocket } from './WorldSocket'
 import { usePlayerStore } from '../store/playerStore'
-import { useSkillStore } from '../store/skillStore'
-import { skillSystem } from '../game/SkillSystem'
-import { getEquippedTitle } from '../game/TitleSystem'
-// M37 Track A: World event local timer (fires events when offline / single-player)
-import { startLocalEventTimer, stopLocalEventTimer } from '../game/WorldEventSystem'
+// skillStore, SkillSystem, TitleSystem, WorldEventSystem removed
+function startLocalEventTimer() {}
+function stopLocalEventTimer() {}
 
 const WS_URL = import.meta.env.VITE_WS_URL as string | undefined
 if (!WS_URL) console.warn('[WorldSocket] VITE_WS_URL is not set — multiplayer disabled')
@@ -62,15 +60,10 @@ export function useWorldSocket(): void {
       lastUpdateRef.current = now
 
       const { x, y, z, health, murderCount, gold } = usePlayerStore.getState()
-      const prestigeCount = useSkillStore.getState().prestigeCount
-      const skillIds = ['gathering', 'crafting', 'combat', 'survival', 'exploration', 'smithing', 'husbandry'] as const
-      const totalLevel = skillIds.reduce((sum, id) => sum + skillSystem.getLevel(id), 0)
-      const equippedTitle = getEquippedTitle()
       socket.send({
         type: 'PLAYER_UPDATE', x, y, z, health, murderCount, gold,
-        totalLevel, prestigeCount,
-        title: equippedTitle.name,
-        titleColor: equippedTitle.color,
+        totalLevel: 0, prestigeCount: 0,
+        title: '', titleColor: '#ffffff',
       })
     }
     rafId = requestAnimationFrame(loop)

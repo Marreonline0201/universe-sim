@@ -5,33 +5,74 @@
 import { useMultiplayerStore } from '../store/multiplayerStore'
 import { useGameStore } from '../store/gameStore'
 import { useSettlementStore } from '../store/settlementStore'
-import { useOutlawStore } from '../store/outlawStore'
+// outlawStore removed — stub
+const useOutlawStore = { getState: () => ({
+  upsertWantedPlayer: (_e: unknown) => {},
+  setPendingBountyNotif: (_e: unknown) => {},
+  removeWantedPlayer: (_id: unknown) => {},
+  setActiveQuest: (_q: unknown) => {},
+  updateQuestProgress: (_id: unknown, _p: unknown) => {},
+}) }
 import { usePlayerStore } from '../store/playerStore'
 import { useUiStore } from '../store/uiStore'
 import { useWeatherStore } from '../store/weatherStore'
 import type { SectorWeather } from '../store/weatherStore'
-import { useSeasonStore } from '../store/seasonStore'
-import type { SeasonState } from '../store/seasonStore'
-import { useShopStore } from '../store/shopStore'
-import type { ShopCatalogItem } from '../store/shopStore'
+// seasonStore removed
+type SeasonState = { season: string; seasonIndex: number; progress: number; tempModifier: number; rainfallProb: number; isSnow: boolean; metabolicMult: number }
+const useSeasonStore = { getState: () => ({ setSeason: (_s: Partial<SeasonState>) => {} }) }
+// shopStore removed
+type ShopCatalogItem = unknown
+const useShopStore = { getState: () => ({
+  openShop: (..._args: unknown[]) => {},
+  settlementId: null,
+  updateCatalog: (_c: unknown) => {},
+  closeShop: () => {},
+}) }
 import { inventory } from '../game/GameSingletons'
 import type { LocalSimManager } from '../engine/LocalSimManager'
-import { useDiplomacyStore } from '../store/diplomacyStore'
-import { receiveRadioBroadcast, registerTower } from '../game/RadioSystem'
-import { useVelarStore } from '../store/velarStore'
-import { generateProbeResult, SYSTEM_PLANETS } from '../game/OrbitalMechanicsSystem'
-// M37 Track A: World events
-import {
-  triggerWorldEvent,
-  expireWorldEvent,
-  updateEventParticipants,
-  type WorldEventType,
-} from '../game/WorldEventSystem'
-// M42 Track A: Trade post
-import { useTradePostStore, type TradePostListing } from '../store/tradePostStore'
-// M39 Track B: Chat + Party
+// diplomacyStore, RadioSystem, VelarStore, OrbitalMechanicsSystem,
+// WorldEventSystem, TradePostStore, PartyStore removed
+const useDiplomacyStore = { getState: () => ({
+  setRelation: (..._args: unknown[]) => {},
+  setGateClosed: (..._args: unknown[]) => {},
+  setMayor: (..._args: unknown[]) => {},
+  addNotification: (..._args: unknown[]) => {},
+}) }
+function receiveRadioBroadcast(..._args: unknown[]) {}
+function registerTower(..._args: unknown[]) {}
+const useVelarStore = { getState: () => ({
+  markDecoded: (..._args: unknown[]) => {},
+  setVelarResponseReceived: (..._args: unknown[]) => {},
+  markResponseReceived: (..._args: unknown[]) => {},
+  markGatewayRevealed: (..._args: unknown[]) => {},
+  activateGateway: (..._args: unknown[]) => {},
+  addProbeResult: (..._args: unknown[]) => {},
+  reactorMeltdown: false,
+  triggerMeltdown: (..._args: unknown[]) => {},
+  clearMeltdown: (..._args: unknown[]) => {},
+}) }
+function generateProbeResult(..._args: unknown[]) { return null }
+const SYSTEM_PLANETS: Array<{ name: string }> = []
+function triggerWorldEvent(..._args: unknown[]) {}
+function expireWorldEvent(..._args: unknown[]) {}
+function updateEventParticipants(..._args: unknown[]) {}
+type WorldEventType = string
+type TradePostListing = { id?: string }
+const useTradePostStore = { getState: () => ({
+  setListings: (..._args: unknown[]) => {},
+  addListing: (..._args: unknown[]) => {},
+  removeListing: (..._args: unknown[]) => {},
+}) }
 import { receiveChatMessage } from '../ui/ChatBox'
-import { usePartyStore } from '../store/partyStore'
+const usePartyStore = { getState: () => ({
+  setParty: (..._args: unknown[]) => {},
+  setInvite: (..._args: unknown[]) => {},
+  setPendingInvite: (..._args: unknown[]) => {},
+  setMembers: (..._args: unknown[]) => {},
+  removeMember: (..._args: unknown[]) => {},
+  clearParty: () => {},
+  party: null as { members: Array<{ userId: string; username: string }> } | null,
+}) }
 
 // Module-level reference to the active LocalSimManager.
 // Set by SceneRoot after the sim grid initialises.
@@ -817,16 +858,7 @@ export class WorldSocket {
           'discovery'
         )
         window.dispatchEvent(new CustomEvent('velar-gateway-activated', { detail: { velarSeed } }))
-        // M15: Trigger transit to Velar World — sets transitStore to 'arrived' on Velar
-        // The transit cinematic plays, then DestinationPlanetSelector renders VelarPlanetMesh
-        import('../store/transitStore').then(({ useTransitStore }) => {
-          useTransitStore.getState().beginTransit({
-            fromPlanet:      'Home',
-            toPlanet:        'Velar',
-            destinationSeed: velarSeed as number,
-            padPosition:     [0, 0, 0],
-          })
-        }).catch(() => {})
+        // transitStore removed
         break
       }
 

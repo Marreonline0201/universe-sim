@@ -80,6 +80,7 @@ export function spawnInitialCreatures(
         neuralLevel,
         mass,
         size,
+        dietaryType: 0,
       })
       entityIds.push(eid)
 
@@ -105,7 +106,7 @@ export function spawnInitialCreatures(
       const r = PLANET_RADIUS + h + size * 0.5 + i * 2
       const eid = createCreatureEntity(world, {
         x: spawnDir.x * r, y: spawnDir.y * r, z: spawnDir.z * r,
-        speciesId: i + 1, genome, neuralLevel, mass, size,
+        speciesId: i + 1, genome, neuralLevel, mass, size, dietaryType: 0,
       })
       entityIds.push(eid)
       creatureWander.set(eid, { vx: 0.3, vy: 0, vz: 0.3, timer: 3 })

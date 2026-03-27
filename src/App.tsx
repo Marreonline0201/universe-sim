@@ -4,9 +4,7 @@ import { SceneRoot } from './rendering/SceneRoot'
 import { HUD } from './ui/HUD'
 // M72-4: Ecosystem dashboard — live organism/species stats overlay
 import { EcosystemDashboard } from './ui/EcosystemDashboard'
-// M72-1: Spectator mode badge overlay
-import { SpectatorBadge } from './ui/SpectatorBadge'
-import { loadSave, saveGame } from './store/saveStore'
+import { loadOffline, saveOffline } from './game/OfflineSaveManager'
 import { useWorldSocket } from './net/useWorldSocket'
 import { useBootstrapStatus } from './hooks/useBootstrapStatus'
 import { WorldBootstrapScreen } from './ui/WorldBootstrapScreen'
@@ -75,7 +73,6 @@ function DevGame() {
       </Suspense>
       <HUD />
       <EcosystemDashboard />
-      <SpectatorBadge />
       {import.meta.env.DEV && <Suspense fallback={null}><AdminPanel /></Suspense>}
     </>
   )
@@ -117,20 +114,18 @@ function GameWithSave() {
   useEffect(() => {
     if (loaded.current || !user) return
     loaded.current = true
-    loadSave(getToken)
-  }, [getToken, user])
+    loadOffline()
+  }, [user])
 
   // Auto-save every 60 seconds
   useEffect(() => {
     if (!user) return
-    const username = user.username ?? user.firstName ?? user.id
-    const id = setInterval(() => saveGame(getToken, username), 60_000)
+    const id = setInterval(() => saveOffline(), 60_000)
     return () => {
       clearInterval(id)
-      // Save on unmount (tab close / logout)
-      saveGame(getToken, username)
+      saveOffline()
     }
-  }, [getToken, user])
+  }, [user])
 
   return (
     <>
@@ -139,7 +134,6 @@ function GameWithSave() {
       </Suspense>
       <HUD />
       <EcosystemDashboard />
-      <SpectatorBadge />
       {import.meta.env.DEV && <Suspense fallback={null}><AdminPanel /></Suspense>}
     </>
   )

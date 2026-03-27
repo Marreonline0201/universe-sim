@@ -12,13 +12,14 @@ import * as THREE from 'three'
 import { MAT, ITEM } from '../player/Inventory'
 import type { Inventory } from '../player/Inventory'
 import type { LocalSimManager } from '../engine/LocalSimManager'
-import type { BuildingSystem } from '../civilization/BuildingSystem'
-import { BUILDING_TYPES } from '../civilization/BuildingSystem'
+// BuildingSystem removed
+type BuildingSystem = { getAllBuildings: () => unknown[] }
+const BUILDING_TYPES: Array<{ id: string; name: string; materials: string[] }> = []
 import { usePlayerStore } from '../store/playerStore'
 import { useUiStore } from '../store/uiStore'
 import { Metabolism, Health } from '../ecs/world'
-// M33 Track B: food buff activation on eat
-import { consumeFood } from './FoodBuffSystem'
+// FoodBuffSystem removed
+function consumeFood(_foodId: number) {}
 
 // ── M5: Death System ──────────────────────────────────────────────────────────
 //
@@ -877,71 +878,7 @@ const FIRE_DAMAGE_TEMP_C  = 300   // °C — wood autoignition threshold
 const FIRE_DAMAGE_RATE    = 2.0   // HP/s per adjacent fire cell
 const FIRE_CHECK_RADIUS   = 4.0   // metres — fire cell must be this close to damage building
 
-// Set of building type IDs that are combustible (contain organic materials)
-const COMBUSTIBLE_TYPE_IDS = new Set<string>([
-  'lean_to', 'pit_house', 'longhouse',
-  // Any type whose materialsRequired include wood, fiber, bark, or hide
-  // Pre-computed at startup for performance (no per-frame iteration over BUILDING_TYPES)
-])
+// BuildingSystem removed — combustibility tracking disabled
 
-// Build combustibility set from BUILDING_TYPES materials at module load time
-const COMBUSTIBLE_MATERIAL_IDS = new Set<number>([MAT.WOOD, MAT.FIBER, MAT.BARK, MAT.HIDE])
-for (const bt of BUILDING_TYPES) {
-  if (bt.materialsRequired.some(r => COMBUSTIBLE_MATERIAL_IDS.has(r.materialId as number))) {
-    COMBUSTIBLE_TYPE_IDS.add(bt.id)
-  }
-}
-
-let _fireCheckAccum = 0  // accumulator for 10Hz rate limiting
-
-export function tickBuildingPhysics(
-  dt: number,
-  buildingSystem: BuildingSystem,
-  simMgr: LocalSimManager | null,
-): void {
-  if (!simMgr) return
-
-  _fireCheckAccum += dt
-  if (_fireCheckAccum < 0.1) return  // only check 10x per second
-  _fireCheckAccum = 0
-
-  const hotCells = simMgr.getHotCells(FIRE_DAMAGE_TEMP_C)
-  if (hotCells.length === 0) return
-
-  const buildings = buildingSystem.getAllBuildings()
-  const burnedIds: number[] = []
-
-  for (const b of buildings) {
-    if (!COMBUSTIBLE_TYPE_IDS.has(b.typeId)) continue
-
-    // Count how many hot cells are within FIRE_CHECK_RADIUS of this building
-    let hotCellsNearby = 0
-    for (const cell of hotCells) {
-      const dx = cell.wx - b.position[0]
-      const dy = cell.wy - b.position[1]
-      const dz = cell.wz - b.position[2]
-      if (dx * dx + dy * dy + dz * dz <= FIRE_CHECK_RADIUS * FIRE_CHECK_RADIUS) {
-        hotCellsNearby++
-      }
-    }
-
-    if (hotCellsNearby > 0) {
-      // Apply fire damage — multiply by 0.1 because we're calling at 10Hz not 1Hz
-      const damage = FIRE_DAMAGE_RATE * hotCellsNearby * 0.1
-      buildingSystem.damage(b.id, damage)
-
-      // Check if building is still alive after damage
-      const remaining = buildingSystem.getAllBuildings().find(x => x.id === b.id)
-      if (!remaining) {
-        burnedIds.push(b.id)
-      }
-    }
-  }
-
-  if (burnedIds.length > 0) {
-    useUiStore.getState().addNotification(
-      `A structure burned down! Build with stone or clay for fire resistance.`,
-      'warning'
-    )
-  }
-}
+// tickBuildingPhysics removed with BuildingSystem
+export function tickBuildingPhysics(_dt: number, _buildingSystem: unknown, _simMgr: unknown): void {}

@@ -1,99 +1,69 @@
-// ── settlementStore.ts ─────────────────────────────────────────────────────────
-// Client-side state for NPC settlements.
-// Populated from WORLD_SNAPSHOT on join, updated by SETTLEMENT_UPDATE messages.
-
+// settlementStore — tracks server-synced NPC settlements (core world simulation data)
 import { create } from 'zustand'
-import type { FactionId } from '../game/FactionSystem'
-import { getFactionForSettlementIndex } from '../game/FactionSystem'
 
-export interface SettlementSnapshot {
-  id:          number
-  name:        string
-  x:           number
-  y:           number
-  z:           number
-  civLevel:    number
-  npcCount:    number
+export interface Settlement {
+  id: number
+  name: string
+  x: number
+  y: number
+  z: number
+  civLevel: number
+  npcCount: number
   resourceInv: Record<string, number>
-  factionId:   FactionId   // M35 Track C: assigned on load
 }
 
-export interface TradeOffer {
-  settlementId:   number
+export interface PendingTradeOffer {
+  settlementId: number
   settlementName: string
-  civLevel:       number
-  offerMats:      Record<string, number>  // what settlement gives
-  wantMats:       Record<string, number>  // what settlement wants
-  trustScore:     number
+  civLevel: number
+  offerMats: Record<string, number>
+  wantMats: Record<string, number>
+  trustScore: number
 }
 
 interface SettlementState {
-  settlements:  Map<number, SettlementSnapshot>
-  setSettlements: (list: SettlementSnapshot[]) => void
-  upsertSettlement: (s: SettlementSnapshot) => void
+  settlements: Map<number, Settlement>
+  upsertSettlement: (s: Settlement) => void
+  removeSettlement: (id: number) => void
+  setSettlements: (settlements: Settlement[]) => void
+  recordTrade: (...args: unknown[]) => void
+  setGatesClosed: (...args: unknown[]) => void
 
-  // Active trade offer (shown in SettlementHUD)
-  pendingOffer: TradeOffer | null
-  setPendingOffer: (offer: TradeOffer | null) => void
-
-  // Set of settlement IDs whose gates are closed for the local player
-  closedGates: Set<number>
-  setGatesClosed: (settlementId: number) => void
-  clearGatesClosed: (settlementId: number) => void
-
-  // Last settlement the player was near (for NPC_ATTACKED routing)
+  // Near-settlement detection (for UI prompts)
   nearSettlementId: number | null
-  setNearSettlement: (id: number | null) => void
+  setNearSettlementId: (id: number | null) => void
 
-  // Last trade timestamp per settlement (epoch ms) — used for 💰 activity indicator
-  lastTradeTime: Map<number, number>
-  recordTrade: (settlementId: number) => void
+  // Trade offer from server
+  pendingOffer: PendingTradeOffer | null
+  setPendingOffer: (offer: PendingTradeOffer | null) => void
 }
 
 export const useSettlementStore = create<SettlementState>((set) => ({
   settlements: new Map(),
-  setSettlements: (list) => {
-    const map = new Map<number, SettlementSnapshot>()
-    list.forEach((s, index) => {
-      const withFaction: SettlementSnapshot = s.factionId
-        ? s
-        : { ...s, factionId: getFactionForSettlementIndex(index) }
-      map.set(s.id, withFaction)
-    })
-    set({ settlements: map })
-  },
   upsertSettlement: (s) =>
     set((state) => {
       const next = new Map(state.settlements)
       next.set(s.id, s)
       return { settlements: next }
     }),
+  removeSettlement: (id) =>
+    set((state) => {
+      const next = new Map(state.settlements)
+      next.delete(id)
+      return { settlements: next }
+    }),
+  setSettlements: (settlements) =>
+    set(() => {
+      const next = new Map<number, Settlement>()
+      for (const s of settlements) next.set(s.id, s)
+      return { settlements: next }
+    }),
+  recordTrade: () => {},
+  setGatesClosed: () => {},
+
+  nearSettlementId: null,
+  setNearSettlementId: (id) => set({ nearSettlementId: id }),
 
   pendingOffer: null,
   setPendingOffer: (offer) => set({ pendingOffer: offer }),
-
-  closedGates: new Set<number>(),
-  setGatesClosed: (id) =>
-    set((state) => {
-      const next = new Set(state.closedGates)
-      next.add(id)
-      return { closedGates: next }
-    }),
-  clearGatesClosed: (id) =>
-    set((state) => {
-      const next = new Set(state.closedGates)
-      next.delete(id)
-      return { closedGates: next }
-    }),
-
-  nearSettlementId: null,
-  setNearSettlement: (id) => set({ nearSettlementId: id }),
-
-  lastTradeTime: new Map(),
-  recordTrade: (settlementId) =>
-    set((state) => {
-      const next = new Map(state.lastTradeTime)
-      next.set(settlementId, Date.now())
-      return { lastTradeTime: next }
-    }),
 }))

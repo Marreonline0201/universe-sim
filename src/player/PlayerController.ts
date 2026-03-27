@@ -18,10 +18,9 @@ import { rapierWorld } from '../physics/RapierWorld'
 import { useJoystickStore } from '../ui/MobileControls'
 // M29 Track B: storm movement penalty (set by GameLoop each frame)
 import { weatherSpeedMult } from '../game/GameLoop'
-// M33 Track B: food buff speed multiplier
-import { getFoodSpeedMult } from '../game/FoodBuffSystem'
-// M41 Track A: potion speed multiplier
-import { getPotionSpeedMult } from '../game/PotionSystem'
+// FoodBuffSystem and PotionSystem removed
+function getFoodSpeedMult() { return 1.0 }
+function getPotionSpeedMult() { return 1.0 }
 // M41 Track B: mount speed multiplier (set by GameLoop each frame)
 export let mountSpeedMult = 1.0
 export function setMountSpeedMult(v: number) { mountSpeedMult = v }

@@ -327,7 +327,7 @@ export function tickSimulation(simTime: number): SelectionTickResult | null {
       const mass = massFromGenome(phenotype.sizeClass)
 
       // M76: Spawn offspring near parent (find any organism of same species as proxy)
-      let x: number, y: number, z: number
+      let x: number = 0, y: number = 0, z: number = 0
       let foundParent = false
       for (const [oId, eId] of orgToEcs) {
         if (oId !== org.id) {

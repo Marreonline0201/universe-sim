@@ -12,7 +12,8 @@
 
 import React, { useEffect, useRef, useState, useCallback } from 'react'
 import { getWorldSocket, getLocalUserId, getLocalUsername } from '../net/useWorldSocket'
-import { usePartyStore } from '../store/partyStore'
+// partyStore removed (RPG cleanup) — party is always null in simulation mode
+const usePartyStore = (_sel: (s: { party: null }) => null) => null
 
 export interface ChatMessage {
   id: number

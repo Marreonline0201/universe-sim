@@ -4,7 +4,7 @@
 
 import { useEffect, useState } from 'react'
 import { useUiStore, type Notification } from '../store/uiStore'
-import { useOutlawStore } from '../store/outlawStore'
+// outlawStore removed
 
 const TYPE_COLORS: Record<Notification['type'], string> = {
   info:      '#3498db',
@@ -51,65 +51,7 @@ function Toast({ notif }: { notif: Notification }) {
   )
 }
 
-// ── Bounty Banner — cinematic WANTED overlay ──────────────────────────────────
-
-function BountyBanner() {
-  const pendingNotif         = useOutlawStore(s => s.pendingBountyNotif)
-  const setPendingBountyNotif = useOutlawStore(s => s.setPendingBountyNotif)
-  const [visible, setVisible]  = useState(false)
-  const [entry, setEntry]      = useState(pendingNotif)
-
-  useEffect(() => {
-    if (!pendingNotif) return
-    setEntry(pendingNotif)
-    setVisible(true)
-    // Clear after 5 seconds
-    const t = setTimeout(() => {
-      setVisible(false)
-      setPendingBountyNotif(null)
-    }, 5000)
-    return () => clearTimeout(t)
-  }, [pendingNotif, setPendingBountyNotif])
-
-  if (!visible || !entry) return null
-
-  return (
-    <div
-      style={{
-        position:    'fixed',
-        top:         '18%',
-        left:        '50%',
-        transform:   'translateX(-50%)',
-        zIndex:      8000,
-        pointerEvents: 'none',
-        textAlign:   'center',
-        fontFamily:  'monospace',
-        animation:   'bountySlideIn 0.4s ease-out',
-      }}
-    >
-      <div style={{
-        background:   'rgba(120, 10, 10, 0.94)',
-        border:       '2px solid rgba(255, 60, 60, 0.8)',
-        borderRadius: 4,
-        padding:      '14px 40px',
-        boxShadow:    '0 0 60px rgba(200, 20, 20, 0.7)',
-      }}>
-        <div style={{ fontSize: 11, color: '#ff9999', letterSpacing: 5, marginBottom: 4 }}>
-          OUTLAW ALERT
-        </div>
-        <div style={{ fontSize: 22, fontWeight: 900, color: '#ffd700', letterSpacing: 4 }}>
-          WANTED: {entry.username}
-        </div>
-        <div style={{ fontSize: 13, color: '#ffaaaa', letterSpacing: 2, marginTop: 6 }}>
-          {entry.murderCount} KILLS &nbsp;|&nbsp; {entry.reward} COPPER BOUNTY
-        </div>
-        <div style={{ fontSize: 10, color: '#cc8888', letterSpacing: 1, marginTop: 4 }}>
-          NPC guards attack on sight. Other players may claim the reward.
-        </div>
-      </div>
-    </div>
-  )
-}
+// BountyBanner removed (OutlawSystem deleted)
 
 export function NotificationSystem() {
   const notifications = useUiStore(s => s.notifications)
@@ -126,7 +68,6 @@ export function NotificationSystem() {
           to   { opacity: 1; transform: translateX(-50%) translateY(0); }
         }
       `}</style>
-      <BountyBanner />
       <div style={{
         position: 'fixed',
         bottom: 24,

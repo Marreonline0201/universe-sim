@@ -3,7 +3,7 @@ import { useAuth } from '@clerk/react'
 import { useGameStore } from '../store/gameStore'
 import { inventory } from '../game/GameSingletons'
 import { MAT } from '../player/Inventory'
-import { saveGodMode } from '../store/saveStore'
+function saveGodMode(_on: boolean) { /* god mode state handled by inventory */ }
 
 interface PlayerRow {
   user_id: string

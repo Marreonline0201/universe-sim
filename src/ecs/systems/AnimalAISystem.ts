@@ -28,9 +28,14 @@ import * as THREE from 'three'
 import { terrainHeightAt, PLANET_RADIUS } from '../../world/SpherePlanet'
 import { GenomeEncoder, type Genome } from '../../biology/GenomeEncoder'
 import { MutationEngine } from '../../biology/MutationEngine'
-import { applyBoidRules } from '../../ai/FlockingSystem'
-// M38 Track B: Import combat system for enemy status effects
-import { combatSystem } from '../../game/GameSingletons'
+// FlockingSystem and CombatSystem removed (RPG cleanup)
+function applyBoidRules(_a: unknown, _peers: unknown[]): { x: number; y: number; z: number; dvx: number; dvy: number; dvz: number } {
+  return { x: 0, y: 0, z: 0, dvx: 0, dvy: 0, dvz: 0 }
+}
+const combatSystem = {
+  getEnemyStatus: (_id: number): { stunTimer: number; burnTimer: number; confuseTimer: number; fearTimer: number } | null => null,
+  applyFear: (_id: number, _dur: number) => {},
+}
 
 // ── Genome decoder (singleton, allocation-free per-frame) ─────────────────────
 const _encoder = new GenomeEncoder()

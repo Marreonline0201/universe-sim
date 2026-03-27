@@ -1,6 +1,11 @@
 # Memory Index
 
 ## Project
+- [project_vision_realignment.md](project_vision_realignment.md) — ACTIVE — Universe Sim pivoting from RPG to emergent organism simulation (observer/god, not player character). M72-M74 plan.
+- [project_m73.md](project_m73.md) — M73 IN PROGRESS — Organism visibility fix: scale 0.05-0.30m to 2-8m, species colors, floating labels, cluster indicators
+- [project_m72.md](project_m72.md) — M72 DONE — SimBootstrap+NaturalSelection+RPG deactivation+Integration bridge+SpectatorCamera+EcosystemDashboard+TimeControls
+- [project_m71.md](project_m71.md) — M71 DONE — DungeonRoomInteractionSystem extracted (GameLoop 3539->3196), HUD VitalBars+WeatherWidgets (2783->2416)
+- [project_m70.md](project_m70.md) — M70 DONE — GameLoopScheduler (18 periodic ticks extracted), error auto-disable, GameLoop 3727->3539 lines
 - [project_m22.md](project_m22.md) — M22 DONE — Offline save/load (localStorage+IndexedDB), player skill tree (6 skills, 10 levels, XP hooks), day/night visual polish (sun disc, moonlight, fog color, star twinkle, time-of-day widget)
 - [project_m21.md](project_m21.md) — M21 DONE — Procedural ambient audio (Web Audio API, 6 layers), settlement visual upgrades (roofs/smoke/stalls/NPC dots), enhanced minimap (terrain color/settlements/resources/zoom/weather)
 - [project_m20.md](project_m20.md) — M20 DONE — Code splitting (vendor chunks + lazy panels), NPC Dialogue UI (DialoguePanel + proximity), Inventory/Crafting polish (tooltips, search, tiers)

@@ -1,413 +1,41 @@
 // ── SidebarShell ───────────────────────────────────────────────────────────────
-// Right-edge icon strip (48 px) + animated panel mount.
-// Registers global hotkeys. Blocks game input while any panel is open.
+// Right-edge icon strip + animated panel mount.
+// RPG panels removed. Only simulation/info panels remain.
 
 import React, { useEffect, Suspense, lazy } from 'react'
-import { RPG_ENABLED } from '../game/gameConfig'
 import { useUiStore, type PanelId } from '../store/uiStore'
 import { useGameStore } from '../store/gameStore'
-import { usePlayerStore } from '../store/playerStore'
-import { cancelFishing, isFishingActive } from '../world/SailingSystem'
-import { tryEatFood } from '../game/SurvivalSystems'
-import { inventory } from '../game/GameSingletons'
-import { rollLoot, applyLootToInventory, CHEST_LOOT_TABLE } from '../game/LootSystem'
-import { fishingSystem } from '../game/FishingSystem'
-import { spellSystem } from '../game/SpellSystem'
-import { useDialogueStore } from '../store/dialogueStore'
-import { useSettlementStore } from '../store/settlementStore'
 
-// ── Lazy-loaded panels (M20 code splitting) ──────────────────────────────────
-const InventoryPanel = lazy(() => import('./panels/InventoryPanel').then(m => ({ default: m.InventoryPanel })))
-const CraftingPanel  = lazy(() => import('./panels/CraftingPanel').then(m => ({ default: m.CraftingPanel })))
-const JournalPanel   = lazy(() => import('./panels/JournalPanel').then(m => ({ default: m.JournalPanel })))
-const CharacterPanel = lazy(() => import('./panels/CharacterPanel').then(m => ({ default: m.CharacterPanel })))
-const MapPanel       = lazy(() => import('./panels/MapPanel').then(m => ({ default: m.MapPanel })))
-const SettingsPanel  = lazy(() => import('./panels/SettingsPanel').then(m => ({ default: m.SettingsPanel })))
-const BuildPanel     = lazy(() => import('./panels/BuildPanel').then(m => ({ default: m.BuildPanel })))
-const SciencePanel   = lazy(() => import('./panels/SciencePanel').then(m => ({ default: m.SciencePanel })))
-const DialoguePanel  = lazy(() => import('./panels/DialoguePanel').then(m => ({ default: m.DialoguePanel })))
-const SkillTreePanel = lazy(() => import('./panels/SkillPanel').then(m => ({ default: m.SkillTreePanel })))
-const QuestPanel       = lazy(() => import('./panels/QuestPanel').then(m => ({ default: m.QuestPanel })))
-const AchievementPanel = lazy(() => import('./panels/AchievementPanel').then(m => ({ default: m.AchievementPanel })))
-const FishingPanel     = lazy(() => import('./panels/FishingPanel').then(m => ({ default: m.FishingPanel })))
-const MerchantPanel    = lazy(() => import('./panels/MerchantPanel').then(m => ({ default: m.MerchantPanel })))
-const PlayerListPanel  = lazy(() => import('./panels/PlayerListPanel').then(m => ({ default: m.PlayerListPanel })))
-const HomePanel        = lazy(() => import('./panels/HomePanel').then(m => ({ default: m.HomePanel })))
-const FactionPanel     = lazy(() => import('./panels/FactionPanel').then(m => ({ default: m.FactionPanel })))
-// M36 Track C: Buildings panel (wrapper reads settlementId from store)
-const BuildingsPanelLazy = lazy(() => import('./panels/BuildingsPanel').then(m => ({ default: m.BuildingsPanel })))
-// M37 Track C: Progression panel (titles, stats, milestones)
-const ProgressionPanel = lazy(() => import('./panels/ProgressionPanel').then(m => ({ default: m.ProgressionPanel })))
-// M41 Track A: Alchemy workspace panel
-const AlchemyPanel = lazy(() => import('./panels/AlchemyPanel').then(m => ({ default: m.AlchemyPanel })))
-// M42 Track A: Trade post panel
-const TradePostPanel = lazy(() => import('./panels/TradePostPanel').then(m => ({ default: m.TradePostPanel })))
-// M43 Track A: Forge / weapon upgrade panel
-const ForgePanel = lazy(() => import('./panels/ForgePanel').then(m => ({ default: m.ForgePanel })))
-// M44 Track B: Housing & furniture panel
-const HousingPanel = lazy(() => import('./panels/HousingPanel').then(m => ({ default: m.HousingPanel })))
-// M45 Track A: Pet & companion panel
-const PetPanel = lazy(() => import('./panels/PetPanel').then(m => ({ default: m.PetPanel })))
-// M48 Track C: World events log panel
-const WorldEventsPanel = lazy(() => import('./panels/WorldEventsPanel').then(m => ({ default: m.WorldEventsPanel })))
-// M49 Track B: Trading routes panel (player-established routes)
-const TradingRoutesPanel = lazy(() => import('./panels/TradingRoutesPanel').then(m => ({ default: m.TradingRoutesPanel })))
-// M56 Track A: Dynamic NPC trade routes panel
-const TradeRoutesPanel = lazy(() => import('./panels/TradeRoutesPanel').then(m => ({ default: m.TradeRoutesPanel })))
-// M49 Track C: Bestiary panel
-const BestiaryPanel = lazy(() => import('./panels/BestiaryPanel').then(m => ({ default: m.BestiaryPanel })))
-// M50 Track A: Reputation titles panel
-const ReputationTitlesPanel = lazy(() => import('./panels/ReputationTitlesPanel').then(m => ({ default: m.ReputationTitlesPanel })))
-// M50 Track B: Weather forecast panel
-const WeatherForecastPanel = lazy(() => import('./panels/WeatherForecastPanel').then(m => ({ default: m.WeatherForecastPanel })))
-// Cave features panel
-const CaveFeaturesPanel = lazy(() => import('./panels/CaveFeaturesPanel').then(m => ({ default: m.CaveFeaturesPanel })))
-// M51 Track B: NPC Relationship panel
-const RelationshipPanel = lazy(() => import('./panels/RelationshipPanel').then(m => ({ default: m.RelationshipPanel })))
-// M52 Track A: Faction War panel
-const FactionWarPanel = lazy(() => import('./panels/FactionWarPanel').then(m => ({ default: m.FactionWarPanel })))
-// M53 Track A: Seasonal events panel
-const SeasonalPanel = lazy(() => import('./panels/SeasonalPanel').then(m => ({ default: m.SeasonalPanel })))
-// M54 Track B: Bounty board panel
-const BountyBoardPanel = lazy(() => import('./panels/BountyBoardPanel').then(m => ({ default: m.BountyBoardPanel })))
-// M54 Track C: Exploration discoveries panel
-const DiscoveriesPanel = lazy(() => import('./panels/DiscoveriesPanel').then(m => ({ default: m.DiscoveriesPanel })))
-// M54 Track A: Merchant Guild panel
-const MerchantGuildPanel = lazy(() => import('./panels/MerchantGuildPanel').then(m => ({ default: m.MerchantGuildPanel })))
-// M55 Track A: NPC Schedule panel
-const NPCSchedulePanel = lazy(() => import('./panels/NPCSchedulePanel').then(m => ({ default: m.NPCSchedulePanel })))
-// M55 Track B: Resource tracker panel
-const ResourceTrackerPanel = lazy(() => import('./panels/ResourceTrackerPanel').then(m => ({ default: m.ResourceTrackerPanel })))
-// M55 Track C: World threat tracker panel
-const WorldThreatPanel = lazy(() => import('./panels/WorldThreatPanel').then(m => ({ default: m.WorldThreatPanel })))
-// M56 Track C: Recipe feasibility scanner panel
-const RecipeFeasibilityPanel = lazy(() => import('./panels/RecipeFeasibilityPanel').then(m => ({ default: m.RecipeFeasibilityPanel })))
-// M56 Track B: Faction standing panel
-const FactionStandingPanel = lazy(() => import('./panels/FactionStandingPanel').then(m => ({ default: m.FactionStandingPanel })))
-// M57 Track B: World Codex panel
-const CodexPanel = lazy(() => import('./panels/CodexPanel').then(m => ({ default: m.CodexPanel })))
-// M57 Track A: Achievement Showcase panel
-const AchievementShowcasePanel = lazy(() => import('./panels/AchievementShowcasePanel').then(m => ({ default: m.AchievementShowcasePanel })))
-// M59 Track A: Weather events panel
-const WeatherEventsPanel = lazy(() => import('./panels/WeatherEventsPanel').then(m => ({ default: m.WeatherEventsPanel })))
-// M59 Track C: Market price panel
-const MarketPricePanel = lazy(() => import('./panels/MarketPricePanel').then(m => ({ default: m.MarketPricePanel })))
-// M59 Track B: Title progression panel
-const TitleProgressionPanel = lazy(() => import('./panels/TitleProgressionPanel').then(m => ({ default: m.TitleProgressionPanel })))
-// M60 Track A: Crafting mastery panel
-const CraftingMasteryPanel = lazy(() => import('./panels/CraftingMasteryPanel').then(m => ({ default: m.CraftingMasteryPanel })))
-// M60 Track C: Player stats dashboard
-const PlayerStatsDashboard = lazy(() => import('./panels/PlayerStatsDashboard').then(m => ({ default: m.PlayerStatsDashboard })))
-// M60 Track B: World boss panel
-const WorldBossPanel = lazy(() => import('./panels/WorldBossPanel').then(m => ({ default: m.WorldBossPanel })))
-// M61 Track A: Skill combo panel
-const SkillComboPanel = lazy(() => import('./panels/SkillComboPanel').then(m => ({ default: m.SkillComboPanel })))
-// M61 Track C: Dungeon delve tracker panel
-const DungeonDelvePanel = lazy(() => import('./panels/DungeonDelvePanel').then(m => ({ default: m.DungeonDelvePanel })))
-// M61 Track B: Settlement economy panel
-const SettlementEconomyPanel = lazy(() => import('./panels/SettlementEconomyPanel').then(m => ({ default: m.SettlementEconomyPanel })))
-// M62 Track A: Faction reputation panel
-const FactionReputationPanel = lazy(() => import('./panels/FactionReputationPanel').then(m => ({ default: m.FactionReputationPanel })))
-// M62 Track C: Achievement trophy room
-const AchievementTrophyPanel = lazy(() => import('./panels/AchievementTrophyPanel').then(m => ({ default: m.AchievementTrophyPanel })))
-// M63 Track A: Blueprint unlock tree
-const BlueprintTreePanel = lazy(() => import('./panels/BlueprintTreePanel').then(m => ({ default: m.BlueprintTreePanel })))
-// M63 Track B: NPC memory & contextual dialogue panel
-const NPCMemoryPanel = lazy(() => import('./panels/NPCMemoryPanel').then(m => ({ default: m.NPCMemoryPanel })))
-// M63 Track C: World event chronicle panel
-const WorldChroniclePanel = lazy(() => import('./panels/WorldChroniclePanel').then(m => ({ default: m.WorldChroniclePanel })))
-// M64 Track B: Player housing tier & upgrade panel
-const PlayerHousingPanel = lazy(() => import('./panels/PlayerHousingPanel').then(m => ({ default: m.PlayerHousingPanel })))
-// M65 Track A: Player talent tree panel
-const TalentTreePanel = lazy(() => import('./panels/TalentTreePanel').then(m => ({ default: m.TalentTreePanel })))
-// M65 Track B: Dynamic quest board panel
-const DynamicQuestBoardPanel = lazy(() => import('./panels/DynamicQuestBoardPanel').then(m => ({ default: m.DynamicQuestBoardPanel })))
-// M65 Track C: NPC emotion state panel
-const NPCEmotionPanel = lazy(() => import('./panels/NPCEmotionPanel').then(m => ({ default: m.NPCEmotionPanel })))
-// M66 Track B: Player title system panel
-const PlayerTitlePanel = lazy(() => import('./panels/PlayerTitlePanel').then(m => ({ default: m.PlayerTitlePanel })))
-// M66 Track A: World Event Calendar panel
-const WorldEventSchedulerPanel = lazy(() => import('./panels/WorldEventSchedulerPanel').then(m => ({ default: m.WorldEventSchedulerPanel })))
-// M66 Track C: Resource Trading Network panel
-const ResourceTradingNetworkPanel = lazy(() => import('./panels/ResourceTradingNetworkPanel').then(m => ({ default: m.ResourceTradingNetworkPanel })))
-// M67 Track A: World History Codex panel
-const WorldHistoryCodexPanel = lazy(() => import('./panels/WorldHistoryCodexPanel').then(m => ({ default: m.WorldHistoryCodexPanel })))
-// M67 Track B: Player Achievement Journal (Adventure Log) panel
-const PlayerAchievementJournalPanel = lazy(() => import('./panels/PlayerAchievementJournalPanel').then(m => ({ default: m.PlayerAchievementJournalPanel })))
-// M67 Track C: Settlement Relations panel
-const SettlementRelationsPanel = lazy(() => import('./panels/SettlementRelationsPanel').then(m => ({ default: m.SettlementRelationsPanel })))
-// M68 Track A: Recipe Book panel
-const RecipeBookPanel = lazy(() => import('./panels/RecipeBookPanel').then(m => ({ default: m.RecipeBookPanel })))
-// M68 Track C: Expedition panel
-const ExpeditionPanel = lazy(() => import('./panels/ExpeditionPanel').then(m => ({ default: m.ExpeditionPanel })))
-
-// M36 Track C: Wrapper resolves nearSettlementId from store so panel has no props
-function BuildingsPanelWrapper() {
-  const nearSettlementId = useSettlementStore(s => s.nearSettlementId)
-  const closePanel = useUiStore(s => s.closePanel)
-  if (!nearSettlementId) {
-    return (
-      <div style={{ color: '#888', fontFamily: 'monospace', padding: 16, fontSize: 12 }}>
-        You need to be near a settlement to view its buildings.
-      </div>
-    )
-  }
-  return (
-    <React.Suspense fallback={null}>
-      <BuildingsPanelLazy settlementId={nearSettlementId} onClose={closePanel} />
-    </React.Suspense>
-  )
-}
-
-// Simulation-mode stub for panels that require RPG systems
-function SimModeUnavailablePanel({ name }: { name: string }) {
-  return (
-    <div style={{ color: '#666', fontFamily: 'monospace', fontSize: 12, textAlign: 'center', padding: 32 }}>
-      {name} is unavailable in simulation mode.
-    </div>
-  )
-}
-
-function InventorySimStub() { return <SimModeUnavailablePanel name="Inventory" /> }
-function CraftingSimStub()  { return <SimModeUnavailablePanel name="Crafting" /> }
+// Lazy-loaded panels
+const MapPanel      = lazy(() => import('./panels/MapPanel').then(m => ({ default: m.MapPanel })))
+const SettingsPanel = lazy(() => import('./panels/SettingsPanel').then(m => ({ default: m.SettingsPanel })))
+const PlayerListPanel = lazy(() => import('./panels/PlayerListPanel').then(m => ({ default: m.PlayerListPanel })))
 
 const PANEL_LABEL: Record<PanelId, string> = {
-  inventory: 'INVENTORY',
-  crafting:  'CRAFTING',
-  build:     'BUILD',
-  journal:   'JOURNAL',
-  character: 'CHARACTER',
-  map:       'MAP',
-  settings:  'SETTINGS',
-  science:   'SCIENCE COMPANION',
-  dialogue:  'DIALOGUE',
-  skills:    'SKILLS',
-  quests:       'QUESTS',
-  achievements: 'ACHIEVEMENTS',
-  fishing:      'FISHING',
-  merchant:     'MERCHANT',
-  players:      'PLAYERS ONLINE',
-  home:         'HOME BASE',
-  factions:     'FACTIONS',
-  buildings:    'SETTLEMENT BUILDINGS',
-  progression:  'PROGRESSION & TITLES',
-  alchemy:      'ALCHEMY',
-  tradepost:    'TRADE POST',
-  forge:        'FORGE',
-  housing:      'PLAYER HOUSING',
-  pet:          'PET & COMPANIONS',
-  worldevents:  'WORLD EVENTS LOG',
-  traderoutes:  'TRADING ROUTES',
-  npcroutes:    'NPC TRADE ROUTES',
-  bestiary:     'BESTIARY',
-  titles:       'TITLES & REPUTATION',
-  forecast:     'WEATHER FORECAST',
-  cavefeatures:  'CAVE FEATURES',
-  relationships: 'NPC RELATIONSHIPS',
-  factionwars:   'FACTION WARS',
-  seasonal:      'SEASONAL EVENTS',
-  bountboard:    'BOUNTY BOARD',
-  discoveries:   'EXPLORATIONS',
-  merchantguild: 'MERCHANT GUILD',
-  npcschedule:   'NPC SCHEDULES',
-  resources:     'RESOURCE TRACKER',
-  threats:        'WORLD THREAT TRACKER',
-  factionstanding: 'FACTION STANDING',
-  recipescan:      'RECIPE SCANNER',
-  codex:           'WORLD CODEX',
-  showcase:        'ACHIEVEMENT SHOWCASE',
-  weatherevents:   'WEATHER EVENTS',
-  market:          'RESOURCE MARKET',
-  titleprogress:   'TITLE PROGRESSION',
-  craftmastery:    'CRAFTING MASTERY',
-  statsdash:       'PLAYER STATS',
-  worldboss:       'WORLD BOSS',
-  combos:          'SKILL COMBOS',
-  dungeon:         'DUNGEON DELVE',
-  economy:         'SETTLEMENT ECONOMY',
-  factionrep:      'FACTION REPUTATION',
-  trophies:        'TROPHY ROOM',
-  blueprints:      'BLUEPRINT TREE',
-  npcmemory:       'NPC MEMORY',
-  chronicle:       'CHRONICLE',
-  playerhouse:     'PLAYER HOUSE',
-  talentree:       'TALENT TREE',
-  questboard:      'QUEST BOARD',
-  npcemotions:     'NPC EMOTIONS',
-  playertitles:    'PLAYER TITLES',
-  eventcalendar:   'EVENT CALENDAR',
-  tradenetwork:    'TRADE NETWORK',
-  worldhistory:    'WORLD HISTORY CODEX',
-  achievejournal:  'ADVENTURE LOG',
-  settlementrel:   'SETTLEMENT RELATIONS',
-  recipebook:      'RECIPE BOOK',
-  expedition:      'EXPEDITIONS',
+  map:     'MAP',
+  settings:'SETTINGS',
+  players: 'PLAYERS ONLINE',
 }
 
 const PANEL_WIDTH = 480
 
-// Right-edge icon strip entries — order determines vertical position
 const ICON_BUTTONS: Array<{ id: PanelId; icon: string; hint: string }> = [
-  { id: 'inventory',   icon: 'INV',  hint: 'Inventory (I)' },
-  { id: 'crafting',    icon: 'CRF',  hint: 'Crafting (C)' },
-  { id: 'build',       icon: 'BLD',  hint: 'Build (B)' },
-  { id: 'journal',     icon: 'JRN',  hint: 'Journal (J)' },
-  { id: 'character',   icon: 'CHR',  hint: 'Character (Tab)' },
-  { id: 'map',         icon: 'MAP',  hint: 'Map (M)' },
-  { id: 'skills',      icon: 'SKL',  hint: 'Skills (K)' },
-  { id: 'quests',      icon: 'QST',  hint: 'Quests (Q)' },
-  { id: 'achievements',icon: '🏆',   hint: 'Achievements (Z)' },
-  { id: 'progression', icon: 'TTL',  hint: 'Progression & Titles (X)' },
-  { id: 'fishing',     icon: 'FSH',  hint: 'Fishing (F near water)' },
-  { id: 'home',        icon: 'HME',  hint: 'Home Base (H)' },
-  { id: 'players',     icon: 'PLR',  hint: 'Players Online' },
-  { id: 'pet',         icon: '🐾',   hint: 'Pet & Companions (P)' },
-  { id: 'factions',    icon: 'FCT',  hint: 'Factions (G)' },
-  { id: 'buildings',   icon: 'STL',  hint: 'Settlement Buildings (U)' },
-  { id: 'alchemy',     icon: 'ALK',  hint: 'Alchemy (Y)' },
-  { id: 'tradepost',   icon: 'TRD',  hint: 'Trade Post (T)' },
-  { id: 'forge',       icon: 'FRG',  hint: 'Forge (V)' },
-  { id: 'housing',     icon: 'HSE',  hint: 'Housing (N)' },
-  { id: 'worldevents', icon: '📜',   hint: 'World Events (L)' },
-  { id: 'traderoutes', icon: '💹',   hint: 'Trading Routes' },
-  { id: 'npcroutes',   icon: '🚚',   hint: 'NPC Trade Routes' },
-  { id: 'bestiary',    icon: '📖',   hint: 'Bestiary' },
-  { id: 'titles',      icon: '🎖',   hint: 'Titles & Reputation' },
-  { id: 'forecast',      icon: '🌤',   hint: 'Weather Forecast' },
-  { id: 'cavefeatures',  icon: '⛏',   hint: 'Cave Features' },
-  { id: 'relationships', icon: '🤝',  hint: 'Relations (R)' },
-  { id: 'factionwars',   icon: '⚔️',  hint: 'Faction Wars (W)' },
-  { id: 'seasonal',      icon: '🍃',   hint: 'Seasons (S)' },
-  { id: 'bountboard',    icon: '📋',   hint: 'Bounties (5)' },
-  { id: 'discoveries',   icon: '🗺',   hint: 'Discoveries (D)' },
-  { id: 'merchantguild', icon: '🏪',   hint: 'Guild (E)' },
-  { id: 'npcschedule',   icon: '📅',   hint: 'NPC Schedules (8)' },
-  { id: 'resources',     icon: '🌲',   hint: 'Resources' },
-  { id: 'threats',       icon: '⚠️',   hint: 'World Threats (A)' },
-  { id: 'factionstanding', icon: '🌟',  hint: 'Faction Standing (6)' },
-  { id: 'recipescan',      icon: '🔍',  hint: 'Recipe Scanner (7)' },
-  { id: 'codex',           icon: '📖',  hint: 'Codex (0)' },
-  { id: 'showcase',        icon: '🏅',  hint: 'Showcase (9)' },
-  { id: 'weatherevents',   icon: '⛈',   hint: 'Weather Events' },
-  { id: 'market',          icon: '📊',  hint: 'Market Prices' },
-  { id: 'titleprogress',   icon: '👑',  hint: 'Titles' },
-  { id: 'craftmastery',    icon: '⚒',   hint: 'Crafting Mastery' },
-  { id: 'statsdash',       icon: '📈',  hint: 'Stats Dashboard' },
-  { id: 'worldboss',       icon: '👹',  hint: 'World Boss' },
-  { id: 'combos',          icon: '⚡',  hint: 'Skill Combos' },
-  { id: 'dungeon',         icon: '⚔️',  hint: 'Dungeon Delve' },
-  { id: 'economy',         icon: '🏦',   hint: 'Settlement Economy' },
-  { id: 'science',         icon: ' ? ', hint: 'Science Companion (?)' },
-  { id: 'trophies',     icon: '🏆',   hint: 'Trophies (F2)' },
-  { id: 'blueprints',  icon: '📐',   hint: 'Blueprint Tree (F3)' },
-  { id: 'npcmemory',   icon: '🧠',   hint: 'NPC Memory (F4)' },
-  { id: 'chronicle',   icon: '📰',   hint: 'Chronicle (F5)' },
-  { id: 'playerhouse', icon: '🏠',   hint: 'Player House (F6)' },
-  { id: 'talentree',   icon: '🌳',   hint: 'Talent Tree (F7)' },
-  { id: 'questboard',  icon: '📋',   hint: 'Quest Board (F8)' },
-  { id: 'npcemotions',    icon: '😊',   hint: 'NPC Emotions (F9)' },
-  { id: 'eventcalendar', icon: '📆',   hint: 'Event Calendar (F10)' },
-  { id: 'tradenetwork',  icon: '🔀',   hint: 'Trade Network (F12)' },
-  { id: 'playertitles',  icon: '👑',   hint: 'Titles (F11)' },
-  { id: 'settings',      icon: 'SET',  hint: 'Settings (Esc)' },
-  { id: 'factionrep',  icon: '🏅',   hint: 'Faction Reputation (F)' },
-  { id: 'worldhistory',   icon: '📜', hint: 'World Codex (F13)' },
-  { id: 'achievejournal', icon: '📓', hint: 'Adventure Log (F14)' },
-  { id: 'settlementrel',  icon: '🤝', hint: 'Settlement Relations' },
-  { id: 'recipebook',     icon: '📖', hint: 'Recipe Book' },
-  { id: 'expedition',    icon: '🗺️', hint: 'Expeditions' },
+  { id: 'map',     icon: 'MAP', hint: 'Map (M)' },
+  { id: 'players', icon: 'PLR', hint: 'Players Online' },
+  { id: 'settings',icon: 'SET', hint: 'Settings (Esc)' },
 ]
 
-// Panels that are always shown regardless of RPG_ENABLED
-const SIM_PANELS = new Set<PanelId>([
-  'map', 'science', 'settings', 'players', 'codex',
-  'worldevents', 'bestiary', 'forecast', 'weatherevents',
-  'statsdash', 'worldboss', 'chronicle', 'worldhistory',
-])
-
-const VISIBLE_ICON_BUTTONS = RPG_ENABLED
-  ? ICON_BUTTONS
-  : ICON_BUTTONS.filter(b => SIM_PANELS.has(b.id))
-
 const PANEL_COMPONENTS: Record<PanelId, React.ComponentType> = {
-  inventory:   RPG_ENABLED ? InventoryPanel : InventorySimStub,
-  crafting:    RPG_ENABLED ? CraftingPanel  : CraftingSimStub,
-  build:       BuildPanel,
-  journal:     JournalPanel,
-  character:   CharacterPanel,
-  map:         MapPanel,
-  settings:    SettingsPanel,
-  science:     SciencePanel,
-  dialogue:    DialoguePanel,
-  skills:      SkillTreePanel,
-  quests:      QuestPanel,
-  achievements:  AchievementPanel,
-  fishing:       FishingPanel,
-  merchant:      MerchantPanel,
-  players:       PlayerListPanel,
-  home:          HomePanel,
-  factions:      FactionPanel,
-  buildings:     BuildingsPanelWrapper,
-  progression:   ProgressionPanel,
-  alchemy:       AlchemyPanel,
-  tradepost:     TradePostPanel,
-  forge:         ForgePanel,
-  housing:       HousingPanel,
-  pet:           PetPanel,
-  worldevents:   WorldEventsPanel,
-  traderoutes:   TradingRoutesPanel,
-  npcroutes:     TradeRoutesPanel,
-  bestiary:      BestiaryPanel,
-  titles:        ReputationTitlesPanel,
-  forecast:      WeatherForecastPanel,
-  cavefeatures:  CaveFeaturesPanel,
-  relationships: RelationshipPanel,
-  factionwars:   FactionWarPanel,
-  seasonal:      SeasonalPanel,
-  bountboard:    BountyBoardPanel,
-  discoveries:   DiscoveriesPanel,
-  merchantguild: MerchantGuildPanel,
-  npcschedule:   NPCSchedulePanel,
-  resources:     ResourceTrackerPanel,
-  threats:         WorldThreatPanel,
-  factionstanding: FactionStandingPanel,
-  recipescan:      RecipeFeasibilityPanel,
-  codex:           CodexPanel,
-  showcase:        AchievementShowcasePanel,
-  weatherevents:   WeatherEventsPanel,
-  market:          MarketPricePanel,
-  titleprogress:   TitleProgressionPanel,
-  craftmastery:    CraftingMasteryPanel,
-  statsdash:       PlayerStatsDashboard,
-  worldboss:       WorldBossPanel,
-  combos:          SkillComboPanel,
-  dungeon:         DungeonDelvePanel,
-  economy:         SettlementEconomyPanel,
-  factionrep:      FactionReputationPanel,
-  trophies:        AchievementTrophyPanel,
-  blueprints:      BlueprintTreePanel,
-  npcmemory:       NPCMemoryPanel,
-  chronicle:       WorldChroniclePanel,
-  playerhouse:     PlayerHousingPanel,
-  talentree:       TalentTreePanel,
-  questboard:      DynamicQuestBoardPanel,
-  npcemotions:     NPCEmotionPanel,
-  playertitles:    PlayerTitlePanel,
-  eventcalendar:   WorldEventSchedulerPanel,
-  tradenetwork:    ResourceTradingNetworkPanel,
-  worldhistory:    WorldHistoryCodexPanel,
-  achievejournal:  PlayerAchievementJournalPanel,
-  settlementrel:   SettlementRelationsPanel,
-  recipebook:      RecipeBookPanel,
-  expedition:      ExpeditionPanel,
+  map:      MapPanel,
+  players:  PlayerListPanel,
+  settings: SettingsPanel,
 }
 
 export function SidebarShell() {
   const { activePanel, togglePanel, closePanel } = useUiStore()
-  const { setInputBlocked, placementMode, setPlacementMode } = useGameStore()
+  const { setInputBlocked } = useGameStore()
 
   // Block/unblock game input when panel opens/closes
-  // Also release pointer lock so the cursor becomes visible for panel interaction
   const setGatherPrompt = useGameStore(s => s.setGatherPrompt)
   useEffect(() => {
     setInputBlocked(activePanel !== null)
@@ -417,243 +45,99 @@ export function SidebarShell() {
     }
   }, [activePanel, setInputBlocked, setGatherPrompt])
 
-  // M44 Track A: Chest interaction — listens for 'open-chest' events and drops loot
-  useEffect(() => {
-    function onOpenChest() {
-      const drops = rollLoot(CHEST_LOOT_TABLE, 2)
-      const labels = applyLootToInventory(drops)
-      window.dispatchEvent(new CustomEvent('loot-drop', { detail: { drops: labels, source: 'Treasure Chest' } }))
-    }
-    window.addEventListener('open-chest', onOpenChest)
-    return () => window.removeEventListener('open-chest', onOpenChest)
-  }, [])
-
   // Global hotkey listener
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      // Ignore if typing in an input field
       const tag = (e.target as HTMLElement)?.tagName
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
-      // Ignore hotkeys during gameplay (pointer locked = first/third person mode; WASD controls movement)
       if (document.pointerLockElement) return
 
       switch (e.key) {
-        case 'i': case 'I':   e.preventDefault(); togglePanel('inventory');  break
-        case 'c': case 'C':   e.preventDefault(); togglePanel('crafting');   break
-        // 'b'/'B' removed — reserved for EcosystemDashboard toggle (game key)
-        case 'l': case 'L':
-          e.preventDefault()
-          togglePanel('worldevents')
-          break
-        case 'j': case 'J':   e.preventDefault(); togglePanel('journal');    break
-        case 'k': case 'K':   e.preventDefault(); togglePanel('skills');     break
-        // 'g'/'G' removed — reserved for SpectatorCamera toggle (game key)
-        case 'u': case 'U':   e.preventDefault(); togglePanel('buildings'); break
-        case 'h': case 'H':   e.preventDefault(); togglePanel('home'); break
-        // 'o'/'O' removed — reserved for organism seeding in spectator mode (game key)
-        case 'p': case 'P':   e.preventDefault(); togglePanel('pet');          break
-        case 'x': case 'X':   e.preventDefault(); togglePanel('progression'); break
-        case 'y': case 'Y':   e.preventDefault(); togglePanel('alchemy');     break
-        case 't': case 'T':   e.preventDefault(); togglePanel('tradepost');  break
-        // 'v'/'V' removed — reserved for camera mode cycling (game key)
-        case 'n': case 'N':   e.preventDefault(); togglePanel('housing');      break
-        case 'z': case 'Z':   e.preventDefault(); togglePanel('achievements'); break
-        case 'Tab':           e.preventDefault(); togglePanel('character');  break
-        case 'm': case 'M':   e.preventDefault(); togglePanel('map');        break
-        case '?': case '/':
-          if (!document.pointerLockElement) { e.preventDefault(); togglePanel('science') }
-          break
-        case '5':
-          e.preventDefault(); togglePanel('bountboard'); break
-        case '6':
-          e.preventDefault(); togglePanel('factionstanding'); break
-        case '7':
-          e.preventDefault(); togglePanel('recipescan'); break
-        case '8':
-          e.preventDefault(); togglePanel('npcschedule'); break
-        case '9':
-          e.preventDefault(); togglePanel('showcase'); break
-        case '0':
-          e.preventDefault(); togglePanel('codex'); break
-        case '1': case '2': case '3': case '4':
-          if (!document.pointerLockElement) break  // only when in-game (pointer locked)
-          if (activePanel !== null) break
-          e.preventDefault()
-          spellSystem.castEquippedSpell(parseInt(e.key) - 1)
-          break
-        case 'F2':
-          e.preventDefault(); togglePanel('trophies'); break
-        case 'F3':
-          e.preventDefault(); togglePanel('blueprints'); break
-        case 'F4':
-          e.preventDefault(); togglePanel('npcmemory'); break
-        case 'F5':
-          e.preventDefault(); togglePanel('chronicle'); break
-        case 'F6':
-          e.preventDefault(); togglePanel('playerhouse'); break
-        case 'F7':
-          e.preventDefault(); togglePanel('talentree'); break
-        case 'F8':
-          e.preventDefault(); togglePanel('questboard'); break
-        case 'F9':
-          e.preventDefault(); togglePanel('npcemotions'); break
-        case 'F10':
-          e.preventDefault(); togglePanel('eventcalendar'); break
-        case 'F11':
-          e.preventDefault(); togglePanel('playertitles'); break
-        case 'F12':
-          e.preventDefault(); togglePanel('tradenetwork'); break
-        case 'F13':
-          e.preventDefault(); togglePanel('worldhistory'); break
-        case 'F14':
-          e.preventDefault(); togglePanel('achievejournal'); break
-        case 'Escape':
-          e.preventDefault()
-          if (isFishingActive()) { cancelFishing(); useGameStore.getState().setGatherPrompt(null) }
-          else if (placementMode) setPlacementMode(null)
-          else if (activePanel !== null) {
-            if (activePanel === 'dialogue') useDialogueStore.getState().closeDialogue()
-            closePanel()
-          }
-          else togglePanel('settings')
-          break
-        default: break
+        case 'm': case 'M': e.preventDefault(); togglePanel('map');      break
+        case 'Escape':       e.preventDefault(); togglePanel('settings'); break
       }
     }
-    document.addEventListener('keydown', onKeyDown)
-    return () => document.removeEventListener('keydown', onKeyDown)
-  }, [activePanel, placementMode, togglePanel, closePanel, setPlacementMode])
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [togglePanel])
 
-  const ActivePanel = activePanel ? PANEL_COMPONENTS[activePanel] : null
+  const PanelComponent = activePanel ? PANEL_COMPONENTS[activePanel] : null
 
   return (
     <>
-      {/* Right-edge icon strip — always visible, slides left when panel is open */}
+      {/* Right-edge icon strip */}
       <div style={{
-        position: 'fixed',
-        right: activePanel ? PANEL_WIDTH : 0,
-        top: 0,
-        bottom: 0,
-        zIndex: 195,
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        background: 'rgba(10,10,10,0.93)',
-        borderLeft: '1px solid #2a2a2a',
-        borderTop: '1px solid #2a2a2a',
-        borderBottom: '1px solid #2a2a2a',
-        borderRadius: '6px 0 0 6px',
-        transition: 'right 0.28s cubic-bezier(0.4,0,0.2,1)',
-        pointerEvents: 'auto',
-        overflowY: 'auto',
-        overflowX: 'hidden',
-        scrollbarWidth: 'none',
+        position: 'fixed', right: 0, top: 0, bottom: 0,
+        width: 48, zIndex: 200,
+        display: 'flex', flexDirection: 'column', alignItems: 'center',
+        paddingTop: 16, gap: 4,
+        background: 'rgba(0,0,0,0.7)',
+        borderLeft: '1px solid rgba(255,255,255,0.1)',
       }}>
-        {VISIBLE_ICON_BUTTONS.map(({ id, icon, hint }) => {
-          const active = activePanel === id
-          return (
-            <button
-              key={id}
-              onClick={() => togglePanel(id)}
-              title={hint}
-              style={{
-                width: 44,
-                minHeight: 34,
-                flexShrink: 0,
-                background: active ? 'rgba(205,68,32,0.22)' : 'transparent',
-                border: 'none',
-                borderLeft: `2px solid ${active ? '#cd4420' : 'transparent'}`,
-                color: active ? '#cd4420' : '#555',
-                fontSize: 9,
-                fontFamily: 'monospace',
-                fontWeight: 700,
-                letterSpacing: 0.5,
-                cursor: 'pointer',
-                transition: 'all 0.12s',
-                padding: 0,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-              onMouseEnter={e => {
-                if (!active) {
-                  e.currentTarget.style.color = '#ccc'
-                  e.currentTarget.style.borderLeftColor = '#444'
-                  e.currentTarget.style.background = 'rgba(255,255,255,0.04)'
-                }
-              }}
-              onMouseLeave={e => {
-                if (!active) {
-                  e.currentTarget.style.color = '#555'
-                  e.currentTarget.style.borderLeftColor = 'transparent'
-                  e.currentTarget.style.background = 'transparent'
-                }
-              }}
-            >
-              {icon}
-            </button>
-          )
-        })}
+        {ICON_BUTTONS.map(btn => (
+          <button
+            key={btn.id}
+            title={btn.hint}
+            onClick={() => togglePanel(btn.id)}
+            style={{
+              width: 40, height: 40,
+              background: activePanel === btn.id ? 'rgba(255,255,255,0.2)' : 'transparent',
+              border: activePanel === btn.id ? '1px solid rgba(255,255,255,0.4)' : '1px solid transparent',
+              borderRadius: 4,
+              color: '#ddd',
+              fontSize: 10,
+              fontFamily: 'monospace',
+              cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              userSelect: 'none',
+            }}
+          >
+            {btn.icon}
+          </button>
+        ))}
       </div>
 
-      {/* Sliding panel — CSS-based transition, always in DOM to avoid fiber reconciler conflicts */}
-      <div
-        style={{
-          position: 'fixed',
-          top: 0,
-          right: 0,
-          width: PANEL_WIDTH,
-          height: '100vh',
-          background: 'rgba(14,14,14,0.97)',
-          borderLeft: '1px solid #2a2a2a',
-          zIndex: 200,
-          overflowY: 'auto',
-          display: 'flex',
-          flexDirection: 'column',
-          pointerEvents: activePanel ? 'auto' : 'none',
-          visibility: activePanel ? 'visible' : 'hidden',
-          transform: activePanel ? 'translateX(0)' : `translateX(${PANEL_WIDTH}px)`,
-          transition: 'transform 0.25s ease, visibility 0.25s ease',
-        }}
-      >
-        {/* Panel header */}
+      {/* Sliding panel */}
+      {activePanel && PanelComponent && (
         <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          padding: '14px 20px 12px',
-          borderBottom: '1px solid #2a2a2a',
-          borderLeft: '3px solid #cd4420',
-          flexShrink: 0,
+          position: 'fixed', right: 48, top: 0, bottom: 0,
+          width: PANEL_WIDTH, zIndex: 199,
+          background: 'rgba(10,10,15,0.97)',
+          borderLeft: '1px solid rgba(255,255,255,0.1)',
+          display: 'flex', flexDirection: 'column',
+          overflow: 'hidden',
         }}>
-          <span style={{ color: '#fff', fontFamily: 'monospace', fontSize: 13, letterSpacing: 2, fontWeight: 700 }}>
-            {activePanel ? PANEL_LABEL[activePanel] : ''}
-          </span>
-          <button
-            onClick={closePanel}
-            style={{
-              background: 'none', border: 'none', color: '#555',
-              cursor: 'pointer', fontSize: 16, lineHeight: 1, padding: 4,
-              transition: 'color 0.15s',
-            }}
-            onMouseEnter={e => (e.currentTarget.style.color = '#ccc')}
-            onMouseLeave={e => (e.currentTarget.style.color = '#555')}
-            aria-label="Close panel"
-          >
-            ✕
-          </button>
+          {/* Panel header */}
+          <div style={{
+            padding: '10px 16px',
+            borderBottom: '1px solid rgba(255,255,255,0.1)',
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          }}>
+            <span style={{ color: '#aaa', fontSize: 11, fontFamily: 'monospace', letterSpacing: 2 }}>
+              {PANEL_LABEL[activePanel]}
+            </span>
+            <button
+              onClick={closePanel}
+              style={{
+                background: 'transparent', border: 'none',
+                color: '#888', cursor: 'pointer', fontSize: 16,
+              }}
+            >
+              ✕
+            </button>
+          </div>
+          {/* Panel content */}
+          <div style={{ flex: 1, overflowY: 'auto' }}>
+            <Suspense fallback={
+              <div style={{ color: '#555', padding: 32, textAlign: 'center', fontFamily: 'monospace', fontSize: 12 }}>
+                Loading...
+              </div>
+            }>
+              <PanelComponent />
+            </Suspense>
+          </div>
         </div>
-        {/* Panel content */}
-        <div style={{ flex: 1, overflow: 'auto', padding: 16 }}>
-          <Suspense fallback={
-            <div style={{ color: '#555', fontFamily: 'monospace', fontSize: 12, textAlign: 'center', padding: 32 }}>
-              Loading panel...
-            </div>
-          }>
-            {ActivePanel && <ActivePanel />}
-          </Suspense>
-        </div>
-      </div>
+      )}
     </>
   )
 }

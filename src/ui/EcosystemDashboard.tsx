@@ -12,7 +12,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react'
-import { getSimulationStats, isSimulationActive, getPopulationHistory } from '../biology/SimulationIntegration'
+import { getSimulationStats, isSimulationActive, getPopulationHistory, getOrganismDots, type OrganismDot } from '../biology/SimulationIntegration'
 import { useGameStore } from '../store/gameStore'
 
 const POLL_INTERVAL_MS = 500  // refresh stats twice per second
@@ -30,7 +30,8 @@ interface SimStats {
 export function EcosystemDashboard() {
   const [visible, setVisible] = useState(true)
   const [stats, setStats] = useState<SimStats | null>(null)
-  const [history, setHistory] = useState<Array<{tick: number; organismCount: number; speciesCount: number}>>([]);
+  const [history, setHistory] = useState<Array<{tick: number; organismCount: number; speciesCount: number}>>([])
+  const [dots, setDots] = useState<OrganismDot[]>([])
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const epoch = useGameStore(s => s.epoch)
   const simTime = useGameStore(s => s.simTime)
@@ -55,6 +56,7 @@ export function EcosystemDashboard() {
       if (isSimulationActive()) {
         setStats(getSimulationStats())
         setHistory(getPopulationHistory().slice())  // copy to trigger re-render
+        setDots(getOrganismDots())
       }
     }
     poll()
@@ -139,6 +141,14 @@ export function EcosystemDashboard() {
         </>
       )}
 
+      {/* M_vis: 2D population dot map — top-down planet view with organism positions */}
+      {dots.length > 0 && (
+        <>
+          <div style={{ height: 1, background: 'rgba(255,255,255,0.06)', margin: '4px 0' }} />
+          <OrganismDotMap dots={dots} />
+        </>
+      )}
+
       {/* Toggle hint */}
       <div style={{
         fontSize: 8,
@@ -219,6 +229,54 @@ function PopulationChart({ data }: { data: Array<{tick: number; organismCount: n
           strokeDasharray="3,2"
           points={specPoints}
         />
+      </svg>
+    </div>
+  )
+}
+
+/**
+ * M_vis: 2D top-down dot map showing organism positions projected onto the planet disc.
+ * Green/teal dots = autotrophs (diet 0), amber/red dots = heterotrophs (diet 1).
+ * Positions are equatorial-projected (planet viewed from above north pole).
+ */
+function OrganismDotMap({ dots }: { dots: OrganismDot[] }) {
+  const SIZE = 170  // canvas size in px
+  const RADIUS = SIZE / 2 - 4  // planet disc radius
+  const CX = SIZE / 2
+  const CY = SIZE / 2
+
+  // Limit to 500 dots max to keep SVG render fast
+  const visible = dots.length > 500 ? dots.slice(0, 500) : dots
+
+  return (
+    <div style={{ marginTop: 4 }}>
+      <div style={{ fontSize: 8, color: '#888', marginBottom: 2 }}>
+        <span style={{ color: '#55efc4' }}>* Auto</span>
+        {' '}
+        <span style={{ color: '#fdcb6e' }}>* Hetero</span>
+        {' '}
+        <span style={{ color: '#636e72' }}>({dots.length} orgs)</span>
+      </div>
+      <svg
+        width={SIZE}
+        height={SIZE}
+        style={{ display: 'block', background: 'rgba(255,255,255,0.02)', borderRadius: SIZE / 2 }}
+      >
+        {/* Planet disc outline */}
+        <circle cx={CX} cy={CY} r={RADIUS} fill="rgba(9,132,227,0.08)" stroke="rgba(255,255,255,0.1)" strokeWidth={0.5} />
+        {/* Equator line */}
+        <line x1={CX - RADIUS} y1={CY} x2={CX + RADIUS} y2={CY} stroke="rgba(255,255,255,0.05)" strokeWidth={0.5} />
+        <line x1={CX} y1={CY - RADIUS} x2={CX} y2={CY + RADIUS} stroke="rgba(255,255,255,0.05)" strokeWidth={0.5} />
+        {/* Organism dots */}
+        {visible.map((dot, i) => {
+          // Clamp to disc — organisms at poles may fall outside
+          const px = CX + dot.nx * RADIUS
+          const py = CY + dot.nz * RADIUS
+          const color = dot.dietType === 0
+            ? `hsl(${dot.hue},70%,65%)`   // autotroph: brighter greens/teals
+            : `hsl(${(dot.hue + 30) % 360},80%,60%)`  // heterotroph: shifted warmer
+          return <circle key={i} cx={px} cy={py} r={1.5} fill={color} opacity={0.85} />
+        })}
       </svg>
     </div>
   )

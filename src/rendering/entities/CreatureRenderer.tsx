@@ -12,32 +12,38 @@ const creatureQuery = defineQuery([Position, CreatureBody, Not(PlayerControlled)
 
 const MAX_INSTANCES = 10_000
 
-// ── LOD distance thresholds (M73: scaled for 8-20m organisms on 4000m planet) ─
-// Within 300m:   8x8 sphere (full detail)
-// 300–1000m:     4x4 sphere (half resolution)
-// Beyond 1000m:  3x3 sphere (billboard-quality, no shadow cost)
-const LOD_NEAR_SQ = 300 * 300 // 90000
-const LOD_FAR_SQ = 1000 * 1000 // 1000000
+// ── Visual size multiplier — organisms are abstract sim entities, not realistic animals.
+// Boost their rendered radius so they are visible from spectator altitude (hundreds of meters+).
+// Autotrophs: 40-80m display radius. Heterotrophs: 30-60m display radius.
+const VISUAL_SIZE_MULTIPLIER = 5.0  // 8-20m genome size → 40-100m display radius
+
+// ── LOD distance thresholds — expanded for spectator view on 4000m planet ─
+// Within 2000m:   8x8 sphere (full detail)
+// 2000–8000m:     4x4 sphere (half resolution)
+// Beyond 8000m:   3x3 sphere (billboard-quality, no shadow cost)
+const LOD_NEAR_SQ = 2000 * 2000
+const LOD_FAR_SQ = 8000 * 8000
 
 /**
- * Creature SSS (subsurface scattering approximation).
- * Adds backlight translucency glow to organic creatures: light transmitted
- * through thin body parts (ears, fins, wings) from the opposite side of the sun.
- * Implemented via onBeforeCompile so we keep full Three.js PBR lighting + instancing.
- * This is physically-motivated: thin organic tissue transmits ~30% of incident light.
+ * Make emissive glowing material for organisms.
+ * Uses vertexColors for species-based hue, with strong emissive so organisms
+ * glow and are visible even from high spectator altitude.
+ * emissiveIntensity: 0.8 — visible in daylight without washing out.
  */
 function makeCreatureMaterial(): MeshStandardMaterial {
-  const mat = new MeshStandardMaterial({ vertexColors: true })
+  const mat = new MeshStandardMaterial({
+    vertexColors: true,
+    emissive: new Color(1, 1, 1),      // emissive tinted by vertex color via onBeforeCompile
+    emissiveIntensity: 0.8,
+    roughness: 0.4,
+    metalness: 0.1,
+  })
+  // Drive emissive color from the instance vertex color so each species glows its own hue.
+  // Three.js instanced vertex colors are stored in vColor (injected by vertexColors: true).
   mat.onBeforeCompile = (shader) => {
     shader.fragmentShader = shader.fragmentShader.replace(
-      '#include <output_fragment>',
-      `// ── Subsurface scattering approximation ─────────────────────────────────
-      // Back-transmitted light: strongest when light comes from behind the surface.
-      // Simplified: use dot(vNormal, vec3(0,1,0)) as sky-side indicator.
-      // The 0.3 coefficient matches measured SSS for biological tissue at 550nm.
-      float _sssBack = max(0.0, -dot(vNormal, vec3(0.0, 1.0, 0.0))) * 0.3;
-      outgoingLight += diffuseColor.rgb * _sssBack * vec3(0.9, 0.6, 0.4);
-#include <output_fragment>`,
+      'vec4 diffuseColor = vec4( diffuse, opacity );',
+      'vec4 diffuseColor = vec4( diffuse, opacity );\n  totalEmissiveRadiance = vColor.rgb * emissiveIntensity;',
     )
   }
   return mat
@@ -107,7 +113,12 @@ export function CreatureRenderer() {
       const cx = Position.x[eid]
       const cy = Position.y[eid]
       const cz = Position.z[eid]
-      let size = CreatureBody.size[eid] || 0.5
+      // M_vis: Apply VISUAL_SIZE_MULTIPLIER to make organisms visible from spectator altitude.
+      // Diet type 0 = autotroph (larger, sessile) → slightly bigger display.
+      // Diet type 1 = heterotroph (mobile predator) → slightly smaller display.
+      const dietType = DietaryType.type[eid] ?? 0
+      const dietMult = dietType === 0 ? 1.2 : 0.9  // autotrophs 20% larger, heterotrophs 10% smaller
+      let size = (CreatureBody.size[eid] || 8) * VISUAL_SIZE_MULTIPLIER * dietMult
 
       // M74: Speciation pulse — scale boost with smooth ease-out
       const speciationProgress = speciationMap.get(eid)

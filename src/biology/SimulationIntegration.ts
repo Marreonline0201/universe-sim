@@ -17,7 +17,7 @@
 import { GenomeEncoder } from './GenomeEncoder'
 import { bootstrapSimulation, type BootstrapResult } from './SimulationBootstrap'
 import { NaturalSelectionSystem, type Organism, type SelectionTickResult } from './NaturalSelectionSystem'
-import { world, createCreatureEntity, Position } from '../ecs/world'
+import { world, createCreatureEntity, Position, CreatureBody, DietaryType } from '../ecs/world'
 import { removeEntity } from 'bitecs'
 import { PLANET_RADIUS } from '../world/SpherePlanet'
 import { creatureWander } from '../ecs/systems/CreatureWanderSystem'
@@ -455,6 +455,52 @@ export function getSimulationStats() {
  */
 export function isSimulationActive(): boolean {
   return bootstrapResult !== null
+}
+
+// ── M_vis: Organism position snapshot for 2D population dot map ─────────────
+
+export interface OrganismDot {
+  /** Normalized X position on planet surface (-1 to 1) */
+  nx: number
+  /** Normalized Z position on planet surface (-1 to 1) */
+  nz: number
+  /** Species color hue (0-360) */
+  hue: number
+  /** Diet type: 0=autotroph, 1=heterotroph */
+  dietType: number
+}
+
+/**
+ * Get a snapshot of all organism positions projected onto a 2D top-down map.
+ * Returns normalized (x, z) coords — divide by planet radius to get -1..1 range.
+ * Called by EcosystemDashboard to render the population dot map.
+ */
+export function getOrganismDots(): OrganismDot[] {
+  if (!bootstrapResult) return []
+
+  const r = PLANET_RADIUS
+  const dots: OrganismDot[] = []
+
+  for (const [, eid] of orgToEcs) {
+    const px = Position.x[eid]
+    const py = Position.y[eid]
+    const pz = Position.z[eid]
+    if (px === 0 && py === 0 && pz === 0) continue
+
+    // Project onto equatorial plane (top-down view)
+    const nx = px / r   // -1 to 1
+    const nz = pz / r   // -1 to 1
+
+    // Look up species id from ECS for color
+    const speciesId = CreatureBody.speciesId[eid] ?? 0
+    const hue = (speciesId * 137.5) % 360
+
+    const dietType = DietaryType.type[eid] ?? 0
+
+    dots.push({ nx, nz, hue, dietType })
+  }
+
+  return dots
 }
 
 /**

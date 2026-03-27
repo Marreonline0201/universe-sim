@@ -84,11 +84,15 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
   useFrame((_, delta) => {
     const dt = Math.min(delta, 0.1)
 
-    // Advance simulation time
-    useGameStore.getState().addSimSeconds(dt)
-
     // If not game active (click-to-play), skip game logic
     if (!gameActive) return
+
+    // Advance simulation time (gated behind gameActive so Sim Time
+    // doesn't count before the player has entered the world)
+    const { timeScale, addSimSeconds, paused } = useGameStore.getState()
+    if (!paused) {
+      addSimSeconds(dt * timeScale)
+    }
 
     // Admin spectate overrides player camera
     if (spectateTarget) {
@@ -165,11 +169,14 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
       fatigue: Metabolism.fatigue[entityId],
     })
 
-    // Emergent organism simulation tick (every 10 frames)
-    simTickAccRef.current += dt
+    // Emergent organism simulation tick (every ~10 frames of real time)
+    // Use scaledDt so organism evolution speeds up/slows down with timeScale.
+    const scaledDt = paused ? 0 : dt * timeScale
+    simTickAccRef.current += scaledDt
     if (simTickAccRef.current >= 0.16 && isSimulationActive()) {
       simTickAccRef.current = 0
-      tickSimulation(0.16)
+      // Pass absolute simSeconds so day/night cycle (simTime % 600) advances correctly
+      tickSimulation(useGameStore.getState().simSeconds)
     }
 
     // Scheduler-based periodic tasks

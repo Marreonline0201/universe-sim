@@ -14,8 +14,7 @@ import { MobileControls } from './MobileControls'
 import { inventory } from '../game/GameSingletons'
 import { MAT, ITEM } from '../player/Inventory'
 import { cookingProgress } from '../game/SurvivalSystems'
-// M42 Track B: Shelter state
-import { shelterState } from '../game/ShelterSystem'
+// M71: shelterState import moved to components/VitalBars.tsx
 import { activeFoodBuffs } from '../game/FoodBuffSystem'
 import { useVelarStore } from '../store/velarStore'
 import { getReactorTemp, isCleanupActive, getCleanupTimeRemaining, SAFE_TEMP_CELSIUS, MELT_THRESHOLD_C } from '../game/NuclearReactorSystem'
@@ -75,6 +74,10 @@ import { ComboHUD } from './ComboHUD'
 // M57 Track C: Weather effects HUD
 import { WeatherEffectsHUD } from './WeatherEffectsHUD'
 
+// M71 Track B: Extracted sub-components
+import { RustVitalBar, WarmthBar, StaminaBar, ShelterIndicator } from './components/VitalBars'
+import { WeatherIcon, WeatherWidget, StormWindIndicator, WEATHER_ICONS } from './components/WeatherWidgets'
+
 // ── Armor slot visual constants ────────────────────────────────────────────────
 const STEEL_BLUE = '#4a9eff'
 
@@ -98,116 +101,7 @@ const RUST_ORANGE = '#cd4420'
 // Science Companion URL — opens the separate deployed science Q&A site
 const COMPANION_URL = 'https://universe-companion.vercel.app'
 
-// ── Rust-style vital bar (icon + horizontal fill) ─────────────────────────────
-
-interface RustVitalBarProps {
-  value: number     // 0–1
-  color: string
-  icon: string
-  label: string
-}
-
-function RustVitalBar({ value, color, icon, label }: RustVitalBarProps) {
-  const clamped = Math.max(0, Math.min(1, value))
-  const isLow   = clamped < 0.25
-  const barColor = isLow ? '#e74c3c' : color
-  const displayValue = clamped > 0 && clamped < 0.005
-    ? (clamped * 100).toFixed(2)
-    : String(Math.round(clamped * 100))
-
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
-      {/* Icon */}
-      <span style={{
-        fontSize: 13,
-        width: 16,
-        textAlign: 'center',
-        opacity: isLow ? 1 : 0.75,
-        filter: isLow ? 'drop-shadow(0 0 4px #e74c3c)' : 'none',
-        flexShrink: 0,
-      }}>
-        {icon}
-      </span>
-      {/* Bar track */}
-      <div style={{
-        flex: 1,
-        height: 4,
-        background: 'rgba(255,255,255,0.12)',
-        borderRadius: 2,
-        overflow: 'hidden',
-      }}>
-        <div style={{
-          width: `${clamped * 100}%`,
-          height: '100%',
-          background: barColor,
-          borderRadius: 2,
-          transition: 'width 0.3s ease, background 0.3s',
-        }} />
-      </div>
-      {/* Numeric value */}
-      <span style={{
-        fontSize: 9,
-        color: isLow ? '#e74c3c' : '#888',
-        fontFamily: 'monospace',
-        width: 26,
-        textAlign: 'right',
-        flexShrink: 0,
-      }}>
-        {displayValue}
-      </span>
-    </div>
-  )
-}
-
-// ── M29 Track B: Warmth bar ───────────────────────────────────────────────────
-
-function WarmthBar({ warmth }: { warmth: number }) {
-  const clamped = Math.max(0, Math.min(100, warmth))
-  const isLow   = clamped < 20
-  const barColor = isLow ? '#e74c3c' : '#5588ff'
-
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
-      <span style={{
-        fontSize: 13,
-        width: 16,
-        textAlign: 'center',
-        opacity: isLow ? 1 : 0.75,
-        filter: isLow ? 'drop-shadow(0 0 4px #88bbff)' : 'none',
-        flexShrink: 0,
-        animation: isLow ? 'warmthPulse 1s ease-in-out infinite' : 'none',
-      }}>
-        ❄
-      </span>
-      <div style={{
-        flex: 1,
-        height: 4,
-        background: 'rgba(255,255,255,0.12)',
-        borderRadius: 2,
-        overflow: 'hidden',
-      }}>
-        <div style={{
-          width: `${clamped}%`,
-          height: '100%',
-          background: barColor,
-          borderRadius: 2,
-          transition: 'width 0.3s ease, background 0.3s',
-          animation: isLow ? 'warmthPulse 1s ease-in-out infinite' : 'none',
-        }} />
-      </div>
-      <span style={{
-        fontSize: 9,
-        color: isLow ? '#e74c3c' : '#888',
-        fontFamily: 'monospace',
-        width: 26,
-        textAlign: 'right',
-        flexShrink: 0,
-      }}>
-        {Math.round(clamped)}
-      </span>
-    </div>
-  )
-}
+// M71: RustVitalBar, WarmthBar extracted to components/VitalBars.tsx
 
 // ── M39 Track C: Civ level-up and milestone banners ──────────────────────────
 
@@ -259,91 +153,7 @@ function CivMilestoneBanner() {
   )
 }
 
-// ── M38 Track B: Stamina bar ──────────────────────────────────────────────────
-
-function StaminaBar({ stamina, maxStamina }: { stamina: number; maxStamina: number }) {
-  const clamped = Math.max(0, Math.min(maxStamina, stamina))
-  const pct     = maxStamina > 0 ? clamped / maxStamina : 0
-  const isLow   = pct < 0.3
-  const barColor = isLow ? '#eab308' : '#22c55e'  // yellow when < 30%, green otherwise
-
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
-      <span style={{
-        fontSize: 13,
-        width: 16,
-        textAlign: 'center',
-        opacity: isLow ? 1 : 0.75,
-        filter: isLow ? 'drop-shadow(0 0 4px #eab308)' : 'none',
-        flexShrink: 0,
-      }}>
-        ⚙
-      </span>
-      <div style={{
-        flex: 1,
-        height: 4,
-        background: 'rgba(255,255,255,0.12)',
-        borderRadius: 2,
-        overflow: 'hidden',
-      }}>
-        <div style={{
-          width: `${pct * 100}%`,
-          height: '100%',
-          background: barColor,
-          borderRadius: 2,
-          transition: 'width 0.2s ease, background 0.3s',
-        }} />
-      </div>
-      <span style={{
-        fontSize: 9,
-        color: isLow ? '#eab308' : '#888',
-        fontFamily: 'monospace',
-        width: 26,
-        textAlign: 'right',
-        flexShrink: 0,
-      }}>
-        {Math.round(clamped)}
-      </span>
-    </div>
-  )
-}
-
-// ── M42 Track B: Shelter indicator ───────────────────────────────────────────
-
-function ShelterIndicator() {
-  const [snap, setSnap] = useState({ isSheltered: false, shelterType: null as string | null, shelterName: '' })
-  useEffect(() => {
-    const id = setInterval(() => {
-      setSnap({
-        isSheltered: shelterState.isSheltered,
-        shelterType: shelterState.shelterType,
-        shelterName: shelterState.shelterName,
-      })
-    }, 500)
-    return () => clearInterval(id)
-  }, [])
-
-  if (!snap.isSheltered) return null
-
-  const label =
-    snap.shelterType === 'home'     ? '[ HOME ]'     :
-    snap.shelterType === 'cave'     ? '[ CAVE ]'     :
-    snap.shelterType === 'building' ? `[ ${snap.shelterName.toUpperCase()} ]` :
-    '[ SHELTER ]'
-
-  return (
-    <div style={{
-      marginTop: 4,
-      fontSize: 9,
-      color: '#44ff88',
-      fontFamily: 'monospace',
-      letterSpacing: 1,
-      fontWeight: 700,
-    }}>
-      {label}
-    </div>
-  )
-}
+// M71: StaminaBar, ShelterIndicator extracted to components/VitalBars.tsx
 
 // ── Hotbar slot ─────────────────────────────────────────────────────────────────
 // Live-wired to inventory. Reads slot data every 200ms so newly gathered items
@@ -463,184 +273,7 @@ function HotbarSlot({ index, active, tick }: HotbarSlotProps) {
   )
 }
 
-// ── M8: Weather HUD widget ────────────────────────────────────────────────────
-
-const WEATHER_ICONS: Record<WeatherState, string> = {
-  CLEAR:           'sun',
-  CLOUDY:          'cloud',
-  RAIN:            'rain',
-  STORM:           'storm',
-  BLIZZARD:        'blizzard',
-  TORNADO_WARNING: 'tornado',
-  VOLCANIC_ASH:    'ash',
-  ACID_RAIN:       'acid',
-}
-
-// ASCII-art style SVG icons — photorealistic enough for a monospace sci-fi HUD
-function WeatherIcon({ state }: { state: WeatherState }) {
-  const size = 18
-  switch (state) {
-    case 'CLEAR':
-      return (
-        <svg width={size} height={size} viewBox="0 0 18 18" style={{ display: 'block' }}>
-          <circle cx="9" cy="9" r="4" fill="#f1c40f" />
-          {[0,45,90,135,180,225,270,315].map((deg, i) => {
-            const r = Math.PI * deg / 180
-            const x1 = 9 + Math.cos(r) * 5.5, y1 = 9 + Math.sin(r) * 5.5
-            const x2 = 9 + Math.cos(r) * 7.5, y2 = 9 + Math.sin(r) * 7.5
-            return <line key={i} x1={x1} y1={y1} x2={x2} y2={y2} stroke="#f1c40f" strokeWidth="1.5" strokeLinecap="round" />
-          })}
-        </svg>
-      )
-    case 'CLOUDY':
-      return (
-        <svg width={size} height={size} viewBox="0 0 18 18" style={{ display: 'block' }}>
-          <ellipse cx="9" cy="10" rx="6" ry="4" fill="#aabbcc" />
-          <ellipse cx="7" cy="9" rx="3.5" ry="3" fill="#ccdde8" />
-          <ellipse cx="12" cy="9" rx="3" ry="2.5" fill="#ccdde8" />
-        </svg>
-      )
-    case 'RAIN':
-      return (
-        <svg width={size} height={size} viewBox="0 0 18 18" style={{ display: 'block' }}>
-          <ellipse cx="9" cy="7" rx="5.5" ry="3.5" fill="#8899aa" />
-          {[4,8,12].map((x, i) => (
-            <line key={i} x1={x} y1="11" x2={x - 1} y2="16" stroke="#6699cc" strokeWidth="1.5" strokeLinecap="round" />
-          ))}
-        </svg>
-      )
-    case 'STORM':
-      return (
-        <svg width={size} height={size} viewBox="0 0 18 18" style={{ display: 'block' }}>
-          <ellipse cx="9" cy="6" rx="6" ry="4" fill="#445566" />
-          <polyline points="10,10 7,14 10,13 7,18" fill="none" stroke="#f1c40f" strokeWidth="1.8" strokeLinejoin="round" />
-        </svg>
-      )
-    case 'BLIZZARD':
-      return (
-        <svg width={size} height={size} viewBox="0 0 18 18" style={{ display: 'block' }}>
-          <ellipse cx="9" cy="6" rx="6" ry="3.5" fill="#cce8ff" />
-          {[3,7,11,15].map((x, i) => (
-            <line key={i} x1={x} y1="11" x2={x + 2} y2="16" stroke="#aaddff" strokeWidth="1.5" strokeLinecap="round" />
-          ))}
-          <line x1="2" y1="10" x2="16" y2="10" stroke="#aaddff" strokeWidth="1" />
-        </svg>
-      )
-    case 'TORNADO_WARNING':
-      return (
-        <svg width={size} height={size} viewBox="0 0 18 18" style={{ display: 'block' }}>
-          <ellipse cx="9" cy="4" rx="7" ry="2.5" fill="#778899" />
-          <ellipse cx="9" cy="8" rx="5" ry="2" fill="#667788" />
-          <ellipse cx="9" cy="12" rx="3" ry="1.5" fill="#556677" />
-          <ellipse cx="9" cy="16" rx="1" ry="1" fill="#445566" />
-        </svg>
-      )
-    case 'VOLCANIC_ASH':
-      return (
-        <svg width={size} height={size} viewBox="0 0 18 18" style={{ display: 'block' }}>
-          <ellipse cx="9" cy="6" rx="6" ry="3.5" fill="#887755" />
-          {[4,8,12].map((x, i) => (
-            <ellipse key={i} cx={x} cy={13 + i} rx="1.2" ry="0.8" fill="#aa8855" opacity="0.7" />
-          ))}
-        </svg>
-      )
-    case 'ACID_RAIN':
-      return (
-        <svg width={size} height={size} viewBox="0 0 18 18" style={{ display: 'block' }}>
-          <ellipse cx="9" cy="7" rx="5.5" ry="3.5" fill="#667744" />
-          {[4,8,12].map((x, i) => (
-            <line key={i} x1={x} y1="11" x2={x - 1} y2="16" stroke="#aaff44" strokeWidth="1.5" strokeLinecap="round" />
-          ))}
-        </svg>
-      )
-    default:
-      return null
-  }
-}
-
-interface WeatherWidgetProps {
-  state: WeatherState
-  tempC: number
-}
-
-function WeatherWidget({ state, tempC }: WeatherWidgetProps) {
-  const stormColor =
-    state === 'TORNADO_WARNING' ? '#ffaa00' :
-    state === 'VOLCANIC_ASH'   ? '#cc6600' :
-    state === 'BLIZZARD'       ? '#aaddff' :
-    state === 'ACID_RAIN'      ? '#aaff44' :
-    state === 'STORM'          ? '#e74c3c' :
-    state === 'RAIN'           ? '#6699cc' :
-    state === 'CLOUDY'         ? '#aabbcc' : '#f1c40f'
-
-  return (
-    <div style={{
-      display: 'flex',
-      alignItems: 'center',
-      gap: 5,
-      background: 'rgba(0,0,0,0.4)',
-      border: `1px solid ${stormColor}44`,
-      borderRadius: 3,
-      padding: '3px 7px 3px 5px',
-      marginTop: 2,
-    }}>
-      <WeatherIcon state={state} />
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
-        <span style={{
-          fontSize: 8,
-          color: stormColor,
-          fontFamily: 'monospace',
-          letterSpacing: 1,
-          fontWeight: 700,
-          textTransform: 'uppercase',
-          lineHeight: 1.3,
-        }}>
-          {state}
-        </span>
-        <span style={{
-          fontSize: 8,
-          color: tempC < 0 ? '#88bbff' : tempC > 35 ? '#ff7744' : '#88ccaa',
-          fontFamily: 'monospace',
-          letterSpacing: 0.5,
-          lineHeight: 1.3,
-        }}>
-          {tempC > 0 ? '+' : ''}{tempC.toFixed(0)}°C
-        </span>
-      </div>
-    </div>
-  )
-}
-
-// ── M29 Track B: Storm wind direction indicator ───────────────────────────────
-
-function StormWindIndicator({ windDir }: { windDir: number }) {
-  // windDir = degrees, 0=north clockwise. Arrow points INTO the wind.
-  const arrowRad = (windDir + 180) * Math.PI / 180
-  const cx = 10, cy = 10, r = 6
-  const tx = cx + Math.sin(arrowRad) * r
-  const ty = cy - Math.cos(arrowRad) * r
-
-  return (
-    <div style={{
-      display: 'flex',
-      alignItems: 'center',
-      gap: 5,
-      background: 'rgba(0,0,0,0.4)',
-      border: '1px solid #ffaa0055',
-      borderRadius: 3,
-      padding: '3px 7px 3px 5px',
-      marginTop: 2,
-    }}>
-      <svg width={20} height={20} viewBox="0 0 20 20" style={{ display: 'block' }}>
-        <line x1={cx} y1={cy} x2={tx} y2={ty} stroke="#ffaa00" strokeWidth="2" strokeLinecap="round" />
-        <circle cx={tx} cy={ty} r="2" fill="#ffaa00" />
-      </svg>
-      <span style={{ fontSize: 8, color: '#ffaa00', fontFamily: 'monospace', letterSpacing: 1, fontWeight: 700 }}>
-        STORM
-      </span>
-    </div>
-  )
-}
+// M71: WeatherIcon, WeatherWidget, StormWindIndicator, WEATHER_ICONS extracted to components/WeatherWidgets.tsx
 
 // ── M10 Track A: Season HUD widget ───────────────────────────────────────────
 

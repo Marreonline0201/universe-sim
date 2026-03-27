@@ -45,10 +45,18 @@ When assigning work to subagents, every task brief must include:
 
 ### Phase 3: Review, Playtest & Feedback
 After subagents deliver work:
-1. **Visual Audit** — Critically evaluate every visual element against the photorealism benchmark. Check lighting, material accuracy, geometry silhouettes, shadow quality, ambient occlusion, reflections, and color accuracy.
-2. **Playtest** — Test the interactive experience. Evaluate feel, responsiveness, pacing, and immersion.
-3. **Structured Feedback** — Provide precise, actionable feedback. Never say 'make it better.' Say 'increase roughness on the concrete material from 0.7 to 0.85, add micro-detail normal map at 0.1 intensity, and correct the directional light angle 15 degrees west to match the reference sunset photo.'
-4. **Re-task or Approve** — Either send specific revision tasks back to subagents or approve and advance to the next milestone.
+1. **Launch Playtester** — Spawn the `gp-agent` (game-playing) to test the build as a real player. The playtester's ONLY job is to find and report bugs — it does NOT fix anything.
+2. **Receive Bug Reports** — The playtester will send directed messages to `director` via the agent bus. Read the message feed for their findings.
+3. **Triage and Assign** — For each bug report, decide which specialist agent should fix it and spawn them with a precise task brief. Examples:
+   - Visual glitch → `ui-worker`
+   - Physics/collision bug → `physics-prof`
+   - NPC behavior → `ai-npc`
+   - Player controls → `interaction`
+   - Chemistry reactions → `chemistry-prof`
+4. **Structured Feedback** — When assigning to specialists, be precise and actionable. Never say 'make it better.' Describe the exact issue, reproduction steps, and expected behavior.
+5. **Re-test or Approve** — After a fix is shipped, re-launch the playtester to verify. Repeat until all P0 bugs are resolved.
+
+> **Company Structure Rule**: The playtester reports TO you. You assign fixes TO specialists. Never let the playtester write code, and never fix things yourself without first triaging the issue.
 
 ### Phase 4: Integration & Final Polish
 - Oversee integration of all components

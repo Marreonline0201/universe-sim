@@ -254,6 +254,10 @@ const commands = [
         .setDescription('New image (leave blank to keep existing)')
         .setRequired(false)
     ),
+
+  new SlashCommandBuilder()
+    .setName('status')
+    .setDescription('Show live game server status'),
 ].map(cmd => cmd.toJSON())
 
 // ── Command handlers ───────────────────────────────────────────────────────────
@@ -388,6 +392,66 @@ async function handleUpdate(interaction) {
   }
 }
 
+const SERVER_URL = 'https://questions-production-63a2.up.railway.app'
+
+const EPOCH_LABELS = {
+  primordial: '🌋 Primordial',
+  archean: '🦠 Archean',
+  proterozoic: '🌊 Proterozoic',
+  paleozoic: '🐟 Paleozoic',
+  mesozoic: '🦕 Mesozoic',
+  cenozoic: '🦣 Cenozoic',
+  anthropocene: '🏙️ Anthropocene',
+  galactic: '🌌 Galactic',
+  cosmic: '✨ Cosmic',
+}
+
+function formatSimTime(simTime) {
+  const years = Math.floor(simTime / 31_536_000)
+  if (years >= 1_000_000_000) return `${(years / 1_000_000_000).toFixed(2)}B years`
+  if (years >= 1_000_000) return `${(years / 1_000_000).toFixed(2)}M years`
+  if (years >= 1_000) return `${(years / 1_000).toFixed(1)}K years`
+  return `${years.toLocaleString()} years`
+}
+
+async function handleStatus(interaction) {
+  await interaction.deferReply()
+
+  try {
+    const res = await fetch(`${SERVER_URL}/status`)
+    if (!res.ok) throw new Error(`Server responded with ${res.status}`)
+    const data = await res.json()
+
+    const epochLabel = EPOCH_LABELS[data.epoch] ?? data.epoch ?? 'Unknown'
+    const simTime = formatSimTime(data.simTime ?? 0)
+    const players = data.players ?? 0
+    const playerText = players === 1 ? '1 player' : `${players} players`
+    const phase = data.bootstrapPhase
+      ? `⏳ Bootstrapping (${Math.round((data.bootstrapProgress ?? 0) * 100)}%)`
+      : '✅ Running'
+
+    const embed = new EmbedBuilder()
+      .setColor(0x00d4ff)
+      .setTitle('🌌 Universe Sim — Live Status')
+      .addFields(
+        { name: 'Epoch',      value: epochLabel,  inline: true },
+        { name: 'Sim Time',   value: simTime,     inline: true },
+        { name: 'Players',    value: playerText,  inline: true },
+        { name: 'Server',     value: phase,       inline: true },
+        { name: 'World Seed', value: `${data.worldSeed ?? '?'}`, inline: true },
+      )
+      .setFooter({ text: 'universe-sim · live data' })
+      .setTimestamp()
+
+    await interaction.editReply({ embeds: [embed] })
+  } catch (err) {
+    console.error('[Discord /status]', err)
+    await interaction.editReply({
+      embeds: [new EmbedBuilder().setColor(COLOR_ERROR).setDescription(`❌ Could not reach game server: ${err.message}`)],
+    })
+  }
+}
+
 // ── Main class ─────────────────────────────────────────────────────────────────
 
 export class DiscordBot {
@@ -441,7 +505,8 @@ export class DiscordBot {
           case 'add':    await handleAdd(interaction);    break
           case 'done':   await handleDone(interaction);   break
           case 'list':   await handleList(interaction);   break
-          case 'update': await handleUpdate(interaction); break
+          case 'update':  await handleUpdate(interaction);  break
+          case 'status':  await handleStatus(interaction);  break
         }
       } catch (err) {
         console.error(`[Discord] Unhandled error in /${interaction.commandName}:`, err)

@@ -2,6 +2,10 @@ import { Suspense, useEffect, useRef, lazy } from 'react'
 import { SignIn, useAuth, useUser } from '@clerk/react'
 import { SceneRoot } from './rendering/SceneRoot'
 import { HUD } from './ui/HUD'
+// M72-4: Ecosystem dashboard — live organism/species stats overlay
+import { EcosystemDashboard } from './ui/EcosystemDashboard'
+// M72-1: Spectator mode badge overlay
+import { SpectatorBadge } from './ui/SpectatorBadge'
 import { loadSave, saveGame } from './store/saveStore'
 import { useWorldSocket } from './net/useWorldSocket'
 import { useBootstrapStatus } from './hooks/useBootstrapStatus'
@@ -70,6 +74,8 @@ function DevGame() {
         <SceneRoot />
       </Suspense>
       <HUD />
+      <EcosystemDashboard />
+      <SpectatorBadge />
       <Suspense fallback={null}><AdminPanel /></Suspense>
     </>
   )
@@ -132,6 +138,8 @@ function GameWithSave() {
         <SceneRoot />
       </Suspense>
       <HUD />
+      <EcosystemDashboard />
+      <SpectatorBadge />
       <Suspense fallback={null}><AdminPanel /></Suspense>
     </>
   )

@@ -57,6 +57,8 @@ import {
 import { spawnInitialCreatures } from '../ecs/systems/CreatureSpawner'
 // M72: Emergent organism simulation bootstrap
 import { initializeSimulation } from '../biology/SimulationIntegration'
+// M72-1: Spectator/god-mode free-fly camera
+import { SpectatorCamera } from './SpectatorCamera'
 import { GameLoop } from '../game/GameLoop'
 // M34 Track A: Player home cabin renderer
 import { PlayerHomeRenderer } from './PlayerHomeRenderer'
@@ -658,6 +660,8 @@ export function SceneRoot() {
       <SeasonalEventsSystem dayAngle={dayAngle} />
       {/* Post-processing — bloom on bright emitters + vignette framing */}
       <PostProcessing />
+      {/* M72-1: Spectator/god-mode free-fly camera — toggle with [G] */}
+      <SpectatorCamera />
     </Canvas>
     {/* M69 Track B: FPS counter — toggleable from Settings > Graphics */}
     {showFps && <FpsCounter />}

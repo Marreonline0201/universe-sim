@@ -37,9 +37,19 @@ export function updateAgent(agentId, status, task, message, to) {
   }
 
   const entry = agents.get(agentId)
+  const prevStatus = entry.status
   entry.status   = status ?? entry.status
   entry.task     = task    ?? entry.task
   entry.lastSeen = Date.now()
+
+  // When going idle/done, purge this agent's heartbeat messages from the feed
+  if ((status === 'idle' || status === 'done') && prevStatus !== 'idle') {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].from === agentId && messages[i].heartbeat) {
+        messages.splice(i, 1)
+      }
+    }
+  }
 
   if (message) {
     messages.unshift({ from: agentId, to: to ?? null, text: message, ts: Date.now() })

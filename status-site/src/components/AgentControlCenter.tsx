@@ -433,7 +433,12 @@ export function AgentControlCenter({ agentState }: Props) {
               <div style={{ fontSize: 11, color: 'rgba(80,110,150,0.3)', padding: '10px 12px', fontStyle: 'italic' }}>
                 No messages yet.
               </div>
-            ) : agentState.messages.map((msg: AgentMessage, i: number) => {
+            ) : agentState.messages.filter((msg: AgentMessage) => {
+              // Hide heartbeats from agents that are now idle or done
+              if (!msg.heartbeat) return true
+              const entry = agentState.agents[msg.from]
+              return entry && entry.status !== 'idle' && entry.status !== 'done'
+            }).map((msg: AgentMessage, i: number) => {
               const fromMeta = AGENTS[msg.from]
               const toMeta   = msg.to ? AGENTS[msg.to] : null
               const isDirected = !!msg.to

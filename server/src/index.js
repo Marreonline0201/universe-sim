@@ -23,6 +23,7 @@ import { UniverseRegistry } from './UniverseRegistry.js'
 import * as AgentBus from './AgentBus.js'
 import * as Telegram from './TelegramAgent.js'
 import Anthropic from '@anthropic-ai/sdk'
+import { DiscordBot } from './DiscordBot.js'
 
 // ── Pending agent launch triggers (queued from Telegram, consumed by Claude Code) ──
 const pendingTriggers = [] // Array<{ agentId, queuedAt }>
@@ -96,6 +97,9 @@ async function main() {
   } else {
     console.warn('[server] DATABASE_URL not set — world settings will not persist')
   }
+
+  // ── Discord bot ───────────────────────────────────────────────────────────────
+  new DiscordBot().init().catch(err => console.error('[Discord] init error:', err))
 
   // ── Bootstrap mode ────────────────────────────────────────────────────────────
   // If the world hasn't reached solar-system-forming era, run at 1e14× speed

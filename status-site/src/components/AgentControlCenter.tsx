@@ -38,11 +38,15 @@ const DIR_R  = 14  // Director "home" icon radius
 
 // ── Director SVG character ────────────────────────────────────────────────────
 
-function DirectorFigure({ walking }: { walking: boolean }) {
+function DirectorFigure({ walking, active }: { walking: boolean; active: boolean }) {
+  const opacity = active ? 1 : 0.18
+  const glow    = active ? 'drop-shadow(0 0 5px #ffd700)' : 'none'
   return (
     <svg width="22" height="32" viewBox="0 0 22 32" style={{
-      filter: 'drop-shadow(0 0 5px #ffd700)',
-      animation: walking ? 'dirWalk 0.35s linear infinite alternate' : 'dirIdle 2s ease-in-out infinite',
+      filter: glow,
+      opacity,
+      transition: 'opacity 0.6s ease',
+      animation: active ? (walking ? 'dirWalk 0.35s linear infinite alternate' : 'dirIdle 2s ease-in-out infinite') : 'none',
     }}>
       {/* Crown */}
       <polygon points="3,7 5,3 7,6 11,1 15,6 17,3 19,7 3,7" fill="#ffd700" />
@@ -381,7 +385,7 @@ export function AgentControlCenter({ agentState }: Props) {
             zIndex: 15,
             pointerEvents: 'none',
           }}>
-            <DirectorFigure walking={walking} />
+            <DirectorFigure walking={walking} active={(agentState.agents['director']?.status ?? 'idle') === 'active'} />
           </div>
 
           {/* Label bottom-left */}

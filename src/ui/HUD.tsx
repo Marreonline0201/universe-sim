@@ -17,6 +17,7 @@ import { TimeControls } from './TimeControls'
 import { getLocalUsername } from '../net/useWorldSocket'
 import { WeatherIcon, WeatherWidget } from './components/WeatherWidgets'
 import { isSpectatorActive, subscribeSpectator } from '../rendering/SpectatorCamera'
+import { useIsAdmin } from '../hooks/useIsAdmin'
 
 // ── Spectator badge ───────────────────────────────────────────────────────────
 function SpectatorBadge() {
@@ -98,14 +99,21 @@ function WeatherCorner() {
 
 export function HUD() {
   const paused = useGameStore(s => s.paused)
+  const isAdmin = useIsAdmin()
+  const setIsAdmin = useGameStore(s => s.setIsAdmin)
+
+  // Sync isAdmin into the store so systems inside the R3F Canvas can read it
+  useEffect(() => {
+    setIsAdmin(isAdmin)
+  }, [isAdmin, setIsAdmin])
 
   return (
     <>
-      <SpectatorBadge />
+      {isAdmin && <SpectatorBadge />}
       <Crosshair />
       <PlayerInfoCorner />
       <WeatherCorner />
-      <TimeControls />
+      {isAdmin && <TimeControls />}
       <SidebarShell />
       <NotificationSystem />
       <TutorialOverlay />

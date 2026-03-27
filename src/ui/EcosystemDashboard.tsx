@@ -14,6 +14,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { getSimulationStats, isSimulationActive, getPopulationHistory, getOrganismDots, type OrganismDot } from '../biology/SimulationIntegration'
 import { useGameStore } from '../store/gameStore'
+import { useIsAdmin } from '../hooks/useIsAdmin'
 
 const POLL_INTERVAL_MS = 500  // refresh stats twice per second
 
@@ -28,6 +29,7 @@ interface SimStats {
 }
 
 export function EcosystemDashboard() {
+  const isAdmin = useIsAdmin()
   const [visible, setVisible] = useState(false)
   const [stats, setStats] = useState<SimStats | null>(null)
   const [history, setHistory] = useState<Array<{tick: number; organismCount: number; speciesCount: number}>>([])
@@ -36,8 +38,9 @@ export function EcosystemDashboard() {
   const epoch = useGameStore(s => s.epoch)
   const simTime = useGameStore(s => s.simTime)
 
-  // Toggle visibility with [B] key
+  // Toggle visibility with [B] key — admin only
   useEffect(() => {
+    if (!isAdmin) return
     function onKeyDown(e: KeyboardEvent) {
       if (e.code === 'KeyB' && !e.ctrlKey && !e.altKey && !e.metaKey) {
         // Don't toggle if user is typing in an input
@@ -48,7 +51,7 @@ export function EcosystemDashboard() {
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [])
+  }, [isAdmin])
 
   // Poll simulation stats
   useEffect(() => {

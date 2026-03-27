@@ -319,13 +319,11 @@ export function SceneRoot() {
             border: '1px solid rgba(255,255,255,0.15)',
             borderRadius: 10,
           }}>
-            <div style={{ fontSize: 22, fontWeight: 700, marginBottom: 8 }}>CLICK TO PLAY</div>
+            <div style={{ fontSize: 22, fontWeight: 700, marginBottom: 8 }}>CLICK TO ENTER</div>
             <div style={{ fontSize: 12, color: '#ccc', lineHeight: 1.7 }}>
-              <div><span style={{ color: '#fff', fontWeight: 600 }}>[G]</span> &nbsp;— Spectator Mode</div>
-              <div><span style={{ color: '#fff', fontWeight: 600 }}>[B]</span> &nbsp;— Ecosystem Dashboard</div>
-              <div><span style={{ color: '#fff', fontWeight: 600 }}>[O]</span> &nbsp;— Seed Organism</div>
+              <div><span style={{ color: '#fff', fontWeight: 600 }}>WASD</span> &nbsp;— Move</div>
               <div><span style={{ color: '#fff', fontWeight: 600 }}>Mouse</span> &nbsp;— Look around</div>
-              <div style={{ marginTop: 6, color: '#aaa', fontStyle: 'italic' }}>Watch life evolve.</div>
+              <div style={{ marginTop: 6, color: '#aaa', fontStyle: 'italic' }}>Explore. Survive. Discover.</div>
             </div>
           </div>
         </div>

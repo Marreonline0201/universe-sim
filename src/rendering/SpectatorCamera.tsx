@@ -77,9 +77,12 @@ export function SpectatorCamera() {
   // M80: Scratch objects for organism seeding raycast
   const _rayDir = useRef(new THREE.Vector3())
 
-  // Toggle on [G] key press
+  // Toggle on [G] key press — admin only
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
+      // Gate all spectator/seed keys behind admin flag
+      if (!useGameStore.getState().isAdmin) return
+
       if (e.code === 'KeyG' && !e.ctrlKey && !e.altKey && !e.metaKey) {
         const tag = (e.target as HTMLElement)?.tagName
         if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return

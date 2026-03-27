@@ -4,6 +4,10 @@ interface GameState {
   engineReady: boolean
   setEngineReady: (r: boolean) => void
 
+  // Admin/dev gate — set once on mount by the HUD (which has Clerk context)
+  isAdmin: boolean
+  setIsAdmin: (v: boolean) => void
+
   paused: boolean
   togglePause: () => void
 
@@ -63,6 +67,9 @@ interface GameState {
 export const useGameStore = create<GameState>((set) => ({
   engineReady: false,
   setEngineReady: (r) => set({ engineReady: r }),
+
+  isAdmin: false,
+  setIsAdmin: (v) => set({ isAdmin: v }),
 
   paused: false,
   togglePause: () => set((s) => ({ paused: !s.paused })),

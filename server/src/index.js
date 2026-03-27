@@ -277,6 +277,7 @@ async function main() {
       req.on('end', () => {
         try {
           const data = JSON.parse(body)
+          console.log(`[agent POST] agentId=${data.agentId} status=${data.status} ip=${req.socket?.remoteAddress} ua=${req.headers['user-agent']?.slice(0,60)}`)
           const state = AgentBus.updateAgent(data.agentId, data.status, data.task, data.message, data.to)
             if (data.status === 'blocked') {
               Telegram.sendBlockedAlert(data.agentId, data.task, data.message).catch(() => {})

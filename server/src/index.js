@@ -277,7 +277,11 @@ async function main() {
       req.on('end', () => {
         try {
           const data = JSON.parse(body)
-          console.log(`[agent POST] agentId=${data.agentId} status=${data.status} ip=${req.socket?.remoteAddress} xff=${req.headers['x-forwarded-for'] ?? '-'} ua=${req.headers['user-agent']?.slice(0,60)}`)
+          const xff = req.headers['x-forwarded-for'] ?? '-'
+          const ua  = req.headers['user-agent'] ?? '-'
+          const ip  = req.socket?.remoteAddress ?? '-'
+          console.log(`[agent POST] agentId=${data.agentId} status=${data.status} ip=${ip} xff=${xff} ua=${ua.slice(0,80)}`)
+          AgentBus.setNextRequestContext({ ip, xff, ua })
           const state = AgentBus.updateAgent(data.agentId, data.status, data.task, data.message, data.to)
             if (data.status === 'blocked') {
               Telegram.sendBlockedAlert(data.agentId, data.task, data.message).catch(() => {})

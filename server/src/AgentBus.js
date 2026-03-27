@@ -9,6 +9,10 @@ const MAX_MESSAGES = 100
 const directorActivationLog = []
 export function getDirectorActivationLog() { return [...directorActivationLog] }
 
+// One-shot request context for debug logging (set by HTTP handler before calling updateAgent)
+let _nextReqCtx = null
+export function setNextRequestContext(ctx) { _nextReqCtx = ctx }
+
 const AGENT_IDS = [
   'director',
   'status-worker', 'gp-agent', 'knowledge-director',
@@ -46,8 +50,10 @@ export function updateAgent(agentId, status, task, message, to) {
   // Debug: capture stack trace whenever director becomes active so we can find the source
   if (agentId === 'director' && status === 'active' && prevStatus !== 'active') {
     const stack = new Error().stack ?? '(no stack)'
-    console.log(`[AgentBus] director → active (from ${prevStatus}) | stack:\n${stack}`)
-    directorActivationLog.unshift({ ts: Date.now(), prevStatus, stack })
+    const reqCtx = _nextReqCtx; _nextReqCtx = null
+    const entry = { ts: Date.now(), prevStatus, stack, ip: reqCtx?.ip, xff: reqCtx?.xff, ua: reqCtx?.ua }
+    console.log(`[AgentBus] director → active | ip=${entry.ip} xff=${entry.xff} ua=${entry.ua} | stack:\n${stack}`)
+    directorActivationLog.unshift(entry)
     if (directorActivationLog.length > 20) directorActivationLog.length = 20
   }
 

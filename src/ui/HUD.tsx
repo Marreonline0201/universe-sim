@@ -16,6 +16,37 @@ import { RemotePlayerNameTagsOverlay } from './RemotePlayerNameTags'
 import { TimeControls } from './TimeControls'
 import { getLocalUsername } from '../net/useWorldSocket'
 import { WeatherIcon, WeatherWidget } from './components/WeatherWidgets'
+import { isSpectatorActive, subscribeSpectator } from '../rendering/SpectatorCamera'
+
+// ── Spectator badge ───────────────────────────────────────────────────────────
+function SpectatorBadge() {
+  const [active, setActive] = useState(isSpectatorActive)
+
+  useEffect(() => {
+    return subscribeSpectator(setActive)
+  }, [])
+
+  if (!active) return null
+
+  return (
+    <div style={{
+      position: 'fixed', top: 12, left: '50%',
+      transform: 'translateX(-50%)',
+      background: 'rgba(0,180,255,0.15)',
+      border: '1px solid rgba(0,180,255,0.4)',
+      color: '#00b4ff',
+      fontFamily: 'monospace',
+      fontSize: 11,
+      padding: '3px 12px',
+      borderRadius: 3,
+      zIndex: 300,
+      pointerEvents: 'none',
+      letterSpacing: 2,
+    }}>
+      SPECTATOR — [G] exit · [O] seed organism
+    </div>
+  )
+}
 
 // ── Crosshair ────────────────────────────────────────────────────────────────
 function Crosshair() {
@@ -70,6 +101,7 @@ export function HUD() {
 
   return (
     <>
+      <SpectatorBadge />
       <Crosshair />
       <PlayerInfoCorner />
       <WeatherCorner />

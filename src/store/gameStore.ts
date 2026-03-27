@@ -33,27 +33,11 @@ interface GameState {
   gatherPrompt: string | null
   setGatherPrompt: (s: string | null) => void
 
-  // Building placement mode — typeId of building being placed, or null
-  placementMode: string | null
-  setPlacementMode: (typeId: string | null) => void
-
-  // Incremented when a building is placed (triggers re-render of placed buildings)
-  buildVersion: number
-  bumpBuildVersion: () => void
-
   // M22: Day/night cycle state (set by DayNightCycle.tsx for HUD widget)
   dayAngle: number
   dayCount: number
   setDayAngle: (a: number) => void
   setDayCount: (c: number) => void
-
-  // M24: Current biome identifier (set by terrain/zone detection, read by achievement system)
-  currentBiome: string
-  setCurrentBiome: (b: string) => void
-
-  // M32 Track A: XP multiplier — 1.0 normally, 2.0 during seasonal festival
-  xpMultiplier: number
-  setXpMultiplier: (v: number) => void
 
   // Admin/dev controls
   flyMode: boolean
@@ -118,22 +102,10 @@ export const useGameStore = create<GameState>((set) => ({
   gatherPrompt: null,
   setGatherPrompt: (s) => set({ gatherPrompt: s }),
 
-  placementMode: null,
-  setPlacementMode: (typeId) => set({ placementMode: typeId }),
-
-  buildVersion: 0,
-  bumpBuildVersion: () => set((s) => ({ buildVersion: s.buildVersion + 1 })),
-
   dayAngle: Math.PI * 0.6,
   dayCount: 1,
   setDayAngle: (a) => set({ dayAngle: a }),
   setDayCount: (c) => set({ dayCount: c }),
-
-  currentBiome: '',
-  setCurrentBiome: (b) => set({ currentBiome: b }),
-
-  xpMultiplier: 1.0,
-  setXpMultiplier: (v) => set({ xpMultiplier: v }),
 
   flyMode: false,
   setFlyMode: (v) => set({ flyMode: v }),

@@ -7,6 +7,11 @@ const LABELS      = ['0.1×', '0.5×', '1×', '10×', '100×', '1k×', '10k×', 
 
 const styles = {
   container: {
+    position: 'fixed' as const,
+    bottom: 16,
+    left: '50%',
+    transform: 'translateX(-50%)',
+    zIndex: 200,
     display: 'flex' as const,
     alignItems: 'center' as const,
     gap: 6,

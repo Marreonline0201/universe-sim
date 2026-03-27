@@ -77,13 +77,6 @@ interface UiState {
   travelFading: boolean
   setTravelFading: (v: boolean) => void
 
-  // M44 Track B: Housing panel
-  housingOpen: boolean
-  toggleHousing: () => void
-
-  // M45 Track A: Pet panel
-  petOpen: boolean
-  togglePet: () => void
 }
 
 export const useUiStore = create<UiState>((set, get) => ({
@@ -157,9 +150,4 @@ export const useUiStore = create<UiState>((set, get) => ({
   travelFading: false,
   setTravelFading: (v) => set({ travelFading: v }),
 
-  // housingOpen and petOpen removed with RPG systems
-  housingOpen: false,
-  toggleHousing: () => {},
-  petOpen: false,
-  togglePet: () => {},
 }))

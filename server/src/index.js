@@ -6,15 +6,12 @@ import { createServer } from 'http'
 import { WebSocketServer, WebSocket } from 'ws'
 import { WorldClock } from './WorldClock.js'
 import { PlayerRegistry } from './PlayerRegistry.js'
-import { NpcManager } from './NpcManager.js'
 import { BroadcastScheduler } from './BroadcastScheduler.js'
 import { loadSettings, saveSettings, migrateSchema } from './WorldSettingsSync.js'
 import { BOOTSTRAP_TARGET_SECS, NORMAL_TIMESCALE } from './WorldClock.js'
 import { SlackAgent } from './SlackAgent.js'
 import { NodeStateSync } from './NodeStateSync.js'
-import { NpcMemory } from './NpcMemory.js'
 import { SettlementManager, TERRITORY_RADIUS } from './SettlementManager.js'
-import { OutlawSystem, WANTED_THRESHOLD } from './OutlawSystem.js'
 import { WeatherSystem } from './WeatherSystem.js'
 import { SeasonSystem } from './SeasonSystem.js'
 import { TradeEconomy } from './TradeEconomy.js'
@@ -61,13 +58,10 @@ const HOME_WORLD_SEED = parseInt(process.env.HOME_WORLD_SEED ?? '42', 10)
 
 const clock    = new WorldClock()
 const players  = new PlayerRegistry()
-const npcs     = new NpcManager()
-const scheduler = new BroadcastScheduler(clock, players, npcs, HOME_WORLD_SEED)
-const slack       = new SlackAgent(clock, players, npcs)
+const scheduler = new BroadcastScheduler(clock, players, null, HOME_WORLD_SEED)
+const slack       = new SlackAgent(clock, players, null)
 const nodeSync    = new NodeStateSync()
-const npcMemory   = new NpcMemory()
 const settlements = new SettlementManager()
-const outlaw      = new OutlawSystem()
 const weather     = new WeatherSystem()
 const seasons     = new SeasonSystem()
 const tradeEcon   = new TradeEconomy()
@@ -79,12 +73,8 @@ async function main() {
     await migrateSchema()
     await nodeSync.migrateSchema()
     await nodeSync.load()
-    await npcMemory.migrateSchema()
-    await npcMemory.load()
     await settlements.migrateSchema()
     await settlements.load()
-    await outlaw.migrateSchema()
-    await outlaw.load()
     await tradeEcon.migrateSchema()
     await tradeEcon.load(settlements.getAll())
     await migrateDiscoverySchema()  // M13: discoveries + planets tables
@@ -121,9 +111,6 @@ async function main() {
     slack.notifyBootstrapComplete().catch(() => {})
   })
 
-  // Tick NPCs every 100 ms (same rate as clock)
-  clock.onTick(() => npcs.tick(0.1))
-
   // When a node respawn timer fires, broadcast NODE_RESPAWNED to all clients
   nodeSync.onRespawn = (nodeId, x, y, z, type) => {
     broadcastAll({ type: 'NODE_RESPAWNED', nodeId, x, y, z, nodeType: type })
@@ -135,7 +122,6 @@ async function main() {
     const now = Date.now()
     const dtReal = (now - _lastSettlementTick) / 1000
     _lastSettlementTick = now
-    npcMemory.tick(dtReal)
     settlements.tick(
       dtReal,
       // onLevelUp: broadcast civ level-up to all clients
@@ -206,12 +192,6 @@ async function main() {
         slack._post(`*Space Age!* ${settlementName} has reached Civilization Level 6. The Space Age begins — generators, radio towers, and rocket launches are now possible.`).catch(() => {})
       }
     )
-    // M12: Handle ROCKET_LAUNCHED — after 30s broadcast ANOMALY_SIGNAL to all clients
-    // The ROCKET_LAUNCHED message is received in the WS handler (see below) and
-    // queued here via a setTimeout relay. This is the "30 second delay" mechanism.
-    // (Relay is registered in the WS message handler further down in this file.)
-    // Outlaw: clean up expired redemption quests every tick
-    outlaw.tickCleanup()
   }, 1000)
 
   // M9 T3: Weather updates are batched — 8 sector updates fire simultaneously
@@ -560,10 +540,7 @@ function handleMessage(ws, msg) {
       if (!userId || !username) return
       ws._userId = userId
       players.add(userId, username, ws)
-      // Hydrate outlaw murder count into registry so it's included in WORLD_SNAPSHOT
-      const joinMurderCount = outlaw.getMurderCount(userId)
-      players.update(userId, { murderCount: joinMurderCount })
-      console.log(`[server] Player joined: ${username} (${players.count} online, murderCount=${joinMurderCount})`)
+      console.log(`[server] Player joined: ${username} (${players.count} online)`)
       slack.notifyPlayerJoined(username).catch(() => {})
 
       // Send current world state immediately
@@ -577,7 +554,7 @@ function handleMessage(ws, msg) {
         bootstrapPhase:    clock.bootstrapPhase,
         bootstrapProgress: clock.bootstrapProgress,
         players: players.getAll(),
-        npcs: npcs.getAll(),
+        npcs: [],
         universes: universeReg.getAll(),  // M14: known universe instances
         depletedNodes: nodeSync.getDepletedSnapshot(),
         settlements:   settlements.getSnapshot(),
@@ -596,9 +573,7 @@ function handleMessage(ws, msg) {
       const userId = ws._userId
       if (!userId) return
       const { x, y, z, health } = msg
-      // Keep murderCount in sync — client sends current count on every position update
-      const mc = typeof msg.murderCount === 'number' ? msg.murderCount : outlaw.getMurderCount(userId)
-      players.update(userId, { x, y, z, health, murderCount: mc })
+      players.update(userId, { x, y, z, health })
       break
     }
 
@@ -631,15 +606,7 @@ function handleMessage(ws, msg) {
       const { settlementId } = msg
       if (typeof settlementId !== 'number') return
 
-      npcMemory.recordVisit(settlementId, userId)
-
-      const gatesClosed = npcMemory.gatesClosed(settlementId, userId)
-      if (gatesClosed) {
-        ws.send(JSON.stringify({ type: 'GATES_CLOSED', settlementId }))
-        return
-      }
-
-      const offer = settlements.checkTradeOffer(settlementId, userId, npcMemory)
+      const offer = settlements.checkTradeOffer(settlementId, userId, null)
       if (offer) {
         ws.send(JSON.stringify({ type: 'TRADE_OFFER', ...offer }))
       }
@@ -658,7 +625,7 @@ function handleMessage(ws, msg) {
       const result = settlements.executeTrade(
         settlementId, userId,
         playerGives ?? {}, playerReceives ?? {},
-        npcMemory,
+        null,
         null  // inventory validation done client-side for now
       )
 
@@ -691,165 +658,11 @@ function handleMessage(ws, msg) {
       const { settlementId } = msg
       if (typeof settlementId !== 'number') return
 
-      const nowClosed = settlements.recordPlayerAttack(settlementId, npcMemory, userId)
+      const nowClosed = settlements.recordPlayerAttack(settlementId, null, userId)
       if (nowClosed) {
         // Tell this player their gates are now closed
         ws.send(JSON.stringify({ type: 'GATES_CLOSED', settlementId }))
         console.log(`[server] Gates closed for player ${userId} at settlement ${settlementId}`)
-      }
-      break
-    }
-
-    // ── M7 Track 2: PvP Outlaw System ──────────────────────────────────────────
-
-    case 'PLAYER_KILLED': {
-      // Client reports their attack reduced a remote player's health to 0.
-      // killerId = the attacking player (this socket's userId)
-      // victimId = the player who was killed
-      const killerId = ws._userId
-      if (!killerId) return
-      const { victimId } = msg
-      if (!victimId || typeof victimId !== 'string') return
-      if (killerId === victimId) return  // no self-kills
-
-      outlaw.incrementMurderCount(killerId).then(({ newCount, bountyReward }) => {
-        players.update(killerId, { murderCount: newCount })
-        const killerPlayer = players.get(killerId)
-        const killerName   = killerPlayer?.username ?? killerId
-
-        // Acknowledge to the killer with their new murder count
-        ws.send(JSON.stringify({
-          type:        'MURDER_COUNT_UPDATE',
-          murderCount: newCount,
-        }))
-
-        // Broadcast outlaw reaction tier to all settlements for this player
-        if (newCount >= WANTED_THRESHOLD) {
-          broadcastAll({
-            type:        'BOUNTY_POSTED',
-            playerId:    killerId,
-            username:    killerName,
-            murderCount: newCount,
-            reward:      bountyReward,
-          })
-          console.log(`[OutlawSystem] BOUNTY posted for ${killerName} — murderCount=${newCount}, reward=${bountyReward}`)
-          slack._post(`*Outlaw alert:* ${killerName} now has ${newCount} kills — bounty of ${bountyReward} copper posted!`).catch(() => {})
-        } else {
-          console.log(`[OutlawSystem] ${killerName} murdered ${victimId} — murderCount now ${newCount}`)
-          if (newCount === 1) {
-            slack._post(`*Criminal record:* ${killerName} committed their first murder.`).catch(() => {})
-          } else {
-            slack._post(`*Criminal record:* ${killerName} has now committed ${newCount} murders.`).catch(() => {})
-          }
-        }
-      }).catch(err => console.error('[OutlawSystem] PLAYER_KILLED error:', err.message))
-      break
-    }
-
-    case 'BOUNTY_COLLECT': {
-      // A player killed a wanted player and claims the bounty reward.
-      const collectorId = ws._userId
-      if (!collectorId) return
-      const { targetId } = msg
-      if (!targetId || typeof targetId !== 'string') return
-      if (collectorId === targetId) return
-
-      const targetCount = outlaw.getMurderCount(targetId)
-      if (targetCount < WANTED_THRESHOLD) return  // target not actually wanted
-
-      const reward = outlaw.getBountyReward(targetCount)
-      if (reward <= 0) return
-
-      const collectorPlayer = players.get(collectorId)
-      const collectorName   = collectorPlayer?.username ?? collectorId
-      const targetPlayer    = players.get(targetId)
-      const targetName      = targetPlayer?.username ?? targetId
-
-      // Grant reward to collector (client adds copper ingots on receipt)
-      ws.send(JSON.stringify({
-        type:       'BOUNTY_COLLECTED',
-        collectorId,
-        targetId,
-        reward,
-        materialId: 25,  // MAT.COPPER = 25
-      }))
-
-      broadcastAll({
-        type:          'BOUNTY_COLLECT_BROADCAST',
-        collectorId,
-        collectorName,
-        targetId,
-        targetName,
-        reward,
-      })
-
-      console.log(`[OutlawSystem] ${collectorName} collected ${reward} copper bounty for killing ${targetName}`)
-      slack._post(`*Bounty collected:* ${collectorName} killed wanted outlaw ${targetName} and earned ${reward} copper!`).catch(() => {})
-      break
-    }
-
-    case 'REDEMPTION_QUEST_REQUEST': {
-      // Player at a settlement asks the leader for a redemption quest.
-      const playerId = ws._userId
-      if (!playerId) return
-      const { settlementId } = msg
-      if (typeof settlementId !== 'number') return
-
-      const mc = outlaw.getMurderCount(playerId)
-      if (mc <= 0) {
-        ws.send(JSON.stringify({ type: 'REDEMPTION_QUEST_DENIED', reason: 'no_crimes' }))
-        return
-      }
-
-      const types     = ['escort', 'resource_delivery', 'settlement_defense']
-      const questType = types[Math.floor(Math.random() * types.length)]
-      const quest     = outlaw.issueQuest(playerId, settlementId, questType)
-
-      ws.send(JSON.stringify({
-        type:               'REDEMPTION_QUEST_OFFERED',
-        ...quest,
-        currentMurderCount: mc,
-      }))
-      console.log(`[OutlawSystem] Redemption quest offered: ${questType} to ${playerId} at settlement ${settlementId}`)
-      break
-    }
-
-    case 'REDEMPTION_QUEST_PROGRESS': {
-      // Client reports progress on an active redemption quest.
-      const playerId = ws._userId
-      if (!playerId) return
-      const { questId, amount } = msg
-      if (!questId || typeof questId !== 'string') return
-
-      const result = outlaw.advanceQuest(questId, playerId, amount ?? 1)
-      if (!result) {
-        ws.send(JSON.stringify({ type: 'REDEMPTION_QUEST_ERROR', reason: 'not_found' }))
-        return
-      }
-      if (result.expired) {
-        ws.send(JSON.stringify({ type: 'REDEMPTION_QUEST_ERROR', reason: 'expired' }))
-        return
-      }
-
-      if (result.completed) {
-        outlaw.decrementMurderCount(playerId).then(newCount => {
-          players.update(playerId, { murderCount: newCount })
-          ws.send(JSON.stringify({
-            type:           'REDEMPTION_QUEST_COMPLETE',
-            questId,
-            newMurderCount: newCount,
-          }))
-          const p = players.get(playerId)
-          console.log(`[OutlawSystem] ${p?.username ?? playerId} completed redemption — murderCount now ${newCount}`)
-          slack._post(`*Redemption:* ${p?.username ?? playerId} completed a service quest — criminal record reduced to ${newCount}.`).catch(() => {})
-        }).catch(err => console.error('[OutlawSystem] redemption persist error:', err.message))
-      } else {
-        ws.send(JSON.stringify({
-          type:     'REDEMPTION_QUEST_PROGRESS_ACK',
-          questId,
-          progress: result.progress,
-          required: result.required,
-        }))
       }
       break
     }
@@ -881,12 +694,6 @@ function handleMessage(ws, msg) {
       if (!userId) return
       const { settlementId } = msg
       if (typeof settlementId !== 'number') return
-
-      const gatesClosed = npcMemory.gatesClosed(settlementId, userId)
-      if (gatesClosed) {
-        ws.send(JSON.stringify({ type: 'GATES_CLOSED', settlementId }))
-        return
-      }
 
       const s = settlements.getSettlement(settlementId)
       if (!s) return

@@ -10,6 +10,8 @@ import { useGameStore } from '../store/gameStore'
 import { usePlayerStore } from '../store/playerStore'
 import { useUiStore } from '../store/uiStore'
 import { CreatureRenderer } from './entities/CreatureRenderer'
+// M73-2: Floating organism labels in spectator mode
+import { OrganismLabels } from './entities/OrganismLabels'
 import { RemotePlayersRenderer } from './RemotePlayersRenderer'
 import { useMultiplayerStore } from '../store/multiplayerStore'
 import { world, createPlayerEntity, Metabolism, Health, Position } from '../ecs/world'
@@ -589,6 +591,7 @@ export function SceneRoot() {
             {/* M28 Track B: Placed raft meshes with buoyancy */}
             <PlacedRaftsRenderer />
             <CreatureRenderer />
+            <OrganismLabels />
             <RemotePlayersRenderer />
             {/* M29 Track C1/C5: name tags + ping dots — HTML overlay projected from world positions */}
             <RemotePlayerNameTagsBridge />

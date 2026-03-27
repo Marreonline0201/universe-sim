@@ -411,36 +411,30 @@ export function SidebarShell() {
       // Ignore if typing in an input field
       const tag = (e.target as HTMLElement)?.tagName
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
+      // Ignore hotkeys during gameplay (pointer locked = first/third person mode; WASD controls movement)
+      if (document.pointerLockElement) return
 
       switch (e.key) {
         case 'i': case 'I':   e.preventDefault(); togglePanel('inventory');  break
         case 'c': case 'C':   e.preventDefault(); togglePanel('crafting');   break
-        case 'b': case 'B':   e.preventDefault(); togglePanel('build');      break
+        // 'b'/'B' removed — reserved for EcosystemDashboard toggle (game key)
         case 'l': case 'L':
           e.preventDefault()
           togglePanel('worldevents')
           break
         case 'j': case 'J':   e.preventDefault(); togglePanel('journal');    break
         case 'k': case 'K':   e.preventDefault(); togglePanel('skills');     break
-        case 'q': case 'Q':   e.preventDefault(); togglePanel('quests');     break
-        case 'g': case 'G':   e.preventDefault(); togglePanel('factions');  break
+        // 'g'/'G' removed — reserved for SpectatorCamera toggle (game key)
         case 'u': case 'U':   e.preventDefault(); togglePanel('buildings'); break
         case 'h': case 'H':   e.preventDefault(); togglePanel('home'); break
-        case 'o': case 'O':   e.preventDefault(); togglePanel('players');      break
+        // 'o'/'O' removed — reserved for organism seeding in spectator mode (game key)
         case 'p': case 'P':   e.preventDefault(); togglePanel('pet');          break
         case 'x': case 'X':   e.preventDefault(); togglePanel('progression'); break
         case 'y': case 'Y':   e.preventDefault(); togglePanel('alchemy');     break
         case 't': case 'T':   e.preventDefault(); togglePanel('tradepost');  break
-        case 'v': case 'V':   e.preventDefault(); togglePanel('forge');      break
+        // 'v'/'V' removed — reserved for camera mode cycling (game key)
         case 'n': case 'N':   e.preventDefault(); togglePanel('housing');      break
         case 'z': case 'Z':   e.preventDefault(); togglePanel('achievements'); break
-        case 'd': case 'D':   e.preventDefault(); togglePanel('discoveries');   break
-        case 'e': case 'E':   e.preventDefault(); togglePanel('merchantguild'); break
-        case 'r': case 'R':   e.preventDefault(); togglePanel('relationships'); break
-        case 'w': case 'W':   e.preventDefault(); togglePanel('factionwars');  break
-        case 's': case 'S':   e.preventDefault(); togglePanel('seasonal');     break
-        case 'a': case 'A':   e.preventDefault(); togglePanel('threats');     break
-        case 'f': case 'F':   e.preventDefault(); togglePanel('factionrep'); break
         case 'Tab':           e.preventDefault(); togglePanel('character');  break
         case 'm': case 'M':   e.preventDefault(); togglePanel('map');        break
         case '?': case '/':

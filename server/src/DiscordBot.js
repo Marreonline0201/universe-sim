@@ -18,6 +18,34 @@ import {
   PermissionFlagsBits,
 } from 'discord.js'
 import { neon } from '@neondatabase/serverless'
+import { put } from '@vercel/blob'
+
+// ── Image persistence via Vercel Blob ─────────────────────────────────────────
+// Discord CDN URLs expire — we fetch and re-upload to Vercel Blob immediately.
+
+async function persistImage(discordUrl, filename) {
+  if (!discordUrl) return null
+  if (!process.env.BLOB_READ_WRITE_TOKEN) {
+    // No Blob token — store Discord URL as-is (will expire but better than nothing)
+    console.warn('[Discord] BLOB_READ_WRITE_TOKEN not set — image URLs will expire')
+    return discordUrl
+  }
+  try {
+    const res = await fetch(discordUrl)
+    if (!res.ok) throw new Error(`fetch ${res.status}`)
+    const buffer = Buffer.from(await res.arrayBuffer())
+    const ext = filename?.split('.').pop() ?? 'png'
+    const blob = await put(`discord-fixes/${Date.now()}.${ext}`, buffer, {
+      access: 'public',
+      token: process.env.BLOB_READ_WRITE_TOKEN,
+      contentType: res.headers.get('content-type') ?? 'image/png',
+    })
+    return blob.url
+  } catch (err) {
+    console.warn('[Discord] Image upload to Blob failed:', err.message)
+    return discordUrl  // fall back to expiring URL
+  }
+}
 
 // ── DB helpers ─────────────────────────────────────────────────────────────────
 
@@ -235,10 +263,10 @@ async function handleAdd(interaction) {
 
   const description = interaction.options.getString('description')
   const attachment  = interaction.options.getAttachment('image')
-  const imageUrl    = attachment?.url ?? null
   const createdBy   = interaction.user.username
 
   try {
+    const imageUrl = await persistImage(attachment?.url ?? null, attachment?.name)
     const number = await nextFixNumber()
     const fix = await insertFix(number, description, imageUrl, createdBy)
     const embed = fixEmbed(fix, '➕ Added to fix list')
@@ -327,10 +355,9 @@ async function handleUpdate(interaction) {
 
   const number      = interaction.options.getInteger('number')
   const description = interaction.options.getString('description')  // nullable
-  const attachment  = interaction.options.getAttachment('image')     // nullable
-  const imageUrl    = attachment?.url ?? null
+  const attachment  = interaction.options.getAttachment('image')    // nullable
 
-  if (!description && !imageUrl) {
+  if (!description && !attachment) {
     return interaction.editReply({
       embeds: [new EmbedBuilder().setColor(COLOR_ERROR).setDescription('❌ Provide at least a new description or image to update.')],
     })
@@ -349,7 +376,8 @@ async function handleUpdate(interaction) {
       })
     }
 
-    const updated = await updateFix(number, description, imageUrl)
+    const persistedUrl = await persistImage(attachment?.url ?? null, attachment?.name)
+    const updated = await updateFix(number, description, persistedUrl)
     const embed = fixEmbed(updated, '✏️ Updated')
     await interaction.editReply({ embeds: [embed] })
   } catch (err) {

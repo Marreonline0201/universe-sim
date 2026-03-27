@@ -38,6 +38,13 @@ export function updateAgent(agentId, status, task, message, to) {
 
   const entry = agents.get(agentId)
   const prevStatus = entry.status
+
+  // Debug: log stack trace whenever director becomes active so we can find the source
+  if (agentId === 'director' && status === 'active' && prevStatus !== 'active') {
+    const stack = new Error().stack ?? '(no stack)'
+    console.log(`[AgentBus] director → active (from ${prevStatus}) | stack:\n${stack}`)
+  }
+
   entry.status   = status ?? entry.status
   entry.task     = task    ?? entry.task
   entry.lastSeen = Date.now()

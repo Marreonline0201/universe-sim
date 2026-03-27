@@ -55,6 +55,8 @@ import {
   spawnInitialAnimals,
 } from '../ecs/systems/AnimalAISystem'
 import { spawnInitialCreatures } from '../ecs/systems/CreatureSpawner'
+// M72: Emergent organism simulation bootstrap
+import { initializeSimulation } from '../biology/SimulationIntegration'
 import { GameLoop } from '../game/GameLoop'
 // M34 Track A: Player home cabin renderer
 import { PlayerHomeRenderer } from './PlayerHomeRenderer'
@@ -410,6 +412,10 @@ export function SceneRoot() {
 
       // M9: Spawn initial animal population (deer, wolves, boars)
       spawnInitialAnimals(spawnX, spawnY, spawnZ)
+
+      // M72: Bootstrap emergent organism simulation — seeds primordial autotrophs
+      // as ECS entities so CreatureRenderer displays them immediately.
+      initializeSimulation(serverWorldSeed ?? 42)
 
       // M27: Inject synthetic offline NPCs so GameLoop can interact with them.
       // IDs are chosen so that id%6 maps to the NPC_ROLES array in GameLoop:

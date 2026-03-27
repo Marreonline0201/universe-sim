@@ -105,6 +105,8 @@ import {
 } from '../world/ResourceNodeManager'
 import { surfaceRadiusAt, PLANET_RADIUS, getSurfaceDigMaterials, terrainHeightAt } from '../world/SpherePlanet'
 import { queryNearestRiver } from '../world/RiverSystem'
+// M72: Emergent organism simulation tick
+import { tickSimulation, isSimulationActive } from '../biology/SimulationIntegration'
 import { getSectorIdForPosition } from '../world/WeatherSectors'
 import { beginInterplanetaryTransit } from './InterplanetaryTransitSystem'
 import { tickMusket, fireMusket, isMusketReady } from './GunpowderSystem'
@@ -344,19 +346,28 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
 
   // M70: Error throttle — suppress console spam after 5 errors of the same type
   const frameErrorCountRef = useRef<Record<string, number>>({})
+  // M72: Accumulator for simulation tick (every 10 frames)
+  const simTickAccRef = useRef(0)
   const FRAME_ERROR_LIMIT = 5
 
   useFrame((_, delta) => {
     // Cap dt to avoid spiral-of-death on slow frames
     const dt = Math.min(delta, 0.1)
 
+    // M72-6: Master toggle — set to false to disable all RPG systems (survival,
+    // combat, crafting, dungeons, quests, player inventory, etc.) while keeping
+    // simulation-relevant ticks (creature AI, ecosystem balance, weather, day/night).
+    const RPG_ENABLED = false
+
     try {
     // M5: Reset damage-source flags at frame start so this frame's damage is tracked fresh
-    resetDamageFlags()
+    if (RPG_ENABLED) resetDamageFlags()
 
     // M40 Track B: Mana regeneration + periodic store sync
-    spellSystem.tick(dt)
-    useSpellStore.getState().syncFromSystem()
+    if (RPG_ENABLED) {
+      spellSystem.tick(dt)
+      useSpellStore.getState().syncFromSystem()
+    }
 
     // Pause all game logic when the CLICK TO PLAY overlay is visible (B-08 fix).
     if (!gameActive) return
@@ -369,10 +380,10 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
     }
 
     // 1. Player movement + camera (computes desired movement, calls Rapier KCC)
-    controllerRef.current?.update(dt, camera)
+    if (RPG_ENABLED) controllerRef.current?.update(dt, camera)
 
     // M35 Track B: Earthquake camera shake — sinusoidal offset
-    if (earthquakeActiveRef.current > 0) {
+    if (RPG_ENABLED && earthquakeActiveRef.current > 0) {
       const shakeIntensity = Math.min(1, earthquakeActiveRef.current / 3) * 0.3
       camera.position.x += Math.sin(Date.now() * 0.05) * shakeIntensity
       camera.position.y += Math.sin(Date.now() * 0.07 + 1.2) * shakeIntensity * 0.5
@@ -423,12 +434,12 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
     }
 
     // M24: Combat system tick (cooldowns, damage numbers, health bar pruning)
-    combatSystem.tick(dt)
+    if (RPG_ENABLED) combatSystem.tick(dt)
     // M53 Track C: Combo system tick (dt is seconds, tickCombo expects ms)
-    tickCombo(dt * 1000)
+    if (RPG_ENABLED) tickCombo(dt * 1000)
 
     // M38 Track B: Faction ability lazy registration
-    {
+    if (RPG_ENABLED) {
       const pf = useFactionStore.getState().playerFaction
       if (pf && registeredFactionAbilityRef.current !== pf) {
         registeredFactionAbilityRef.current = pf
@@ -452,7 +463,7 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
     }
 
     // M38 Track B: Stamina regeneration — 10/s when not sprinting or dodging
-    {
+    if (RPG_ENABLED) {
       const ps38 = usePlayerStore.getState()
       const isSprinting = !!(controllerRef.current as any)?.keys?.has?.('ShiftLeft') ||
                           !!(controllerRef.current as any)?.keys?.has?.('ShiftRight')
@@ -463,7 +474,7 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
     }
 
     // M41 Track B: Mount and riding system
-    {
+    if (RPG_ENABLED) {
       if (useGameStore.getState().inputBlocked) {
         // Clear any pending R key while UI is open so it doesn't fire on panel close
         controllerRef.current?.popMount()
@@ -551,7 +562,7 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
     }
 
     // M38 Track B: Dodge roll — check for double-tap dodge request
-    {
+    if (RPG_ENABLED) {
       if (controllerRef.current?.popDodgeRequest()) {
         const ps38 = usePlayerStore.getState()
         if (!ps38.drainStamina(20)) {
@@ -570,7 +581,7 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
     }
 
     // M38 Track B: Faction ability (X key)
-    {
+    if (RPG_ENABLED) {
       if (controllerRef.current?.popFactionAbility()) {
         const { playerFaction } = useFactionStore.getState()
         if (playerFaction) {
@@ -627,7 +638,7 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
     }
 
     // M34 Track B: Boss spawn tick — try to spawn boss when new in-game day begins
-    {
+    if (RPG_ENABLED) {
       const _bossSpawnDayAngle = getDayAngle()
       trySpawnBoss(
         _bossSpawnDayAngle,
@@ -638,49 +649,51 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
     }
 
     // 3. Metabolism (hunger, thirst, fatigue, health regen)
-    setMetabolismDt(dt)
-    MetabolismSystem(world)
+    if (RPG_ENABLED) {
+      setMetabolismDt(dt)
+      MetabolismSystem(world)
 
-    // B-16 fix: God Mode bypasses starvation/dehydration damage
-    if (inventory.isGodMode()) {
-      Metabolism.hunger[entityId] = 0
-      Metabolism.thirst[entityId] = 0
-    }
+      // B-16 fix: God Mode bypasses starvation/dehydration damage
+      if (inventory.isGodMode()) {
+        Metabolism.hunger[entityId] = 0
+        Metabolism.thirst[entityId] = 0
+      }
 
-    // 3. Push ECS vitals → playerStore so HUD bars update
-    const maxHp = Health.max[entityId] || 100
-    updateVitals({
-      health:  Health.current[entityId] / maxHp,
-      hunger:  Metabolism.hunger[entityId],
-      thirst:  Metabolism.thirst[entityId],
-      energy:  Metabolism.energy[entityId],
-      fatigue: Metabolism.fatigue[entityId],
-    })
+      // 3. Push ECS vitals → playerStore so HUD bars update
+      const maxHp = Health.max[entityId] || 100
+      updateVitals({
+        health:  Health.current[entityId] / maxHp,
+        hunger:  Metabolism.hunger[entityId],
+        thirst:  Metabolism.thirst[entityId],
+        energy:  Metabolism.energy[entityId],
+        fatigue: Metabolism.fatigue[entityId],
+      })
 
-    // 3b. Death trigger (M5) - delegates to DeathSystem
-    {
-      const _hpRef = { current: Health.current[entityId] }
-      const _died = checkAndTriggerDeath(
-        _hpRef,
-        {
-          x: Position.x[entityId],
-          y: Position.y[entityId],
-          z: Position.z[entityId],
-        },
-        inventory,
-      )
-      Health.current[entityId] = _hpRef.current
-      if (_died) return
-    }
+      // 3b. Death trigger (M5) - delegates to DeathSystem
+      {
+        const _hpRef = { current: Health.current[entityId] }
+        const _died = checkAndTriggerDeath(
+          _hpRef,
+          {
+            x: Position.x[entityId],
+            y: Position.y[entityId],
+            z: Position.z[entityId],
+          },
+          inventory,
+        )
+        Health.current[entityId] = _hpRef.current
+        if (_died) return
+      }
 
-    // 4b. Apply base creature stats once on first frame
-    if (evoUnlockedRef.current === -1) {
-      evoUnlockedRef.current = 0
-      applyEvolutionEffects(entityId)
-    }
+      // 4b. Apply base creature stats once on first frame
+      if (evoUnlockedRef.current === -1) {
+        evoUnlockedRef.current = 0
+        applyEvolutionEffects(entityId)
+      }
+    } // end RPG_ENABLED: metabolism/vitals/death
 
     // 4b. Node respawn — check if any gathered nodes are ready to come back
-    if (gatheredNodeIds.size > 0) {
+    if (RPG_ENABLED && gatheredNodeIds.size > 0) {
       const now = Date.now()
       for (const id of gatheredNodeIds) {
         const at = NODE_RESPAWN_AT.get(id)
@@ -696,10 +709,10 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
     const px = Position.x[entityId]
     const py = Position.y[entityId]
     const pz = Position.z[entityId]
-    setPosition(px, py, pz)
+    if (RPG_ENABLED) setPosition(px, py, pz)
 
     // M37 Track C: accumulate distance traveled
-    if (lastStatsPos.current !== null) {
+    if (RPG_ENABLED && lastStatsPos.current !== null) {
       const ddx = px - lastStatsPos.current.x
       const ddz = pz - lastStatsPos.current.z
       const moved = Math.sqrt(ddx * ddx + ddz * ddz)
@@ -707,12 +720,12 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
         usePlayerStatsStore.getState().incrementStat('distanceTraveled', moved)
         lastStatsPos.current = { x: px, z: pz }
       }
-    } else {
+    } else if (RPG_ENABLED) {
       lastStatsPos.current = { x: px, z: pz }
     }
 
     // ── M37 Track A: World event proximity / participation ────────────────────
-    {
+    if (RPG_ENABLED) {
       const ev = currentWorldEvent
       if (ev && ev.active && ev.id !== worldEventCompletedRef.current) {
         const [ex, ey, ez] = ev.position
@@ -749,7 +762,7 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
     }
 
     // M29 Track C4: Inspect remote player — F within 3m, prioritised over gather
-    {
+    if (RPG_ENABLED) {
       const inspectStore = useInspectPlayerStore.getState()
       if (!inspectStore.inspectedPlayer) {
         const remotePlayers_inspect = useMultiplayerStore.getState().remotePlayers
@@ -775,7 +788,7 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
     }
 
     // ── M32 Track B: Animal taming prompt ────────────────────────────────────
-    {
+    if (RPG_ENABLED) {
       const gs_tame = useGameStore.getState()
       if (!gs_tame.inputBlocked && gs_tame.gatherPrompt === null) {
         const nearTameable = findNearestTameableAnimal(px, py, pz, 3)
@@ -837,6 +850,12 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
         }
       }
     }
+
+    // ========================================================================
+    // M72-6: Everything below until the weather/sim section is RPG gameplay.
+    // Wrapped in RPG_ENABLED guard to disable during organism simulation mode.
+    // ========================================================================
+    if (RPG_ENABLED) {
 
     // 5. Resource proximity + gather (3D distance on sphere surface)
     const gs = useGameStore.getState()
@@ -2129,7 +2148,11 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
       }
     }
 
+    } // end M72-6 RPG_ENABLED block (resource/combat/crafting/dungeon/NPC/sailing/etc.)
+
     // ── M8: Weather simulation integration ────────────────────────────────────
+    // NOTE: Weather system runs regardless of RPG_ENABLED — it's part of the simulation.
+    // However, player-damaging effects (cold damage, acid rain) are RPG-only.
     {
       const sectorId = getSectorIdForPosition(px, py, pz)
       const wStore = useWeatherStore.getState()
@@ -2154,7 +2177,7 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
         const newTemp = storedTemp + (windChill - storedTemp) * Math.min(1, rate * dt)
         usePlayerStore.getState().setAmbientTemp(newTemp)
 
-        if (newTemp < 0 && !inventory.isGodMode() && !shelterState.isSheltered) {
+        if (RPG_ENABLED && newTemp < 0 && !inventory.isGodMode() && !shelterState.isSheltered) {
           const coldDps = wState === 'STORM' ? 1.5 : 0.5
           Health.current[entityId] = Math.max(0, Health.current[entityId] - coldDps * dt)
           markColdDamage()
@@ -2173,13 +2196,13 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
       }
 
       // M42 Track B: ACID_RAIN — 3 dps bypassing armor, skipped when sheltered
-      if (wState === 'ACID_RAIN' && !inventory.isGodMode() && !shelterState.isSheltered) {
+      if (RPG_ENABLED && wState === 'ACID_RAIN' && !inventory.isGodMode() && !shelterState.isSheltered) {
         Health.current[entityId] = Math.max(0, Health.current[entityId] - 3 * dt)
         useUiStore.getState().addNotification('Acid rain is corroding you!', 'error')
       }
 
       // M42 Track B: Heat exhaustion — ambient > 45°C
-      if (!inventory.isGodMode()) {
+      if (RPG_ENABLED && !inventory.isGodMode()) {
         const ambientT = usePlayerStore.getState().ambientTemp
         if (ambientT > 45) {
           const pState = usePlayerStore.getState()
@@ -2213,6 +2236,15 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
     }
 
     // M70: Weather forecast refresh moved to GameLoopScheduler ('weather-forecast')
+
+    // ========================================================================
+    // M72-6: RPG gameplay systems block 2 — shelter, weather-responsive gameplay,
+    // disasters, hazards, river, sailing, fishing, quests, achievements, etc.
+    // ========================================================================
+    if (RPG_ENABLED) {
+
+    // Block 2 needs its own gameStore reference (gs is scoped to block 1)
+    const gs = useGameStore.getState()
 
     // ── M42 Track B: Shelter update (every 2s) ────────────────────────────────
     {
@@ -3151,11 +3183,26 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
       }
     }
 
+    } // end M72-6 RPG_ENABLED block 2 (shelter/weather-gameplay/disasters/river/sailing/quests/achievements)
+
     // ── M70: Scheduler-based periodic ticks (replaces 15+ timer blocks) ──────
+    // NOTE: Scheduler runs regardless of RPG_ENABLED — some tasks are sim-relevant.
     gameLoopScheduler.update(dt, useGameStore.getState().simSeconds)
 
-    // ── M7 T2: NPC guard aggro ────────────────────────────────────────────────
+    // ── M72: Emergent organism simulation tick ─────────────────────────────────
+    // Runs natural selection (fitness eval, death, reproduction, speciation) and
+    // syncs births/deaths to ECS entities so CreatureRenderer displays them.
+    // Tick every ~10 frames to keep under 5ms budget for 200+ organisms.
     {
+      simTickAccRef.current = (simTickAccRef.current ?? 0) + 1
+      if (simTickAccRef.current >= 10 && isSimulationActive()) {
+        simTickAccRef.current = 0
+        tickSimulation(useGameStore.getState().simSeconds)
+      }
+    }
+
+    // ── M7 T2: NPC guard aggro ────────────────────────────────────────────────
+    if (RPG_ENABLED) {
       const localMurderCount = usePlayerStore.getState().murderCount
       const WANTED_THRESHOLD_CLIENT = 5
       const GUARD_RANGE_SQ = 30 * 30

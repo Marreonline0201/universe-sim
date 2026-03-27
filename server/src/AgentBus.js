@@ -5,6 +5,10 @@
 
 const MAX_MESSAGES = 100
 
+// Debug log: captures recent director → active transitions with call stacks
+const directorActivationLog = []
+export function getDirectorActivationLog() { return [...directorActivationLog] }
+
 const AGENT_IDS = [
   'director',
   'status-worker', 'gp-agent', 'knowledge-director',
@@ -39,10 +43,12 @@ export function updateAgent(agentId, status, task, message, to) {
   const entry = agents.get(agentId)
   const prevStatus = entry.status
 
-  // Debug: log stack trace whenever director becomes active so we can find the source
+  // Debug: capture stack trace whenever director becomes active so we can find the source
   if (agentId === 'director' && status === 'active' && prevStatus !== 'active') {
     const stack = new Error().stack ?? '(no stack)'
     console.log(`[AgentBus] director → active (from ${prevStatus}) | stack:\n${stack}`)
+    directorActivationLog.unshift({ ts: Date.now(), prevStatus, stack })
+    if (directorActivationLog.length > 20) directorActivationLog.length = 20
   }
 
   entry.status   = status ?? entry.status

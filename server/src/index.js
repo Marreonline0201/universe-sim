@@ -431,6 +431,13 @@ Rules:
       return
     }
 
+    // GET /debug-director-log — recent director → active transitions with call stacks
+    if (req.method === 'GET' && normalizedPath === '/debug-director-log') {
+      res.writeHead(200, { 'Content-Type': 'application/json', ...corsHeaders })
+      res.end(JSON.stringify(AgentBus.getDirectorActivationLog()))
+      return
+    }
+
     if (req.method === 'GET' && normalizedPath === '/agent-approval') {
       const agentId = new URL(req.url, 'http://localhost').searchParams.get('agentId')
       const approval = agentId ? AgentBus.checkApproval(agentId) : null

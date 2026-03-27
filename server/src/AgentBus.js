@@ -47,14 +47,15 @@ export function updateAgent(agentId, status, task, message, to) {
   const entry = agents.get(agentId)
   const prevStatus = entry.status
 
-  // Debug: capture stack trace whenever director becomes active so we can find the source
-  if (agentId === 'director' && status === 'active' && prevStatus !== 'active') {
-    const stack = new Error().stack ?? '(no stack)'
+  // Debug: capture IP/UA whenever any agent becomes active (helps diagnose ghost states)
+  if (status === 'active' && prevStatus !== 'active') {
     const reqCtx = _nextReqCtx; _nextReqCtx = null
-    const entry = { ts: Date.now(), prevStatus, stack, ip: reqCtx?.ip, xff: reqCtx?.xff, ua: reqCtx?.ua }
-    console.log(`[AgentBus] director → active | ip=${entry.ip} xff=${entry.xff} ua=${entry.ua} | stack:\n${stack}`)
-    directorActivationLog.unshift(entry)
-    if (directorActivationLog.length > 20) directorActivationLog.length = 20
+    if (agentId === 'director') {
+      directorActivationLog.unshift({ ts: Date.now(), prevStatus, ip: reqCtx?.xff?.split(',')[0]?.trim() ?? reqCtx?.ip, ua: reqCtx?.ua })
+      if (directorActivationLog.length > 20) directorActivationLog.length = 20
+    }
+  } else {
+    _nextReqCtx = null
   }
 
   entry.status   = status ?? entry.status
@@ -128,7 +129,7 @@ export function getState() {
 // 'done' agents clear after 30s (they've finished, just need to flush the UI).
 // 'active'/'blocked' agents clear after 3 min (complex work can be slow).
 const DONE_TIMEOUT_MS   = 30 * 1000
-const ACTIVE_TIMEOUT_MS = 3 * 60 * 1000
+const ACTIVE_TIMEOUT_MS = 90 * 1000  // 90s: 3 missed reports = considered dead
 
 /**
  * Inject "still working…" heartbeat messages for active agents that haven't

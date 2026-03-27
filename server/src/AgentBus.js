@@ -175,6 +175,10 @@ export function tickIdleTimeout() {
       wentIdle.push({ id, prevStatus: entry.status, task: entry.task })
       entry.status = 'idle'
       entry.task   = ''
+      // Purge stale heartbeat messages so the feed doesn't show "Still working" after idle
+      for (let i = messages.length - 1; i >= 0; i--) {
+        if (messages[i].from === id && messages[i].heartbeat) messages.splice(i, 1)
+      }
     }
   }
   return wentIdle

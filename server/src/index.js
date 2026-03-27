@@ -433,8 +433,14 @@ Rules:
 
     // GET /debug-director-log — recent director → active transitions with call stacks
     if (req.method === 'GET' && normalizedPath === '/debug-director-log') {
-      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' })
-      res.end(JSON.stringify(AgentBus.getDirectorActivationLog()))
+      try {
+        const log = AgentBus.getDirectorActivationLog ? AgentBus.getDirectorActivationLog() : []
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify(log))
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: String(err) }))
+      }
       return
     }
 

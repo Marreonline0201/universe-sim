@@ -76,7 +76,7 @@ function DevGame() {
       <HUD />
       <EcosystemDashboard />
       <SpectatorBadge />
-      <Suspense fallback={null}><AdminPanel /></Suspense>
+      {import.meta.env.DEV && <Suspense fallback={null}><AdminPanel /></Suspense>}
     </>
   )
 }
@@ -140,7 +140,7 @@ function GameWithSave() {
       <HUD />
       <EcosystemDashboard />
       <SpectatorBadge />
-      <Suspense fallback={null}><AdminPanel /></Suspense>
+      {import.meta.env.DEV && <Suspense fallback={null}><AdminPanel /></Suspense>}
     </>
   )
 }

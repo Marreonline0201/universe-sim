@@ -73,7 +73,7 @@ export function EcosystemDashboard() {
     <div style={{
       position: 'fixed',
       top: 48,
-      right: 12,
+      right: 58,
       zIndex: 200,
       pointerEvents: 'none',
       fontFamily: 'monospace',

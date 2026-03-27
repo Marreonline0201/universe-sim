@@ -3,7 +3,6 @@
 // Registers global hotkeys. Blocks game input while any panel is open.
 
 import React, { useEffect, Suspense, lazy } from 'react'
-import { AnimatePresence, motion } from 'framer-motion'
 import { useUiStore, type PanelId } from '../store/uiStore'
 import { useGameStore } from '../store/gameStore'
 import { usePlayerStore } from '../store/playerStore'
@@ -514,6 +513,7 @@ export function SidebarShell() {
         zIndex: 195,
         display: 'flex',
         flexDirection: 'column',
+        alignItems: 'center',
         background: 'rgba(10,10,10,0.93)',
         borderLeft: '1px solid #2a2a2a',
         borderTop: '1px solid #2a2a2a',
@@ -534,7 +534,8 @@ export function SidebarShell() {
               title={hint}
               style={{
                 width: 44,
-                height: 34,
+                minHeight: 34,
+                flexShrink: 0,
                 background: active ? 'rgba(205,68,32,0.22)' : 'transparent',
                 border: 'none',
                 borderLeft: `2px solid ${active ? '#cd4420' : 'transparent'}`,
@@ -571,69 +572,64 @@ export function SidebarShell() {
         })}
       </div>
 
-      {/* Sliding panel */}
-      <AnimatePresence>
-        {activePanel && (
-          <motion.div
-            key={activePanel}
-            initial={{ x: PANEL_WIDTH }}
-            animate={{ x: 0 }}
-            transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+      {/* Sliding panel — CSS-based transition, always in DOM to avoid fiber reconciler conflicts */}
+      <div
+        style={{
+          position: 'fixed',
+          top: 0,
+          right: 0,
+          width: PANEL_WIDTH,
+          height: '100vh',
+          background: 'rgba(14,14,14,0.97)',
+          borderLeft: '1px solid #2a2a2a',
+          zIndex: 200,
+          overflowY: 'auto',
+          display: 'flex',
+          flexDirection: 'column',
+          pointerEvents: activePanel ? 'auto' : 'none',
+          visibility: activePanel ? 'visible' : 'hidden',
+          transform: activePanel ? 'translateX(0)' : `translateX(${PANEL_WIDTH}px)`,
+          transition: 'transform 0.25s ease, visibility 0.25s ease',
+        }}
+      >
+        {/* Panel header */}
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '14px 20px 12px',
+          borderBottom: '1px solid #2a2a2a',
+          borderLeft: '3px solid #cd4420',
+          flexShrink: 0,
+        }}>
+          <span style={{ color: '#fff', fontFamily: 'monospace', fontSize: 13, letterSpacing: 2, fontWeight: 700 }}>
+            {activePanel ? PANEL_LABEL[activePanel] : ''}
+          </span>
+          <button
+            onClick={closePanel}
             style={{
-              position: 'fixed',
-              top: 0,
-              right: 0,
-              width: PANEL_WIDTH,
-              height: '100vh',
-              background: 'rgba(14,14,14,0.97)',
-              borderLeft: '1px solid #2a2a2a',
-              zIndex: 200,
-              overflowY: 'auto',
-              display: 'flex',
-              flexDirection: 'column',
-              pointerEvents: 'auto',
+              background: 'none', border: 'none', color: '#555',
+              cursor: 'pointer', fontSize: 16, lineHeight: 1, padding: 4,
+              transition: 'color 0.15s',
             }}
+            onMouseEnter={e => (e.currentTarget.style.color = '#ccc')}
+            onMouseLeave={e => (e.currentTarget.style.color = '#555')}
+            aria-label="Close panel"
           >
-            {/* Panel header */}
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              padding: '14px 20px 12px',
-              borderBottom: '1px solid #2a2a2a',
-              borderLeft: '3px solid #cd4420',
-              flexShrink: 0,
-            }}>
-              <span style={{ color: '#fff', fontFamily: 'monospace', fontSize: 13, letterSpacing: 2, fontWeight: 700 }}>
-                {activePanel ? PANEL_LABEL[activePanel] : ''}
-              </span>
-              <button
-                onClick={closePanel}
-                style={{
-                  background: 'none', border: 'none', color: '#555',
-                  cursor: 'pointer', fontSize: 16, lineHeight: 1, padding: 4,
-                  transition: 'color 0.15s',
-                }}
-                onMouseEnter={e => (e.currentTarget.style.color = '#ccc')}
-                onMouseLeave={e => (e.currentTarget.style.color = '#555')}
-                aria-label="Close panel"
-              >
-                ✕
-              </button>
+            ✕
+          </button>
+        </div>
+        {/* Panel content */}
+        <div style={{ flex: 1, overflow: 'auto', padding: 16 }}>
+          <Suspense fallback={
+            <div style={{ color: '#555', fontFamily: 'monospace', fontSize: 12, textAlign: 'center', padding: 32 }}>
+              Loading panel...
             </div>
-            {/* Panel content */}
-            <div style={{ flex: 1, overflow: 'auto', padding: 16 }}>
-              <Suspense fallback={
-                <div style={{ color: '#555', fontFamily: 'monospace', fontSize: 12, textAlign: 'center', padding: 32 }}>
-                  Loading panel...
-                </div>
-              }>
-                {ActivePanel && <ActivePanel />}
-              </Suspense>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+          }>
+            {ActivePanel && <ActivePanel />}
+          </Suspense>
+        </div>
+      </div>
     </>
   )
 }

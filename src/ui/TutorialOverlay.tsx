@@ -7,13 +7,31 @@ import { tutorialSystem } from '../game/GameSingletons'
 
 export function TutorialOverlay() {
   const [, setTick] = useState(0)
+  const [dismissed, setDismissed] = useState(false)
 
   useEffect(() => {
     const iv = setInterval(() => setTick(t => t + 1), 200)
     return () => clearInterval(iv)
   }, [])
 
-  if (!tutorialSystem || tutorialSystem.isComplete) return null
+  // Auto-dismiss after 45 seconds
+  useEffect(() => {
+    const timer = setTimeout(() => setDismissed(true), 45_000)
+    return () => clearTimeout(timer)
+  }, [])
+
+  // Also dismiss on first WASD movement
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (['w', 'a', 's', 'd', 'W', 'A', 'S', 'D'].includes(e.key)) {
+        setDismissed(true)
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [])
+
+  if (!tutorialSystem || tutorialSystem.isComplete || dismissed) return null
 
   const step = tutorialSystem.step
   const message = tutorialSystem.message

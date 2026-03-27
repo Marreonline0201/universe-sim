@@ -6,6 +6,7 @@ import { ServerStats }   from './components/ServerStats'
 import { PlayerRoster }  from './components/PlayerRoster'
 import { PlayerDetail }  from './components/PlayerDetail'
 import { AgentControlCenter } from './components/AgentControlCenter'
+import { DocsPage } from './components/DocsPage'
 
 // ── Global CSS (injected as style tag) ────────────────────────────────────────
 const GLOBAL_CSS = `
@@ -101,11 +102,12 @@ const GLOBAL_CSS = `
   }
 `
 
-type View = 'map' | 'agents'
+type View = 'map' | 'agents' | 'docs'
 
 const VIEWS: { id: View; label: string }[] = [
   { id: 'map',    label: 'WORLD MAP' },
   { id: 'agents', label: 'AGENT CONTROL' },
+  { id: 'docs',   label: 'GAME GUIDE' },
 ]
 
 export function StatusApp() {
@@ -228,6 +230,19 @@ export function StatusApp() {
             background: 'rgba(4,8,18,0.88)',
           }}>
             <AgentControlCenter agentState={world.agentState} />
+          </div>
+        )}
+
+        {/* ── Docs / Game Guide view ────────────────────────────────────── */}
+        {view === 'docs' && (
+          <div style={{
+            flex: 1,
+            minHeight: 0,
+            position: 'relative',
+            zIndex: 5,
+            overflow: 'hidden',
+          }}>
+            <DocsPage />
           </div>
         )}
 

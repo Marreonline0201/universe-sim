@@ -75,7 +75,7 @@ export function DiplomacyHUD() {
       position: 'fixed',
       top: 80,
       right: 16,
-      zIndex: 1200,
+      zIndex: 190,
       display: 'flex',
       flexDirection: 'column',
       alignItems: 'flex-end',

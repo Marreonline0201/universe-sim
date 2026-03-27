@@ -65,7 +65,7 @@ export function AdminPanel() {
       <button
         onClick={() => setOpen(o => !o)}
         style={{
-          position: 'fixed', bottom: 16, right: 16, zIndex: 9999,
+          position: 'fixed', bottom: 16, right: 16, zIndex: 196,
           background: '#ff4444', color: '#fff', border: 'none',
           padding: '6px 14px', borderRadius: 6, cursor: 'pointer',
           fontSize: 12, fontWeight: 700, letterSpacing: 1,

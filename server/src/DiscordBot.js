@@ -365,6 +365,9 @@ export class DiscordBot {
     const clientId = process.env.DISCORD_CLIENT_ID
     const guildId  = process.env.DISCORD_GUILD_ID  // optional
 
+    console.log('[Discord] Starting bot init...')
+    console.log(`[Discord] TOKEN set: ${!!token} | CLIENT_ID set: ${!!clientId} | GUILD_ID set: ${!!guildId}`)
+
     if (!token || !clientId) {
       console.log('[Discord] DISCORD_BOT_TOKEN or DISCORD_CLIENT_ID not set — bot disabled')
       return

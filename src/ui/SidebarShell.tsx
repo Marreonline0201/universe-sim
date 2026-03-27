@@ -3,6 +3,7 @@
 // Registers global hotkeys. Blocks game input while any panel is open.
 
 import React, { useEffect, Suspense, lazy } from 'react'
+import { RPG_ENABLED } from '../game/gameConfig'
 import { useUiStore, type PanelId } from '../store/uiStore'
 import { useGameStore } from '../store/gameStore'
 import { usePlayerStore } from '../store/playerStore'
@@ -158,6 +159,18 @@ function BuildingsPanelWrapper() {
   )
 }
 
+// Simulation-mode stub for panels that require RPG systems
+function SimModeUnavailablePanel({ name }: { name: string }) {
+  return (
+    <div style={{ color: '#666', fontFamily: 'monospace', fontSize: 12, textAlign: 'center', padding: 32 }}>
+      {name} is unavailable in simulation mode.
+    </div>
+  )
+}
+
+function InventorySimStub() { return <SimModeUnavailablePanel name="Inventory" /> }
+function CraftingSimStub()  { return <SimModeUnavailablePanel name="Crafting" /> }
+
 const PANEL_LABEL: Record<PanelId, string> = {
   inventory: 'INVENTORY',
   crafting:  'CRAFTING',
@@ -305,9 +318,20 @@ const ICON_BUTTONS: Array<{ id: PanelId; icon: string; hint: string }> = [
   { id: 'expedition',    icon: '🗺️', hint: 'Expeditions' },
 ]
 
+// Panels that are always shown regardless of RPG_ENABLED
+const SIM_PANELS = new Set<PanelId>([
+  'map', 'science', 'settings', 'players', 'codex',
+  'worldevents', 'bestiary', 'forecast', 'weatherevents',
+  'statsdash', 'worldboss', 'chronicle', 'worldhistory',
+])
+
+const VISIBLE_ICON_BUTTONS = RPG_ENABLED
+  ? ICON_BUTTONS
+  : ICON_BUTTONS.filter(b => SIM_PANELS.has(b.id))
+
 const PANEL_COMPONENTS: Record<PanelId, React.ComponentType> = {
-  inventory:   InventoryPanel,
-  crafting:    CraftingPanel,
+  inventory:   RPG_ENABLED ? InventoryPanel : InventorySimStub,
+  crafting:    RPG_ENABLED ? CraftingPanel  : CraftingSimStub,
   build:       BuildPanel,
   journal:     JournalPanel,
   character:   CharacterPanel,
@@ -525,7 +549,7 @@ export function SidebarShell() {
         overflowX: 'hidden',
         scrollbarWidth: 'none',
       }}>
-        {ICON_BUTTONS.map(({ id, icon, hint }) => {
+        {VISIBLE_ICON_BUTTONS.map(({ id, icon, hint }) => {
           const active = activePanel === id
           return (
             <button

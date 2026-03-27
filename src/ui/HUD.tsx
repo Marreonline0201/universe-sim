@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, Suspense, lazy } from 'react'
+import { RPG_ENABLED } from '../game/gameConfig'
 import { useGameStore } from '../store/gameStore'
 import { usePlayerStore } from '../store/playerStore'
 import { useMultiplayerStore } from '../store/multiplayerStore'
@@ -1934,8 +1935,8 @@ export function HUD() {
           )}
         </div>
 
-        {/* ── Bottom-left: vitals ── */}
-        <div style={{
+        {/* ── Bottom-left: vitals (RPG only) ── */}
+        {RPG_ENABLED && <div style={{
           position: 'absolute',
           bottom: 80,
           left: 20,
@@ -2092,7 +2093,7 @@ export function HUD() {
               {weatherState === 'ACID_RAIN' ? '! ACID RAIN' : '! BLIZZARD'}
             </div>
           )}
-        </div>
+        </div>}
 
         {/* ── M8: Armor slot (chest) — bottom-left above hotbar ── */}
         {/* Shows Steel Chestplate when equipped. Click to unequip. */}
@@ -2364,9 +2365,11 @@ export function HUD() {
       <WorldEventHUD />
 
       {/* ── M41 Track C: Seasonal festival banner + corner indicator ── */}
-      <Suspense fallback={null}>
-        <FestivalHUD />
-      </Suspense>
+      {RPG_ENABLED && (
+        <Suspense fallback={null}>
+          <FestivalHUD />
+        </Suspense>
+      )}
 
       {/* ── M42 Track C: Reputation tier-change toast ── */}
       <Suspense fallback={null}>
@@ -2383,7 +2386,7 @@ export function HUD() {
       </Suspense>
 
       {/* ── M47 Track C: Dungeon floor indicator (shown underground) ── */}
-      <DungeonFloorHUD />
+      {RPG_ENABLED && <DungeonFloorHUD />}
 
       {/* ── M47 Track B: Environmental hazard warning bar ── */}
       <Suspense fallback={null}>

@@ -39,6 +39,8 @@ import {
   openChest,
 } from './ChestSystem'
 
+import { RPG_ENABLED } from './gameConfig'
+
 import {
   world,
   Metabolism, Health, Position, Velocity, IsDead,
@@ -354,12 +356,15 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
     // Cap dt to avoid spiral-of-death on slow frames
     const dt = Math.min(delta, 0.1)
 
-    // M72-6: Master toggle — set to false to disable all RPG systems (survival,
-    // combat, crafting, dungeons, quests, player inventory, etc.) while keeping
+    // M72-6: Master toggle — imported from gameConfig.ts so UI can also read it.
+    // Set RPG_ENABLED = false there to disable all RPG systems while keeping
     // simulation-relevant ticks (creature AI, ecosystem balance, weather, day/night).
-    const RPG_ENABLED = false
 
     try {
+    // M_vis: Advance simulation time every frame (previously missing — simSeconds stayed 0).
+    // Required so day/night cycle and per-tick environment calculations work correctly.
+    useGameStore.getState().addSimSeconds(dt)
+
     // M5: Reset damage-source flags at frame start so this frame's damage is tracked fresh
     if (RPG_ENABLED) resetDamageFlags()
 
@@ -3197,7 +3202,13 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
       simTickAccRef.current = (simTickAccRef.current ?? 0) + 1
       if (simTickAccRef.current >= 10 && isSimulationActive()) {
         simTickAccRef.current = 0
-        tickSimulation(useGameStore.getState().simSeconds)
+        const _tickResult = tickSimulation(useGameStore.getState().simSeconds)
+        // M_vis: Debug log — confirms tick fires and shows live organism count.
+        // Throttle to every 100 ticks to avoid console spam.
+        const _simStats = (window as any).__simTickCount = ((window as any).__simTickCount ?? 0) + 1
+        if (_simStats % 100 === 1) {
+          console.log('[SimTick] tick fired, simSeconds:', useGameStore.getState().simSeconds.toFixed(1), 'births:', _tickResult?.births ?? 0, 'deaths:', _tickResult?.deaths ?? 0)
+        }
       }
     }
 

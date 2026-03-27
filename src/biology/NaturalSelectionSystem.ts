@@ -36,6 +36,8 @@ export interface Organism {
   age:       number
   /** Environment this organism occupies */
   biome:     string
+  /** M75: Energy level 0-1. Autotrophs gain from light, heterotrophs burn over time. */
+  energy:    number
 }
 
 export interface SelectionTickResult {
@@ -132,6 +134,7 @@ export class NaturalSelectionSystem {
       cooldown:  Math.floor(this.rng() * MIN_REPRO_COOLDOWN),
       age:       0,
       biome,
+      energy:    1.0, // M75: start at full energy
     }
     this.organisms.set(org.id, org)
     return org
@@ -177,6 +180,36 @@ export class NaturalSelectionSystem {
       const env = getEnvironment(org)
       const breakdown = evaluateFitness(org.genome, env)
       org.fitness = breakdown.overall
+
+      // ── M75: Energy economy — dietary type determines energy gain/loss per tick ──
+      const phenotype = this.encoder.decode(org.genome)
+      const metabolicCost = 0.002 + (phenotype.metabolicRate / 15) * 0.008  // faster metabolism = more burn
+
+      switch (phenotype.dietaryType) {
+        case 0: // Autotroph — gains energy from light (photosynthesis)
+          org.energy = Math.min(1.0, org.energy + 0.005 * (env.light / 200))
+          break
+        case 1: // Heterotroph — loses energy over time (must find food)
+          org.energy = Math.max(0, org.energy - metabolicCost)
+          break
+        case 2: // Mixotroph — slow gain (partial photosynthesis)
+          org.energy = Math.min(1.0, org.energy + 0.002 * (env.light / 200))
+          break
+        case 3: // Chemoautotroph — moderate gain from chemical energy
+          org.energy = Math.min(1.0, org.energy + 0.003)
+          break
+      }
+
+      // Kill organism if energy depleted
+      if (org.energy <= 0) {
+        toRemove.push(org.id)
+        deaths++
+        continue
+      }
+
+      // Energy contributes to fitness: starving organisms are less fit
+      const energyFactor = org.energy > 0.2 ? 1.0 : org.energy / 0.2  // linear dropoff below 20%
+      org.fitness *= energyFactor
 
       // ── Differential death ────────────────────────────────────────────
       const fitnessPenalty = (1 - org.fitness) * (1 - org.fitness)

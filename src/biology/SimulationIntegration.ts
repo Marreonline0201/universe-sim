@@ -20,6 +20,7 @@ import { NaturalSelectionSystem, type Organism, type SelectionTickResult } from 
 import { world, createCreatureEntity, Position } from '../ecs/world'
 import { removeEntity } from 'bitecs'
 import { PLANET_RADIUS } from '../world/SpherePlanet'
+import { creatureWander } from '../ecs/systems/CreatureWanderSystem'
 
 // ── Module state ─────────────────────────────────────────────────────────────
 
@@ -156,6 +157,16 @@ export function initializeSimulation(seed = 42): number {
 
     orgToEcs.set(org.id, eid)
     ecsToOrg.set(eid, org.id)
+
+    // M75: Register organism with wander system so it moves on planet surface
+    const wanderAngle = posRng() * Math.PI * 2
+    const wanderSpeed = 0.1 + posRng() * 0.2  // slow drift: 0.1-0.3 m/s
+    creatureWander.set(eid, {
+      vx: Math.cos(wanderAngle) * wanderSpeed,
+      vy: 0,
+      vz: Math.sin(wanderAngle) * wanderSpeed,
+      timer: 2 + posRng() * 6,
+    })
   }
 
   console.log(
@@ -211,6 +222,8 @@ export function tickSimulation(simTime: number): SelectionTickResult | null {
       } catch (_e) {
         // Entity may already be removed
       }
+      // M75: Clean up wander state for dead organisms (prevent memory leak)
+      creatureWander.delete(eid)
       orgToEcs.delete(orgId)
       ecsToOrg.delete(eid)
     }
@@ -248,6 +261,16 @@ export function tickSimulation(simTime: number): SelectionTickResult | null {
 
       orgToEcs.set(org.id, eid)
       ecsToOrg.set(eid, org.id)
+
+      // M75: Register newborn with wander system so it moves
+      const bornAngle = posRng() * Math.PI * 2
+      const bornSpeed = 0.1 + posRng() * 0.2
+      creatureWander.set(eid, {
+        vx: Math.cos(bornAngle) * bornSpeed,
+        vy: 0,
+        vz: Math.sin(bornAngle) * bornSpeed,
+        timer: 2 + posRng() * 6,
+      })
 
       // M74: If this organism belongs to a species not seen before this tick,
       // it is a speciation event — emit a visual pulse

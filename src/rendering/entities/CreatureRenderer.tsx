@@ -3,6 +3,8 @@ import { useRef, useMemo } from 'react'
 import { InstancedMesh, Matrix4, Color, MeshStandardMaterial, Vector3 } from 'three'
 import { world, Position, CreatureBody, PlayerControlled } from '../../ecs/world'
 import { defineQuery, Not } from 'bitecs'
+// M74: Speciation visual pulse — flash newly speciated organisms
+import { getActiveSpeciationEvents, getSpeciationProgress } from '../../biology/SimulationIntegration'
 
 // Exclude the player entity — it has its own humanoid mesh
 const creatureQuery = defineQuery([Position, CreatureBody, Not(PlayerControlled)])
@@ -83,13 +85,30 @@ export function CreatureRenderer() {
     const cam = _camPos.current
     const cpos = _cPos.current
 
+    // M74: Build a lookup of speciated eids -> progress for pulse VFX
+    // This is O(active events) which is capped at 20 — negligible cost
+    const speciationMap = new Map<number, number>()
+    const activeEvents = getActiveSpeciationEvents()
+    for (let e = 0; e < activeEvents.length; e++) {
+      speciationMap.set(activeEvents[e].eid, getSpeciationProgress(activeEvents[e]))
+    }
+
     for (let i = 0; i < total; i++) {
       const eid = entities[i]
 
       const cx = Position.x[eid]
       const cy = Position.y[eid]
       const cz = Position.z[eid]
-      const size = CreatureBody.size[eid] || 0.5
+      let size = CreatureBody.size[eid] || 0.5
+
+      // M74: Speciation pulse — scale boost with smooth ease-out
+      const speciationProgress = speciationMap.get(eid)
+      const isSpeciating = speciationProgress !== undefined
+      if (isSpeciating) {
+        // Ease-out pulse: starts at 1.5x, decays back to 1.0x over 2 seconds
+        const pulse = 1.0 + 0.5 * (1.0 - speciationProgress!) * (1.0 - speciationProgress!)
+        size *= pulse
+      }
 
       // Distance-based LOD selection — squared distance, no sqrt
       cpos.set(cx, cy, cz)
@@ -108,9 +127,26 @@ export function CreatureRenderer() {
       targetMesh.setMatrixAt(instIdx, matrix)
 
       // M73: Color by speciesId using golden-angle hue for maximum visual distinction
-      const speciesId = CreatureBody.speciesId[eid] || 0
-      const hue = (speciesId * 137.5) % 360
-      color.setHSL(hue / 360, 0.7, 0.55)
+      // M74: Speciation pulse overrides color to bright white-gold flash
+      if (isSpeciating) {
+        // Lerp from bright white-gold (1.0, 0.95, 0.6) to normal species color
+        const t = speciationProgress!
+        const speciesId = CreatureBody.speciesId[eid] || 0
+        const hue = (speciesId * 137.5) % 360
+        // Normal color
+        color.setHSL(hue / 360, 0.7, 0.55)
+        const nr = color.r, ng = color.g, nb = color.b
+        // Flash color: bright white-gold
+        color.setRGB(
+          nr + (1.0 - nr) * (1.0 - t),
+          ng + (0.95 - ng) * (1.0 - t),
+          nb + (0.6 - nb) * (1.0 - t),
+        )
+      } else {
+        const speciesId = CreatureBody.speciesId[eid] || 0
+        const hue = (speciesId * 137.5) % 360
+        color.setHSL(hue / 360, 0.7, 0.55)
+      }
       targetMesh.setColorAt(instIdx, color)
     }
 

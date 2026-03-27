@@ -583,9 +583,9 @@ export function SceneRoot() {
         {worldInitialized && (
           <>
             {/* M14/M15: Show destination planet when player has arrived via transit */}
-            {transitPhase === 'arrived' ? <DestinationPlanetSelector /> : <PlanetTerrain key={serverWorldSeed} seed={serverWorldSeed} dayAngle={dayAngle} />}
+            {transitPhase === 'arrived' ? <DestinationPlanetSelector /> : <PlanetTerrain key={"planet-" + serverWorldSeed} seed={serverWorldSeed} dayAngle={dayAngle} />}
             <DigHolesRenderer />
-            <ResourceNodes key={serverWorldSeed} />
+            <ResourceNodes key={"resources-" + serverWorldSeed} />
             <NodeHealthBars />
             <PlacedBuildingsRenderer />
             {/* M28 Track B: Placed raft meshes with buoyancy */}
@@ -625,7 +625,7 @@ export function SceneRoot() {
             {/* M35 Track B: Lava pools — emissive circles near volcano summit */}
             <LavaPoolRenderer />
             {/* M9: River ribbon meshes — generated from flow-field paths */}
-            <RiverRenderer key={serverWorldSeed} seed={serverWorldSeed} />
+            <RiverRenderer key={"river-" + serverWorldSeed} seed={serverWorldSeed} />
             {/* M9: Animal renderer — instanced deer/wolf/boar meshes */}
             <AnimalRenderer />
             {/* M32: Tamed animal label overlay — heart + pet name projected to screen */}

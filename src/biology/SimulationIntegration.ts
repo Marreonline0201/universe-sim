@@ -38,6 +38,42 @@ let totalSpeciations = 0
 let tickCount = 0
 let lastTickResult: SelectionTickResult | null = null
 
+// ── M74: Speciation event ring buffer for visual pulse ────────────────────────
+// Stores ECS entity IDs that just speciated, with timestamp for TTL expiry.
+// CreatureRenderer reads this to apply a brief flash/pulse on newly speciated organisms.
+
+interface SpeciationEvent {
+  eid: number
+  timestamp: number  // performance.now() when the event occurred
+}
+
+const MAX_SPECIATION_EVENTS = 20
+const SPECIATION_EVENT_TTL_MS = 2000  // 2 seconds visible pulse
+
+const speciationEvents: SpeciationEvent[] = []
+
+/**
+ * Get active speciation events (not yet expired).
+ * Called by CreatureRenderer each frame.
+ */
+export function getActiveSpeciationEvents(): SpeciationEvent[] {
+  const now = performance.now()
+  // Prune expired events
+  while (speciationEvents.length > 0 && now - speciationEvents[0].timestamp > SPECIATION_EVENT_TTL_MS) {
+    speciationEvents.shift()
+  }
+  return speciationEvents
+}
+
+/**
+ * Get the normalized progress (0-1) of a speciation event.
+ * 0 = just happened, 1 = about to expire.
+ */
+export function getSpeciationProgress(event: SpeciationEvent): number {
+  const elapsed = performance.now() - event.timestamp
+  return Math.min(1, elapsed / SPECIATION_EVENT_TTL_MS)
+}
+
 // ── Genome -> ECS mapping helpers ────────────────────────────────────────────
 
 /**
@@ -181,6 +217,14 @@ export function tickSimulation(simTime: number): SelectionTickResult | null {
   }
 
   // ── Sync births: create ECS entities for new organisms ─────────────────
+  // M74: Track species IDs that existed before this tick for speciation detection
+  const knownSpeciesBeforeTick = new Set<number>()
+  for (const org of selectionSystem.getOrganisms()) {
+    if (orgToEcs.has(org.id)) {
+      knownSpeciesBeforeTick.add(org.speciesId)
+    }
+  }
+
   const posRng = makeLcgRng((simTime * 1000) | 0)
 
   for (const org of selectionSystem.getOrganisms()) {
@@ -204,6 +248,15 @@ export function tickSimulation(simTime: number): SelectionTickResult | null {
 
       orgToEcs.set(org.id, eid)
       ecsToOrg.set(eid, org.id)
+
+      // M74: If this organism belongs to a species not seen before this tick,
+      // it is a speciation event — emit a visual pulse
+      if (!knownSpeciesBeforeTick.has(org.speciesId)) {
+        if (speciationEvents.length >= MAX_SPECIATION_EVENTS) {
+          speciationEvents.shift()  // evict oldest
+        }
+        speciationEvents.push({ eid, timestamp: performance.now() })
+      }
     }
   }
 

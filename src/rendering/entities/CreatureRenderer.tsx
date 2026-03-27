@@ -9,12 +9,12 @@ const creatureQuery = defineQuery([Position, CreatureBody, Not(PlayerControlled)
 
 const MAX_INSTANCES = 10_000
 
-// ── M9 T3: LOD distance thresholds ────────────────────────────────────────────
-// Within 50m:   8x8 sphere (full detail)
-// 50–200m:      4x4 sphere (half resolution)
-// Beyond 200m:  3x3 sphere (billboard-quality, no shadow cost)
-const LOD_NEAR_SQ = 50 * 50 // 2500
-const LOD_FAR_SQ = 200 * 200 // 40000
+// ── LOD distance thresholds (M73: scaled for 8-20m organisms on 4000m planet) ─
+// Within 300m:   8x8 sphere (full detail)
+// 300–1000m:     4x4 sphere (half resolution)
+// Beyond 1000m:  3x3 sphere (billboard-quality, no shadow cost)
+const LOD_NEAR_SQ = 300 * 300 // 90000
+const LOD_FAR_SQ = 1000 * 1000 // 1000000
 
 /**
  * Creature SSS (subsurface scattering approximation).
@@ -107,27 +107,10 @@ export function CreatureRenderer() {
       const targetMesh = lodIdx === 0 ? mesh0 : lodIdx === 1 ? mesh1 : mesh2
       targetMesh.setMatrixAt(instIdx, matrix)
 
-      // Color by neural level — reuses _color scratch
-      const level = CreatureBody.neuralLevel[eid] as 0 | 1 | 2 | 3 | 4
-      switch (level) {
-        case 0:
-          color.setRGB(0.1, 0.8, 0.2)
-          break // bright green — microbes
-        case 1:
-          color.setRGB(0.1, 0.7, 0.6)
-          break // teal — fish/insects
-        case 2:
-          color.setRGB(0.9, 0.6, 0.1)
-          break // orange — mammals
-        case 3:
-          color.setRGB(0.9, 0.3, 0.1)
-          break // red-orange — great apes
-        case 4:
-          color.setRGB(1.0, 1.0, 1.0)
-          break // white — humans
-        default:
-          color.setRGB(0.5, 0.5, 0.5)
-      }
+      // M73: Color by speciesId using golden-angle hue for maximum visual distinction
+      const speciesId = CreatureBody.speciesId[eid] || 0
+      const hue = (speciesId * 137.5) % 360
+      color.setHSL(hue / 360, 0.7, 0.55)
       targetMesh.setColorAt(instIdx, color)
     }
 

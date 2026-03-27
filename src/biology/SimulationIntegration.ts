@@ -42,10 +42,10 @@ let lastTickResult: SelectionTickResult | null = null
 
 /**
  * Derive a physical size in meters from genome sizeClass (0-15).
- * Primordial organisms are tiny: 0.05m to 0.30m.
+ * M73: Scaled to 8-20m so organisms are prominent on a 4000m-radius planet.
  */
 function sizeFromGenome(sizeClass: number): number {
-  return 0.05 + (sizeClass / 15) * 0.25
+  return 8 + (sizeClass / 15) * 12
 }
 
 /**

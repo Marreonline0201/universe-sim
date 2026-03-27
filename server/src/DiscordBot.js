@@ -24,7 +24,10 @@ import { neon } from '@neondatabase/serverless'
 let sql = null
 
 async function getDb() {
-  if (!sql && process.env.DATABASE_URL) {
+  if (!sql) {
+    if (!process.env.DATABASE_URL) {
+      throw new Error('DATABASE_URL is not set — ask the server admin to configure it in Railway')
+    }
     sql = neon(process.env.DATABASE_URL)
   }
   return sql

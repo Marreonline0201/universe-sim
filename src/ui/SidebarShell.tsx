@@ -509,8 +509,8 @@ export function SidebarShell() {
       <div style={{
         position: 'fixed',
         right: activePanel ? PANEL_WIDTH : 0,
-        top: '50%',
-        transform: 'translateY(-50%)',
+        top: 0,
+        bottom: 0,
         zIndex: 195,
         display: 'flex',
         flexDirection: 'column',
@@ -521,7 +521,9 @@ export function SidebarShell() {
         borderRadius: '6px 0 0 6px',
         transition: 'right 0.28s cubic-bezier(0.4,0,0.2,1)',
         pointerEvents: 'auto',
-        overflow: 'hidden',
+        overflowY: 'auto',
+        overflowX: 'hidden',
+        scrollbarWidth: 'none',
       }}>
         {ICON_BUTTONS.map(({ id, icon, hint }) => {
           const active = activePanel === id

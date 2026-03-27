@@ -42,8 +42,8 @@ function makeCreatureMaterial(): MeshStandardMaterial {
   // Three.js instanced vertex colors are stored in vColor (injected by vertexColors: true).
   mat.onBeforeCompile = (shader) => {
     shader.fragmentShader = shader.fragmentShader.replace(
-      'vec4 diffuseColor = vec4( diffuse, opacity );',
-      'vec4 diffuseColor = vec4( diffuse, opacity );\n  totalEmissiveRadiance = vColor.rgb * emissiveIntensity;',
+      '#include <emissivemap_fragment>',
+      '#include <emissivemap_fragment>\n  outgoingLight += vColor.rgb * emissiveIntensity;',
     )
   }
   return mat

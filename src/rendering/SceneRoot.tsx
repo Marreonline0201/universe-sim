@@ -75,6 +75,7 @@ import { DungeonRenderer } from './DungeonRenderer'
 import { SeasonalTerrainPass } from './SeasonalTerrainPass'
 // M32 Track A: Seasonal events — meteor showers, aurora, festivals
 import { SeasonalEventsSystem, SeasonalEventsUI } from './SeasonalEventsSystem'
+import { RPG_ENABLED } from '../game/gameConfig'
 // M21 Track A: Procedural ambient audio
 import { AudioHook } from '../audio/AudioHook'
 // Post-processing: raw Three.js composer (bloom + vignette)
@@ -511,12 +512,24 @@ export function SceneRoot() {
         }}>
           <div style={{ fontSize: 22, fontWeight: 700, marginBottom: 8 }}>CLICK TO PLAY</div>
           <div style={{ fontSize: 12, color: '#ccc', lineHeight: 1.7 }}>
-            <div><span style={{ color: '#fff', fontWeight: 600 }}>WASD</span> &nbsp;— Move</div>
-            <div><span style={{ color: '#fff', fontWeight: 600 }}>Mouse</span> &nbsp;— Look</div>
-            <div><span style={{ color: '#fff', fontWeight: 600 }}>Space</span> &nbsp;— Jump</div>
-            <div><span style={{ color: '#fff', fontWeight: 600 }}>F</span> &nbsp;— Gather</div>
-            <div><span style={{ color: '#fff', fontWeight: 600 }}>F near water</span> &nbsp;— Fish</div>
-            <div><span style={{ color: '#fff', fontWeight: 600 }}>I</span> &nbsp;— Inventory</div>
+            {RPG_ENABLED ? (
+              <>
+                <div><span style={{ color: '#fff', fontWeight: 600 }}>WASD</span> &nbsp;— Move</div>
+                <div><span style={{ color: '#fff', fontWeight: 600 }}>Mouse</span> &nbsp;— Look</div>
+                <div><span style={{ color: '#fff', fontWeight: 600 }}>Space</span> &nbsp;— Jump</div>
+                <div><span style={{ color: '#fff', fontWeight: 600 }}>F</span> &nbsp;— Gather</div>
+                <div><span style={{ color: '#fff', fontWeight: 600 }}>F near water</span> &nbsp;— Fish</div>
+                <div><span style={{ color: '#fff', fontWeight: 600 }}>I</span> &nbsp;— Inventory</div>
+              </>
+            ) : (
+              <>
+                <div><span style={{ color: '#fff', fontWeight: 600 }}>[G]</span> &nbsp;— Spectator Mode</div>
+                <div><span style={{ color: '#fff', fontWeight: 600 }}>[B]</span> &nbsp;— Ecosystem Dashboard</div>
+                <div><span style={{ color: '#fff', fontWeight: 600 }}>[O]</span> &nbsp;— Seed Organism</div>
+                <div><span style={{ color: '#fff', fontWeight: 600 }}>Mouse</span> &nbsp;— Look around</div>
+                <div style={{ marginTop: 6, color: '#aaa', fontStyle: 'italic' }}>Watch life evolve.</div>
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -710,7 +723,7 @@ export function SceneRoot() {
     {/* Interaction: contextual keybind hints — bottom-center, above hotbar */}
     {(pointerLocked || bypassPointerLock) && <ContextualHints />}
     {/* M32 Track A: Seasonal events HTML overlay — festival banner + XP indicator */}
-    <SeasonalEventsUI />
+    {RPG_ENABLED && <SeasonalEventsUI />}
     {/* M32 Track B: Tamed animal heart + name labels (DOM layer) */}
     <TamedAnimalOverlayDOM />
     {/* M32 Track B: Pet naming popup — shown after successful taming */}

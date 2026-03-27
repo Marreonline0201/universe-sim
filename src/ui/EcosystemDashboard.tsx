@@ -28,7 +28,7 @@ interface SimStats {
 }
 
 export function EcosystemDashboard() {
-  const [visible, setVisible] = useState(true)
+  const [visible, setVisible] = useState(false)
   const [stats, setStats] = useState<SimStats | null>(null)
   const [history, setHistory] = useState<Array<{tick: number; organismCount: number; speciesCount: number}>>([])
   const [dots, setDots] = useState<OrganismDot[]>([])

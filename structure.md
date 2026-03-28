@@ -107,8 +107,7 @@
 13. [Deployment and Infrastructure](#13-deployment-and-infrastructure)
     - [13.1 Frontend and API](#131-frontend-and-api)
     - [13.2 WebSocket Server](#132-websocket-server)
-    - [13.3 Companion Site](#133-companion-site)
-    - [13.4 Agent Infrastructure](#134-agent-infrastructure)
+    - [13.3 Agent Infrastructure](#133-agent-infrastructure)
 14. [Known Issues and Bugs](#14-known-issues-and-bugs)
 15. [What Is Next](#15-what-is-next)
     - [15.1 Atmosphere Pressure and Humidity from Terrain](#151-atmosphere-pressure-and-humidity-from-terrain)
@@ -134,7 +133,7 @@ As of this report (version 28, 2026-03-27), the project underwent its most signi
 
 In place of the deleted systems, three foundational pillars were built or repaired this session. First, physics-based crafting replaced recipe lists — fire is now started by the correct method (bow-drill friction or flint-and-iron striking), with success rates determined by the actual physical properties of the materials involved (wood moisture content, hardness on the Mohs scale, ignition temperature). Second, geological accuracy was added to resource distribution — copper concentrates near tectonic plate boundaries as it does on Earth, not randomly. Settlements that form near copper-rich volcanic zones become copper mining towns. Third, the organism ecosystem became truly shared — before this session, every player saw a completely different set of creatures because each browser was running its own private simulation. Now the server runs the ecosystem and broadcasts it to everyone. A birth or death of an organism is a real event that all connected players witness simultaneously.
 
-The project's production URL remains [https://universe-sim-beryl.vercel.app](https://universe-sim-beryl.vercel.app). The companion science site at [https://universe-companion.vercel.app](https://universe-companion.vercel.app) explains the real physics and chemistry behind every mechanic in plain language.
+The project's production URL remains [https://universe-sim-beryl.vercel.app](https://universe-sim-beryl.vercel.app).
 
 ---
 
@@ -481,11 +480,6 @@ universe-sim/
     world-settings.ts          Get/set world time scale (admin write-protected)
     admin.ts                   Returns all player records (admin only — currently broken)
     init-db.ts                 Creates all DB tables on first deployment
-
-  companion-site/              Separate Next.js app deployed to Vercel
-    app/
-      universes/page.tsx       SVG Universe Map showing all discovered worlds
-      api/universes/route.ts   API querying the universes DB table (60s cache)
 
   server/                      Railway always-on WebSocket server (Node.js ESM)
     src/
@@ -1328,7 +1322,7 @@ When DDT (or any persistent organic pollutant) is applied to a field, it enters 
 - Raptors (eagles, ospreys, peregrine falcons): eggshell thinning (DDT inhibits carbonic anhydrase, reducing calcium carbonate deposition) → eggs crack under brooding weight → breeding failure → population collapse within 2–3 generations
 - Humans: liver toxicity, endocrine disruption, probable carcinogen at chronic exposure levels
 
-The game tracks contaminant concentration per organism. A player who kills a large fish downstream of a DDT-treated field will see an anomalous contamination flag on the fish. An NPC settlement that eats contaminated fish regularly shows declining health and reproduction. Eagle populations collapse visibly on the companion site's organism chart within in-game years.
+The game tracks contaminant concentration per organism. A player who kills a large fish downstream of a DDT-treated field will see an anomalous contamination flag on the fish. An NPC settlement that eats contaminated fish regularly shows declining health and reproduction. Eagle populations collapse within in-game years.
 
 ---
 
@@ -3609,7 +3603,7 @@ These systems were built in earlier sessions and remain in place:
 | I   | Inventory        | Working                                                      |
 | C   | Crafting         | Working (physics interactions replace recipe list)           |
 | B   | Build            | Working; admin-only ecosystem dashboard also on B for admins |
-| S   | Science          | Working — links to companion site                            |
+| S   | Science          | Working                                                      |
 | T   | Tech Tree        | Working — 10 tiers, ReactFlow graph                          |
 | E   | Evolution        | Working — biological traits                                  |
 | J   | Journal          | Working — discovery log with category filter                 |
@@ -3801,17 +3795,7 @@ The Railway server is the authoritative source of truth for the simulation. It r
 
 Known historical issue: The Railway server was found intermittently down during playtesting on 2026-03-24 (B-07). Railway does restart crashed processes automatically, but the restart itself causes a brief outage. The organism ecosystem state is lost on restart because organism positions are held in memory, not persisted to the database.
 
-### 13.3 Companion Site
-
-**Platform:** Vercel (separate deployment)
-**URL:** [https://universe-companion.vercel.app](https://universe-companion.vercel.app)
-**Framework:** Next.js (App Router)
-**Routes:**
-
-- `/` — Science explainers for in-game mechanics
-- `/universes` — Live Universe Map (30-second polling, SVG visualization, added M15)
-
-### 13.4 Agent Infrastructure
+### 13.3 Agent Infrastructure
 
 The project uses a multi-agent AI system where specialized Claude Code agents handle different parts of development. Agents report their status via HTTP POST to the Railway server, which powers a live status dashboard. The CLAUDE.md file documents this system fully.
 

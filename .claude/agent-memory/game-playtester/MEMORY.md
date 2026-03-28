@@ -19,6 +19,7 @@
 - [project_m71_known_bugs.md](project_m71_known_bugs.md) — M71 audit findings: 1 critical removeChild crash on CLICK TO PLAY/Settings dismiss (R3F+AnimatePresence conflict), simNow=0 timestamp corruption still active (World Boss + Stats), frozen timers on Bounty Board and Quest Board, Chronicle raw boss ID display bug
 - [project_m72_known_bugs.md](project_m72_known_bugs.md) — M72 audit findings: sim tick never fires (Ticks=0 always), RPG UI bleeds into sim mode (Dungeon/toolbar/vitals still showing), Inventory shows "Loading panel..." indefinitely; M71 removeChild crash CONFIRMED FIXED
 - [project_m73_known_bugs.md](project_m73_known_bugs.md) — M73 audit: RPG UI mostly fixed, tutorial text correct, sim tick confirmed firing; 4 remaining issues: organism shader broken (invisible in 3D), XP festival indicator persists (SeasonalEventsUI ungated), CLICK TO PLAY still shows RPG keybinds, B-key dashboard starts visible=true (inverted toggle)
+- [project_m74_known_bugs.md](project_m74_known_bugs.md) — M74 post-RPG deletion audit: 2 critical (tickSimulation receives 0.16 constant — day/night sim stuck; TimeControls has no position:fixed — invisible), 2 important (no SPECTATOR badge shown on G toggle, simSeconds runs before click-to-play but organism tick doesn't); all M73 fixes verified except organism visibility (needs runtime check)
 
 ## Feedback
 - [feedback_auth_testing_block.md](feedback_auth_testing_block.md) — Clerk signup has Cloudflare Turnstile CAPTCHA; automated browser cannot create new test accounts on live deployment

@@ -9,8 +9,125 @@
  */
 import * as THREE from 'three'
 import { MAT } from '../player/Inventory'
-import { terrainHeightAt, getSpawnPosition, PLANET_RADIUS } from './SpherePlanet'
+import { terrainHeightAt, getSpawnPosition, PLANET_RADIUS, getTerrainSeed } from './SpherePlanet'
 import { getRiverClayPositions } from './RiverSystem'
+
+// ── Tectonic plate boundary helpers ──────────────────────────────────────────
+//
+// PlanetGenerator uses a class-level Voronoi simulation that isn't instantiated
+// during resource generation.  Instead we replicate the same concept here using
+// pure deterministic math from the world seed, so the same seed always produces
+// the same plate-boundary map.
+//
+// Algorithm: scatter NUM_PLATES pseudo-random points on the unit sphere
+// (seeded from the world seed), then for each query position compute the
+// normalised Voronoi boundary distance:
+//   boundaryStrength = 1 − (d1 / (d1 + d2))
+// where d1, d2 are great-circle distances to the two nearest plate centres.
+// Returns 0 at plate interiors, 1 at the exact boundary midline.
+//
+// Plate types (oceanic vs continental) are also determined from the seed so
+// we can distinguish convergent (continental–continental) from subduction
+// (oceanic–continental) zones, which governs which minerals form there.
+
+const NUM_PLATES = 12
+
+interface PlateInfo {
+  /** Unit-vector centre on the sphere */
+  cx: number; cy: number; cz: number
+  isOceanic: boolean
+}
+
+function buildPlates(seed: number): PlateInfo[] {
+  // Mulberry32 PRNG — same algorithm used in PlanetGenerator
+  let s = seed >>> 0
+  const rng = (): number => {
+    s += 0x6D2B79F5
+    let t = s
+    t = Math.imul(t ^ (t >>> 15), t | 1)
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+
+  const plates: PlateInfo[] = []
+  for (let i = 0; i < NUM_PLATES; i++) {
+    const theta = rng() * Math.PI * 2
+    const phi   = Math.acos(2 * rng() - 1)
+    plates.push({
+      cx: Math.sin(phi) * Math.cos(theta),
+      cy: Math.sin(phi) * Math.sin(theta),
+      cz: Math.cos(phi),
+      isOceanic: rng() < 0.6,
+    })
+  }
+  return plates
+}
+
+// Cache plates per seed so we don't rebuild on every node placement attempt
+let _cachedPlates: PlateInfo[] | null = null
+let _cachedPlatesSeed = -1
+
+function getPlates(): PlateInfo[] {
+  const seed = getTerrainSeed()
+  if (_cachedPlates && _cachedPlatesSeed === seed) return _cachedPlates
+  _cachedPlates = buildPlates(seed ^ 0xDEAD_BEEF)  // offset so plates differ from terrain noise
+  _cachedPlatesSeed = seed
+  return _cachedPlates
+}
+
+/**
+ * Returns a value in [0, 1] representing how close this direction is to a
+ * tectonic plate boundary.  0 = deep interior, 1 = exactly on the boundary.
+ * The threshold at which resources spawn is tuned per resource type.
+ */
+export function plateBoundaryStrength(dir: THREE.Vector3): number {
+  const plates = getPlates()
+  let d1 = Infinity, d2 = Infinity
+
+  for (const p of plates) {
+    // Great-circle angular distance ≈ acos(dot) for unit vectors.
+    // For the sorting comparison we only need the dot product (monotone).
+    const dot = dir.x * p.cx + dir.y * p.cy + dir.z * p.cz
+    // dot ranges [−1, 1]: higher dot = closer.  We store (1 − dot) as "dist".
+    const dist = 1 - dot
+    if (dist < d1) { d2 = d1; d1 = dist }
+    else if (dist < d2) { d2 = dist }
+  }
+
+  // Voronoi boundary: points equidistant from two plates → d1 == d2
+  // boundaryStrength approaches 1 as d1 → d2
+  const total = d1 + d2 + 1e-9
+  return 1 - Math.abs(d1 - d2) / total
+}
+
+/**
+ * Returns the boundary type at this position:
+ *   'convergent'  — continental–continental (mountain-building, Cu/Au veins)
+ *   'subduction'  — oceanic–continental or oceanic–oceanic (volcanics, Cu ore)
+ *   'interior'    — deep within a single plate (sedimentary: Fe, coal, salt)
+ */
+export function getBoundaryType(dir: THREE.Vector3): 'convergent' | 'subduction' | 'interior' {
+  const plates = getPlates()
+  let d1 = Infinity, d2 = Infinity
+  let plate1Oceanic = false, plate2Oceanic = false
+
+  for (const p of plates) {
+    const dist = 1 - (dir.x * p.cx + dir.y * p.cy + dir.z * p.cz)
+    if (dist < d1) {
+      d2 = d1; plate2Oceanic = plate1Oceanic
+      d1 = dist; plate1Oceanic = p.isOceanic
+    } else if (dist < d2) {
+      d2 = dist; plate2Oceanic = p.isOceanic
+    }
+  }
+
+  const total = d1 + d2 + 1e-9
+  const strength = 1 - Math.abs(d1 - d2) / total
+  if (strength < 0.75) return 'interior'  // far from any boundary
+
+  if (!plate1Oceanic && !plate2Oceanic) return 'convergent'
+  return 'subduction'
+}
 
 // ── Resource node definitions ─────────────────────────────────────────────────
 
@@ -86,21 +203,50 @@ interface GeologyRule {
   hMax: number
   /** Max distance from spawn (m). Rarer ores placed farther out for exploration. */
   maxDist: number
+  /**
+   * Tectonic placement constraint.
+   * 'boundary'  — must be near a plate boundary (boundaryStrength ≥ boundaryMin)
+   * 'interior'  — must be in plate interior (boundaryStrength < boundaryMax)
+   * 'any'       — no tectonic constraint (default)
+   */
+  tectonic?: 'boundary' | 'interior' | 'any'
+  /**
+   * For 'boundary' type: minimum plateBoundaryStrength value (0–1).
+   * Default: 0.70 (within ~15% of the boundary mid-line).
+   */
+  boundaryMin?: number
+  /**
+   * For 'boundary' type: restrict to a specific boundary kind.
+   * 'convergent' = continental–continental (mountain building → gold veins)
+   * 'subduction' = oceanic involved (volcanism → copper hydrothermal)
+   * undefined    = any boundary
+   */
+  boundaryKind?: 'convergent' | 'subduction'
+  /**
+   * For 'interior' type: maximum plateBoundaryStrength allowed.
+   * Default: 0.65 (clearly away from any boundary).
+   */
+  boundaryMax?: number
 }
 
 export const GEOLOGY_RULES: Partial<Record<string, GeologyRule>> = {
-  copper_ore:     { hMin: 60,  hMax: 220, maxDist: 600 },
-  iron_ore:       { hMin: 20,  hMax: 90,  maxDist: 500 },
-  coal:           { hMin: 5,   hMax: 40,  maxDist: 450 },
+  // Copper: hydrothermal veins at subduction/volcanic plate boundaries
+  copper_ore:     { hMin: 10,  hMax: 220, maxDist: 600, tectonic: 'boundary', boundaryMin: 0.70, boundaryKind: 'subduction' },
+  // Iron: widespread sedimentary, stable plate interiors at moderate elevation
+  iron_ore:       { hMin: 10,  hMax: 80,  maxDist: 500, tectonic: 'interior', boundaryMax: 0.65 },
+  // Coal: sedimentary basins, low elevation, flat stable interiors
+  coal:           { hMin: -50, hMax: 30,  maxDist: 450, tectonic: 'interior', boundaryMax: 0.60 },
   tin_ore:        { hMin: 50,  hMax: 130, maxDist: 550 },
-  sulfur:         { hMin: 70,  hMax: 250, maxDist: 650 },
-  gold:           { hMin: 130, hMax: 250, maxDist: 700 },
+  // Sulfur: volcanic zones near any plate boundary
+  sulfur:         { hMin: 70,  hMax: 250, maxDist: 650, tectonic: 'boundary', boundaryMin: 0.72 },
+  // Gold: rare, very close to convergent boundaries (hydrothermal veins)
+  gold:           { hMin: 30,  hMax: 250, maxDist: 700, tectonic: 'boundary', boundaryMin: 0.80, boundaryKind: 'convergent' },
   silver:         { hMin: 100, hMax: 200, maxDist: 650 },
   uranium:        { hMin: 90,  hMax: 220, maxDist: 750 },
   // ── M38 Track C: Biome-exclusive geology rules ─────────────────────────────
-  volcanic_glass: { hMin: 180, hMax: 400, maxDist: 800 }, // high volcanic peaks
+  volcanic_glass: { hMin: 180, hMax: 400, maxDist: 800, tectonic: 'boundary', boundaryMin: 0.68 }, // high volcanic peaks near boundaries
   glacier_ice:    { hMin: 200, hMax: 500, maxDist: 900 }, // polar high altitude
-  desert_crystal: { hMin: 20,  hMax: 120, maxDist: 700 }, // flat warm desert floor
+  desert_crystal: { hMin: 20,  hMax: 120, maxDist: 700, tectonic: 'interior', boundaryMax: 0.65 }, // flat stable desert basins
   deep_coral:     { hMin: 0,   hMax: 10,  maxDist: 500 }, // sea level / ocean shore
   ancient_wood:   { hMin: 40,  hMax: 180, maxDist: 600 }, // mid-altitude old-growth
   shadow_iron:    { hMin: 5,   hMax: 60,  maxDist: 550 }, // cave / underground
@@ -153,6 +299,23 @@ export function generateResourceNodes(seed: number): ResourceNode[] {
         if (geoRule && (h < geoRule.hMin || h > geoRule.hMax)) {
           // After 40 attempts, relax geology constraint to guarantee placement
           if (attempt < 40) continue
+        }
+
+        // Tectonic filter: check plate boundary proximity
+        if (geoRule?.tectonic && attempt < 45) {
+          const bStrength = plateBoundaryStrength(dir)
+          if (geoRule.tectonic === 'boundary') {
+            const minStr = geoRule.boundaryMin ?? 0.70
+            if (bStrength < minStr) continue
+            // If a specific boundary kind is required, check it
+            if (geoRule.boundaryKind) {
+              const kind = getBoundaryType(dir)
+              if (kind !== geoRule.boundaryKind) continue
+            }
+          } else if (geoRule.tectonic === 'interior') {
+            const maxStr = geoRule.boundaryMax ?? 0.65
+            if (bStrength >= maxStr) continue
+          }
         }
 
         // Slope / cliff-edge check: all 4 compass neighbours (~8 m away) must

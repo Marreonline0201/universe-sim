@@ -26,6 +26,192 @@ export const TERRITORY_RADIUS = 150   // metres — NPCs wander within this
 const CRAFT_INTERVAL_S  = 30          // real seconds between NPC craft ticks
 const LEVEL_THRESHOLDS  = [0, 500, 2000, 8000, 25000, 80000, 250000, 800000, 2500000, 8000000]
 
+// ── Geology-based specialty assignment ────────────────────────────────────────
+//
+// Replicates the tectonic plate logic from client's ResourceNodeManager.ts so
+// the server can determine what resources naturally occur near each settlement
+// without depending on Three.js or the client codebase.
+//
+// Algorithm matches ResourceNodeManager exactly:
+//   1. Scatter NUM_PLATES pseudo-random points on the unit sphere (Mulberry32,
+//      seeded with worldSeed ^ 0xDEADBEEF — same offset as the client).
+//   2. For each query direction, compute Voronoi boundary strength:
+//        strength = 1 − |d1 − d2| / (d1 + d2)   where d1, d2 = dist to 2 nearest plates
+//   3. Classify boundary type (convergent / subduction / interior) from plate types.
+//   4. Map the geology to a settlement specialty.
+
+const NUM_PLATES = 12
+const PLATE_SEED_OFFSET = 0xDEADBEEF >>> 0
+
+/** Mulberry32 PRNG — identical to ResourceNodeManager.ts */
+function _mulberry32(seed) {
+  let s = seed >>> 0
+  return () => {
+    s += 0x6D2B79F5
+    let t = s
+    t = Math.imul(t ^ (t >>> 15), t | 1)
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+}
+
+/** Build plate info array from world seed (matches client algorithm). */
+function _buildPlates(worldSeed) {
+  const rng = _mulberry32((worldSeed ^ PLATE_SEED_OFFSET) >>> 0)
+  const plates = []
+  for (let i = 0; i < NUM_PLATES; i++) {
+    const theta = rng() * Math.PI * 2
+    const phi   = Math.acos(2 * rng() - 1)
+    plates.push({
+      cx: Math.sin(phi) * Math.cos(theta),
+      cy: Math.sin(phi) * Math.sin(theta),
+      cz: Math.cos(phi),
+      isOceanic: rng() < 0.6,
+    })
+  }
+  return plates
+}
+
+// Cache plates so they are only computed once per world seed.
+let _cachedPlates   = null
+let _cachedPlatesSeed = -1
+let _worldSeed = 42  // updated by assignSpecialties()
+
+function _getPlates() {
+  if (_cachedPlates && _cachedPlatesSeed === _worldSeed) return _cachedPlates
+  _cachedPlates     = _buildPlates(_worldSeed)
+  _cachedPlatesSeed = _worldSeed
+  return _cachedPlates
+}
+
+/**
+ * Boundary strength in [0, 1] for unit-vector direction (dx, dy, dz).
+ * 0 = deep plate interior, 1 = exactly on boundary midline.
+ */
+function _plateBoundaryStrength(dx, dy, dz) {
+  const plates = _getPlates()
+  let d1 = Infinity, d2 = Infinity
+  for (const p of plates) {
+    const dot  = dx * p.cx + dy * p.cy + dz * p.cz
+    const dist = 1 - dot
+    if (dist < d1) { d2 = d1; d1 = dist }
+    else if (dist < d2) { d2 = dist }
+  }
+  const total = d1 + d2 + 1e-9
+  return 1 - Math.abs(d1 - d2) / total
+}
+
+/**
+ * Boundary type at unit-vector direction.
+ * Returns 'convergent' | 'subduction' | 'interior'
+ */
+function _getBoundaryType(dx, dy, dz) {
+  const plates = _getPlates()
+  let d1 = Infinity, d2 = Infinity
+  let plate1Oceanic = false, plate2Oceanic = false
+  for (const p of plates) {
+    const dist = 1 - (dx * p.cx + dy * p.cy + dz * p.cz)
+    if (dist < d1) {
+      d2 = d1; plate2Oceanic = plate1Oceanic
+      d1 = dist; plate1Oceanic = p.isOceanic
+    } else if (dist < d2) {
+      d2 = dist; plate2Oceanic = p.isOceanic
+    }
+  }
+  const total = d1 + d2 + 1e-9
+  const strength = 1 - Math.abs(d1 - d2) / total
+  if (strength < 0.75) return 'interior'
+  if (!plate1Oceanic && !plate2Oceanic) return 'convergent'
+  return 'subduction'
+}
+
+/**
+ * Determine a settlement's specialty from its world position.
+ *
+ * The settlement coords (x, y, z) are in metres — we normalise to a unit
+ * direction vector, then apply the same tectonic logic the client uses to
+ * place ore nodes.  The specialty with the strongest geological signal wins.
+ *
+ * Specialty → what the settlement produces / wants:
+ *   copper_mining  — subduction boundary ore
+ *   gold_mining    — convergent boundary ore
+ *   iron_mining    — plate interior (iron sedimentary)
+ *   coal_mining    — deep plate interior (sedimentary basin)
+ *   timber         — forest / no strong geology signal
+ *   pottery        — clay (low elevation, stable)
+ *   farming        — default plains
+ */
+function _computeSpecialty(x, y, z, worldSeed) {
+  // Ensure plates are built for this seed
+  if (_worldSeed !== worldSeed) {
+    _worldSeed = worldSeed
+    _cachedPlates = null
+  }
+
+  // Normalise to unit direction vector
+  const len = Math.sqrt(x * x + y * y + z * z)
+  if (len < 1e-6) return 'farming'
+  const dx = x / len, dy = y / len, dz = z / len
+
+  const strength = _plateBoundaryStrength(dx, dy, dz)
+  const bType    = _getBoundaryType(dx, dy, dz)
+
+  // Strong boundary — ore deposits
+  if (strength >= 0.75) {
+    if (bType === 'convergent') return 'gold_mining'   // convergent → gold veins
+    if (bType === 'subduction') return 'copper_mining' // subduction → copper hydrothermal
+    return 'copper_mining'  // generic boundary → copper
+  }
+
+  // Moderate boundary — still near tectonic activity
+  if (strength >= 0.60) {
+    return 'iron_mining'  // transitional zone: iron-rich
+  }
+
+  // Interior — sedimentary / organic deposits
+  // Use a simple positional determinism to split interior biomes.
+  // Mulberry hash of the settlement direction to get a stable value.
+  let h = ((dx * 1327.1 + dy * 7303.3 + dz * 4919.7) * 1e6) | 0
+  h = ((h ^ (h >>> 16)) * 0x45d9f3b) | 0
+  h = ((h ^ (h >>> 16)) >>> 0)
+  const frac = h / 0xFFFFFFFF
+
+  if (frac < 0.20) return 'coal_mining'  // sedimentary basin
+  if (frac < 0.40) return 'pottery'      // clay-rich lowland
+  if (frac < 0.65) return 'timber'       // forested interior
+  return 'farming'                       // open plains
+}
+
+/**
+ * Returns the initial resourceInventory appropriate for a given specialty.
+ * Specialised settlements start with their signature resource stocked.
+ */
+function _specialtyStartingInv(specialty) {
+  switch (specialty) {
+    case 'copper_mining': return { 11: 30, 17: 10, 5: 8 }   // copper_ore(11), coal(17), fiber(5)
+    case 'iron_mining':   return { 14: 25, 17: 15, 5: 8 }   // iron_ore(14), coal(17), fiber(5)
+    case 'coal_mining':   return { 17: 40, 1: 10, 5: 8 }    // coal(17), stone(1), fiber(5)
+    case 'gold_mining':   return { 30: 8,  1: 15, 5: 8 }    // gold(30), stone(1), fiber(5)
+    case 'timber':        return { 3: 40,  4: 20, 21: 10 }  // wood(3), bark(4), fiber(21)
+    case 'pottery':       return { 8: 30,  3: 15, 21: 10 }  // clay(8), wood(3), fiber(21)
+    case 'farming':
+    default:              return { 3: 20,  1: 15, 21: 10 }  // wood(3), stone(1), fiber(21)
+  }
+}
+
+// MAT IDs referenced in trade offers (mirrors Inventory.ts MAT enum)
+// WOOD=3  STONE=1  FIBER=21  FOOD=36  TOOLS=0(abstract, use flint=2)
+// COPPER_ORE=11  IRON_ORE=14  COAL=17  GOLD=30  CLAY=8  BARK=4
+const _SPECIALTY_OFFER = {
+  copper_mining: { gives: 11, givesQty: 10, wants: 3,  wantsQty: 6  },  // copper_ore ↔ wood
+  iron_mining:   { gives: 14, givesQty: 8,  wants: 17, wantsQty: 5  },  // iron_ore   ↔ coal
+  coal_mining:   { gives: 17, givesQty: 15, wants: 3,  wantsQty: 6  },  // coal       ↔ wood
+  gold_mining:   { gives: 30, givesQty: 3,  wants: 14, wantsQty: 8  },  // gold       ↔ iron_ore
+  timber:        { gives: 3,  givesQty: 20, wants: 1,  wantsQty: 8  },  // wood       ↔ stone
+  pottery:       { gives: 8,  givesQty: 15, wants: 3,  wantsQty: 6  },  // clay       ↔ wood
+  farming:       { gives: 21, givesQty: 20, wants: 2,  wantsQty: 5  },  // fiber      ↔ flint
+}
+
 // M7: Civ level at which settlements unlock iron research.
 // Level 2 = Iron Age — broadcasts SETTLEMENT_UNLOCKED_IRON to nearby players.
 const IRON_UNLOCK_LEVEL = 2
@@ -94,6 +280,14 @@ export class SettlementManager {
     this._settlements = new Map()
     this._craftTimer  = 0  // real seconds until next craft tick
     this._decayTimer  = 0  // real seconds until next memory decay tick
+    this._worldSeed   = 42 // set before load() via setWorldSeed()
+  }
+
+  /** Must be called before load() so specialties use the correct plate map. */
+  setWorldSeed(seed) {
+    this._worldSeed = seed >>> 0
+    _worldSeed = this._worldSeed
+    _cachedPlates = null  // invalidate cache so plates rebuild with new seed
   }
 
   // ── Schema + load ────────────────────────────────────────────────────────────
@@ -134,6 +328,7 @@ export class SettlementManager {
         await this._seedToDb()
       } else {
         for (const row of rows) {
+          const specialty = _computeSpecialty(row.center_x, row.center_y, row.center_z, this._worldSeed)
           this._settlements.set(row.id, {
             id:           row.id,
             name:         row.name,
@@ -144,7 +339,9 @@ export class SettlementManager {
             resourceInv:  JSON.parse(row.resource_inv ?? '{}'),
             npcCount:     row.npc_count,
             researchPts:  row.research_pts,
+            specialty,
           })
+          console.log(`[SettlementManager] ${row.name} specialty: ${specialty}`)
         }
         console.log(`[SettlementManager] Loaded ${this._settlements.size} settlements from DB`)
       }
@@ -169,6 +366,7 @@ export class SettlementManager {
         civLevel:  s.civLevel,
         npcCount:  s.npcCount,
         resourceInv: s.resourceInv,
+        specialty: s.specialty,
       })
     }
     return out
@@ -353,6 +551,10 @@ export class SettlementManager {
   /**
    * Check if a player entering radius of a settlement triggers a trade offer.
    * Returns a TRADE_OFFER payload or null if no offer is available.
+   *
+   * If the settlement has a known specialty, prefers to offer its signature
+   * resource in exchange for what it needs.  Falls back to surplus-based offer
+   * if the specialty resource is depleted.
    */
   checkTradeOffer(settlementId, playerId, memory) {
     if (memory.gatesClosed(settlementId, playerId)) return null
@@ -360,25 +562,42 @@ export class SettlementManager {
     const s = this._settlements.get(settlementId)
     if (!s) return null
 
-    // Find a material the settlement has surplus of (>= 5 units)
+    // Try specialty-based offer first
+    const offerDef = s.specialty ? _SPECIALTY_OFFER[s.specialty] : null
+    if (offerDef) {
+      const haveQty = s.resourceInv[offerDef.gives] ?? 0
+      if (haveQty >= offerDef.givesQty) {
+        return {
+          settlementId:   s.id,
+          settlementName: s.name,
+          civLevel:       s.civLevel,
+          specialty:      s.specialty,
+          offerMats:  { [offerDef.gives]: offerDef.givesQty },
+          wantMats:   { [offerDef.wants]: offerDef.wantsQty },
+          trustScore: memory.getMemory(settlementId, playerId)?.trustScore ?? 0,
+        }
+      }
+    }
+
+    // Fallback: offer whatever we have surplus of (>= 5 units)
     const surplusMats = Object.entries(s.resourceInv)
       .filter(([, qty]) => qty >= 5)
       .map(([matId, qty]) => ({ matId: parseInt(matId), qty }))
 
     if (surplusMats.length === 0) return null
 
-    // Offer: settlement gives up to 3 of its surplus mat, wants wood (matId=3) or stone (matId=1)
-    const offerMat = surplusMats[Math.floor(Math.random() * surplusMats.length)]
+    const offerMat  = surplusMats[Math.floor(Math.random() * surplusMats.length)]
     const wantMatId = (s.resourceInv[3] ?? 0) < (s.resourceInv[1] ?? 0) ? 3 : 1
-    const wantQty = Math.max(2, Math.floor(offerMat.qty * 0.5))
+    const wantQty   = Math.max(2, Math.floor(offerMat.qty * 0.5))
 
     return {
-      settlementId: s.id,
+      settlementId:   s.id,
       settlementName: s.name,
-      civLevel: s.civLevel,
-      offerMats:    { [offerMat.matId]: Math.min(3, offerMat.qty) },
-      wantMats:     { [wantMatId]: wantQty },
-      trustScore:   memory.getMemory(settlementId, playerId)?.trustScore ?? 0,
+      civLevel:       s.civLevel,
+      specialty:      s.specialty ?? 'farming',
+      offerMats:  { [offerMat.matId]: Math.min(3, offerMat.qty) },
+      wantMats:   { [wantMatId]: wantQty },
+      trustScore: memory.getMemory(settlementId, playerId)?.trustScore ?? 0,
     }
   }
 
@@ -387,15 +606,18 @@ export class SettlementManager {
   _seedDefaults() {
     for (let i = 0; i < INITIAL_SETTLEMENTS.length; i++) {
       const def = INITIAL_SETTLEMENTS[i]
+      const specialty = _computeSpecialty(def.x, def.y, def.z, this._worldSeed)
       const s = {
         id: i + 1,
         name: def.name,
         x: def.x, y: def.y, z: def.z,
         civLevel: 0,
-        resourceInv: { 3: 20, 1: 15, 21: 10 },  // wood(3), stone(1), fiber(21)
+        resourceInv: _specialtyStartingInv(specialty),
         npcCount: 10 + Math.floor(Math.random() * 15),
         researchPts: 0,
+        specialty,
       }
+      console.log(`[SettlementManager] ${def.name} specialty: ${specialty}`)
       this._settlements.set(s.id, s)
     }
     console.log(`[SettlementManager] Seeded ${this._settlements.size} default settlements (no DB)`)
@@ -405,18 +627,22 @@ export class SettlementManager {
     const db = sql()
     for (let i = 0; i < INITIAL_SETTLEMENTS.length; i++) {
       const def = INITIAL_SETTLEMENTS[i]
-      const npcCount = 10 + Math.floor(Math.random() * 15)
-      const resourceInv = JSON.stringify({ 3: 20, 1: 15, 21: 10 })
+      const specialty  = _computeSpecialty(def.x, def.y, def.z, this._worldSeed)
+      const startInv   = _specialtyStartingInv(specialty)
+      const npcCount   = 10 + Math.floor(Math.random() * 15)
+      const resourceInv = JSON.stringify(startInv)
       const rows = await db`
         INSERT INTO npc_settlements (name, center_x, center_y, center_z, civ_level, resource_inv, npc_count, research_pts)
         VALUES (${def.name}, ${def.x}, ${def.y}, ${def.z}, 0, ${resourceInv}, ${npcCount}, 0)
         RETURNING id
       `
       const id = rows[0].id
+      console.log(`[SettlementManager] ${def.name} specialty: ${specialty}`)
       this._settlements.set(id, {
         id, name: def.name, x: def.x, y: def.y, z: def.z,
-        civLevel: 0, resourceInv: { 3: 20, 1: 15, 21: 10 },
+        civLevel: 0, resourceInv: startInv,
         npcCount, researchPts: 0,
+        specialty,
       })
     }
     console.log(`[SettlementManager] Seeded ${this._settlements.size} settlements to DB`)

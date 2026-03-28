@@ -29,6 +29,7 @@ import { FireRenderer } from './FireRenderer'
 import { DayNightCycle } from './DayNightCycle'
 import { SimGridVisualizer } from './SimGridVisualizer'
 import { setSimManagerForSocket } from '../net/WorldSocket'
+import { getWorldSocket } from '../net/useWorldSocket'
 import { RiverRenderer } from './RiverRenderer'
 import { rebuildRivers } from '../world/RiverSystem'
 import { registerRiverCarveDepth } from '../world/SpherePlanet'
@@ -190,6 +191,22 @@ export function SceneRoot() {
       [sx, sy, sz],
     )
   }, [entityId])
+
+  // H key — register current position as shelter
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.code !== 'KeyH') return
+      // Don't fire when typing in an input/textarea
+      const tag = (e.target as HTMLElement)?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return
+      const ps = usePlayerStore.getState()
+      const { x, y, z } = ps
+      getWorldSocket()?.send({ type: 'REGISTER_SHELTER', x, y, z })
+      useUiStore.getState().addNotification('Shelter registered here.', 'info')
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [])
 
   // Sync time scale
   useEffect(() => {

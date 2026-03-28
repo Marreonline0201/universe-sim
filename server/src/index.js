@@ -5,7 +5,7 @@
 import { createServer } from 'http'
 import { WebSocketServer, WebSocket } from 'ws'
 import { WorldClock } from './WorldClock.js'
-import { PlayerRegistry } from './PlayerRegistry.js'
+import { PlayerRegistry, migrateShelterSchema } from './PlayerRegistry.js'
 import { BroadcastScheduler } from './BroadcastScheduler.js'
 import { loadSettings, saveSettings, migrateSchema } from './WorldSettingsSync.js'
 import { BOOTSTRAP_TARGET_SECS, NORMAL_TIMESCALE } from './WorldClock.js'
@@ -58,7 +58,7 @@ const HOME_WORLD_SEED = parseInt(process.env.HOME_WORLD_SEED ?? '42', 10)
 // ── Bootstrap ──────────────────────────────────────────────────────────────────
 
 const clock    = new WorldClock()
-const players  = new PlayerRegistry()
+const players  = new PlayerRegistry(HOME_WORLD_SEED)
 const scheduler = new BroadcastScheduler(clock, players, null, HOME_WORLD_SEED)
 const slack       = new SlackAgent(clock, players, null)
 const nodeSync    = new NodeStateSync()
@@ -77,6 +77,7 @@ async function main() {
   // Ensure DB schema is current
   if (process.env.DATABASE_URL) {
     await migrateSchema()
+    await migrateShelterSchema()
     await nodeSync.migrateSchema()
     await nodeSync.load()
     await settlements.migrateSchema()
@@ -570,29 +571,36 @@ function handleMessage(ws, msg) {
       console.log(`[server] Player joined: ${username} (${players.count} online)`)
       slack.notifyPlayerJoined(username).catch(() => {})
 
-      // Send current world state immediately
-      ws.send(JSON.stringify({
-        type: 'WORLD_SNAPSHOT',
-        simTime:           clock.simTimeSec,
-        epoch:             clock.epoch,
-        timeScale:         clock.timeScale,
-        paused:            clock.paused,
-        worldSeed:         HOME_WORLD_SEED,
-        bootstrapPhase:    clock.bootstrapPhase,
-        bootstrapProgress: clock.bootstrapProgress,
-        players: players.getAll(),
-        npcs: [],
-        universes: universeReg.getAll(),  // M14: known universe instances
-        depletedNodes: nodeSync.getDepletedSnapshot(),
-        settlements:   settlements.getSnapshot(),
-        weather:       weather.getSnapshot(),
-        season:        seasons.getSnapshot(),
-        agentState:    AgentBus.getState(),
-      }))
+      // Load (or assign) shelter position before sending snapshot
+      players.initShelterPos(userId).then(() => {
+        const shelterPos = players.getShelterPos(userId)
+        // Send current world state immediately
+        ws.send(JSON.stringify({
+          type: 'WORLD_SNAPSHOT',
+          simTime:           clock.simTimeSec,
+          epoch:             clock.epoch,
+          timeScale:         clock.timeScale,
+          paused:            clock.paused,
+          worldSeed:         HOME_WORLD_SEED,
+          bootstrapPhase:    clock.bootstrapPhase,
+          bootstrapProgress: clock.bootstrapProgress,
+          players: players.getAll(),
+          npcs: [],
+          universes: universeReg.getAll(),  // M14: known universe instances
+          depletedNodes: nodeSync.getDepletedSnapshot(),
+          settlements:   settlements.getSnapshot(),
+          weather:       weather.getSnapshot(),
+          season:        seasons.getSnapshot(),
+          agentState:    AgentBus.getState(),
+          shelterPos,  // this player's personal shelter position
+        }))
 
-      // Notify others (use getAll() to get serializable player without ws socket)
-      const safePlayer = players.getAll().find(p => p.userId === userId)
-      broadcast({ type: 'PLAYER_JOINED', player: safePlayer }, ws)
+        // Notify others (use getAll() to get serializable player without ws socket)
+        const safePlayer = players.getAll().find(p => p.userId === userId)
+        broadcast({ type: 'PLAYER_JOINED', player: safePlayer }, ws)
+      }).catch(err => {
+        console.error('[server] JOIN initShelterPos error:', err.message)
+      })
       break
     }
 
@@ -601,6 +609,19 @@ function handleMessage(ws, msg) {
       if (!userId) return
       const { x, y, z, health } = msg
       players.update(userId, { x, y, z, health })
+      break
+    }
+
+    case 'REGISTER_SHELTER': {
+      // Client requests to register current position as their respawn shelter.
+      const userId = ws._userId
+      if (!userId) return
+      const { x, y, z } = msg
+      if (typeof x !== 'number' || typeof y !== 'number' || typeof z !== 'number') return
+      players.setShelterPos(userId, x, y, z)
+      // Confirm to the registering player only
+      ws.send(JSON.stringify({ type: 'SHELTER_REGISTERED', x, y, z }))
+      console.log(`[server] Shelter registered for ${userId} at (${x.toFixed(1)}, ${y.toFixed(1)}, ${z.toFixed(1)})`)
       break
     }
 

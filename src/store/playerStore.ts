@@ -104,6 +104,10 @@ interface PlayerState {
   clearDeath: () => void
   setBedrollPos: (pos: { x: number; y: number; z: number } | null) => void
 
+  // Shelter / respawn point (server-authoritative)
+  shelterPos: { x: number; y: number; z: number } | null
+  setShelterPos: (pos: { x: number; y: number; z: number } | null) => void
+
   // M34 Track A: Player Home Base
   homePosition: [number, number, number] | null  // null = not placed yet
   homeSet: boolean
@@ -269,6 +273,10 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   triggerDeath: (cause, pos) => set({ isDead: true, deathCause: cause, deathPos: pos }),
   clearDeath: () => set({ isDead: false, deathCause: null }),
   setBedrollPos: (pos) => set({ bedrollPos: pos }),
+
+  // ── Shelter / respawn point ───────────────────────────────────────────────
+  shelterPos: null,
+  setShelterPos: (pos) => set({ shelterPos: pos }),
 
   // ── M34 Track A: Player Home Base ─────────────────────────────────────────
   homePosition: null,

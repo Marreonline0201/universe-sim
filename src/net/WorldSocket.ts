@@ -193,6 +193,17 @@ export class WorldSocket {
         if (Array.isArray(msg.universes)) {
           window.dispatchEvent(new CustomEvent('universes-updated', { detail: msg.universes }))
         }
+        // Shelter: seed this player's respawn position from server
+        if (msg.shelterPos && typeof msg.shelterPos === 'object') {
+          const sp = msg.shelterPos as { x: number; y: number; z: number }
+          usePlayerStore.getState().setShelterPos(sp)
+        }
+        break
+      }
+      case 'SHELTER_REGISTERED': {
+        // Server confirmed shelter registration — update local store
+        const { x, y, z } = msg as { x: number; y: number; z: number; type: string }
+        usePlayerStore.getState().setShelterPos({ x, y, z })
         break
       }
       case 'PLAYER_JOINED': {

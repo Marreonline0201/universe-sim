@@ -42,7 +42,7 @@ interface DeathScreenProps {
 }
 
 export function DeathScreen({ onRespawn }: DeathScreenProps) {
-  const { isDead, deathCause, bedrollPos } = usePlayerStore()
+  const { isDead, deathCause, bedrollPos, shelterPos } = usePlayerStore()
 
   // Fade-in animation state
   const [opacity, setOpacity] = useState(0)
@@ -78,6 +78,7 @@ export function DeathScreen({ onRespawn }: DeathScreenProps) {
 
   const cause = deathCause ?? 'starvation'
   const labels = CAUSE_LABELS[cause] ?? CAUSE_LABELS.starvation
+  const hasShelter = shelterPos != null
   const hasBedroll = bedrollPos != null
 
   return (
@@ -152,9 +153,11 @@ export function DeathScreen({ onRespawn }: DeathScreenProps) {
           }}
         >
           <div style={{ fontSize: 10, color: '#666', letterSpacing: 2, marginBottom: 4 }}>
-            {hasBedroll
+            {hasShelter
+              ? 'RESPAWNING AT YOUR SHELTER'
+              : hasBedroll
               ? 'RESPAWNING AT YOUR BEDROLL'
-              : 'NO BEDROLL SET — RESPAWNING AT WORLD SPAWN'}
+              : 'RESPAWNING AT WORLD SPAWN'}
           </div>
           <div style={{ fontSize: 10, color: '#555', letterSpacing: 1, marginBottom: 8 }}>
             HEALTH 50% &nbsp;·&nbsp; HUNGER 40% &nbsp;·&nbsp; THIRST 40%

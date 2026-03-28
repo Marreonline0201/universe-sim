@@ -158,11 +158,14 @@ export function executeRespawn(
 ): void {
   const ps = usePlayerStore.getState()
 
-  // Target priority: home base > bedroll > world spawn (M34 Track A)
-  let respawnLabel = 'No bedroll — respawned at world spawn.'
+  // Target priority: shelter (server-registered) > home base > bedroll > world spawn
+  let respawnLabel = 'Respawned at world spawn.'
   let target: { x: number; y: number; z: number }
 
-  if (ps.homeSet && ps.homePosition) {
+  if (ps.shelterPos) {
+    target = { x: ps.shelterPos.x, y: ps.shelterPos.y, z: ps.shelterPos.z }
+    respawnLabel = 'Respawned at your shelter.'
+  } else if (ps.homeSet && ps.homePosition) {
     const [hx, hy, hz] = ps.homePosition
     target = { x: hx, y: hy, z: hz }
     respawnLabel = 'Respawned at your home base.'

@@ -511,6 +511,83 @@ export function getOrganismDots(): OrganismDot[] {
  *
  * @returns ECS entity ID of the spawned organism, or -1 if simulation not active
  */
+// ── M_bio: Server-authoritative organism sync ────────────────────────────────
+
+/**
+ * Sync the local ECS from a server ORGANISM_UPDATE message.
+ *
+ * Called by WorldSocket every ~166 ms when the server is running as
+ * the authoritative biology simulation. The client no longer ticks
+ * NaturalSelectionSystem locally — it only renders what the server sends.
+ *
+ * @param update.positions  [[id, x, y, z, energy, speciesId], ...]
+ * @param update.births     [{ id, x, y, z, speciesId, size }, ...]
+ * @param update.deaths     [id, ...]  organism ids that died this tick
+ */
+export function syncOrganismsFromServer(update: {
+  positions: [number, number, number, number, number, number][],
+  births:    { id: number; x: number; y: number; z: number; speciesId: number; size: number }[],
+  deaths:    number[],
+}): void {
+  const { positions, births, deaths } = update
+
+  // ── 1. Process deaths: remove ECS entities ────────────────────────────────
+  for (const orgId of deaths) {
+    const eid = orgToEcs.get(orgId)
+    if (eid !== undefined) {
+      try { removeEntity(world, eid) } catch (_e) { /* already removed */ }
+      creatureWander.delete(eid)
+      orgToEcs.delete(orgId)
+      ecsToOrg.delete(eid)
+    }
+  }
+
+  // ── 2. Process births: create ECS entities for new organisms ─────────────
+  for (const b of births) {
+    if (orgToEcs.has(b.id)) continue  // already tracked
+
+    const eid = createCreatureEntity(world, {
+      x:           b.x,
+      y:           b.y,
+      z:           b.z,
+      speciesId:   b.speciesId,
+      genome:      new Uint8Array(32),  // placeholder genome (visual only on client)
+      neuralLevel: 0,
+      mass:        0.01,
+      size:        b.size,
+      dietaryType: 0,  // assume autotroph — server doesn't send dietType in birth
+    })
+
+    orgToEcs.set(b.id, eid)
+    ecsToOrg.set(eid, b.id)
+
+    // Register with wander system so it glides visually
+    const angle = Math.random() * Math.PI * 2
+    const speed = 0.1 + Math.random() * 0.15
+    creatureWander.set(eid, {
+      vx: Math.cos(angle) * speed,
+      vy: 0,
+      vz: Math.sin(angle) * speed,
+      timer: 2 + Math.random() * 6,
+    })
+
+    // Record birth event for visual pulse
+    if (birthEvents.length >= MAX_BIRTH_EVENTS) birthEvents.shift()
+    birthEvents.push({ eid, parentEid: 0, timestamp: performance.now() })
+  }
+
+  // ── 3. Update positions: apply server-authoritative positions to ECS ──────
+  for (const [id, x, y, z, , speciesId] of positions) {
+    const eid = orgToEcs.get(id)
+    if (eid === undefined) continue  // unknown — will appear on next birth event
+    Position.x[eid] = x
+    Position.y[eid] = y
+    Position.z[eid] = z
+    // Keep speciesId current (mutation may change it)
+    CreatureBody.speciesId[eid] = speciesId
+  }
+}
+
 export function spawnOrganismAt(x: number, y: number, z: number): number {
   if (!bootstrapResult || !encoder) return -1
 

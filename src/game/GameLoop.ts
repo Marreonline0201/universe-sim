@@ -44,7 +44,7 @@ import {
 // checkAndTriggerDeath — inline in loop instead
 import { surfaceRadiusAt, PLANET_RADIUS } from '../world/SpherePlanet'
 import { getWorldSocket } from '../net/useWorldSocket'
-import { tickSimulation, isSimulationActive } from '../biology/SimulationIntegration'
+// tickSimulation / isSimulationActive removed — server-authoritative (M_bio)
 import { getSectorIdForPosition } from '../world/WeatherSectors'
 import { saveOffline } from './OfflineSaveManager'
 import { gameLoopScheduler } from './GameLoopScheduler'
@@ -168,14 +168,15 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
       fatigue: Metabolism.fatigue[entityId],
     })
 
-    // Emergent organism simulation tick (every ~10 frames of real time)
-    // Use scaledDt so organism evolution speeds up/slows down with timeScale.
+    // Emergent organism simulation tick — REMOVED: server-authoritative (M_bio).
+    // The server runs NaturalSelectionSystem at 6 Hz and broadcasts ORGANISM_UPDATE.
+    // Clients sync via syncOrganismsFromServer() in WorldSocket.ts.
+    // Keep simTickAccRef so the ref doesn't cause lint errors; tick is a no-op.
     const scaledDt = paused ? 0 : dt * timeScale
     simTickAccRef.current += scaledDt
-    if (simTickAccRef.current >= 0.16 && isSimulationActive()) {
+    if (simTickAccRef.current >= 0.16) {
       simTickAccRef.current = 0
-      // Pass absolute simSeconds so day/night cycle (simTime % 600) advances correctly
-      tickSimulation(useGameStore.getState().simSeconds)
+      // tickSimulation(useGameStore.getState().simSeconds)  // REMOVED: server-authoritative
     }
 
     // Scheduler-based periodic tasks

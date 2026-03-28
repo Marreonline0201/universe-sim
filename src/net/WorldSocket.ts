@@ -41,6 +41,7 @@ function expireWorldEvent(..._args: unknown[]) {}
 function updateEventParticipants(..._args: unknown[]) {}
 type WorldEventType = string
 import { receiveChatMessage } from '../ui/ChatBox'
+import { syncOrganismsFromServer } from '../biology/SimulationIntegration'
 
 // Module-level reference to the active LocalSimManager.
 // Set by SceneRoot after the sim grid initialises.
@@ -732,6 +733,17 @@ export class WorldSocket {
           channel:    (msg.channel   as 'global' | 'party' | 'system') ?? 'global',
           timestamp:  (msg.timestamp as number) ?? Date.now(),
         })
+        break
+      }
+
+      // ── M_bio: Server-authoritative organism sync ────────────────────────────
+      case 'ORGANISM_UPDATE': {
+        const positions = msg.positions as [number, number, number, number, number, number][]
+        const births    = msg.births    as { id: number; x: number; y: number; z: number; speciesId: number; size: number }[]
+        const deaths    = msg.deaths    as number[]
+        if (Array.isArray(positions)) {
+          syncOrganismsFromServer({ positions, births: births ?? [], deaths: deaths ?? [] })
+        }
         break
       }
 

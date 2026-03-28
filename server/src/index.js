@@ -21,6 +21,7 @@ import * as AgentBus from './AgentBus.js'
 import * as Telegram from './TelegramAgent.js'
 import Anthropic from '@anthropic-ai/sdk'
 import { DiscordBot } from './DiscordBot.js'
+import { OrganismManager } from './OrganismManager.js'
 
 // ── Pending agent launch triggers (queued from Telegram, consumed by Claude Code) ──
 const pendingTriggers = [] // Array<{ agentId, queuedAt }>
@@ -66,8 +67,13 @@ const weather     = new WeatherSystem()
 const seasons     = new SeasonSystem()
 const tradeEcon   = new TradeEconomy()
 const universeReg = new UniverseRegistry()  // M14: multiverse registry
+const organisms  = new OrganismManager()    // M_bio: server-authoritative biology
 
 async function main() {
+  // Wire world seed to settlements before any load() so geology-based
+  // specialty assignment uses the correct tectonic plate map.
+  settlements.setWorldSeed(HOME_WORLD_SEED)
+
   // Ensure DB schema is current
   if (process.env.DATABASE_URL) {
     await migrateSchema()
@@ -212,6 +218,11 @@ async function main() {
 
   clock.start()
   scheduler.start()
+
+  // ── M_bio: Seed server-authoritative organism simulation ─────────────────────
+  organisms.seed(HOME_WORLD_SEED)
+  console.log(`[server] Organism simulation seeded: ${organisms.count()} organisms`)
+
   await slack.start()
   Telegram.setWebhook('https://questions-production-63a2.up.railway.app').catch(() => {})
 
@@ -467,6 +478,22 @@ Rules:
   httpServer.listen(PORT, () => {
     console.log(`[server] Listening on port ${PORT} (HTTP + WebSocket)`)
   })
+
+  // ── M_bio: Organism simulation broadcast at 6 Hz ──────────────────────────────
+  // wss is now in scope — safe to reference in the interval callback
+  setInterval(() => {
+    const { births, deaths } = organisms.tick(clock.simTimeSec)
+    const positions = organisms.getPositions()
+    const msg = JSON.stringify({
+      type: 'ORGANISM_UPDATE',
+      positions,  // [[id, x, y, z, energy, speciesId], ...]
+      births,     // [{ id, x, y, z, speciesId, size }, ...]
+      deaths,     // [id, id, ...]
+    })
+    wss.clients.forEach(client => {
+      if (client.readyState === WebSocket.OPEN) client.send(msg)
+    })
+  }, 166)
 
   // ── Agent sweep (every 15 s) — idle timeout + heartbeat messages ─────────────
   setInterval(() => {

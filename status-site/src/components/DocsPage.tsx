@@ -11,11 +11,11 @@ import rawMd from '../../../structure.md?raw'
 interface TocEntry {
   id: string
   text: string
-  level: 2 | 3
+  level: 2 | 3 | 4
 }
 
 type Block =
-  | { type: 'h1' | 'h2' | 'h3' | 'h4'; text: string; id: string }
+  | { type: 'h1' | 'h2' | 'h3' | 'h4' | 'h5'; text: string; id: string }
   | { type: 'hr' }
   | { type: 'code'; lang: string; lines: string[] }
   | { type: 'table'; headers: string[]; rows: string[][] }
@@ -38,8 +38,10 @@ function parseToc(md: string): TocEntry[] {
   for (const line of md.split('\n')) {
     const h2 = line.match(/^## (.+)$/)
     const h3 = line.match(/^### (.+)$/)
+    const h4 = line.match(/^#### (.+)$/)
     if (h2) entries.push({ level: 2, text: h2[1].replace(/\*\*/g, ''), id: slugify(h2[1]) })
     else if (h3) entries.push({ level: 3, text: h3[1].replace(/\*\*/g, ''), id: slugify(h3[1]) })
+    else if (h4) entries.push({ level: 4, text: h4[1].replace(/\*\*/g, ''), id: slugify(h4[1]) })
   }
   return entries
 }
@@ -57,7 +59,9 @@ function parseBlocks(md: string): Block[] {
     // Blank line — skip
     if (line.trim() === '') { i++; continue }
 
-    // H4 before H3/H2/H1 (most specific first)
+    // H5 before H4/H3/H2/H1 (most specific first)
+    const h5m = line.match(/^##### (.+)$/)
+    if (h5m) { blocks.push({ type: 'h5', text: h5m[1], id: slugify(h5m[1]) }); i++; continue }
     const h4m = line.match(/^#### (.+)$/)
     if (h4m) { blocks.push({ type: 'h4', text: h4m[1], id: slugify(h4m[1]) }); i++; continue }
     const h3m = line.match(/^### (.+)$/)
@@ -142,7 +146,7 @@ function parseBlocks(md: string): Block[] {
     while (
       i < lines.length &&
       lines[i].trim() !== '' &&
-      !lines[i].match(/^#{1,4} /) &&
+      !lines[i].match(/^#{1,5} /) &&
       !lines[i].startsWith('|') &&
       !lines[i].startsWith('```') &&
       !lines[i].startsWith('> ') &&
@@ -284,6 +288,20 @@ function RenderBlock({ block, idx }: { block: Block; idx: number }) {
         }}>
           <Inline text={block.text} />
         </h4>
+      )
+
+    case 'h5':
+      return (
+        <h5 id={block.id} key={idx} style={{
+          fontSize: 10, fontWeight: 600, color: 'rgba(80,150,220,0.65)',
+          marginTop: 16, marginBottom: 4,
+          letterSpacing: 0.5,
+          textTransform: 'uppercase',
+          paddingLeft: 12,
+          borderLeft: '2px solid rgba(0,180,255,0.15)',
+        }}>
+          <Inline text={block.text} />
+        </h5>
       )
 
     case 'hr':
@@ -550,7 +568,7 @@ export function DocsPage() {
                 style={{
                   display: 'block',
                   width: '100%',
-                  padding: entry.level === 2 ? '6px 14px' : '4px 14px 4px 26px',
+                  padding: entry.level === 2 ? '6px 14px' : entry.level === 3 ? '4px 14px 4px 26px' : '3px 14px 3px 38px',
                   background: isActive ? 'rgba(0,180,255,0.07)' : 'transparent',
                   border: 'none',
                   borderLeft: `2px solid ${isActive ? '#00d4ff' : 'transparent'}`,
@@ -558,8 +576,10 @@ export function DocsPage() {
                     ? '#00d4ff'
                     : entry.level === 2
                       ? 'rgba(160,200,255,0.65)'
-                      : 'rgba(110,155,210,0.5)',
-                  fontSize: entry.level === 2 ? 11 : 10,
+                      : entry.level === 3
+                        ? 'rgba(110,155,210,0.5)'
+                        : 'rgba(80,120,180,0.4)',
+                  fontSize: entry.level === 2 ? 11 : entry.level === 3 ? 10 : 9,
                   fontFamily: 'inherit',
                   letterSpacing: entry.level === 2 ? 0.3 : 0,
                   fontWeight: entry.level === 2 ? 600 : 400,
@@ -577,7 +597,9 @@ export function DocsPage() {
                 onMouseLeave={e => {
                   if (!isActive) e.currentTarget.style.color = entry.level === 2
                     ? 'rgba(160,200,255,0.65)'
-                    : 'rgba(110,155,210,0.5)'
+                    : entry.level === 3
+                      ? 'rgba(110,155,210,0.5)'
+                      : 'rgba(80,120,180,0.4)'
                 }}
               >
                 {entry.text}

@@ -29,7 +29,16 @@
    - [4.3 Technology Stack](#43-technology-stack)
 5. [Project Structure](#5-project-structure)
 6. [All Major Systems — Complete Inventory](#6-all-major-systems--complete-inventory)
-   - [6.1 World Generation](#61-world-generation)
+   - [6.1 World Generation — Physical Foundation](#61-world-generation--physical-foundation)
+     - [6.1.0 Planetary Formation and Bulk Geochemistry](#610-planetary-formation-and-bulk-geochemistry)
+       - [6.1.0.1 Planetary Accretion and Bulk Composition](#6101-planetary-accretion-and-bulk-composition)
+       - [6.1.0.2 Planetary Differentiation and Goldschmidt Classification](#6102-planetary-differentiation-and-goldschmidt-classification)
+       - [6.1.0.3 Bowen's Reaction Series and Magmatic Differentiation](#6103-bowens-reaction-series-and-magmatic-differentiation)
+       - [6.1.0.4 Planet Layer Model](#6104-planet-layer-model)
+       - [6.1.0.5 Crustal Abundance — Clarke Numbers](#6105-crustal-abundance--clarke-numbers)
+       - [6.1.0.6 Mineral Stability — Formation Conditions](#6106-mineral-stability--formation-conditions)
+       - [6.1.0.7 World Generation Algorithm — From First Principles](#6107-world-generation-algorithm--from-first-principles)
+     - [6.1.1 Surface Terrain and Biomes](#611-surface-terrain-and-biomes)
    - [6.2 Organism Ecosystem](#62-organism-ecosystem-server-authoritative-as-of-2026-03-27)
    - [6.2.1 Full Organism Species Registry](#621-full-organism-species-registry)
      - [Kingdom Plantae — Autotrophs](#kingdom-plantae--autotrophs)
@@ -57,14 +66,6 @@
      - [Silicon / Digital Age](#silicon--digital-age)
      - [Advanced / Emerging](#advanced--emerging)
    - [6.4 Geology and Resource Distribution](#64-geology-and-resource-distribution-new-2026-03-27)
-     - [6.4.0 Planetary Formation and Bulk Geochemistry](#640-planetary-formation-and-bulk-geochemistry)
-       - [6.4.0.1 Planetary Accretion and Bulk Composition](#6401-planetary-accretion-and-bulk-composition)
-       - [6.4.0.2 Planetary Differentiation and Goldschmidt Classification](#6402-planetary-differentiation-and-goldschmidt-classification)
-       - [6.4.0.3 Bowen's Reaction Series and Magmatic Differentiation](#6403-bowens-reaction-series-and-magmatic-differentiation)
-       - [6.4.0.4 Planet Layer Model](#6404-planet-layer-model)
-       - [6.4.0.5 Crustal Abundance — Clarke Numbers](#6405-crustal-abundance--clarke-numbers)
-       - [6.4.0.6 Mineral Stability — Formation Conditions](#6406-mineral-stability--formation-conditions)
-       - [6.4.0.7 World Generation Algorithm — From First Principles](#6407-world-generation-algorithm--from-first-principles)
      - [6.4.1 Metals and Ores](#641-metals-and-ores)
      - [6.4.2 Non-Metallic Rock and Mineral Resources](#642-non-metallic-rock-and-mineral-resources)
      - [6.4.3 Evaporite and Sedimentary Resources](#643-evaporite-and-sedimentary-resources)
@@ -531,7 +532,266 @@ universe-sim/
 
 ## 6. All Major Systems — Complete Inventory
 
-### 6.1 World Generation
+### 6.1 World Generation — Physical Foundation
+
+---
+
+#### 6.1.0 Planetary Formation and Bulk Geochemistry
+
+The current world-generation pipeline starts at tectonic plates. That is the wrong starting point. Tectonic plates are an emergent consequence of planetary cooling — they are not where resources come from. Resources come from the planet's bulk chemistry, which was set at accretion, then sorted by differentiation, then fractionated by partial melting, then concentrated by hydrothermal circulation. The tectonic plate is just the last step in a chain that starts in the solar nebula.
+
+This section documents that full chain. The tectonic rules in 6.4.1–6.4.8 are downstream consequences of what this section establishes. A resource node is only valid if it is consistent with the geochemical rules here. Nothing gets seeded by proximity to a boundary type alone — everything derives from the planet's initial chemistry.
+
+---
+
+##### 6.1.0.1 Planetary Accretion and Bulk Composition
+
+A rocky planet forms by gravitational accretion of planetesimals from the protoplanetary disk. The disk's composition follows stellar abundances (solar composition), but the innermost zone where rocky planets form is depleted of volatile elements (H, He, C, N, noble gases) because the young star's heat drove them outward. What remains to build a rocky planet is dominated by refractory elements — those with high condensation temperatures from a cooling gas.
+
+**Earth's bulk elemental composition (by mass):**
+
+| Element | Mass % | Notes |
+|---------|--------|-------|
+| Iron (Fe) | 32.1% | Most abundant by mass — dense, sinks to core |
+| Oxygen (O) | 30.1% | Second most — present in all silicate minerals |
+| Silicon (Si) | 15.1% | Framework of all silicate rocks |
+| Magnesium (Mg) | 13.9% | Primary mantle mineral component |
+| Sulfur (S) | 2.9% | Mostly in core (as FeS); chalcophile |
+| Nickel (Ni) | 1.8% | Siderophile — mostly in core with iron |
+| Calcium (Ca) | 1.5% | Lithophile — in plagioclase, pyroxene, carbonates |
+| Aluminum (Al) | 1.4% | Lithophile — in feldspar, spinel |
+| All others | <1% | Including C, H, Na, K, Ti, Mn, P, Cr, Co, rare metals |
+
+These numbers are not arbitrary — they are the cosmic abundances of refractory elements in CI carbonaceous chondrites (the most primitive meteorites, representative of the solar nebula composition minus volatiles). Any generated planet with a similar mass and orbital position to Earth should start with approximately these proportions.
+
+**The game's generation step 1:** Sample bulk planetary composition from a probability distribution around these values, perturbed by planet mass and stellar type. A smaller planet (Mars-sized) has less total iron. A planet orbiting a metal-poor star has lower heavy element fractions. This sets the total inventory of each element available for the entire world — no element can be created or destroyed by geological processes, only concentrated.
+
+---
+
+##### 6.1.0.2 Planetary Differentiation and Goldschmidt Classification
+
+When a newly accreted planet is hot enough (from accretional energy + short-lived radioisotope decay — primarily ²⁶Al, with a 730,000-year half-life), the interior melts. This melting is the most important event in planetary history for resource distribution: elements sort themselves by chemical affinity.
+
+Victor Goldschmidt (1888–1947) systematized this into four chemical groups, based on where each element prefers to reside when iron metal, silicate melt, sulfide melt, and gas are all coexisting:
+
+**Siderophile elements** ("iron-loving") — partition into liquid iron metal:
+Fe, Ni, Co, Mo, W, Re, Ru, Rh, Pd, Os, Ir, Pt, Au, As (partial), Cu (partial), Ge, Ga (partial), P (partial)
+
+These elements followed iron when it melted and sank to form the core. Earth's core contains essentially all the planet's budget of platinum-group metals (PGMs), most of the gold, most of the tungsten and molybdenum. The gold found in crustal deposits is NOT primordial — it arrived after core formation, delivered by a Late Heavy Bombardment of meteorite impacts ~3.9–4.1 Ga ago. Without that bombardment there would be no accessible gold, silver, or PGMs on the surface.
+
+**Lithophile elements** ("rock-loving") — partition into silicate minerals and melts:
+O, Si, Al, Mg, Ca, Na, K, Ti, P, Li, Be, B, Rb, Sr, Y, Zr, Nb, Ba, REEs (La–Lu), Hf, Ta, U, Th, Cs, F, Cl (partial)
+
+These stayed in the mantle and crust. U and Th are lithophile and radioactive — their ongoing decay (~45 TW globally) is the principal heat source driving mantle convection and therefore plate tectonics today. Without U and Th, Earth's interior would have cooled, tectonics would have ceased, and volcanism would have stopped billions of years ago.
+
+**Chalcophile elements** ("sulfur-loving") — partition into sulfide melt:
+S, Cu, Pb, Zn, Ag, Cd, In, Tl, Hg, As, Bi, Sb, Se, Te, Sn (partial), Mo (partial)
+
+When an iron-sulfide liquid separates from a silicate magma (as happens in large mafic intrusions when the melt becomes sulfur-saturated), chalcophile elements enter the sulfide phase and are concentrated there. This is the origin of magmatic copper-nickel-PGM sulfide deposits (Sudbury, Norilsk). It is also why copper, lead, and zinc are associated with hydrothermal sulfide systems — these elements readily dissolve in hot saline water as sulfide complexes (CuCl₂⁻, PbCl₄²⁻, ZnCl₄²⁻), travel through fractures, and precipitate as sulfide minerals when the fluid cools.
+
+**Atmophile elements** — partition into gas/fluid phase:
+H, C, N, O (partial), noble gases (He, Ne, Ar, Kr, Xe)
+
+These form the hydrosphere, atmosphere, and biosphere. The oceans and atmosphere were not present at accretion — they were degassed from the mantle over billions of years, and supplemented by volatile delivery from water-rich asteroids and comets. The composition of the ocean (NaCl-dominated brine) reflects billions of years of continental weathering delivering Na⁺ and Cl⁻ to the sea.
+
+**The game's generation step 2:** Apply Goldschmidt partitioning to the bulk elemental inventory. Each element is partitioned between core, mantle, and crust according to its partition coefficient — a dimensionless number expressing the element's preference for metal vs. silicate vs. sulfide. The result is the elemental budget available in the accessible crust. Elements with high siderophile affinity (gold, platinum) have extremely small crustal budgets. Elements that are strongly lithophile and incompatible (uranium, lithium, cesium) are concentrated in the continental crust despite their low overall abundance.
+
+---
+
+##### 6.1.0.3 Bowen's Reaction Series and Magmatic Differentiation
+
+Once differentiation has established the mantle, further chemical fractionation occurs every time a piece of mantle melts. This is the second major sorting mechanism, and it controls which elements end up in which types of crustal rock.
+
+**The process — partial melting:** The mantle is not molten globally. It melts locally, when:
+1. Pressure drops (decompression melting — at mid-ocean ridges, as the mantle upwells)
+2. Water is added (flux melting — at subduction zones, as the slab releases water)
+3. Temperature anomaly (hotspot melting — above a mantle plume)
+
+The fraction that melts first is not a representative sample of the mantle — it is enriched in components with lower melting points. For peridotite (the mantle rock), this means the first melt is basaltic: higher in SiO₂, Al₂O₃, CaO, Na₂O, and depleted in MgO and Cr relative to the source rock.
+
+**Bowen's Reaction Series — crystallization sequence as basalt cools:**
+
+As a basaltic magma cools from ~1200°C to ~600°C, minerals crystallize in a predictable sequence. Each mineral that crystallizes removes certain elements from the remaining liquid, changing its composition continuously — this is fractional crystallization:
+
+1. **Olivine** (Mg₂SiO₄) crystallizes first, above ~1200°C. Removes Mg, Fe, Si from melt. The remaining melt becomes richer in Al, Ca, Na, K, Si relative to Mg.
+
+2. **Pyroxene** (MgSiO₃ / CaMgSi₂O₆) crystallizes next, ~1100–900°C. Continues removing Mg and Ca.
+
+3. **Amphibole** (complex Ca-Mg-Fe-Al silicate) crystallizes in hydrated magmas, ~1000–800°C. Requires water in the melt.
+
+4. **Plagioclase feldspar** (continuous series CaAl₂Si₂O₈ → NaAlSi₃O₈) crystallizes through a wide temperature range, ~1200–700°C. Early plagioclase is Ca-rich (anorthite); later plagioclase is Na-rich (albite). Removes Ca, Al, Na.
+
+5. **Biotite mica** (K-Mg-Fe-Al silicate), ~800°C. Removes K.
+
+6. **K-feldspar** (KAlSi₃O₈), ~700°C. Removes K.
+
+7. **Muscovite mica**, ~700°C.
+
+8. **Quartz** (SiO₂) crystallizes last, below ~600°C. The last liquid to crystallize is quartz-rich.
+
+**Incompatible elements — the pegmatite concentration mechanism:**
+
+Certain elements fit into none of these crystal structures: Li, Be, B, Rb, Cs, Ba (somewhat), Nb, Ta, REEs (La–Lu), Hf, Zr, Sn, W, U, Th, F, Cl, H₂O. These are called "incompatible elements" — their ionic radius or charge is wrong for all the common minerals in the series.
+
+As crystallization proceeds, incompatible elements are continuously expelled from the crystallizing minerals into the residual melt. By the end of crystallization, the last ~1% of the original magma body is enriched in incompatible elements by factors of 100–1000× compared to the original magma. This final liquid, also rich in water and fluorine (which dramatically lower the crystallization temperature and allow very slow crystal growth), crystallizes as **pegmatite** — a rock with enormous crystals (meters in some cases) containing:
+
+- Lithium (as spodumene LiAlSi₂O₆, lepidolite K(Li,Al)₃(Si,Al)₄O₁₀(OH,F)₂)
+- Beryllium (as beryl Be₃Al₂Si₆O₁₈ — emerald and aquamarine are gem varieties)
+- Tin (as cassiterite SnO₂)
+- Tungsten (as wolframite (Fe,Mn)WO₄, scheelite CaWO₄)
+- Tantalum and Niobium (as coltan (Fe,Mn)(Nb,Ta)₂O₆)
+- REEs (as monazite (Ce,La,Nd,Th)PO₄, xenotime YPO₄)
+- Uranium (as uraninite UO₂)
+- Cesium (as pollucite Cs(AlSi₂)O₆)
+
+**The game's generation step 3:** At every granitic intrusion in the world, simulate fractional crystallization from an initial basaltic parent melt composition. The residual melt fraction (the last liquid) precipitates pegmatites in the thermal aureole of the intrusion. The incompatible elements concentrated in that pegmatite are proportional to the initial magma volume and the degree of differentiation. Large, deeply emplaced granite batholiths produce larger, richer pegmatite fields than small shallow intrusions.
+
+**Second partial melt — subduction-derived continental crust:**
+
+When oceanic basalt subducts, the slab releases water at 80–120 km depth (dehydration of hydrous minerals — serpentine, amphibole, chlorite). This water rises into the overlying mantle wedge and lowers its melting point (water lowers the solidus of peridotite by ~200–300°C). The resulting melt is more silica-rich than the original mantle melt — it is andesitic. This andesite erupts at the surface as stratovolcanoes (the "Ring of Fire") or crystallizes at depth as the first step toward forming granodiorite → granite.
+
+With each melting and crystallization cycle at subduction zones, the crustal column becomes more differentiated: more SiO₂, more K₂O, more incompatible elements, less MgO, less FeO. This is why continental crust (average composition ~65% SiO₂) is so different from oceanic crust (~50% SiO₂) and from the mantle (~45% SiO₂).
+
+---
+
+##### 6.1.0.4 Planet Layer Model
+
+The game must generate and track these layers. Each layer has a distinct composition and set of accessible resources:
+
+| Layer | Primary mineralogy | Elemental character | Avg. thickness | T range | Player-accessible |
+|-------|-------------------|---------------------|----------------|---------|-------------------|
+| **Inner core** | Fe–Ni alloy (solid) | Siderophile: Fe 85%, Ni 5%, Si+S 10% | 1220 km radius | ~5000–6000°C | No |
+| **Outer core** | Fe–Ni–S melt (liquid) | Siderophile: Fe 82%, Ni 5%, S 9%, O+Si 4% | 2260 km | 4000–5000°C | No — generates magnetic field via dynamo |
+| **Lower mantle** | Bridgmanite (MgSiO₃ perovskite), ferropericlase (MgO) | Lithophile, high-pressure phases | 2300 km | 1500–4000°C | No |
+| **Upper mantle** | Peridotite: olivine (Mg,Fe)₂SiO₄ + pyroxene MgSiO₃ | Lithophile: Mg, Fe, Si, O, Cr, Ni | 660 km | 500–1500°C | Only via volcanic transport (xenoliths, kimberlites) |
+| **Oceanic crust** | Basalt: SiO₂ 50%, Al₂O₃ 16%, FeO 10%, MgO 7%, CaO 11%, Na₂O 3% | Chalcophile enriched by seafloor hydrothermal vents | 5–10 km | surface–400°C | Yes — seafloor and island arcs |
+| **Continental crust (lower)** | Granulite, amphibolite, mafic granulite | Mixed mafic+felsic | 20–50 km | 300–800°C | Only via very deep mines or thrust faults |
+| **Continental crust (upper)** | Granite, gneiss, schist, sedimentary cover | Lithophile + incompatible: SiO₂ 65%, Al₂O₃ 16%, Na₂O+K₂O 9%, enriched in U, Th, REE, Li, Sn, W | 10–30 km | surface–200°C | Yes — primary exploration target |
+| **Hydrosphere** | H₂O + dissolved Na⁺, Cl⁻, Mg²⁺, SO₄²⁻, Ca²⁺, K⁺ | Atmophile + chalcophile ions in solution | 3.7 km avg ocean depth | 2–35°C | Yes — oceans, rivers, lakes |
+| **Atmosphere** | N₂ 78%, O₂ 21%, Ar 1%, CO₂ 0.04%, H₂O variable | Atmophile | 80 km to 99% mass | −60°C to +50°C | Yes |
+
+**The magnetic field:** The liquid outer core generates Earth's magnetic field by dynamo action — convecting conductive iron fluid driven by the heat gradient between inner and outer core. A game planet with a normal-sized iron core generates a magnetosphere that deflects the stellar wind, protecting the surface from ionizing radiation. A planet with a small core (low Fe fraction), a fully solidified core (too cool), or no core generates no magnetic field — the surface experiences high radiation, which affects organism mutation rates and material degradation rates. Players could detect the field's presence or absence with a compass.
+
+---
+
+##### 6.1.0.5 Crustal Abundance — Clarke Numbers
+
+The **Clarke number** (named after geochemist Frank Wigglesworth Clarke, 1847–1931) is the average abundance of an element in the continental crust, in parts per million (ppm) by mass. These numbers define how common or rare a resource is in the game world. A resource with a Clarke number of 60 ppm (copper) is ~15,000 times more abundant than one with 0.004 ppm (gold). The game must respect these ratios in deposit size and discovery frequency.
+
+**Clarke numbers for game-relevant elements:**
+
+| Element | Clarke (ppm) | Goldschmidt type | Why abundant or rare |
+|---------|-------------|-----------------|---------------------|
+| Oxygen (O) | 461,000 | Lithophile | Silicate anion — in every rock mineral |
+| Silicon (Si) | 282,000 | Lithophile | Silicate framework — in every silicate |
+| Aluminum (Al) | 82,300 | Lithophile | Feldspar — most common mineral group |
+| Iron (Fe) | 56,300 | Siderophile (partial) | Retained in crust as Fe²⁺ in mafic silicates |
+| Calcium (Ca) | 41,500 | Lithophile | Plagioclase, pyroxene, carbonite |
+| Sodium (Na) | 23,600 | Lithophile | Plagioclase, evaporite |
+| Magnesium (Mg) | 23,300 | Lithophile | Olivine, pyroxene — abundant in mafic crust |
+| Potassium (K) | 20,900 | Lithophile | K-feldspar, mica — concentrated in granite |
+| Titanium (Ti) | 5,650 | Lithophile | Ilmenite, rutile — accessory minerals |
+| Phosphorus (P) | 1,050 | Lithophile | Apatite — ubiquitous accessory mineral |
+| Manganese (Mn) | 950 | Lithophile/siderophile | Pyrolusite, seafloor nodules |
+| Fluorine (F) | 585 | Lithophile | Fluorapatite, fluorite |
+| Chlorine (Cl) | 130 | Atmophile | Halite — concentrated by evaporation |
+| Chromium (Cr) | 102 | Siderophile | Chromite in mafic/ultramafic rock |
+| Zinc (Zn) | 70 | Chalcophile | Sphalerite — hydrothermal concentration |
+| Copper (Cu) | 60 | Chalcophile | Sulfide minerals — hydrothermal concentration |
+| Nickel (Ni) | 59 | Siderophile | Pentlandite in mafic intrusions |
+| Lithium (Li) | 20 | Lithophile (incompatible) | Pegmatite and continental brine |
+| Lead (Pb) | 14 | Chalcophile | Galena — MVT and hydrothermal veins |
+| Cobalt (Co) | 25 | Siderophile | Ni–Cu sulfide deposits |
+| Boron (B) | 10 | Lithophile | Evaporite deposits (borax) |
+| Uranium (U) | 2.7 | Lithophile (incompatible) | Concentrated in continental crust granites |
+| Tin (Sn) | 2.3 | Lithophile (incompatible) | Pegmatite and greisen — very rare |
+| Tungsten (W) | 1.3 | Siderophile (partial) | Pegmatite and skarn — very rare |
+| Silver (Ag) | 0.075 | Chalcophile | Hydrothermal veins with lead |
+| Gold (Au) | 0.004 | Siderophile | Post-LHB delivery — extremely rare |
+| Platinum (Pt) | 0.005 | Siderophile | Magmatic sulfide deposits |
+
+**Game balance implication:** Copper (60 ppm) should appear in deposits roughly 15,000× more frequently than gold (0.004 ppm). A copper deposit might cover 1–2 km² and contain millions of tonnes of ore. A gold deposit might be a vein 20 cm wide and 50 meters long. These are real proportions. The game is not balanced around equal deposit sizes — it is balanced around real scarcity, which forces trade.
+
+---
+
+##### 6.1.0.6 Mineral Stability — Formation Conditions
+
+A resource node can only exist if the conditions that formed it actually existed at that location. The game's resource seeder must run a mineral stability check before placing any deposit. Each mineral has a valid temperature window, pressure window, chemical activity window, and atmospheric condition:
+
+| Mineral | Formation T | Formation P | Required chemistry | Stability at surface |
+|---------|------------|------------|-------------------|---------------------|
+| Diamond | >900°C | >45 kbar (~150 km depth) | Carbon + mantle reducing conditions | Metastable — survives at surface; returns to graphite only above 1500°C at 1 atm |
+| Graphite | >300°C | >2 kbar | Carbon in metamorphic/metasedimentary rock | Stable |
+| Olivine | >900°C | 0.001–100 kbar | Mg-Fe silicate melt | Unstable at surface — rapidly weathers to serpentine + iron oxides |
+| Quartz | <870°C | 0–50 kbar | SiO₂ supersaturation in fluid or late melt | Highly stable — chemically inert at surface |
+| Halite (salt) | Any T | 1 atm | Brine concentration >26% NaCl | Unstable in humid climates — dissolves; stable in arid |
+| Pyrite (FeS₂) | <400°C | 1–5 kbar | Reducing conditions + sulfur activity | Unstable at surface in O₂ atmosphere — oxidizes to goethite + SO₄²⁻ |
+| Chalcopyrite (CuFeS₂) | 200–500°C | hydrothermal | Cu + Fe + S + reducing fluid | Unstable at surface — weathers to malachite and azurite |
+| Malachite / Azurite | Surface T | 1 atm | Oxidizing conditions + CaCO₃ substrate | Stable in oxidizing zone — forms from chalcopyrite weathering |
+| Calcite (CaCO₃) | <500°C | any | Seawater CaCO₃ supersaturation OR biogenic | Stable in neutral-alkaline conditions; dissolves in acid |
+| Bauxite | Surface T | 1 atm | Intense tropical weathering, >2000 mm/yr rain, >25°C | Stable in tropical climate; erodes in cooler/drier conditions |
+| Cassiterite (SnO₂) | 200–600°C | 0.5–3 kbar | Pegmatite/greisen — high F activity | Very stable — survives transport as placer |
+| Uraninite (UO₂) | 200–500°C | hydrothermal or pegmatite | Reducing conditions + U-rich fluid | Unstable in oxidizing surface — oxidizes to schoepite; mobilizes in O₂ groundwater |
+| Garnet | >500°C | >2 kbar | Metamorphic — pelitic or mafic bulk composition | Stable at surface — survives weathering, common in beach sand |
+| Platinum (native) | Magmatic | >1200°C | Fe–Ni–S liquid saturation in mafic melt | Highly stable — survives transport as placer |
+| Gold (native) | Hydrothermal: 200–350°C | 0.5–2 kbar | Au-bisulfide complex + pH/temperature gradient | Highly stable at surface — inert, survives transport |
+| Gypsum (CaSO₄·2H₂O) | <60°C | 1 atm | Evaporating seawater, early-stage concentration | Stable in surface conditions; converts to anhydrite below water table |
+| Corundum (Al₂O₃, ruby/sapphire) | >700°C | >5 kbar | Low SiO₂ activity + Al-rich metapelite or pegmatite | Stable — very hard, survives as placer |
+
+**The stability check in world generation:** Before seeding a mineral deposit, the generator checks:
+1. Does the local geological history include the required formation conditions? (e.g., was there a granite intrusion here? Was this area subducted? Was there a tropical climate phase?)
+2. Have surface conditions since formation been compatible with preservation? (e.g., a sulfide deposit formed 500 Ma ago in a reducing environment may have since been oxidized — its surface expression is a gossan of iron oxides with secondary copper carbonates, not fresh chalcopyrite)
+3. Is the deposit on a terrain type that logically supports it? (bauxite cannot form in an arctic biome; salt cannot survive in a humid tropical biome)
+
+---
+
+##### 6.1.0.7 World Generation Algorithm — From First Principles
+
+This is the full ordered sequence the game runs when generating a new world:
+
+**Phase 1 — Bulk composition:**
+1. Set planet mass (drawn from distribution around 1 Earth mass, with variance)
+2. Sample bulk elemental composition from CI chondrite reference adjusted for planet mass and stellar metallicity
+3. Apply Goldschmidt partitioning: compute how much of each element goes to core, mantle, and bulk silicate Earth (BSE = mantle + crust)
+4. Output: BSE elemental budget — the total inventory of lithophile + chalcophile elements available to build the crust
+
+**Phase 2 — Crust generation:**
+5. Divide BSE budget into oceanic crust fraction and continental crust fraction (ratio determined by tectonic maturity parameter — young planets have more oceanic crust; old planets have more continental crust)
+6. For oceanic crust: apply basaltic differentiation model (partial melt of peridotite at mid-ocean ridges) — produces tholeiitic basalt composition
+7. For continental crust: apply multi-stage differentiation (subduction arc → granodiorite → granite fractionation) — produces average continental composition enriched in incompatible elements
+8. For each granitic province in continental crust: simulate pegmatite formation by computing residual melt fraction and incompatible element concentration factor — places pegmatite fields with Li, Sn, W, REE, U proportional to volume
+
+**Phase 3 — Tectonic structure:**
+9. Generate 12 tectonic plates (existing Voronoi sphere method)
+10. Classify each plate as oceanic or continental based on BSE volume fractions
+11. Classify each boundary (convergent, divergent, transform)
+12. For each convergent boundary: compute subduction geometry, slab depth, and hydrothermal fluid chemistry — seeds copper porphyry, epithermal gold/silver, VMS deposits proportional to accumulated subduction history
+13. For each divergent boundary: compute spreading rate and seafloor hydrothermal vent activity — seeds black smoker VMS deposits, seafloor manganese nodule fields
+14. For each craton (stable ancient continental core): compute age and thermal history — seeds BIF iron deposits (only if craton pre-dates Great Oxidation Event at 2.4 Ga), unconformity uranium deposits, diamond-bearing kimberlites
+
+**Phase 4 — Surface weathering and secondary deposits:**
+15. Apply biome layer (from organism simulation — tropical biomes trigger laterite and bauxite generation on mafic terrain)
+16. Apply drainage model (rivers carry dissolved weathering products to interior basins, generating evaporite sequences — salt, gypsum, potash — in endorheic basins)
+17. Apply oxidation fronts to sulfide deposits exposed at surface (gossan formation, supergene enrichment, malachite/azurite secondary cap)
+18. Apply placer transport to dense, stable minerals (gold, cassiterite, diamonds) — follow river network downstream from hard-rock source deposits
+
+**Phase 5 — Surface expression:**
+19. Each deposit is assigned a visible surface expression (the signal that a player or NPC can detect without drilling):
+    - Gossan: red-orange iron oxide staining above sulfide deposit
+    - Malachite staining: green mineral in outcrop → copper below
+    - Magnetic anomaly: deflection of compass near magnetite → iron ore
+    - Sulfur smell + yellow crust: volcanic fumarole → native sulfur
+    - White crust: salt flat or gypsum outcrop
+    - Black coal seam: visible in river valley or cliff
+    - Dark heavy grains in river sediment: cassiterite or gold placer
+    - Glassy dark nodules in limestone: flint
+    - Bright black metallic dendrites on rock faces: manganese oxide
+
+Every resource node in the game has a surface expression that derives from the real mineralogy of the deposit and the real weathering chemistry of that mineral in contact with oxygen, water, and carbon dioxide. No resource is hidden without a signal — but reading the signals requires geological knowledge.
+
+---
+
+#### 6.1.1 Surface Terrain and Biomes
 
 The planet is a sphere with a 4-kilometer radius. The terrain is generated using a technique called 3D Fractional Brownian Motion (FBM) with domain warping — this produces natural-looking mountain ranges, valleys, and coastlines without any repetition. Additional passes add ridged mountains and Voronoi-based tectonic plates.
 
@@ -2808,267 +3068,12 @@ The game has no recipe database. Instead it has **transformation rules** — phy
 
 ### 6.4 Geology and Resource Distribution (New 2026-03-27)
 
-12 tectonic plates via Voronoi sphere partitioning. Resource nodes concentrated according to real geological processes. Settlement specialties assigned by server-side geology query (matching the client algorithm exactly).
+Resource distribution builds on the planetary formation and tectonic structure defined in §6.1. Resource nodes are concentrated according to real geological processes. Settlement specialties assigned by server-side geology query (matching the client algorithm exactly).
 
 **Scientific grounding — why geology determines civilization:**
 Jared Diamond's *Guns, Germs, and Steel* (1997) argues that geography is the primary driver of civilizational development — not intelligence, culture, or luck. Societies that happened to sit on land with domesticable crops, workable metals, and navigable rivers developed faster and outcompeted those that did not. The same logic applies here. A player who starts near a copper-rich volcanic zone has access to metal tools earlier than one who starts in a sedimentary basin with only flint. This is not unfair — it is how reality works. The world rewards exploration and trade precisely because different regions have different resources.
 
 Every resource in the game has one or more real geological formation mechanisms. A player who understands these can search intelligently instead of wandering randomly. The entries below cover every resource in the game's material taxonomy — how it forms, under what conditions, and what terrain signals its presence.
-
----
-
-#### 6.4.0 Planetary Formation and Bulk Geochemistry
-
-The current world-generation pipeline starts at tectonic plates. That is the wrong starting point. Tectonic plates are an emergent consequence of planetary cooling — they are not where resources come from. Resources come from the planet's bulk chemistry, which was set at accretion, then sorted by differentiation, then fractionated by partial melting, then concentrated by hydrothermal circulation. The tectonic plate is just the last step in a chain that starts in the solar nebula.
-
-This section documents that full chain. The tectonic rules in 6.4.1–6.4.8 are downstream consequences of what this section establishes. A resource node is only valid if it is consistent with the geochemical rules here. Nothing gets seeded by proximity to a boundary type alone — everything derives from the planet's initial chemistry.
-
----
-
-##### 6.4.0.1 Planetary Accretion and Bulk Composition
-
-A rocky planet forms by gravitational accretion of planetesimals from the protoplanetary disk. The disk's composition follows stellar abundances (solar composition), but the innermost zone where rocky planets form is depleted of volatile elements (H, He, C, N, noble gases) because the young star's heat drove them outward. What remains to build a rocky planet is dominated by refractory elements — those with high condensation temperatures from a cooling gas.
-
-**Earth's bulk elemental composition (by mass):**
-
-| Element | Mass % | Notes |
-|---------|--------|-------|
-| Iron (Fe) | 32.1% | Most abundant by mass — dense, sinks to core |
-| Oxygen (O) | 30.1% | Second most — present in all silicate minerals |
-| Silicon (Si) | 15.1% | Framework of all silicate rocks |
-| Magnesium (Mg) | 13.9% | Primary mantle mineral component |
-| Sulfur (S) | 2.9% | Mostly in core (as FeS); chalcophile |
-| Nickel (Ni) | 1.8% | Siderophile — mostly in core with iron |
-| Calcium (Ca) | 1.5% | Lithophile — in plagioclase, pyroxene, carbonates |
-| Aluminum (Al) | 1.4% | Lithophile — in feldspar, spinel |
-| All others | <1% | Including C, H, Na, K, Ti, Mn, P, Cr, Co, rare metals |
-
-These numbers are not arbitrary — they are the cosmic abundances of refractory elements in CI carbonaceous chondrites (the most primitive meteorites, representative of the solar nebula composition minus volatiles). Any generated planet with a similar mass and orbital position to Earth should start with approximately these proportions.
-
-**The game's generation step 1:** Sample bulk planetary composition from a probability distribution around these values, perturbed by planet mass and stellar type. A smaller planet (Mars-sized) has less total iron. A planet orbiting a metal-poor star has lower heavy element fractions. This sets the total inventory of each element available for the entire world — no element can be created or destroyed by geological processes, only concentrated.
-
----
-
-##### 6.4.0.2 Planetary Differentiation and Goldschmidt Classification
-
-When a newly accreted planet is hot enough (from accretional energy + short-lived radioisotope decay — primarily ²⁶Al, with a 730,000-year half-life), the interior melts. This melting is the most important event in planetary history for resource distribution: elements sort themselves by chemical affinity.
-
-Victor Goldschmidt (1888–1947) systematized this into four chemical groups, based on where each element prefers to reside when iron metal, silicate melt, sulfide melt, and gas are all coexisting:
-
-**Siderophile elements** ("iron-loving") — partition into liquid iron metal:
-Fe, Ni, Co, Mo, W, Re, Ru, Rh, Pd, Os, Ir, Pt, Au, As (partial), Cu (partial), Ge, Ga (partial), P (partial)
-
-These elements followed iron when it melted and sank to form the core. Earth's core contains essentially all the planet's budget of platinum-group metals (PGMs), most of the gold, most of the tungsten and molybdenum. The gold found in crustal deposits is NOT primordial — it arrived after core formation, delivered by a Late Heavy Bombardment of meteorite impacts ~3.9–4.1 Ga ago. Without that bombardment there would be no accessible gold, silver, or PGMs on the surface.
-
-**Lithophile elements** ("rock-loving") — partition into silicate minerals and melts:
-O, Si, Al, Mg, Ca, Na, K, Ti, P, Li, Be, B, Rb, Sr, Y, Zr, Nb, Ba, REEs (La–Lu), Hf, Ta, U, Th, Cs, F, Cl (partial)
-
-These stayed in the mantle and crust. U and Th are lithophile and radioactive — their ongoing decay (~45 TW globally) is the principal heat source driving mantle convection and therefore plate tectonics today. Without U and Th, Earth's interior would have cooled, tectonics would have ceased, and volcanism would have stopped billions of years ago.
-
-**Chalcophile elements** ("sulfur-loving") — partition into sulfide melt:
-S, Cu, Pb, Zn, Ag, Cd, In, Tl, Hg, As, Bi, Sb, Se, Te, Sn (partial), Mo (partial)
-
-When an iron-sulfide liquid separates from a silicate magma (as happens in large mafic intrusions when the melt becomes sulfur-saturated), chalcophile elements enter the sulfide phase and are concentrated there. This is the origin of magmatic copper-nickel-PGM sulfide deposits (Sudbury, Norilsk). It is also why copper, lead, and zinc are associated with hydrothermal sulfide systems — these elements readily dissolve in hot saline water as sulfide complexes (CuCl₂⁻, PbCl₄²⁻, ZnCl₄²⁻), travel through fractures, and precipitate as sulfide minerals when the fluid cools.
-
-**Atmophile elements** — partition into gas/fluid phase:
-H, C, N, O (partial), noble gases (He, Ne, Ar, Kr, Xe)
-
-These form the hydrosphere, atmosphere, and biosphere. The oceans and atmosphere were not present at accretion — they were degassed from the mantle over billions of years, and supplemented by volatile delivery from water-rich asteroids and comets. The composition of the ocean (NaCl-dominated brine) reflects billions of years of continental weathering delivering Na⁺ and Cl⁻ to the sea.
-
-**The game's generation step 2:** Apply Goldschmidt partitioning to the bulk elemental inventory. Each element is partitioned between core, mantle, and crust according to its partition coefficient — a dimensionless number expressing the element's preference for metal vs. silicate vs. sulfide. The result is the elemental budget available in the accessible crust. Elements with high siderophile affinity (gold, platinum) have extremely small crustal budgets. Elements that are strongly lithophile and incompatible (uranium, lithium, cesium) are concentrated in the continental crust despite their low overall abundance.
-
----
-
-##### 6.4.0.3 Bowen's Reaction Series and Magmatic Differentiation
-
-Once differentiation has established the mantle, further chemical fractionation occurs every time a piece of mantle melts. This is the second major sorting mechanism, and it controls which elements end up in which types of crustal rock.
-
-**The process — partial melting:** The mantle is not molten globally. It melts locally, when:
-1. Pressure drops (decompression melting — at mid-ocean ridges, as the mantle upwells)
-2. Water is added (flux melting — at subduction zones, as the slab releases water)
-3. Temperature anomaly (hotspot melting — above a mantle plume)
-
-The fraction that melts first is not a representative sample of the mantle — it is enriched in components with lower melting points. For peridotite (the mantle rock), this means the first melt is basaltic: higher in SiO₂, Al₂O₃, CaO, Na₂O, and depleted in MgO and Cr relative to the source rock.
-
-**Bowen's Reaction Series — crystallization sequence as basalt cools:**
-
-As a basaltic magma cools from ~1200°C to ~600°C, minerals crystallize in a predictable sequence. Each mineral that crystallizes removes certain elements from the remaining liquid, changing its composition continuously — this is fractional crystallization:
-
-1. **Olivine** (Mg₂SiO₄) crystallizes first, above ~1200°C. Removes Mg, Fe, Si from melt. The remaining melt becomes richer in Al, Ca, Na, K, Si relative to Mg.
-
-2. **Pyroxene** (MgSiO₃ / CaMgSi₂O₆) crystallizes next, ~1100–900°C. Continues removing Mg and Ca.
-
-3. **Amphibole** (complex Ca-Mg-Fe-Al silicate) crystallizes in hydrated magmas, ~1000–800°C. Requires water in the melt.
-
-4. **Plagioclase feldspar** (continuous series CaAl₂Si₂O₈ → NaAlSi₃O₈) crystallizes through a wide temperature range, ~1200–700°C. Early plagioclase is Ca-rich (anorthite); later plagioclase is Na-rich (albite). Removes Ca, Al, Na.
-
-5. **Biotite mica** (K-Mg-Fe-Al silicate), ~800°C. Removes K.
-
-6. **K-feldspar** (KAlSi₃O₈), ~700°C. Removes K.
-
-7. **Muscovite mica**, ~700°C.
-
-8. **Quartz** (SiO₂) crystallizes last, below ~600°C. The last liquid to crystallize is quartz-rich.
-
-**Incompatible elements — the pegmatite concentration mechanism:**
-
-Certain elements fit into none of these crystal structures: Li, Be, B, Rb, Cs, Ba (somewhat), Nb, Ta, REEs (La–Lu), Hf, Zr, Sn, W, U, Th, F, Cl, H₂O. These are called "incompatible elements" — their ionic radius or charge is wrong for all the common minerals in the series.
-
-As crystallization proceeds, incompatible elements are continuously expelled from the crystallizing minerals into the residual melt. By the end of crystallization, the last ~1% of the original magma body is enriched in incompatible elements by factors of 100–1000× compared to the original magma. This final liquid, also rich in water and fluorine (which dramatically lower the crystallization temperature and allow very slow crystal growth), crystallizes as **pegmatite** — a rock with enormous crystals (meters in some cases) containing:
-
-- Lithium (as spodumene LiAlSi₂O₆, lepidolite K(Li,Al)₃(Si,Al)₄O₁₀(OH,F)₂)
-- Beryllium (as beryl Be₃Al₂Si₆O₁₈ — emerald and aquamarine are gem varieties)
-- Tin (as cassiterite SnO₂)
-- Tungsten (as wolframite (Fe,Mn)WO₄, scheelite CaWO₄)
-- Tantalum and Niobium (as coltan (Fe,Mn)(Nb,Ta)₂O₆)
-- REEs (as monazite (Ce,La,Nd,Th)PO₄, xenotime YPO₄)
-- Uranium (as uraninite UO₂)
-- Cesium (as pollucite Cs(AlSi₂)O₆)
-
-**The game's generation step 3:** At every granitic intrusion in the world, simulate fractional crystallization from an initial basaltic parent melt composition. The residual melt fraction (the last liquid) precipitates pegmatites in the thermal aureole of the intrusion. The incompatible elements concentrated in that pegmatite are proportional to the initial magma volume and the degree of differentiation. Large, deeply emplaced granite batholiths produce larger, richer pegmatite fields than small shallow intrusions.
-
-**Second partial melt — subduction-derived continental crust:**
-
-When oceanic basalt subducts, the slab releases water at 80–120 km depth (dehydration of hydrous minerals — serpentine, amphibole, chlorite). This water rises into the overlying mantle wedge and lowers its melting point (water lowers the solidus of peridotite by ~200–300°C). The resulting melt is more silica-rich than the original mantle melt — it is andesitic. This andesite erupts at the surface as stratovolcanoes (the "Ring of Fire") or crystallizes at depth as the first step toward forming granodiorite → granite.
-
-With each melting and crystallization cycle at subduction zones, the crustal column becomes more differentiated: more SiO₂, more K₂O, more incompatible elements, less MgO, less FeO. This is why continental crust (average composition ~65% SiO₂) is so different from oceanic crust (~50% SiO₂) and from the mantle (~45% SiO₂).
-
----
-
-##### 6.4.0.4 Planet Layer Model
-
-The game must generate and track these layers. Each layer has a distinct composition and set of accessible resources:
-
-| Layer | Primary mineralogy | Elemental character | Avg. thickness | T range | Player-accessible |
-|-------|-------------------|---------------------|----------------|---------|-------------------|
-| **Inner core** | Fe–Ni alloy (solid) | Siderophile: Fe 85%, Ni 5%, Si+S 10% | 1220 km radius | ~5000–6000°C | No |
-| **Outer core** | Fe–Ni–S melt (liquid) | Siderophile: Fe 82%, Ni 5%, S 9%, O+Si 4% | 2260 km | 4000–5000°C | No — generates magnetic field via dynamo |
-| **Lower mantle** | Bridgmanite (MgSiO₃ perovskite), ferropericlase (MgO) | Lithophile, high-pressure phases | 2300 km | 1500–4000°C | No |
-| **Upper mantle** | Peridotite: olivine (Mg,Fe)₂SiO₄ + pyroxene MgSiO₃ | Lithophile: Mg, Fe, Si, O, Cr, Ni | 660 km | 500–1500°C | Only via volcanic transport (xenoliths, kimberlites) |
-| **Oceanic crust** | Basalt: SiO₂ 50%, Al₂O₃ 16%, FeO 10%, MgO 7%, CaO 11%, Na₂O 3% | Chalcophile enriched by seafloor hydrothermal vents | 5–10 km | surface–400°C | Yes — seafloor and island arcs |
-| **Continental crust (lower)** | Granulite, amphibolite, mafic granulite | Mixed mafic+felsic | 20–50 km | 300–800°C | Only via very deep mines or thrust faults |
-| **Continental crust (upper)** | Granite, gneiss, schist, sedimentary cover | Lithophile + incompatible: SiO₂ 65%, Al₂O₃ 16%, Na₂O+K₂O 9%, enriched in U, Th, REE, Li, Sn, W | 10–30 km | surface–200°C | Yes — primary exploration target |
-| **Hydrosphere** | H₂O + dissolved Na⁺, Cl⁻, Mg²⁺, SO₄²⁻, Ca²⁺, K⁺ | Atmophile + chalcophile ions in solution | 3.7 km avg ocean depth | 2–35°C | Yes — oceans, rivers, lakes |
-| **Atmosphere** | N₂ 78%, O₂ 21%, Ar 1%, CO₂ 0.04%, H₂O variable | Atmophile | 80 km to 99% mass | −60°C to +50°C | Yes |
-
-**The magnetic field:** The liquid outer core generates Earth's magnetic field by dynamo action — convecting conductive iron fluid driven by the heat gradient between inner and outer core. A game planet with a normal-sized iron core generates a magnetosphere that deflects the stellar wind, protecting the surface from ionizing radiation. A planet with a small core (low Fe fraction), a fully solidified core (too cool), or no core generates no magnetic field — the surface experiences high radiation, which affects organism mutation rates and material degradation rates. Players could detect the field's presence or absence with a compass.
-
----
-
-##### 6.4.0.5 Crustal Abundance — Clarke Numbers
-
-The **Clarke number** (named after geochemist Frank Wigglesworth Clarke, 1847–1931) is the average abundance of an element in the continental crust, in parts per million (ppm) by mass. These numbers define how common or rare a resource is in the game world. A resource with a Clarke number of 60 ppm (copper) is ~15,000 times more abundant than one with 0.004 ppm (gold). The game must respect these ratios in deposit size and discovery frequency.
-
-**Clarke numbers for game-relevant elements:**
-
-| Element | Clarke (ppm) | Goldschmidt type | Why abundant or rare |
-|---------|-------------|-----------------|---------------------|
-| Oxygen (O) | 461,000 | Lithophile | Silicate anion — in every rock mineral |
-| Silicon (Si) | 282,000 | Lithophile | Silicate framework — in every silicate |
-| Aluminum (Al) | 82,300 | Lithophile | Feldspar — most common mineral group |
-| Iron (Fe) | 56,300 | Siderophile (partial) | Retained in crust as Fe²⁺ in mafic silicates |
-| Calcium (Ca) | 41,500 | Lithophile | Plagioclase, pyroxene, carbonite |
-| Sodium (Na) | 23,600 | Lithophile | Plagioclase, evaporite |
-| Magnesium (Mg) | 23,300 | Lithophile | Olivine, pyroxene — abundant in mafic crust |
-| Potassium (K) | 20,900 | Lithophile | K-feldspar, mica — concentrated in granite |
-| Titanium (Ti) | 5,650 | Lithophile | Ilmenite, rutile — accessory minerals |
-| Phosphorus (P) | 1,050 | Lithophile | Apatite — ubiquitous accessory mineral |
-| Manganese (Mn) | 950 | Lithophile/siderophile | Pyrolusite, seafloor nodules |
-| Fluorine (F) | 585 | Lithophile | Fluorapatite, fluorite |
-| Chlorine (Cl) | 130 | Atmophile | Halite — concentrated by evaporation |
-| Chromium (Cr) | 102 | Siderophile | Chromite in mafic/ultramafic rock |
-| Zinc (Zn) | 70 | Chalcophile | Sphalerite — hydrothermal concentration |
-| Copper (Cu) | 60 | Chalcophile | Sulfide minerals — hydrothermal concentration |
-| Nickel (Ni) | 59 | Siderophile | Pentlandite in mafic intrusions |
-| Lithium (Li) | 20 | Lithophile (incompatible) | Pegmatite and continental brine |
-| Lead (Pb) | 14 | Chalcophile | Galena — MVT and hydrothermal veins |
-| Cobalt (Co) | 25 | Siderophile | Ni–Cu sulfide deposits |
-| Boron (B) | 10 | Lithophile | Evaporite deposits (borax) |
-| Uranium (U) | 2.7 | Lithophile (incompatible) | Concentrated in continental crust granites |
-| Tin (Sn) | 2.3 | Lithophile (incompatible) | Pegmatite and greisen — very rare |
-| Tungsten (W) | 1.3 | Siderophile (partial) | Pegmatite and skarn — very rare |
-| Silver (Ag) | 0.075 | Chalcophile | Hydrothermal veins with lead |
-| Gold (Au) | 0.004 | Siderophile | Post-LHB delivery — extremely rare |
-| Platinum (Pt) | 0.005 | Siderophile | Magmatic sulfide deposits |
-
-**Game balance implication:** Copper (60 ppm) should appear in deposits roughly 15,000× more frequently than gold (0.004 ppm). A copper deposit might cover 1–2 km² and contain millions of tonnes of ore. A gold deposit might be a vein 20 cm wide and 50 meters long. These are real proportions. The game is not balanced around equal deposit sizes — it is balanced around real scarcity, which forces trade.
-
----
-
-##### 6.4.0.6 Mineral Stability — Formation Conditions
-
-A resource node can only exist if the conditions that formed it actually existed at that location. The game's resource seeder must run a mineral stability check before placing any deposit. Each mineral has a valid temperature window, pressure window, chemical activity window, and atmospheric condition:
-
-| Mineral | Formation T | Formation P | Required chemistry | Stability at surface |
-|---------|------------|------------|-------------------|---------------------|
-| Diamond | >900°C | >45 kbar (~150 km depth) | Carbon + mantle reducing conditions | Metastable — survives at surface; returns to graphite only above 1500°C at 1 atm |
-| Graphite | >300°C | >2 kbar | Carbon in metamorphic/metasedimentary rock | Stable |
-| Olivine | >900°C | 0.001–100 kbar | Mg-Fe silicate melt | Unstable at surface — rapidly weathers to serpentine + iron oxides |
-| Quartz | <870°C | 0–50 kbar | SiO₂ supersaturation in fluid or late melt | Highly stable — chemically inert at surface |
-| Halite (salt) | Any T | 1 atm | Brine concentration >26% NaCl | Unstable in humid climates — dissolves; stable in arid |
-| Pyrite (FeS₂) | <400°C | 1–5 kbar | Reducing conditions + sulfur activity | Unstable at surface in O₂ atmosphere — oxidizes to goethite + SO₄²⁻ |
-| Chalcopyrite (CuFeS₂) | 200–500°C | hydrothermal | Cu + Fe + S + reducing fluid | Unstable at surface — weathers to malachite and azurite |
-| Malachite / Azurite | Surface T | 1 atm | Oxidizing conditions + CaCO₃ substrate | Stable in oxidizing zone — forms from chalcopyrite weathering |
-| Calcite (CaCO₃) | <500°C | any | Seawater CaCO₃ supersaturation OR biogenic | Stable in neutral-alkaline conditions; dissolves in acid |
-| Bauxite | Surface T | 1 atm | Intense tropical weathering, >2000 mm/yr rain, >25°C | Stable in tropical climate; erodes in cooler/drier conditions |
-| Cassiterite (SnO₂) | 200–600°C | 0.5–3 kbar | Pegmatite/greisen — high F activity | Very stable — survives transport as placer |
-| Uraninite (UO₂) | 200–500°C | hydrothermal or pegmatite | Reducing conditions + U-rich fluid | Unstable in oxidizing surface — oxidizes to schoepite; mobilizes in O₂ groundwater |
-| Garnet | >500°C | >2 kbar | Metamorphic — pelitic or mafic bulk composition | Stable at surface — survives weathering, common in beach sand |
-| Platinum (native) | Magmatic | >1200°C | Fe–Ni–S liquid saturation in mafic melt | Highly stable — survives transport as placer |
-| Gold (native) | Hydrothermal: 200–350°C | 0.5–2 kbar | Au-bisulfide complex + pH/temperature gradient | Highly stable at surface — inert, survives transport |
-| Gypsum (CaSO₄·2H₂O) | <60°C | 1 atm | Evaporating seawater, early-stage concentration | Stable in surface conditions; converts to anhydrite below water table |
-| Corundum (Al₂O₃, ruby/sapphire) | >700°C | >5 kbar | Low SiO₂ activity + Al-rich metapelite or pegmatite | Stable — very hard, survives as placer |
-
-**The stability check in world generation:** Before seeding a mineral deposit, the generator checks:
-1. Does the local geological history include the required formation conditions? (e.g., was there a granite intrusion here? Was this area subducted? Was there a tropical climate phase?)
-2. Have surface conditions since formation been compatible with preservation? (e.g., a sulfide deposit formed 500 Ma ago in a reducing environment may have since been oxidized — its surface expression is a gossan of iron oxides with secondary copper carbonates, not fresh chalcopyrite)
-3. Is the deposit on a terrain type that logically supports it? (bauxite cannot form in an arctic biome; salt cannot survive in a humid tropical biome)
-
----
-
-##### 6.4.0.7 World Generation Algorithm — From First Principles
-
-This is the full ordered sequence the game runs when generating a new world:
-
-**Phase 1 — Bulk composition:**
-1. Set planet mass (drawn from distribution around 1 Earth mass, with variance)
-2. Sample bulk elemental composition from CI chondrite reference adjusted for planet mass and stellar metallicity
-3. Apply Goldschmidt partitioning: compute how much of each element goes to core, mantle, and bulk silicate Earth (BSE = mantle + crust)
-4. Output: BSE elemental budget — the total inventory of lithophile + chalcophile elements available to build the crust
-
-**Phase 2 — Crust generation:**
-5. Divide BSE budget into oceanic crust fraction and continental crust fraction (ratio determined by tectonic maturity parameter — young planets have more oceanic crust; old planets have more continental crust)
-6. For oceanic crust: apply basaltic differentiation model (partial melt of peridotite at mid-ocean ridges) — produces tholeiitic basalt composition
-7. For continental crust: apply multi-stage differentiation (subduction arc → granodiorite → granite fractionation) — produces average continental composition enriched in incompatible elements
-8. For each granitic province in continental crust: simulate pegmatite formation by computing residual melt fraction and incompatible element concentration factor — places pegmatite fields with Li, Sn, W, REE, U proportional to volume
-
-**Phase 3 — Tectonic structure:**
-9. Generate 12 tectonic plates (existing Voronoi sphere method)
-10. Classify each plate as oceanic or continental based on BSE volume fractions
-11. Classify each boundary (convergent, divergent, transform)
-12. For each convergent boundary: compute subduction geometry, slab depth, and hydrothermal fluid chemistry — seeds copper porphyry, epithermal gold/silver, VMS deposits proportional to accumulated subduction history
-13. For each divergent boundary: compute spreading rate and seafloor hydrothermal vent activity — seeds black smoker VMS deposits, seafloor manganese nodule fields
-14. For each craton (stable ancient continental core): compute age and thermal history — seeds BIF iron deposits (only if craton pre-dates Great Oxidation Event at 2.4 Ga), unconformity uranium deposits, diamond-bearing kimberlites
-
-**Phase 4 — Surface weathering and secondary deposits:**
-15. Apply biome layer (from organism simulation — tropical biomes trigger laterite and bauxite generation on mafic terrain)
-16. Apply drainage model (rivers carry dissolved weathering products to interior basins, generating evaporite sequences — salt, gypsum, potash — in endorheic basins)
-17. Apply oxidation fronts to sulfide deposits exposed at surface (gossan formation, supergene enrichment, malachite/azurite secondary cap)
-18. Apply placer transport to dense, stable minerals (gold, cassiterite, diamonds) — follow river network downstream from hard-rock source deposits
-
-**Phase 5 — Surface expression:**
-19. Each deposit is assigned a visible surface expression (the signal that a player or NPC can detect without drilling):
-    - Gossan: red-orange iron oxide staining above sulfide deposit
-    - Malachite staining: green mineral in outcrop → copper below
-    - Magnetic anomaly: deflection of compass near magnetite → iron ore
-    - Sulfur smell + yellow crust: volcanic fumarole → native sulfur
-    - White crust: salt flat or gypsum outcrop
-    - Black coal seam: visible in river valley or cliff
-    - Dark heavy grains in river sediment: cassiterite or gold placer
-    - Glassy dark nodules in limestone: flint
-    - Bright black metallic dendrites on rock faces: manganese oxide
-
-Every resource node in the game has a surface expression that derives from the real mineralogy of the deposit and the real weathering chemistry of that mineral in contact with oxygen, water, and carbon dioxide. No resource is hidden without a signal — but reading the signals requires geological knowledge.
 
 ---
 

@@ -481,26 +481,7 @@ universe-sim/
     admin.ts                   Returns all player records (admin only — currently broken)
     init-db.ts                 Creates all DB tables on first deployment
 
-  server/                      Railway always-on WebSocket server (Node.js ESM)
-    src/
-      index.js                 Entry point, WebSocket handling, main loop
-      WorldClock.js            Authoritative simulation clock with bootstrap mode
-      PlayerRegistry.js        Connected players + shelter position DB storage
-      OrganismManager.js       Server-side ecosystem simulation at 6 Hz
-      SettlementManager.js     NPC settlements with geology-based specialties
-      WeatherSystem.js         8-sector Markov weather state machine
-      SeasonSystem.js          Four-season calendar
-      TradeEconomy.js          Supply/demand trade system
-      UniverseRegistry.js      Multiverse room registry (M14)
-      NpcManager.js            50 server-side NPCs with wander/gather/rest states
-      SlackAgent.js            Posts world events to configured Slack channel
-      TelegramAgent.js         Owner alerts with Approve/Reject buttons
-      DiscordBot.js            Discord integration
-      AgentBus.js              Inter-agent message bus
-      BroadcastScheduler.js    Controls 10 Hz broadcast timing
-      NodeStateSync.js         Depleted resource node persistence
-      WorldSettingsSync.js     Reads/writes world settings to DB
-      DiscoveryDb.js           Discovery and planet table management
+  [server lives in separate repo: universe-server — Railway always-on WebSocket server (Node.js ESM)]
 
   src/                         Client-side frontend (Vite/React/Three.js)
     (TypeScript source files for rendering, systems, stores, UI components)
@@ -3569,7 +3550,7 @@ Players can walk into any settlement and use their workstations too. The bloomer
 **Modified files:**
 
 - `src/crafting/InteractionEngine.ts` — `CraftEnvironment` gains two new optional fields: `nearbyWorkstation` (controls temperature ceiling and available actions) and `heldTool` (affects success rate)
-- `server/src/SettlementManager.js` — settlements generate workstations deterministically from seed + specialty; NPCs get a state machine (idle → gather → carry → process → deliver → deposit → idle) ticking at 0.5 Hz
+- `universe-server/src/SettlementManager.js` — settlements generate workstations deterministically from seed + specialty; NPCs get a state machine (idle → gather → carry → process → deliver → deposit → idle) ticking at 0.5 Hz
 
 ### 6.9 Late-Game Systems (M9–M15)
 

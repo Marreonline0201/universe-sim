@@ -6,4 +6,10 @@ export default defineConfig({
   build: {
     target: 'esnext',
   },
+  server: {
+    fs: {
+      // Allow imports from the parent universe-sim directory (for structure.md)
+      allow: ['..'],
+    },
+  },
 })

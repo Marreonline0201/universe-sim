@@ -243,26 +243,6 @@ export function SceneRoot() {
       spawnInitialAnimals(spawnX, spawnY, spawnZ)
       initializeSimulation(serverWorldSeed ?? 42)
 
-      // Spawn offline NPCs for local testing
-      {
-        const up = new THREE.Vector3(spawnX, spawnY, spawnZ).normalize()
-        const north = new THREE.Vector3(0, 0, 1)
-        north.addScaledVector(up, -north.dot(up)).normalize()
-        const east = new THREE.Vector3().crossVectors(up, north).normalize()
-        const offlineNpcs = Array.from({ length: 6 }, (_, i) => {
-          const angle = (i / 6) * Math.PI * 2
-          const dist = 8 + (i % 3) * 4
-          const ox = (north.x * Math.cos(angle) + east.x * Math.sin(angle)) * dist
-          const oy = (north.y * Math.cos(angle) + east.y * Math.sin(angle)) * dist
-          const oz = (north.z * Math.cos(angle) + east.z * Math.sin(angle)) * dist
-          return { id: i, x: spawnX + ox, y: spawnY + oy, z: spawnZ + oz }
-        })
-        const { connectionStatus } = useMultiplayerStore.getState()
-        if (connectionStatus !== 'connected') {
-          useMultiplayerStore.getState().setRemoteNpcs(offlineNpcs)
-        }
-      }
-
       controllerRef.current = new PlayerController(eid)
       setEngineReady(true)
 

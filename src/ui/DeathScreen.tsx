@@ -42,7 +42,7 @@ interface DeathScreenProps {
 }
 
 export function DeathScreen({ onRespawn }: DeathScreenProps) {
-  const { isDead, deathCause, bedrollPos, murderCount } = usePlayerStore()
+  const { isDead, deathCause, bedrollPos } = usePlayerStore()
 
   // Fade-in animation state
   const [opacity, setOpacity] = useState(0)
@@ -140,23 +140,6 @@ export function DeathScreen({ onRespawn }: DeathScreenProps) {
       >
         {labels.detail}
       </div>
-
-      {/* Criminal record reminder — murder count persists through death (Neon DB) */}
-      {murderCount > 0 && (
-        <div
-          style={{
-            fontSize:      12,
-            color:         `rgba(200, 80, 80, ${opacity})`,
-            letterSpacing: 3,
-            textTransform: 'uppercase',
-            marginBottom:  24,
-            textAlign:     'center',
-            userSelect:    'none',
-          }}
-        >
-          Your crimes are remembered. &nbsp;|&nbsp; Murder count: {murderCount}
-        </div>
-      )}
 
       {/* Respawn info */}
       {btnVisible && (

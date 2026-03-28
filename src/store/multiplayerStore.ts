@@ -8,7 +8,6 @@ export interface RemotePlayer {
   z: number
   health: number
   warmth?: number       // M29: warmth% for inspect panel
-  murderCount?: number  // M5: criminal record — skull icon shown when > 0
   lastMovedAt?: number  // M29: timestamp of last position change (ms) for AFK detection
   equippedWeapon?: string // M29: visible weapon name for inspect panel
   // M37 Track C: Title / progression fields
@@ -17,15 +16,6 @@ export interface RemotePlayer {
   totalLevel?: number   // sum of all skill levels (0–70)
   gold?: number         // player's current gold
   prestigeCount?: number // prestige count
-}
-
-export interface RemoteNpc {
-  id: number
-  x: number
-  y: number
-  z: number
-  state?: string
-  hunger?: number
 }
 
 export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected'
@@ -42,9 +32,6 @@ interface MultiplayerState {
   // M29 Track C: per-player ping in ms (estimated from update interval)
   playerPings: Map<string, number>
   setPlayerPing: (userId: string, pingMs: number) => void
-
-  remoteNpcs: RemoteNpc[]
-  setRemoteNpcs: (npcs: RemoteNpc[]) => void
 
   // Latest server-authoritative time (used to sync SimClock)
   serverSimTime: number
@@ -99,9 +86,6 @@ export const useMultiplayerStore = create<MultiplayerState>((set) => ({
       next.set(userId, pingMs)
       return { playerPings: next }
     }),
-
-  remoteNpcs: [],
-  setRemoteNpcs: (npcs) => set({ remoteNpcs: npcs }),
 
   serverSimTime: 0,
   serverTimeScale: 1,

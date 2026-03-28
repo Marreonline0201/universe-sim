@@ -100,12 +100,9 @@ interface PlayerState {
   deathCause: 'starvation' | 'infection' | 'combat' | 'drowning' | 'hypothermia' | null
   deathPos: { x: number; y: number; z: number } | null
   bedrollPos: { x: number; y: number; z: number } | null
-  murderCount: number
   triggerDeath: (cause: 'starvation' | 'infection' | 'combat' | 'drowning' | 'hypothermia', pos: { x: number; y: number; z: number }) => void
   clearDeath: () => void
   setBedrollPos: (pos: { x: number; y: number; z: number } | null) => void
-  incrementMurderCount: () => void
-  setMurderCount: (n: number) => void
 
   // M34 Track A: Player Home Base
   homePosition: [number, number, number] | null  // null = not placed yet
@@ -269,12 +266,9 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   deathCause: null,
   deathPos: null,
   bedrollPos: null,
-  murderCount: 0,
   triggerDeath: (cause, pos) => set({ isDead: true, deathCause: cause, deathPos: pos }),
   clearDeath: () => set({ isDead: false, deathCause: null }),
   setBedrollPos: (pos) => set({ bedrollPos: pos }),
-  incrementMurderCount: () => set((s) => ({ murderCount: s.murderCount + 1 })),
-  setMurderCount: (n) => set({ murderCount: Math.max(0, n) }),
 
   // ── M34 Track A: Player Home Base ─────────────────────────────────────────
   homePosition: null,

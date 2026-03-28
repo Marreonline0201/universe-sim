@@ -5,14 +5,6 @@
 import { useMultiplayerStore } from '../store/multiplayerStore'
 import { useGameStore } from '../store/gameStore'
 import { useSettlementStore } from '../store/settlementStore'
-// outlawStore removed — stub
-const useOutlawStore = { getState: () => ({
-  upsertWantedPlayer: (_e: unknown) => {},
-  setPendingBountyNotif: (_e: unknown) => {},
-  removeWantedPlayer: (_id: unknown) => {},
-  setActiveQuest: (_q: unknown) => {},
-  updateQuestProgress: (_id: unknown, _p: unknown) => {},
-}) }
 import { usePlayerStore } from '../store/playerStore'
 import { useUiStore } from '../store/uiStore'
 import { useWeatherStore } from '../store/weatherStore'
@@ -20,14 +12,6 @@ import type { SectorWeather } from '../store/weatherStore'
 // seasonStore removed
 type SeasonState = { season: string; seasonIndex: number; progress: number; tempModifier: number; rainfallProb: number; isSnow: boolean; metabolicMult: number }
 const useSeasonStore = { getState: () => ({ setSeason: (_s: Partial<SeasonState>) => {} }) }
-// shopStore removed
-type ShopCatalogItem = unknown
-const useShopStore = { getState: () => ({
-  openShop: (..._args: unknown[]) => {},
-  settlementId: null,
-  updateCatalog: (_c: unknown) => {},
-  closeShop: () => {},
-}) }
 import { inventory } from '../game/GameSingletons'
 import type { LocalSimManager } from '../engine/LocalSimManager'
 // diplomacyStore, RadioSystem, VelarStore, OrbitalMechanicsSystem,
@@ -51,28 +35,12 @@ const useVelarStore = { getState: () => ({
   triggerMeltdown: (..._args: unknown[]) => {},
   clearMeltdown: (..._args: unknown[]) => {},
 }) }
-function generateProbeResult(..._args: unknown[]) { return null }
 const SYSTEM_PLANETS: Array<{ name: string }> = []
 function triggerWorldEvent(..._args: unknown[]) {}
 function expireWorldEvent(..._args: unknown[]) {}
 function updateEventParticipants(..._args: unknown[]) {}
 type WorldEventType = string
-type TradePostListing = { id?: string }
-const useTradePostStore = { getState: () => ({
-  setListings: (..._args: unknown[]) => {},
-  addListing: (..._args: unknown[]) => {},
-  removeListing: (..._args: unknown[]) => {},
-}) }
 import { receiveChatMessage } from '../ui/ChatBox'
-const usePartyStore = { getState: () => ({
-  setParty: (..._args: unknown[]) => {},
-  setInvite: (..._args: unknown[]) => {},
-  setPendingInvite: (..._args: unknown[]) => {},
-  setMembers: (..._args: unknown[]) => {},
-  removeMember: (..._args: unknown[]) => {},
-  clearParty: () => {},
-  party: null as { members: Array<{ userId: string; username: string }> } | null,
-}) }
 
 // Module-level reference to the active LocalSimManager.
 // Set by SceneRoot after the sim grid initialises.
@@ -171,7 +139,6 @@ export class WorldSocket {
         const allPlayers = (msg.players as RemotePlayer[]) ?? []
         const remotePlayers = allPlayers.filter(p => p.userId !== this.userId)
         mp.setRemotePlayers(remotePlayers)
-        mp.setRemoteNpcs((msg.npcs as RemoteNpc[]) ?? [])
         // Seed depleted node state for newly joining player
         if (Array.isArray(msg.depletedNodes)) {
           mp.setDepletedNodes(msg.depletedNodes as number[])
@@ -187,19 +154,6 @@ export class WorldSocket {
         // M10 Track A: Seed season state for newly joining player
         if (msg.season && typeof msg.season === 'object') {
           useSeasonStore.getState().setSeason(msg.season as SeasonState)
-        }
-        // M7: Seed outlaw wanted list from remote players' murder counts.
-        // Server threshold is 5; reward formula mirrors OutlawSystem.getBountyReward.
-        {
-          const WANTED_THRESHOLD = 5
-          const os = useOutlawStore.getState()
-          for (const rp of remotePlayers) {
-            const mc = (rp as any).murderCount as number ?? 0
-            if (mc >= WANTED_THRESHOLD) {
-              const reward = 200 + mc * 150
-              os.upsertWantedPlayer({ playerId: rp.userId, username: rp.username, murderCount: mc, reward })
-            }
-          }
         }
         const rawWorldSeed = msg.worldSeed
         const worldSeed = typeof rawWorldSeed === 'number' && Number.isFinite(rawWorldSeed)
@@ -338,144 +292,6 @@ export class WorldSocket {
         break
       }
 
-      // ── M7 Track 2: PvP Outlaw System ──────────────────────────────────────
-
-      case 'MURDER_COUNT_UPDATE': {
-        // Server confirms killer's new murder count after a kill.
-        const newCount = msg.murderCount as number
-        usePlayerStore.getState().setMurderCount(newCount)
-        // Show tiered NPC reaction message
-        if (newCount === 1) {
-          useUiStore.getState().addNotification(
-            'Murder committed. Strangers are wary of you. Shop prices increased.',
-            'warning'
-          )
-        } else if (newCount === 3) {
-          useUiStore.getState().addNotification(
-            'Settlement gates have closed to you. Trade refused.',
-            'error'
-          )
-        } else if (newCount >= 5) {
-          useUiStore.getState().addNotification(
-            `Wanted! A bounty has been posted on your head. NPC guards attack on sight.`,
-            'error'
-          )
-        } else {
-          useUiStore.getState().addNotification(
-            `Murder count: ${newCount}. Your infamy grows.`,
-            'warning'
-          )
-        }
-        break
-      }
-
-      case 'BOUNTY_POSTED': {
-        // Broadcast to all clients — a player has become wanted.
-        const entry = {
-          playerId:    msg.playerId    as string,
-          username:    msg.username    as string,
-          murderCount: msg.murderCount as number,
-          reward:      msg.reward      as number,
-        }
-        useOutlawStore.getState().upsertWantedPlayer(entry)
-        useOutlawStore.getState().setPendingBountyNotif(entry)
-        // Also update remote player murderCount in multiplayer store so
-        // the skull label is immediately correct for everyone
-        const mp = useMultiplayerStore.getState()
-        const existing = mp.remotePlayers.get(entry.playerId)
-        if (existing) {
-          mp.upsertRemotePlayer({ ...existing, murderCount: entry.murderCount })
-        }
-        useUiStore.getState().addNotification(
-          `WANTED: ${entry.username} — ${entry.murderCount} kills — ${entry.reward} copper bounty`,
-          'error'
-        )
-        break
-      }
-
-      case 'BOUNTY_COLLECTED': {
-        // Server grants bounty reward to this client.
-        const reward     = msg.reward     as number
-        const materialId = msg.materialId as number
-        inventory.addItem({ itemId: 0, materialId, quantity: reward, quality: 0.9 })
-        useUiStore.getState().addNotification(
-          `Bounty collected! +${reward} Copper added to inventory.`,
-          'discovery'
-        )
-        break
-      }
-
-      case 'BOUNTY_COLLECT_BROADCAST': {
-        // All clients learn that someone collected a bounty.
-        const { collectorName, targetName, reward } = msg
-        useUiStore.getState().addNotification(
-          `${collectorName as string} claimed ${reward as number} copper bounty — killed outlaw ${targetName as string}`,
-          'info'
-        )
-        // Remove from wanted list — target died and bounty was claimed
-        useOutlawStore.getState().removeWantedPlayer(msg.targetId as string)
-        break
-      }
-
-      case 'REDEMPTION_QUEST_OFFERED': {
-        useOutlawStore.getState().setActiveQuest({
-          questId:      msg.questId      as string,
-          questType:    msg.questType    as 'escort' | 'resource_delivery' | 'settlement_defense',
-          settlementId: msg.settlementId as number,
-          progress:     0,
-          required:     msg.required     as number,
-          expiresAt:    msg.expiresAt    as number,
-        })
-        const typeLabels: Record<string, string> = {
-          escort:              'Escort an NPC between two points (120s)',
-          resource_delivery:   'Deliver 10x Iron Ingot or 20x Wood to the settlement',
-          settlement_defense:  'Kill an attacking predator near the settlement',
-        }
-        useUiStore.getState().addNotification(
-          `Redemption quest offered: ${typeLabels[msg.questType as string] ?? String(msg.questType)}. Complete it to reduce your criminal record.`,
-          'discovery'
-        )
-        break
-      }
-
-      case 'REDEMPTION_QUEST_DENIED': {
-        useUiStore.getState().addNotification(
-          'The settlement leader has no task for you — your record is clean.',
-          'info'
-        )
-        break
-      }
-
-      case 'REDEMPTION_QUEST_PROGRESS_ACK': {
-        const { questId, progress, required } = msg
-        useOutlawStore.getState().updateQuestProgress(questId as string, progress as number)
-        useUiStore.getState().addNotification(
-          `Quest progress: ${progress as number}/${required as number}`,
-          'info'
-        )
-        break
-      }
-
-      case 'REDEMPTION_QUEST_COMPLETE': {
-        const newCount = msg.newMurderCount as number
-        usePlayerStore.getState().setMurderCount(newCount)
-        useOutlawStore.getState().setActiveQuest(null)
-        useUiStore.getState().addNotification(
-          `Redemption complete! Criminal record reduced to ${newCount} murder${newCount !== 1 ? 's' : ''}.`,
-          'discovery'
-        )
-        break
-      }
-
-      case 'REDEMPTION_QUEST_ERROR': {
-        useUiStore.getState().addNotification(
-          `Quest error: ${msg.reason as string}. The opportunity has passed.`,
-          'warning'
-        )
-        useOutlawStore.getState().setActiveQuest(null)
-        break
-      }
-
       // ── M8: Weather System ──────────────────────────────────────────────────
 
       case 'WEATHER_UPDATE': {
@@ -558,35 +374,6 @@ export class WorldSocket {
         const label = seasonLabels[msg.season as string]
         if (label && msg.progress as number < 0.05) {
           useUiStore.getState().addNotification(label, 'info')
-        }
-        break
-      }
-
-      // ── M10 Track C: Advanced Trade Economy ─────────────────────────────────
-
-      case 'SHOP_OPEN': {
-        useShopStore.getState().openShop(
-          msg.settlementId   as number,
-          msg.settlementName as string,
-          (msg.catalog as ShopCatalogItem[]) ?? [],
-        )
-        break
-      }
-
-      case 'SHOP_CATALOG_UPDATE': {
-        if (useShopStore.getState().settlementId === msg.settlementId as number) {
-          useShopStore.getState().updateCatalog((msg.catalog as ShopCatalogItem[]) ?? [])
-        }
-        break
-      }
-
-      case 'SHOP_BUY_RESULT':
-      case 'SHOP_SELL_RESULT': {
-        // Server acknowledgement — client already applied the transaction optimistically
-        if (!(msg.ok as boolean)) {
-          useUiStore.getState().addNotification(
-            `Transaction failed: ${msg.reason as string ?? 'server error'}`, 'warning'
-          )
         }
         break
       }
@@ -948,92 +735,6 @@ export class WorldSocket {
         break
       }
 
-      // ── M39 Track B: Party ────────────────────────────────────────────────────
-      case 'PARTY_INVITE': {
-        usePartyStore.getState().setPendingInvite({
-          leaderId:   msg.leaderId   as string,
-          leaderName: msg.leaderName as string,
-        })
-        useUiStore.getState().addNotification(
-          `Party invite from ${msg.leaderName as string}!`,
-          'info'
-        )
-        break
-      }
-
-      case 'PARTY_UPDATE': {
-        const partyData = msg.party as {
-          leaderId: string
-          members: Array<{ userId: string; username: string; health: number; title?: string; titleColor?: string; x?: number; y?: number; z?: number }>
-        } | null
-        if (partyData) {
-          usePartyStore.getState().setParty({ leaderId: partyData.leaderId, members: partyData.members, maxSize: 4 })
-        } else {
-          usePartyStore.getState().setParty(null)
-        }
-        break
-      }
-
-      case 'PARTY_DISBANDED': {
-        usePartyStore.getState().setParty(null)
-        useUiStore.getState().addNotification('Your party has been disbanded.', 'info')
-        break
-      }
-
-      case 'PARTY_MEMBER_LEFT': {
-        const leftUsername = msg.username as string
-        useUiStore.getState().addNotification(`${leftUsername} left the party.`, 'info')
-        const current = usePartyStore.getState().party
-        if (current) {
-          usePartyStore.getState().setParty({
-            ...current,
-            members: current.members.filter(m => m.userId !== (msg.userId as string)),
-          })
-        }
-        break
-      }
-
-      case 'PARTY_DONATION': {
-        const donor = msg.username as string
-        const buildingName = msg.buildingName as string
-        const qty = msg.qty as number
-        const matName = (msg.matName as string) ?? 'materials'
-        const current = msg.current as number
-        const needed = msg.needed as number
-        useUiStore.getState().addNotification(
-          `${donor} donated ${qty} ${matName} to ${buildingName} (${current}/${needed})`,
-          'info'
-        )
-        break
-      }
-
-      // ── M42 Track A: Trade Post ───────────────────────────────────────────────
-
-      case 'TRADE_POST_LIST': {
-        // Another player listed an item — add to local store
-        const listing = msg.listing as TradePostListing
-        if (listing && listing.id) {
-          useTradePostStore.getState().addListing(listing)
-        }
-        break
-      }
-
-      case 'TRADE_POST_BUY': {
-        // A listing was purchased or cancelled — remove from local store
-        const listingId = msg.listingId as string
-        if (listingId) {
-          useTradePostStore.getState().removeListing(listingId)
-        }
-        break
-      }
-
-      case 'TRADE_POST_INIT': {
-        // Server sends full snapshot of active listings on connect
-        const listings = (msg.listings as TradePostListing[]) ?? []
-        useTradePostStore.getState().setListings(listings)
-        break
-      }
-
       default:
         break
     }
@@ -1041,5 +742,5 @@ export class WorldSocket {
 }
 
 // Re-export types so callers don't need to import from multiplayerStore
-import type { RemotePlayer, RemoteNpc } from '../store/multiplayerStore'
-export type { RemotePlayer, RemoteNpc }
+import type { RemotePlayer } from '../store/multiplayerStore'
+export type { RemotePlayer }

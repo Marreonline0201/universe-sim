@@ -116,11 +116,10 @@ export function GameLoop({ controllerRef, simManagerRef, entityId, gameActive }:
 
     // Animal AI
     {
-      const ps = usePlayerStore.getState()
       tickAnimalAI({
         dt,
         playerX: px, playerY: py, playerZ: pz,
-        playerMurderCount: ps.murderCount,
+        playerMurderCount: 0,
         playerCrouching: false,
         onPlayerDamaged: (dmg) => {
           Health.current[entityId] = Math.max(0, Health.current[entityId] - dmg)

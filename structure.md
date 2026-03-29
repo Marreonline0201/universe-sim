@@ -3960,6 +3960,179 @@ Player positions are broadcast via WebSocket but the current interpolation on th
 
 ---
 
+### 15.6 Server-Side Pixel Streaming Architecture
+
+#### Vision
+
+Instead of each client running Three.js locally and generating the world from a seed, a dedicated GPU server renders the 3D scene for each player and streams the result as a compressed video feed. The client becomes a thin terminal — a `<video>` element and an input forwarder. No WebGL required on the client side. Works on any device including phones, tablets, and low-end laptops.
+
+The analogy: the GPU server is the eye and optic nerve — it captures what the player sees and sends it as a visual signal. The client is just the screen that displays it.
+
+#### Why
+
+- **Any device can play** — the client does zero 3D rendering
+- **World is never exposed** — no seed, no geometry, no game logic runs on client
+- **Single source of truth** — physics, rendering, and world state all happen server-side
+- **Future-proof** — as the world grows more complex, client requirements stay flat
+
+#### Two-Server Model
+
+The current Railway server continues handling all world simulation unchanged. A new GPU render server handles only the visual pipeline for connected players. They communicate via the existing WebSocket protocol — the GPU server connects to Railway as if it were a player, reads world state, and renders it.
+
+```
+Railway (existing — stays unchanged)
+  World simulation: organisms, weather, settlements, player positions
+  Broadcasts: WORLD_SNAPSHOT, ORGANISM_UPDATE, WEATHER_UPDATE, etc.
+       ↕ WebSocket (same protocol as today)
+GPU Render Server (new)
+  One render context per connected player
+  Three.js running headless (no browser window)
+  Reads world state from Railway socket
+  Renders scene from each player's viewpoint
+  Encodes frames as H.264 via NVENC
+  Streams to each player via WebRTC
+       ↕ WebRTC (video stream + data channel)
+Client (simplified)
+  <video> element displays the stream
+  Keyboard/mouse captured and sent back via WebRTC data channel
+  HTML overlay (HUD, chat, inventory) still rendered locally
+```
+
+#### Technology Stack
+
+| Component | Technology | Purpose |
+|---|---|---|
+| Headless WebGL | `headless-gl` (npm) | Gives Node.js a GPU-backed WebGL context — Three.js runs identically |
+| WebRTC server | `@roamhq/wrtc` (npm) | Lets Node.js send video tracks and receive data channels |
+| H.264 encoding | FFmpeg + NVENC | Hardware-accelerated frame compression (fast, low-latency) |
+| Frame capture | `gl.readPixels()` | Reads rendered pixels from the WebGL framebuffer into a Buffer |
+| Signaling | Existing WebSocket server | Exchanges WebRTC offer/answer between client and GPU server |
+| Client display | Native `<video>` + WebRTC API | Browser handles decode and display natively |
+
+#### What Changes
+
+**GPU server (new repo: `universe-renderer` or added to `universe-server`):**
+- `src/RenderWorker.ts` — one instance per player. Owns a headless-gl context, a Three.js scene, and a WebRTC peer connection. Receives world state updates, renders a frame, reads pixels, pushes to WebRTC video track.
+- `src/PixelStreamServer.ts` — manages all active `RenderWorker` instances. Handles player connect/disconnect. Routes WebRTC signaling messages.
+- `src/WorldStateProxy.ts` — connects to Railway via WebSocket, subscribes to all world updates, distributes them to the relevant `RenderWorker` instances.
+
+**Client (`universe-sim`) — simplified:**
+- `src/net/StreamReceiver.ts` — replaces `useWorldSocket` for the rendering path. Connects to GPU server via WebRTC, receives video track, attaches to `<video>` element, sends input events back via data channel.
+- `src/ui/StreamView.tsx` — full-screen `<video>` element with HTML overlay layer for HUD, chat, inventory, notifications. All UI stays local HTML — zero latency for interface elements.
+- Three.js, `PlanetGenerator`, `BiomeRegistry`, `RiverSystem`, `OrganismManager` client copies — removed or kept dormant. The client no longer needs to generate or render the world.
+
+**What stays exactly the same:**
+- Railway server (`universe-server`) — zero changes
+- All Zustand stores for UI state (inventory, chat, notifications)
+- Clerk authentication
+- Vercel deployment for static client files
+
+#### Rendering Pipeline Per Frame
+
+```
+1. WorldStateProxy delivers latest positions, organisms, weather to RenderWorker
+2. RenderWorker updates Three.js scene objects to match world state
+3. Three.js renders scene to headless-gl framebuffer (GPU call)
+4. gl.readPixels() copies framebuffer to a Node.js Buffer (~8MB at 1080p raw)
+5. Buffer piped to FFmpeg stdin
+6. FFmpeg encodes to H.264 P-frame (~15-40KB) using NVENC hardware encoder
+7. Encoded frame pushed to WebRTC video track
+8. Client browser decodes frame using built-in hardware decoder
+9. Frame displayed in <video> element
+Total pipeline latency target: < 80ms end-to-end
+```
+
+#### Input Pipeline (Client → Server)
+
+```
+Player presses W
+→ Client captures keydown event
+→ Sends {type:'INPUT', key:'W', pressed:true} via WebRTC data channel (~1ms)
+→ GPU server receives input
+→ Forwards to Railway as PLAYER_UPDATE with new position
+→ Railway broadcasts updated position to all other players
+→ Next rendered frame reflects the movement
+```
+
+#### Client Rendering That Stays Local (HTML Overlay)
+
+These UI elements have zero tolerance for latency and must remain local:
+- Health / hunger / stamina bars
+- Inventory panel
+- Chat messages
+- Notifications and discovery popups
+- Minimap (can be derived from server data)
+- Crafting panel
+
+These overlay the video stream as absolute-positioned HTML divs — identical to today's layout. The player never notices the difference.
+
+#### GPU Server Infrastructure Options
+
+| Option | Cost | Tradeoff |
+|---|---|---|
+| Vast.ai (rented GPU, on-demand) | ~$0.10-0.25/hr | Cheapest to start, host can go offline |
+| RunPod (rented GPU, stable) | ~$0.19-0.34/hr | More reliable, still hourly |
+| Hetzner dedicated server | ~€120-200/month | Fixed cost, full control, fast European data center |
+| Own PC with gaming GPU at home | ~$40/month (electric) | Cheapest long-term, requires home internet upload |
+
+A single RTX 3080 can time-slice rendering across ~10-15 players at 30fps per player. At 60fps the capacity halves to ~6-8 players. For a small game starting out, one GPU handles the load.
+
+#### Implementation Phases
+
+**Phase 1 — Prototype (local, no GPU required)**
+- Set up `headless-gl` + Three.js on server rendering a static scene
+- Capture frames and stream via `@roamhq/wrtc` to a test browser page
+- Verify the WebRTC video pipeline works end-to-end
+- Test on CPU (software H.264 via FFmpeg x264) — slow but proves the concept
+
+**Phase 2 — World state integration**
+- Connect `WorldStateProxy` to Railway WebSocket
+- `RenderWorker` updates scene from live organism/player/weather data
+- One player can connect and see the real world rendered server-side
+- Input forwarding works (WASD moves character)
+
+**Phase 3 — Multi-player**
+- Multiple simultaneous `RenderWorker` instances (one per player)
+- Time-sliced rendering — GPU renders players in round-robin
+- View frustum culling — only render objects visible to this player
+
+**Phase 4 — GPU server deployment**
+- Move to Vast.ai or Hetzner GPU instance
+- Enable NVENC hardware encoding in FFmpeg
+- Benchmark latency and frame rate at various player counts
+- Adaptive bitrate: reduce quality when player's network is slow
+
+**Phase 5 — Client migration**
+- Replace Three.js client rendering with `StreamView.tsx`
+- Remove `PlanetGenerator`, `BiomeRegistry`, and rendering code from client bundle
+- Client becomes ~200KB instead of ~2MB
+
+#### Key Files to Create
+
+```
+universe-renderer/ (new repo, or new directory in universe-server)
+  src/
+    PixelStreamServer.ts     Entry point. Manages player connections, WebRTC signaling.
+    WorldStateProxy.ts       Connects to Railway WS. Distributes world state to workers.
+    RenderWorker.ts          One per player. headless-gl context + Three.js + WebRTC peer.
+    SceneBuilder.ts          Builds Three.js scene from world state (terrain, organisms, etc.)
+    FrameEncoder.ts          FFmpeg child process wrapper. Accepts Buffer, emits H.264 chunks.
+    InputRouter.ts           Receives data channel input, forwards to Railway as PLAYER_UPDATE.
+  package.json               headless-gl, @roamhq/wrtc, three, fluent-ffmpeg
+
+universe-sim/src/ (client changes)
+  net/StreamReceiver.ts      WebRTC client. Connects to GPU server, handles video + data.
+  ui/StreamView.tsx           Full-screen <video> + HTML overlay layer.
+```
+
+#### Open Questions Before Starting
+
+1. **`headless-gl` GPU passthrough** — `headless-gl` needs the actual GPU driver to use NVENC. On Linux (Vast.ai/Hetzner) this works with proper NVIDIA driver install. On Windows it requires additional setup.
+2. **WebRTC TURN server** — WebRTC peer connections sometimes need a relay server (TURN) if client NAT blocks direct connection. A free Cloudflare TURN or coturn instance handles this.
+3. **Per-player Three.js scene cost** — Each `RenderWorker` maintains a full Three.js scene in memory (~50-100MB per player). For 10 players, ~1GB RAM. Manageable on any GPU server.
+
+---
+
 ## 16. Recommendations
 
 ### Immediate (before next feature build)

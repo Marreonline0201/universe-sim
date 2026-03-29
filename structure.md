@@ -8,121 +8,50 @@
 
 ---
 
+
 ## Table of Contents
 
+### PART I — VISION & DESIGN
 1. [Executive Summary](#1-executive-summary)
-2. [What This Project Is — The Vision](#2-what-this-project-is--the-vision)
-   - [The Core Idea](#the-core-idea)
-   - [The One Test for Every Feature](#the-one-test-for-every-feature)
-   - [What the Player Can Do](#what-the-player-can-do)
-   - [What Makes It Different](#what-makes-it-different)
-3. [What Was Built This Session (2026-03-27)](#3-what-was-built-this-session-2026-03-27)
-   - [3.1 Foundation Cleanup: Deleting the RPG Layer](#31-foundation-cleanup-deleting-the-rpg-layer)
-   - [3.2 Physics-Based Crafting](#32-physics-based-crafting)
-   - [3.3 Geologically Accurate Resource Distribution](#33-geologically-accurate-resource-distribution)
-   - [3.4 Shared Organism Ecosystem (Server-Authoritative)](#34-shared-organism-ecosystem-server-authoritative)
-   - [3.5 Player Shelter and Respawn System](#35-player-shelter-and-respawn-system)
-   - [3.6 Director Alignment](#36-director-alignment)
+2. [The Vision](#2-what-this-project-is--the-vision)
+
+### PART II — GAME WORLD
+6. [All Major Systems](#6-all-major-systems--complete-inventory) ← World Gen, Organisms, Crafting, Geology, Settlements, Weather, Player Systems, Late-Game
+7. [UI Panels and Hotkeys](#7-all-ui-panels-and-hotkeys)
+
+### PART III — TECHNICAL REFERENCE
 4. [Technical Architecture](#4-technical-architecture)
-   - [4.1 How the System Is Organized](#41-how-the-system-is-organized)
-   - [4.2 The WebSocket Protocol](#42-the-websocket-protocol)
-   - [4.3 Technology Stack](#43-technology-stack)
 5. [Project Structure](#5-project-structure)
-6. [All Major Systems — Complete Inventory](#6-all-major-systems--complete-inventory)
-   - [6.1 World Generation — Physical Foundation](#61-world-generation--physical-foundation)
-     - [6.1.0 Planetary Formation and Bulk Geochemistry](#610-planetary-formation-and-bulk-geochemistry)
-       - [6.1.0.1 Planetary Accretion and Bulk Composition](#6101-planetary-accretion-and-bulk-composition)
-       - [6.1.0.2 Planetary Differentiation and Goldschmidt Classification](#6102-planetary-differentiation-and-goldschmidt-classification)
-       - [6.1.0.3 Bowen's Reaction Series and Magmatic Differentiation](#6103-bowens-reaction-series-and-magmatic-differentiation)
-       - [6.1.0.4 Planet Layer Model](#6104-planet-layer-model)
-       - [6.1.0.5 Crustal Abundance — Clarke Numbers](#6105-crustal-abundance--clarke-numbers)
-       - [6.1.0.6 Mineral Stability — Formation Conditions](#6106-mineral-stability--formation-conditions)
-       - [6.1.0.7 World Generation Algorithm — From First Principles](#6107-world-generation-algorithm--from-first-principles)
-     - [6.1.1 Surface Terrain and Biomes](#611-surface-terrain-and-biomes)
-   - [6.2 Organism Ecosystem](#62-organism-ecosystem-server-authoritative-as-of-2026-03-27)
-   - [6.2.1 Full Organism Species Registry](#621-full-organism-species-registry)
-     - [Kingdom Plantae — Autotrophs](#kingdom-plantae--autotrophs)
-     - [Kingdom Animalia — Heterotrophs and Mixotrophs](#kingdom-animalia--heterotrophs-and-mixotrophs)
-     - [Kingdom Fungi — Decomposers and Symbionts](#kingdom-fungi--decomposers-and-symbionts)
-     - [Kingdom Bacteria — Decomposers, Fixers, and Fermenters](#kingdom-bacteria--decomposers-fixers-and-fermenters)
-     - [Ecological Food Chain and Biomagnification](#ecological-food-chain-and-biomagnification)
-     - [Organism System Architecture — What Needs to Change](#organism-system-architecture--what-needs-to-change)
-   - [6.3 Physics-Based Crafting](#63-physics-based-crafting-new-2026-03-27)
-   - [6.3.1 Complete Material Taxonomy](#631-complete-material-taxonomy)
-     - [Tier 1 — Elements](#tier-1--elements-all-118-from-the-periodic-table)
-     - [Tier 2 — Minerals](#tier-2--minerals-natural-compounds-found-in-the-ground)
-     - [Tier 3 — Processed Materials](#tier-3--processed-materials-human-made-organized-by-technological-era)
-     - [What This Means for the Interaction Engine](#what-this-means-for-the-interaction-engine)
-   - [6.3.2 Complete Production System — How Every Material Is Made](#632-complete-production-system--how-every-material-is-made)
-     - [The Five Transformation Types](#the-five-transformation-types)
-     - [Stone Age Processing](#stone-age-processing)
-     - [Copper / Bronze Age](#copper--bronze-age)
-     - [Iron Age](#iron-age)
-     - [Medieval / Early Chemistry](#medieval--early-chemistry)
-     - [Industrial Revolution](#industrial-revolution)
-     - [Electrical Age](#electrical-age)
-     - [Chemical / Polymer Age](#chemical--polymer-age)
-     - [Nuclear Age](#nuclear-age)
-     - [Silicon / Digital Age](#silicon--digital-age)
-     - [Advanced / Emerging](#advanced--emerging)
-   - [6.4 Geology and Resource Distribution](#64-geology-and-resource-distribution-new-2026-03-27)
-     - [6.4.1 Metals and Ores](#641-metals-and-ores)
-     - [6.4.2 Non-Metallic Rock and Mineral Resources](#642-non-metallic-rock-and-mineral-resources)
-     - [6.4.3 Evaporite and Sedimentary Resources](#643-evaporite-and-sedimentary-resources)
-     - [6.4.4 Carbon-Bearing Materials](#644-carbon-bearing-materials)
-     - [6.4.5 Radioactive Materials](#645-radioactive-materials)
-     - [6.4.6 Biogenic and Organic Resources](#646-biogenic-and-organic-resources)
-     - [6.4.7 Rare and Strategic Materials](#647-rare-and-strategic-materials)
-     - [6.4.8 How the Game Uses This Information](#648-how-the-game-uses-this-information)
-   - [6.5 Settlements and Civilization](#65-settlements-and-civilization)
-   - [6.6 Weather System](#66-weather-system)
-   - [6.7 Season System](#67-season-system)
-   - [6.8 Player Systems](#68-player-systems)
-   - [6.8.1 Workstation System — Crafting at Physical Machines (Planned)](#681-workstation-system--crafting-at-physical-machines-planned)
-   - [6.9 Late-Game Systems (M9–M15)](#69-late-game-systems-m9m15)
-7. [All UI Panels and Hotkeys](#7-all-ui-panels-and-hotkeys)
-8. [Performance Analysis](#8-performance-analysis)
-   - [8.1 Rendering](#81-rendering)
-   - [8.2 Server Tick Rates](#82-server-tick-rates)
-   - [8.3 WebAssembly](#83-webassembly)
-   - [8.4 Known Performance Concerns](#84-known-performance-concerns)
-9. [Security Assessment](#9-security-assessment)
-   - [9.1 Authentication](#91-authentication)
-   - [9.2 Admin Authorization](#92-admin-authorization)
-   - [9.3 Environment Variables](#93-environment-variables)
-   - [9.4 Data Handling](#94-data-handling)
 10. [Code Quality](#10-code-quality)
-    - [10.1 Overall Health](#101-overall-health)
-    - [10.2 Code Patterns](#102-code-patterns)
-    - [10.3 Error Handling](#103-error-handling)
-    - [10.4 Tests](#104-tests)
-    - [10.5 Documentation](#105-documentation)
-11. [Dependencies and Third-Party Tools](#11-dependencies-and-third-party-tools)
-    - [Runtime Dependencies](#runtime-dependencies-shipped-to-the-browser)
-    - [Server Dependencies](#server-dependencies-railway-process)
+11. [Dependencies](#11-dependencies-and-third-party-tools)
 12. [Data and Database](#12-data-and-database)
-    - [12.1 Database Tables](#121-database-tables)
-    - [12.2 The Shelter Column Migration](#122-the-shelter-column-migration)
-    - [12.3 Data Persistence Gaps](#123-data-persistence-gaps)
+
+### PART IV — INFRASTRUCTURE & OPERATIONS
 13. [Deployment and Infrastructure](#13-deployment-and-infrastructure)
-    - [13.1 Frontend and API](#131-frontend-and-api)
-    - [13.2 WebSocket Server](#132-websocket-server)
-    - [13.3 Agent Infrastructure](#133-agent-infrastructure)
-14. [Known Issues and Bugs](#14-known-issues-and-bugs)
-15. [What Is Next](#15-what-is-next)
-    - [15.1 Atmosphere Pressure and Humidity from Terrain](#151-atmosphere-pressure-and-humidity-from-terrain)
-    - [15.2 Persistent Organism IDs Across Server Restarts](#152-persistent-organism-ids-across-server-restarts)
-    - [15.3 Contextual Crafting UI](#153-contextual-crafting-ui)
-    - [15.4 Element-Based Material Arc — Full Civilizational Scope](#154-element-based-material-arc--full-civilizational-scope)
-    - [15.5 Shared Player Position Sync Improvement](#155-shared-player-position-sync-improvement)
+    - 13.1 Vercel Frontend
+    - 13.2 Railway Server
+    - 13.3 Agent Infrastructure
+    - 13.4 GPU Render Server — Setup & Commands
+    - 13.5 Background Knowledge: GPU Server Rendering  ← (moved from §20)
+    - 13.6 Pixel Streaming Architecture Plan  ← (moved from §15.6)
+
+### PART V — STATUS & QUALITY
+8. [Performance Analysis](#8-performance-analysis)
+9. [Security Assessment](#9-security-assessment)
+14. [Known Issues & Bugs](#14-known-issues-and-bugs)
 16. [Recommendations](#16-recommendations)
 17. [Summary Scorecard](#17-summary-scorecard)
-18. [Change Log](#18-change-log)
-19. [References](#19-references)
-    - [Science & Material Properties](#science--material-properties)
-    - [Civilizational Arc & Technology History](#civilizational-arc--technology-history)
-    - [Game Design & Emergence](#game-design--emergence)
 
+### PART VI — ROADMAP & HISTORY
+15. [What Is Next](#15-what-is-next) (game features roadmap)
+18. [Change Log](#18-change-log)
+    - 18.1 Session Log 2026-03-27  ← (moved from §3)
+
+### PART VII — REFERENCES
+19. [References](#19-references)
+
+---
+# PART I — VISION & DESIGN
 ---
 
 ## 1. Executive Summary
@@ -174,176 +103,15 @@ This approach has precedent. *Dwarf Fortress* (Tarn Adams, ongoing) demonstrated
 
 ---
 
-## 3. What Was Built This Session (2026-03-27)
 
-This section documents everything created or changed on 2026-03-27, the session that produced this report version.
+---
 
-### 3.1 Foundation Cleanup: Deleting the RPG Layer
+## 3. Session Log → See §18.1
 
-The most important work of this session was removal, not addition.
+---
 
-**What was deleted from the client:**
-
-- Dungeon system
-- Quest system
-- XP and leveling system
-- Skill trees
-- Faction system
-- Loot tables
-- Spell system
-
-All of this code was preserved in the git tag `rpg-preserved-20260327` before deletion, so nothing is permanently lost. It was removed because it contradicted the core vision: these are game systems, and this is not a game.
-
-**What was fixed after deletion:**
-
-The server was crashing on startup because it was still importing two modules that had been deleted in an earlier cleanup: `NpcManager` and `OutlawSystem`. These imports were removed. The server can now start cleanly.
-
-Additionally, 360+ lines of dead WebSocket message handlers were removed from both the client and the server. These handlers processed messages for systems that no longer exist: PvP combat, bounties, outlaw status, shops, party management, and trade post interactions. Removing them makes the message protocol simpler and eliminates confusion about what the server actually supports.
-
-**Admin gating:**
-
-Three developer tools were moved behind an admin check so they do not appear for regular players:
-
-- [G] — Spectator camera (fly through the world without a body)
-- [O] — Organism seeding (manually trigger the server to spawn organisms)
-- [B] — Ecosystem dashboard (population chart and organism dot map)
-
-These tools are visible only to the account whose Clerk user ID matches the hardcoded admin ID.
-
-### 3.2 Physics-Based Crafting
-
-The old crafting system used recipe lists: player selects a recipe, game checks whether inventory contains the required items, subtracts them, adds output. This was replaced with physics-based interaction.
-
-**What the new system does:**
-
-Every material in the game now has real physical properties stored in `MaterialRegistry.ts`:
-
-- Flammability (0.0–1.0 scale)
-- Hardness (Mohs scale, 1.0–10.0)
-- Moisture content (0.0–1.0 — dry wood is more flammable than wet wood)
-- Melting point (Celsius)
-- Tensile strength (MPa — megapascals, a measure of how hard it is to pull apart)
-- Workability (0.0–1.0 — how easy it is to shape)
-- Thermal conductivity (W/m·K)
-- Ignition temperature (Celsius)
-- Combustion energy (MJ/kg)
-
-116 materials now have all of these properties defined.
-
-**The five physics interactions in `InteractionEngine.ts`:**
-
-
-| Interaction         | Method                           | Success Calculation                                    |
-| ------------------- | -------------------------------- | ------------------------------------------------------ |
-| Fire — bow drill    | Friction between two wood types  | ~15–55% depending on wood hardness (Mohs) and moisture |
-| Fire — flint + iron | Spark from striking              | Flat 40% base rate (iron hardness check)               |
-| Stone knapping      | Hard stone struck against softer | 70% base rate, modified by hardness difference         |
-| Clay pottery        | Soft clay + water + forming      | 95% success (forgiving material)                       |
-| Smelting            | Ore + fuel + heat source         | Validates temperature against ore melting point        |
-
-
-**Hidden practice tracking:**
-
-The system silently records how many times a player has attempted each interaction. Success rate improves with practice. This is not shown to the player as a progress bar or skill level — it is invisible, just as real-world skill acquisition is invisible in the moment.
-
-**Discovery system:**
-
-The first time a player successfully uses an interaction, they receive a discovery — a knowledge string ID stored in their record. This can be used to track what techniques a player has learned without turning it into a game mechanic.
-
-### 3.3 Geologically Accurate Resource Distribution
-
-Before this session, resource nodes (stone, copper ore, iron ore, coal, gold) appeared at pseudo-random positions across the planet. This session added geological accuracy.
-
-**How it works:**
-
-The world already had tectonic plates generated by Voronoi partitioning of the sphere surface. Each plate was already classified as oceanic or continental. This session connected that geology to resource spawning:
-
-
-| Resource | Real-World Geology                                                | Game Implementation                                                                         |
-| -------- | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| Copper   | Hydrothermal vents, volcanic arcs at convergent plate boundaries  | Spawns near tectonic boundary zones; highest concentration near volcanic/hydrothermal sites |
-| Gold     | Convergent plate boundaries (deep pressure + heat)                | Spawns near convergent boundaries; rare                                                     |
-| Iron     | Sedimentary deposits in stable continental interiors              | Spawns in plate interiors away from active boundaries                                       |
-| Coal     | Low-elevation stable basins, ancient organic material compression | Spawns in low-elevation stable geological basins                                            |
-
-
-**Settlement specialization:**
-
-`SettlementManager.js` on the server now reads the same tectonic plate algorithm used by the client's resource node system. When a settlement is placed, the server queries what geology exists at that position and assigns a specialty:
-
-- Volcanic/hydrothermal boundary → copper mining town
-- Convergent boundary (deep) → gold mining settlement
-- Stable interior → iron mining or farming settlement
-- Coastal → fishing settlement
-- Low plains → farming settlement
-
-This means a player who finds a settlement near a volcanic region will find copper goods available for trade. The settlement's economy is determined by its physical environment, not a random roll.
-
-### 3.4 Shared Organism Ecosystem (Server-Authoritative)
-
-This is the most significant architectural change of the session.
-
-**Before (broken):**
-
-Every player's browser ran its own independent organism simulation. When two players were standing in the same location looking at the same sky, they were seeing completely different sets of creatures. A birth or death in one player's world had no effect on any other player's world. The world was not shared — it was parallel solo experiences that happened to share a map.
-
-**After (correct):**
-
-The server now runs `NaturalSelectionSystem` at 6 Hz (six times per second). Every tick, the server:
-
-1. Updates all organism energy budgets based on the current day/night light level
-2. Ages all organisms
-3. Kills organisms that have run out of energy or reached old age (age > 50,000 ticks)
-4. Applies stochastic selection death (random death chance of 0.2% per tick — simulating predation and environmental pressure)
-5. Allows reproduction when energy > 0.8 and population is below the cap of 300
-6. Moves all organisms by 5–20 meters in their wander direction
-7. Broadcasts `ORGANISM_UPDATE` to all connected players
-
-All players receive the same update. A birth is a birth. A death is a death. Everyone sees it.
-
-**What organisms exist:**
-
-
-| Diet Type      | ID  | Description                                                                                         |
-| -------------- | --- | --------------------------------------------------------------------------------------------------- |
-| Autotroph      | 0   | Gains energy from sunlight (photosynthesis)                                                         |
-| Heterotroph    | 1   | Burns energy at a fixed rate (must eat others to survive — not yet implemented as direct predation) |
-| Mixotroph      | 2   | Partial photosynthesis (gains from light but less than autotrophs)                                  |
-| Chemoautotroph | 3   | Gains energy from chemical reactions (not light-dependent)                                          |
-
-
-**Starting population:** 80 primordial organisms, all autotrophs, seeded in the equatorial band (where light is most reliable). Population can grow to a cap of 300.
-
-**Speciation:** Species differentiation is tracked by Hamming distance on 256-bit genomes. When a descendant's genome drifts far enough from its parent species, a new species ID is assigned.
-
-**Rendering on the client:** Organisms appear as instanced glowing spheres. Level-of-detail (LOD) reduces rendering cost: full detail within 2,000 meters, simplified beyond 8,000 meters.
-
-### 3.5 Player Shelter and Respawn System
-
-Before this session, player respawn behavior after death was not well-defined.
-
-**What was built:**
-
-Every new player now gets a default shelter position assigned on first login. The position is computed deterministically from two inputs: the world seed and the player's user ID. This means the same player always gets the same default shelter regardless of when they log in, even if the server has restarted.
-
-The shelter positions are biased toward the equatorial band of the planet (latitudes between -30 degrees and +30 degrees) to avoid spawning players at the poles where conditions are extreme.
-
-**Registering a new shelter:**
-
-The player presses [H] at any location to register their current position as their shelter. This is saved to the Neon Postgres database.
-
-**Respawn:**
-
-On death, the player respawns at their registered shelter position. The shelter position persists across sessions — it is stored in the database, not just in memory.
-
-**Database migration:**
-
-`PlayerRegistry.js` now calls `migrateShelterSchema()` on server startup, which adds `shelter_x`, `shelter_y`, and `shelter_z` columns to the `players` table if they do not already exist. This is safe to run against an existing database with existing player records.
-
-### 3.6 Director Alignment
-
-The `game-dev-director.md` document (the internal guide for the AI director agent) was rewritten to reflect the correct vision. The previous version still referenced RPG mechanics as valid features. The new version establishes the universe-first philosophy clearly and references `polymorphic-wishing-metcalfe.md` as the single source of truth for what to build next.
-
+---
+# PART III — TECHNICAL REFERENCE
 ---
 
 ## 4. Technical Architecture
@@ -503,6 +271,10 @@ universe-sim/
   package.json                 Dependencies and build scripts
 ```
 
+---
+
+---
+# PART II — GAME WORLD
 ---
 
 ## 6. All Major Systems — Complete Inventory
@@ -3598,6 +3370,10 @@ These systems were built in earlier sessions and remain in place:
 
 ---
 
+---
+# PART V — STATUS & QUALITY
+---
+
 ## 8. Performance Analysis
 
 ### 8.1 Rendering
@@ -3753,6 +3529,10 @@ Three tables (`settlement_stockpiles`, `discoveries`, `planets`) must be created
 
 ---
 
+---
+# PART IV — INFRASTRUCTURE & OPERATIONS
+---
+
 ## 13. Deployment and Infrastructure
 
 ### 13.1 Frontend and API
@@ -3868,421 +3648,10 @@ scp -P 29817 root@142.171.48.138:/workspace/test.jpg test.jpg
 cd /workspace/universe-renderer && git pull && node server.js
 ```
 
----
-
-## 14. Known Issues and Bugs
-
-Issues are rated: Critical (breaks core functionality), High (significantly degrades experience), Medium (noticeable but workable), Low (minor or cosmetic).
-
-
-| ID      | Severity | Description                                                                                                    | Impact                                                              |
-| ------- | -------- | -------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
-| B-01    | Medium   | `admin.ts` uses Web API style rather than Node.js style — will 500 in production                               | Admin player list is broken; admin gameplay features unaffected     |
-| B-02    | Low      | No toast notification when save fails silently                                                                 | Player does not know if their progress was saved                    |
-| B-03    | Medium   | Duplicate Clerk packages suspected (v5 and v6) — verify against current package.json                           | May cause auth instability or bundle bloat                          |
-| B-04    | High     | Organism positions lost on Railway server restart — ecosystem not persisted to DB                              | All organism state resets to 80 primordials on every server restart |
-| B-05    | Low      | Status site canvas fixed at 800x600 — click detection may misfire at extreme aspect ratios                     | Minor UX issue on unusual screen sizes                              |
-| B-06    | Medium   | Fire extinguishing during rain not yet wired to physics (WeatherRenderer exists, back-end wiring pending)      | Rain visually falls but does not put out fires                      |
-| B-07    | High     | Railway WebSocket server intermittently down (found during playtesting 2026-03-24)                             | All players disconnect; world freezes until restart                 |
-| B-10    | Low      | Fire CRAFT recipe produces inert ITEM.FIRE item (misleading — real fire mechanic is physics-based interaction) | Confusing UI; player may think crafting produces fire               |
-| B-17    | Low      | Map panel shows position (0,0) after shelter respawn until player moves                                        | Minor visual glitch                                                 |
-| B-ADMIN | Medium   | ADMIN_SET_TIME WebSocket command has no server-side auth check                                                 | Any client knowing the message format can change simulation time    |
-
-
-### Resolved Bugs (Previous Sessions)
-
-
-| ID   | Resolution Date | What Was Fixed                                         |
-| ---- | --------------- | ------------------------------------------------------ |
-| B-08 | 2026-03-24      | Vitals draining behind CLICK TO PLAY overlay           |
-| B-09 | 2026-03-24      | No food given on respawn (now gives 3x Cooked Meat)    |
-| B-11 | 2026-03-24      | Ambient temperature permanently stuck after storm      |
-| B-12 | 2026-03-24      | Cold death incorrectly labelled "STARVED TO DEATH"     |
-| B-13 | 2026-03-24      | Ambient temperature not recovering after storm cleared |
-| B-15 | 2026-03-25      | God Mode + steel quench notification infinite spam     |
-| B-16 | 2026-03-24      | God Mode did not protect from cold/starvation damage   |
-| B-18 | 2026-03-25      | Building consumed resources in God Mode                |
-| B-19 | 2026-03-25      | Crafting consumed materials when inventory was full    |
-
 
 ---
 
-## 15. What Is Next
-
-From the foundation plan (`polymorphic-wishing-metcalfe.md`), the next work items in priority order are:
-
-### 15.1 Atmosphere Pressure and Humidity from Terrain
-
-Currently weather transitions are probabilistic but do not account for terrain geography. Real weather patterns are shaped by geography: mountains create rain shadows (wet on one side, dry on the other), valleys trap cold air, oceans moderate coastal temperatures. The next step is to derive pressure and humidity values from terrain elevation and proximity to water, and have these values influence weather state transitions per-region rather than globally.
-
-### 15.2 Persistent Organism IDs Across Server Restarts
-
-Currently all organism state is held in memory in `OrganismManager`. When the Railway server restarts (for any reason — deploy, crash, maintenance), the ecosystem resets to 80 primordial organisms. Organisms that had evolved over thousands of ticks are gone. The fix is to periodically persist organism state to a new Neon Postgres table (`organism_state`) and reload it on server startup.
-
-### 15.3 Contextual Crafting UI
-
-The crafting panel currently shows a list of interactions. The vision calls for no recipe browser at all — just contextual hints when the player holds two materials near each other. If a player is holding dry cedar and a piece of flint, a quiet UI hint should suggest what interaction might be possible, without spelling out a recipe. Discovery happens by trying things.
-
-### 15.4 Element-Based Material Arc — Full Civilizational Scope
-
-The crafting system is designed to span the entire arc of human technological history — from the first person who rubbed two sticks together to whoever builds a quantum computer. Every step is driven by material properties, never by recipe unlocks.
-
-The current 11 material properties in `MaterialRegistry.ts` cover the stone age through basic metallurgy. To extend the arc into later eras, additional properties are needed. Here is the full picture:
-
-#### What the Current 11 Properties Cover
-
-
-| Property              | What it gates                            |
-| --------------------- | ---------------------------------------- |
-| `flammability`        | Fire-making, cooking, arson              |
-| `hardness` (Mohs)     | Tool-making, knapping, drilling          |
-| `moisture`            | Whether fire attempts succeed            |
-| `ignitionTemp`        | Minimum temperature to combust           |
-| `combustionJ_kg`      | How much energy a fuel releases          |
-| `thermalConductivity` | Heat transfer (cooking, forging)         |
-| `meltingPoint`        | Smelting — when ore becomes liquid metal |
-| `tensileStrength`     | Weapon effectiveness, structural load    |
-| `workability`         | Clay forming, soft metal shaping         |
-| `density`             | Weight of carried items, buoyancy        |
-| `Cp` (specific heat)  | How long something holds heat            |
-
-
-These 11 properties are enough for: fire, cooking, pottery, copper/iron/steel smelting, stone knapping, basic construction.
-
-#### Properties Needed for Later Eras
-
-**Bronze / Early Chemistry Age**
-
-
-| Property       | Unit | What it unlocks                                                                                             |
-| -------------- | ---- | ----------------------------------------------------------------------------------------------------------- |
-| `boilingPoint` | °C   | Distillation (alcohol, essential oils, petroleum refining)                                                  |
-| `reactivity`   | 0–1  | Chemical reactions — sulfur + saltpeter + charcoal combust violently (gunpowder). Acid dissolves limestone. |
-| `solubility`   | 0–1  | Ore extraction via acid leaching. Salt dissolves in water.                                                  |
-
-
-**Organic / Food Age**
-
-
-| Property            | Unit    | What it unlocks                                                                      |
-| ------------------- | ------- | ------------------------------------------------------------------------------------ |
-| `nutritionValue`    | kcal/kg | Actual food value — not all food is equal. Grain feeds more people than meat per kg. |
-| `fermentability`    | 0–1     | Bread, alcohol, vinegar, cheese — all fermentation products                          |
-| `decompositionRate` | days    | Organic decay — food spoils, wood rots, compost forms                                |
-| `toxicity`          | 0–1     | Poisonous plants, medicine dosage, venom                                             |
-| `medicinalValue`    | 0–1     | Wound healing, fever reduction, pain relief from plants                              |
-
-
-**Construction / Industrial Age**
-
-
-| Property              | Unit    | What it unlocks                                            |
-| --------------------- | ------- | ---------------------------------------------------------- |
-| `compressiveStrength` | MPa     | Load-bearing walls, arches, bridges — what can hold weight |
-| `elasticity`          | GPa     | Springs, flexible tools, rope tension                      |
-| `brittleness`         | 0–1     | Glass shatters. Steel bends. Bone cracks.                  |
-| `thermalExpansion`    | 10⁻⁶/°C | Steam engine tolerances. Metal rails buckle in heat.       |
-| `viscosity`           | mPa·s   | Oil lubricates. Lava flows slowly. Water flows fast.       |
-
-
-**Electrical Age**
-
-
-| Property                 | Unit | What it unlocks                                           |
-| ------------------------ | ---- | --------------------------------------------------------- |
-| `electricalConductivity` | S/m  | Copper wire, circuits, batteries, electromagnets          |
-| `magneticPermeability`   | H/m  | Iron cores for magnets, motors, transformers              |
-| `semiconductivity`       | 0–1  | Silicon gates all digital technology — transistors, chips |
-
-
-**Optical Age**
-
-
-| Property          | Unit  | What it unlocks                          |
-| ----------------- | ----- | ---------------------------------------- |
-| `transparency`    | 0–1   | Glass lenses, windows, fiber optics      |
-| `refractiveIndex` | ratio | Telescopes, microscopes, cameras, lasers |
-
-
-**Nuclear Age**
-
-
-| Property        | Unit | What it unlocks                                                     |
-| --------------- | ---- | ------------------------------------------------------------------- |
-| `radioactivity` | 0–1  | Uranium decays, emits heat and radiation                            |
-| `fissility`     | 0–1  | Whether material can sustain a chain reaction (U-235 yes, U-238 no) |
-
-
-#### How the Interaction Engine Uses These
-
-None of these become recipe conditions. They become physics checks:
-
-- Gunpowder: three materials each with `reactivity > 0.7` + `combustionJ_kg > 5000` + `ignitionTemp < 300` → rapid oxidation when struck
-- Alcohol: grain with `fermentability > 0.6` + water + warmth over time → ethanol (boilingPoint 78°C separates it from water)
-- Electric wire: material with `electricalConductivity > 10⁶` + workability to be drawn thin → conducts current
-- Lens: material with `transparency > 0.8` + `refractiveIndex ≠ 1.0` + workability to grind → focuses light
-
-The player discovers what works by trying. The system checks physics. No recipe list ever exists.
-
-#### The Bootstrapping Problem
-
-Lewis Dartnell's *The Knowledge* identifies what he calls the bootstrapping problem of civilization: you need tool X to make material Y, but making X requires Y. You need a furnace to smelt iron, but building a furnace requires heat-resistant materials that themselves require a furnace to produce. Real civilizations solved this through centuries of iteration. The game must encode the same dependencies through material properties.
-
-Some examples:
-
-- You cannot make steel without iron. You cannot smelt iron without charcoal. You cannot make charcoal without understanding fire. Fire requires dry wood of the right hardness + practice.
-- You cannot make glass without a furnace reaching 1400°C. You cannot reach that temperature without bellows to force air into the fire. Bellows require leather (tanned hide) and a nozzle (clay or metal).
-- You cannot make a battery without sulfuric acid. Acid requires sulfur + water + heat. Sulfur is found near volcanic zones.
-
-The interaction engine enforces this automatically — not through unlock gates, but through physics. If you don't have a heat source that reaches iron's smelting point (1538°C), iron ore stays as ore.
-
-#### Implementation Order
-
-Do not add all properties at once. Add them as the game needs them — when the next era of crafting is being built. The current 11 are correct for the foundation. The next batch to add when building the chemistry/food age: `reactivity`, `solubility`, `boilingPoint`, `nutritionValue`, `fermentability`, `decompositionRate`, `toxicity`.
-
-### 15.5 Shared Player Position Sync Improvement
-
-Player positions are broadcast via WebSocket but the current interpolation on the client side produces visible jitter on other players' avatars. Smoother position interpolation (using linear interpolation or dead reckoning) would make the shared world feel more inhabited.
-
----
-
-### 15.6 Server-Side Pixel Streaming Architecture
-
-#### Vision
-
-Instead of each client running Three.js locally and generating the world from a seed, a dedicated GPU server renders the 3D scene for each player and streams the result as a compressed video feed. The client becomes a thin terminal — a `<video>` element and an input forwarder. No WebGL required on the client side. Works on any device including phones, tablets, and low-end laptops.
-
-The analogy: the GPU server is the eye and optic nerve — it captures what the player sees and sends it as a visual signal. The client is just the screen that displays it.
-
-#### Why
-
-- **Any device can play** — the client does zero 3D rendering
-- **World is never exposed** — no seed, no geometry, no game logic runs on client
-- **Single source of truth** — physics, rendering, and world state all happen server-side
-- **Future-proof** — as the world grows more complex, client requirements stay flat
-
-#### Two-Server Model
-
-The current Railway server continues handling all world simulation unchanged. A new GPU render server handles only the visual pipeline for connected players. They communicate via the existing WebSocket protocol — the GPU server connects to Railway as if it were a player, reads world state, and renders it.
-
-```
-Railway (existing — stays unchanged)
-  World simulation: organisms, weather, settlements, player positions
-  Broadcasts: WORLD_SNAPSHOT, ORGANISM_UPDATE, WEATHER_UPDATE, etc.
-       ↕ WebSocket (same protocol as today)
-GPU Render Server (new)
-  One render context per connected player
-  Three.js running headless (no browser window)
-  Reads world state from Railway socket
-  Renders scene from each player's viewpoint
-  Encodes frames as H.264 via NVENC
-  Streams to each player via WebRTC
-       ↕ WebRTC (video stream + data channel)
-Client (simplified)
-  <video> element displays the stream
-  Keyboard/mouse captured and sent back via WebRTC data channel
-  HTML overlay (HUD, chat, inventory) still rendered locally
-```
-
-#### Technology Stack
-
-| Component | Technology | Purpose |
-|---|---|---|
-| Headless WebGL | `headless-gl` (npm) | Gives Node.js a GPU-backed WebGL context — Three.js runs identically |
-| WebRTC server | `@roamhq/wrtc` (npm) | Lets Node.js send video tracks and receive data channels |
-| H.264 encoding | FFmpeg + NVENC | Hardware-accelerated frame compression (fast, low-latency) |
-| Frame capture | `gl.readPixels()` | Reads rendered pixels from the WebGL framebuffer into a Buffer |
-| Signaling | Existing WebSocket server | Exchanges WebRTC offer/answer between client and GPU server |
-| Client display | Native `<video>` + WebRTC API | Browser handles decode and display natively |
-
-#### What Changes
-
-**GPU server (new repo: `universe-renderer` or added to `universe-server`):**
-- `src/RenderWorker.ts` — one instance per player. Owns a headless-gl context, a Three.js scene, and a WebRTC peer connection. Receives world state updates, renders a frame, reads pixels, pushes to WebRTC video track.
-- `src/PixelStreamServer.ts` — manages all active `RenderWorker` instances. Handles player connect/disconnect. Routes WebRTC signaling messages.
-- `src/WorldStateProxy.ts` — connects to Railway via WebSocket, subscribes to all world updates, distributes them to the relevant `RenderWorker` instances.
-
-**Client (`universe-sim`) — simplified:**
-- `src/net/StreamReceiver.ts` — replaces `useWorldSocket` for the rendering path. Connects to GPU server via WebRTC, receives video track, attaches to `<video>` element, sends input events back via data channel.
-- `src/ui/StreamView.tsx` — full-screen `<video>` element with HTML overlay layer for HUD, chat, inventory, notifications. All UI stays local HTML — zero latency for interface elements.
-- Three.js, `PlanetGenerator`, `BiomeRegistry`, `RiverSystem`, `OrganismManager` client copies — removed or kept dormant. The client no longer needs to generate or render the world.
-
-**What stays exactly the same:**
-- Railway server (`universe-server`) — zero changes
-- All Zustand stores for UI state (inventory, chat, notifications)
-- Clerk authentication
-- Vercel deployment for static client files
-
-#### Rendering Pipeline Per Frame
-
-```
-1. WorldStateProxy delivers latest positions, organisms, weather to RenderWorker
-2. RenderWorker updates Three.js scene objects to match world state
-3. Three.js renders scene to headless-gl framebuffer (GPU call)
-4. gl.readPixels() copies framebuffer to a Node.js Buffer (~8MB at 1080p raw)
-5. Buffer piped to FFmpeg stdin
-6. FFmpeg encodes to H.264 P-frame (~15-40KB) using NVENC hardware encoder
-7. Encoded frame pushed to WebRTC video track
-8. Client browser decodes frame using built-in hardware decoder
-9. Frame displayed in <video> element
-Total pipeline latency target: < 80ms end-to-end
-```
-
-#### Input Pipeline (Client → Server)
-
-```
-Player presses W
-→ Client captures keydown event
-→ Sends {type:'INPUT', key:'W', pressed:true} via WebRTC data channel (~1ms)
-→ GPU server receives input
-→ Forwards to Railway as PLAYER_UPDATE with new position
-→ Railway broadcasts updated position to all other players
-→ Next rendered frame reflects the movement
-```
-
-#### Client Rendering That Stays Local (HTML Overlay)
-
-These UI elements have zero tolerance for latency and must remain local:
-- Health / hunger / stamina bars
-- Inventory panel
-- Chat messages
-- Notifications and discovery popups
-- Minimap (can be derived from server data)
-- Crafting panel
-
-These overlay the video stream as absolute-positioned HTML divs — identical to today's layout. The player never notices the difference.
-
-#### GPU Server Infrastructure Options
-
-| Option | Cost | Tradeoff |
-|---|---|---|
-| Vast.ai (rented GPU, on-demand) | ~$0.10-0.25/hr | Cheapest to start, host can go offline |
-| RunPod (rented GPU, stable) | ~$0.19-0.34/hr | More reliable, still hourly |
-| Hetzner dedicated server | ~€120-200/month | Fixed cost, full control, fast European data center |
-| Own PC with gaming GPU at home | ~$40/month (electric) | Cheapest long-term, requires home internet upload |
-
-A single RTX 3080 can time-slice rendering across ~10-15 players at 30fps per player. At 60fps the capacity halves to ~6-8 players. For a small game starting out, one GPU handles the load.
-
-#### Implementation Phases
-
-**Phase 1 — Prototype (local, no GPU required)**
-- Set up `headless-gl` + Three.js on server rendering a static scene
-- Capture frames and stream via `@roamhq/wrtc` to a test browser page
-- Verify the WebRTC video pipeline works end-to-end
-- Test on CPU (software H.264 via FFmpeg x264) — slow but proves the concept
-
-**Phase 2 — World state integration**
-- Connect `WorldStateProxy` to Railway WebSocket
-- `RenderWorker` updates scene from live organism/player/weather data
-- One player can connect and see the real world rendered server-side
-- Input forwarding works (WASD moves character)
-
-**Phase 3 — Multi-player**
-- Multiple simultaneous `RenderWorker` instances (one per player)
-- Time-sliced rendering — GPU renders players in round-robin
-- View frustum culling — only render objects visible to this player
-
-**Phase 4 — GPU server deployment**
-- Move to Vast.ai or Hetzner GPU instance
-- Enable NVENC hardware encoding in FFmpeg
-- Benchmark latency and frame rate at various player counts
-- Adaptive bitrate: reduce quality when player's network is slow
-
-**Phase 5 — Client migration**
-- Replace Three.js client rendering with `StreamView.tsx`
-- Remove `PlanetGenerator`, `BiomeRegistry`, and rendering code from client bundle
-- Client becomes ~200KB instead of ~2MB
-
-#### Key Files to Create
-
-```
-universe-renderer/ (new repo, or new directory in universe-server)
-  src/
-    PixelStreamServer.ts     Entry point. Manages player connections, WebRTC signaling.
-    WorldStateProxy.ts       Connects to Railway WS. Distributes world state to workers.
-    RenderWorker.ts          One per player. headless-gl context + Three.js + WebRTC peer.
-    SceneBuilder.ts          Builds Three.js scene from world state (terrain, organisms, etc.)
-    FrameEncoder.ts          FFmpeg child process wrapper. Accepts Buffer, emits H.264 chunks.
-    InputRouter.ts           Receives data channel input, forwards to Railway as PLAYER_UPDATE.
-  package.json               headless-gl, @roamhq/wrtc, three, fluent-ffmpeg
-
-universe-sim/src/ (client changes)
-  net/StreamReceiver.ts      WebRTC client. Connects to GPU server, handles video + data.
-  ui/StreamView.tsx           Full-screen <video> + HTML overlay layer.
-```
-
-#### Open Questions Before Starting
-
-1. **`headless-gl` GPU passthrough** — `headless-gl` needs the actual GPU driver to use NVENC. On Linux (Vast.ai/Hetzner) this works with proper NVIDIA driver install. On Windows it requires additional setup.
-2. **WebRTC TURN server** — WebRTC peer connections sometimes need a relay server (TURN) if client NAT blocks direct connection. A free Cloudflare TURN or coturn instance handles this.
-3. **Per-player Three.js scene cost** — Each `RenderWorker` maintains a full Three.js scene in memory (~50-100MB per player). For 10 players, ~1GB RAM. Manageable on any GPU server.
-
----
-
-## 16. Recommendations
-
-### Immediate (before next feature build)
-
-1. **Persist organism state to the database** — This is the highest-priority fix. Every server restart wipes the entire ecosystem. Until organism state is saved, the shared ecosystem feature is fragile. Estimated work: one new DB table and ~50 lines in OrganismManager.
-2. **Verify and close B-03 (duplicate Clerk packages)** — The current package.json shows only `@clerk/react` v6, which suggests the duplicate was already resolved. Confirm this is correct and mark the bug closed.
-3. **Add server-side auth to ADMIN_SET_TIME** — This is a low-effort security fix. The server already has the `ADMIN_SECRET` environment variable. Check it against the incoming message before processing.
-4. **Wire rain to fire extinguishing** — The WeatherRenderer and fire simulation grid both exist. Connecting them is plumbing work, not new feature work, and would make the world feel physically consistent.
-
-### Near-Term (next session)
-
-1. **Replace crafting recipe list with contextual hints** — This directly implements the vision. The physics interaction engine already determines what is possible; the UI change is on the client side only.
-2. **Atmosphere pressure/humidity from terrain** — This deepens the weather system without adding new UI complexity. Players will notice that certain valleys are always foggy and certain mountain passes create storms. That feels real.
-3. **Fix B-01 (admin.ts 500 error)** — The admin player list is useful for monitoring. Fixing the API style issue is a small change.
-
-### Longer-Term
-
-1. **Persist organism IDs across speciation events** — Once organism state is in the database, organism IDs should survive server restarts so that species that evolved over weeks do not reset their lineage.
-2. **Add organism predation** — Currently heterotrophs burn energy but have no way to gain energy from autotrophs. True food webs require heterotrophs to move toward autotrophs and consume them. This would create genuine population dynamics (predator-prey cycles, Lotka-Volterra oscillations).
-3. **Smooth player position interpolation** — Dead reckoning or cubic interpolation on other players' positions would reduce visible jitter.
-
----
-
-## 17. Summary Scorecard
-
-
-| Area                   | Rating            | Notes                                                                                                                         |
-| ---------------------- | ----------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| Vision Clarity         | Excellent         | The session's cleanup work aligned the codebase with the vision. The universe-first philosophy is now consistently expressed. |
-| World Generation       | Excellent         | Geologically accurate resources, 20 biomes, real terrain algorithms.                                                          |
-| Organism Ecosystem     | Good              | Server-authoritative and shared — major improvement this session. Loses state on restart.                                     |
-| Physics-Based Crafting | Good              | 116 materials with real properties, 5 physics interactions, hidden practice tracking. UI integration still pending.           |
-| Settlement System      | Good              | Geology-based specialties working. Trade economy active.                                                                      |
-| Player Systems         | Good              | Shelter/respawn working. Vitals drain and survival loop stable after M12 fixes.                                               |
-| Weather and Seasons    | Good              | Server-authoritative and broadcast. Rain-fire interaction still wired (B-06).                                                 |
-| Late-Game Content      | Good              | M9–M15 systems intact (rockets, First Contact, interplanetary transit, Velar language).                                       |
-| Code Quality           | Good              | Major improvement this session — dead code removed, server crash fixed, clear module separation.                              |
-| Security               | Needs Improvement | Client-side admin check, no server-side auth on ADMIN_SET_TIME. Acceptable for current scale but should improve.              |
-| Data Persistence       | Needs Improvement | Organisms lost on restart. Three DB tables not in init-db.                                                                    |
-| Performance            | Good              | Instanced rendering, LOD, WebAssembly workers all in place.                                                                   |
-| Testing                | Needs Improvement | Infrastructure exists (Vitest, Playwright) but coverage is unknown.                                                           |
-
-
----
-
-## 18. Change Log
-
-
-| Date       | Version | Changes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| ---------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 2026-03-19 | v1      | Initial report                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| 2026-03-20 | v2–v10  | M0–M7 systems documented                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| 2026-03-21 | v11–v18 | M8–M11 documented, playtesting cycles 1–6                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| 2026-03-22 | v19–v22 | M12–M13 documented                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| 2026-03-23 | v23–v25 | M14 documented, agent infrastructure added                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| 2026-03-24 | v26     | M14 bugs found and fixed during playtesting cycles 1–9                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| 2026-03-25 | v27     | M15 Universe Map documented; playtesting cycles 10–12; 6 bugs resolved                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| 2026-03-27 | v28     | Major session: RPG code deleted (preserved in git tag rpg-preserved-20260327), server crash fixed, physics-based crafting built (MaterialRegistry 116 materials, InteractionEngine 5 interactions), geological resource distribution added, organism ecosystem made server-authoritative (OrganismManager 6 Hz, ORGANISM_UPDATE broadcast), player shelter/respawn system added to DB, admin-gated spectator/seeding/dashboard, dead WebSocket handlers removed, director alignment updated |
-| 2026-03-27 | v29     | Structure document: renamed from report.md to structure.md. Research references woven into all major system sections. Full material property arc documented across civilizational eras. Bootstrapping problem from Dartnell. Lotka-Volterra equations in organism section. Comparative advantage in settlement section. References section added.                                                                                                                                           |
-
-
----
-
-## 20. Background Knowledge: GPU Server Rendering
+### 13.5 Background Knowledge: GPU Server Rendering
 
 This section explains every concept used in the pixel streaming pipeline in plain language. Read this when you encounter an error and don't know what it means.
 
@@ -4476,6 +3845,608 @@ Think of it as a translation layer: raw pixels (huge) → H.264 (small) → stre
 | `Failed to launch browser process` | Chrome crashed on startup — usually a missing library | Check the full error for `No such file or directory` |
 | Site cannot be reached | Port is blocked by firewall | Use SSH tunnel or find the correct external port |
 
+
+---
+
+### 13.6 Pixel Streaming Architecture Plan
+
+#### Vision
+
+Instead of each client running Three.js locally and generating the world from a seed, a dedicated GPU server renders the 3D scene for each player and streams the result as a compressed video feed. The client becomes a thin terminal — a `<video>` element and an input forwarder. No WebGL required on the client side. Works on any device including phones, tablets, and low-end laptops.
+
+The analogy: the GPU server is the eye and optic nerve — it captures what the player sees and sends it as a visual signal. The client is just the screen that displays it.
+
+#### Why
+
+- **Any device can play** — the client does zero 3D rendering
+- **World is never exposed** — no seed, no geometry, no game logic runs on client
+- **Single source of truth** — physics, rendering, and world state all happen server-side
+- **Future-proof** — as the world grows more complex, client requirements stay flat
+
+#### Two-Server Model
+
+The current Railway server continues handling all world simulation unchanged. A new GPU render server handles only the visual pipeline for connected players. They communicate via the existing WebSocket protocol — the GPU server connects to Railway as if it were a player, reads world state, and renders it.
+
+```
+Railway (existing — stays unchanged)
+  World simulation: organisms, weather, settlements, player positions
+  Broadcasts: WORLD_SNAPSHOT, ORGANISM_UPDATE, WEATHER_UPDATE, etc.
+       ↕ WebSocket (same protocol as today)
+GPU Render Server (new)
+  One render context per connected player
+  Three.js running headless (no browser window)
+  Reads world state from Railway socket
+  Renders scene from each player's viewpoint
+  Encodes frames as H.264 via NVENC
+  Streams to each player via WebRTC
+       ↕ WebRTC (video stream + data channel)
+Client (simplified)
+  <video> element displays the stream
+  Keyboard/mouse captured and sent back via WebRTC data channel
+  HTML overlay (HUD, chat, inventory) still rendered locally
+```
+
+#### Technology Stack
+
+| Component | Technology | Purpose |
+|---|---|---|
+| Headless WebGL | `headless-gl` (npm) | Gives Node.js a GPU-backed WebGL context — Three.js runs identically |
+| WebRTC server | `@roamhq/wrtc` (npm) | Lets Node.js send video tracks and receive data channels |
+| H.264 encoding | FFmpeg + NVENC | Hardware-accelerated frame compression (fast, low-latency) |
+| Frame capture | `gl.readPixels()` | Reads rendered pixels from the WebGL framebuffer into a Buffer |
+| Signaling | Existing WebSocket server | Exchanges WebRTC offer/answer between client and GPU server |
+| Client display | Native `<video>` + WebRTC API | Browser handles decode and display natively |
+
+#### What Changes
+
+**GPU server (new repo: `universe-renderer` or added to `universe-server`):**
+- `src/RenderWorker.ts` — one instance per player. Owns a headless-gl context, a Three.js scene, and a WebRTC peer connection. Receives world state updates, renders a frame, reads pixels, pushes to WebRTC video track.
+- `src/PixelStreamServer.ts` — manages all active `RenderWorker` instances. Handles player connect/disconnect. Routes WebRTC signaling messages.
+- `src/WorldStateProxy.ts` — connects to Railway via WebSocket, subscribes to all world updates, distributes them to the relevant `RenderWorker` instances.
+
+**Client (`universe-sim`) — simplified:**
+- `src/net/StreamReceiver.ts` — replaces `useWorldSocket` for the rendering path. Connects to GPU server via WebRTC, receives video track, attaches to `<video>` element, sends input events back via data channel.
+- `src/ui/StreamView.tsx` — full-screen `<video>` element with HTML overlay layer for HUD, chat, inventory, notifications. All UI stays local HTML — zero latency for interface elements.
+- Three.js, `PlanetGenerator`, `BiomeRegistry`, `RiverSystem`, `OrganismManager` client copies — removed or kept dormant. The client no longer needs to generate or render the world.
+
+**What stays exactly the same:**
+- Railway server (`universe-server`) — zero changes
+- All Zustand stores for UI state (inventory, chat, notifications)
+- Clerk authentication
+- Vercel deployment for static client files
+
+#### Rendering Pipeline Per Frame
+
+```
+1. WorldStateProxy delivers latest positions, organisms, weather to RenderWorker
+2. RenderWorker updates Three.js scene objects to match world state
+3. Three.js renders scene to headless-gl framebuffer (GPU call)
+4. gl.readPixels() copies framebuffer to a Node.js Buffer (~8MB at 1080p raw)
+5. Buffer piped to FFmpeg stdin
+6. FFmpeg encodes to H.264 P-frame (~15-40KB) using NVENC hardware encoder
+7. Encoded frame pushed to WebRTC video track
+8. Client browser decodes frame using built-in hardware decoder
+9. Frame displayed in <video> element
+Total pipeline latency target: < 80ms end-to-end
+```
+
+#### Input Pipeline (Client → Server)
+
+```
+Player presses W
+→ Client captures keydown event
+→ Sends {type:'INPUT', key:'W', pressed:true} via WebRTC data channel (~1ms)
+→ GPU server receives input
+→ Forwards to Railway as PLAYER_UPDATE with new position
+→ Railway broadcasts updated position to all other players
+→ Next rendered frame reflects the movement
+```
+
+#### Client Rendering That Stays Local (HTML Overlay)
+
+These UI elements have zero tolerance for latency and must remain local:
+- Health / hunger / stamina bars
+- Inventory panel
+- Chat messages
+- Notifications and discovery popups
+- Minimap (can be derived from server data)
+- Crafting panel
+
+These overlay the video stream as absolute-positioned HTML divs — identical to today's layout. The player never notices the difference.
+
+#### GPU Server Infrastructure Options
+
+| Option | Cost | Tradeoff |
+|---|---|---|
+| Vast.ai (rented GPU, on-demand) | ~$0.10-0.25/hr | Cheapest to start, host can go offline |
+| RunPod (rented GPU, stable) | ~$0.19-0.34/hr | More reliable, still hourly |
+| Hetzner dedicated server | ~€120-200/month | Fixed cost, full control, fast European data center |
+| Own PC with gaming GPU at home | ~$40/month (electric) | Cheapest long-term, requires home internet upload |
+
+A single RTX 3080 can time-slice rendering across ~10-15 players at 30fps per player. At 60fps the capacity halves to ~6-8 players. For a small game starting out, one GPU handles the load.
+
+#### Implementation Phases
+
+**Phase 1 — Prototype (local, no GPU required)**
+- Set up `headless-gl` + Three.js on server rendering a static scene
+- Capture frames and stream via `@roamhq/wrtc` to a test browser page
+- Verify the WebRTC video pipeline works end-to-end
+- Test on CPU (software H.264 via FFmpeg x264) — slow but proves the concept
+
+**Phase 2 — World state integration**
+- Connect `WorldStateProxy` to Railway WebSocket
+- `RenderWorker` updates scene from live organism/player/weather data
+- One player can connect and see the real world rendered server-side
+- Input forwarding works (WASD moves character)
+
+**Phase 3 — Multi-player**
+- Multiple simultaneous `RenderWorker` instances (one per player)
+- Time-sliced rendering — GPU renders players in round-robin
+- View frustum culling — only render objects visible to this player
+
+**Phase 4 — GPU server deployment**
+- Move to Vast.ai or Hetzner GPU instance
+- Enable NVENC hardware encoding in FFmpeg
+- Benchmark latency and frame rate at various player counts
+- Adaptive bitrate: reduce quality when player's network is slow
+
+**Phase 5 — Client migration**
+- Replace Three.js client rendering with `StreamView.tsx`
+- Remove `PlanetGenerator`, `BiomeRegistry`, and rendering code from client bundle
+- Client becomes ~200KB instead of ~2MB
+
+#### Key Files to Create
+
+```
+universe-renderer/ (new repo, or new directory in universe-server)
+  src/
+    PixelStreamServer.ts     Entry point. Manages player connections, WebRTC signaling.
+    WorldStateProxy.ts       Connects to Railway WS. Distributes world state to workers.
+    RenderWorker.ts          One per player. headless-gl context + Three.js + WebRTC peer.
+    SceneBuilder.ts          Builds Three.js scene from world state (terrain, organisms, etc.)
+    FrameEncoder.ts          FFmpeg child process wrapper. Accepts Buffer, emits H.264 chunks.
+    InputRouter.ts           Receives data channel input, forwards to Railway as PLAYER_UPDATE.
+  package.json               headless-gl, @roamhq/wrtc, three, fluent-ffmpeg
+
+universe-sim/src/ (client changes)
+  net/StreamReceiver.ts      WebRTC client. Connects to GPU server, handles video + data.
+  ui/StreamView.tsx           Full-screen <video> + HTML overlay layer.
+```
+
+#### Open Questions Before Starting
+
+1. **`headless-gl` GPU passthrough** — `headless-gl` needs the actual GPU driver to use NVENC. On Linux (Vast.ai/Hetzner) this works with proper NVIDIA driver install. On Windows it requires additional setup.
+2. **WebRTC TURN server** — WebRTC peer connections sometimes need a relay server (TURN) if client NAT blocks direct connection. A free Cloudflare TURN or coturn instance handles this.
+3. **Per-player Three.js scene cost** — Each `RenderWorker` maintains a full Three.js scene in memory (~50-100MB per player). For 10 players, ~1GB RAM. Manageable on any GPU server.
+
+
+---
+
+## 14. Known Issues and Bugs
+
+Issues are rated: Critical (breaks core functionality), High (significantly degrades experience), Medium (noticeable but workable), Low (minor or cosmetic).
+
+
+| ID      | Severity | Description                                                                                                    | Impact                                                              |
+| ------- | -------- | -------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| B-01    | Medium   | `admin.ts` uses Web API style rather than Node.js style — will 500 in production                               | Admin player list is broken; admin gameplay features unaffected     |
+| B-02    | Low      | No toast notification when save fails silently                                                                 | Player does not know if their progress was saved                    |
+| B-03    | Medium   | Duplicate Clerk packages suspected (v5 and v6) — verify against current package.json                           | May cause auth instability or bundle bloat                          |
+| B-04    | High     | Organism positions lost on Railway server restart — ecosystem not persisted to DB                              | All organism state resets to 80 primordials on every server restart |
+| B-05    | Low      | Status site canvas fixed at 800x600 — click detection may misfire at extreme aspect ratios                     | Minor UX issue on unusual screen sizes                              |
+| B-06    | Medium   | Fire extinguishing during rain not yet wired to physics (WeatherRenderer exists, back-end wiring pending)      | Rain visually falls but does not put out fires                      |
+| B-07    | High     | Railway WebSocket server intermittently down (found during playtesting 2026-03-24)                             | All players disconnect; world freezes until restart                 |
+| B-10    | Low      | Fire CRAFT recipe produces inert ITEM.FIRE item (misleading — real fire mechanic is physics-based interaction) | Confusing UI; player may think crafting produces fire               |
+| B-17    | Low      | Map panel shows position (0,0) after shelter respawn until player moves                                        | Minor visual glitch                                                 |
+| B-ADMIN | Medium   | ADMIN_SET_TIME WebSocket command has no server-side auth check                                                 | Any client knowing the message format can change simulation time    |
+
+
+### Resolved Bugs (Previous Sessions)
+
+
+| ID   | Resolution Date | What Was Fixed                                         |
+| ---- | --------------- | ------------------------------------------------------ |
+| B-08 | 2026-03-24      | Vitals draining behind CLICK TO PLAY overlay           |
+| B-09 | 2026-03-24      | No food given on respawn (now gives 3x Cooked Meat)    |
+| B-11 | 2026-03-24      | Ambient temperature permanently stuck after storm      |
+| B-12 | 2026-03-24      | Cold death incorrectly labelled "STARVED TO DEATH"     |
+| B-13 | 2026-03-24      | Ambient temperature not recovering after storm cleared |
+| B-15 | 2026-03-25      | God Mode + steel quench notification infinite spam     |
+| B-16 | 2026-03-24      | God Mode did not protect from cold/starvation damage   |
+| B-18 | 2026-03-25      | Building consumed resources in God Mode                |
+| B-19 | 2026-03-25      | Crafting consumed materials when inventory was full    |
+
+
+---
+
+## 15. What Is Next
+
+From the foundation plan (`polymorphic-wishing-metcalfe.md`), the next work items in priority order are:
+
+### 15.1 Atmosphere Pressure and Humidity from Terrain
+
+Currently weather transitions are probabilistic but do not account for terrain geography. Real weather patterns are shaped by geography: mountains create rain shadows (wet on one side, dry on the other), valleys trap cold air, oceans moderate coastal temperatures. The next step is to derive pressure and humidity values from terrain elevation and proximity to water, and have these values influence weather state transitions per-region rather than globally.
+
+### 15.2 Persistent Organism IDs Across Server Restarts
+
+Currently all organism state is held in memory in `OrganismManager`. When the Railway server restarts (for any reason — deploy, crash, maintenance), the ecosystem resets to 80 primordial organisms. Organisms that had evolved over thousands of ticks are gone. The fix is to periodically persist organism state to a new Neon Postgres table (`organism_state`) and reload it on server startup.
+
+### 15.3 Contextual Crafting UI
+
+The crafting panel currently shows a list of interactions. The vision calls for no recipe browser at all — just contextual hints when the player holds two materials near each other. If a player is holding dry cedar and a piece of flint, a quiet UI hint should suggest what interaction might be possible, without spelling out a recipe. Discovery happens by trying things.
+
+### 15.4 Element-Based Material Arc — Full Civilizational Scope
+
+The crafting system is designed to span the entire arc of human technological history — from the first person who rubbed two sticks together to whoever builds a quantum computer. Every step is driven by material properties, never by recipe unlocks.
+
+The current 11 material properties in `MaterialRegistry.ts` cover the stone age through basic metallurgy. To extend the arc into later eras, additional properties are needed. Here is the full picture:
+
+#### What the Current 11 Properties Cover
+
+
+| Property              | What it gates                            |
+| --------------------- | ---------------------------------------- |
+| `flammability`        | Fire-making, cooking, arson              |
+| `hardness` (Mohs)     | Tool-making, knapping, drilling          |
+| `moisture`            | Whether fire attempts succeed            |
+| `ignitionTemp`        | Minimum temperature to combust           |
+| `combustionJ_kg`      | How much energy a fuel releases          |
+| `thermalConductivity` | Heat transfer (cooking, forging)         |
+| `meltingPoint`        | Smelting — when ore becomes liquid metal |
+| `tensileStrength`     | Weapon effectiveness, structural load    |
+| `workability`         | Clay forming, soft metal shaping         |
+| `density`             | Weight of carried items, buoyancy        |
+| `Cp` (specific heat)  | How long something holds heat            |
+
+
+These 11 properties are enough for: fire, cooking, pottery, copper/iron/steel smelting, stone knapping, basic construction.
+
+#### Properties Needed for Later Eras
+
+**Bronze / Early Chemistry Age**
+
+
+| Property       | Unit | What it unlocks                                                                                             |
+| -------------- | ---- | ----------------------------------------------------------------------------------------------------------- |
+| `boilingPoint` | °C   | Distillation (alcohol, essential oils, petroleum refining)                                                  |
+| `reactivity`   | 0–1  | Chemical reactions — sulfur + saltpeter + charcoal combust violently (gunpowder). Acid dissolves limestone. |
+| `solubility`   | 0–1  | Ore extraction via acid leaching. Salt dissolves in water.                                                  |
+
+
+**Organic / Food Age**
+
+
+| Property            | Unit    | What it unlocks                                                                      |
+| ------------------- | ------- | ------------------------------------------------------------------------------------ |
+| `nutritionValue`    | kcal/kg | Actual food value — not all food is equal. Grain feeds more people than meat per kg. |
+| `fermentability`    | 0–1     | Bread, alcohol, vinegar, cheese — all fermentation products                          |
+| `decompositionRate` | days    | Organic decay — food spoils, wood rots, compost forms                                |
+| `toxicity`          | 0–1     | Poisonous plants, medicine dosage, venom                                             |
+| `medicinalValue`    | 0–1     | Wound healing, fever reduction, pain relief from plants                              |
+
+
+**Construction / Industrial Age**
+
+
+| Property              | Unit    | What it unlocks                                            |
+| --------------------- | ------- | ---------------------------------------------------------- |
+| `compressiveStrength` | MPa     | Load-bearing walls, arches, bridges — what can hold weight |
+| `elasticity`          | GPa     | Springs, flexible tools, rope tension                      |
+| `brittleness`         | 0–1     | Glass shatters. Steel bends. Bone cracks.                  |
+| `thermalExpansion`    | 10⁻⁶/°C | Steam engine tolerances. Metal rails buckle in heat.       |
+| `viscosity`           | mPa·s   | Oil lubricates. Lava flows slowly. Water flows fast.       |
+
+
+**Electrical Age**
+
+
+| Property                 | Unit | What it unlocks                                           |
+| ------------------------ | ---- | --------------------------------------------------------- |
+| `electricalConductivity` | S/m  | Copper wire, circuits, batteries, electromagnets          |
+| `magneticPermeability`   | H/m  | Iron cores for magnets, motors, transformers              |
+| `semiconductivity`       | 0–1  | Silicon gates all digital technology — transistors, chips |
+
+
+**Optical Age**
+
+
+| Property          | Unit  | What it unlocks                          |
+| ----------------- | ----- | ---------------------------------------- |
+| `transparency`    | 0–1   | Glass lenses, windows, fiber optics      |
+| `refractiveIndex` | ratio | Telescopes, microscopes, cameras, lasers |
+
+
+**Nuclear Age**
+
+
+| Property        | Unit | What it unlocks                                                     |
+| --------------- | ---- | ------------------------------------------------------------------- |
+| `radioactivity` | 0–1  | Uranium decays, emits heat and radiation                            |
+| `fissility`     | 0–1  | Whether material can sustain a chain reaction (U-235 yes, U-238 no) |
+
+
+#### How the Interaction Engine Uses These
+
+None of these become recipe conditions. They become physics checks:
+
+- Gunpowder: three materials each with `reactivity > 0.7` + `combustionJ_kg > 5000` + `ignitionTemp < 300` → rapid oxidation when struck
+- Alcohol: grain with `fermentability > 0.6` + water + warmth over time → ethanol (boilingPoint 78°C separates it from water)
+- Electric wire: material with `electricalConductivity > 10⁶` + workability to be drawn thin → conducts current
+- Lens: material with `transparency > 0.8` + `refractiveIndex ≠ 1.0` + workability to grind → focuses light
+
+The player discovers what works by trying. The system checks physics. No recipe list ever exists.
+
+#### The Bootstrapping Problem
+
+Lewis Dartnell's *The Knowledge* identifies what he calls the bootstrapping problem of civilization: you need tool X to make material Y, but making X requires Y. You need a furnace to smelt iron, but building a furnace requires heat-resistant materials that themselves require a furnace to produce. Real civilizations solved this through centuries of iteration. The game must encode the same dependencies through material properties.
+
+Some examples:
+
+- You cannot make steel without iron. You cannot smelt iron without charcoal. You cannot make charcoal without understanding fire. Fire requires dry wood of the right hardness + practice.
+- You cannot make glass without a furnace reaching 1400°C. You cannot reach that temperature without bellows to force air into the fire. Bellows require leather (tanned hide) and a nozzle (clay or metal).
+- You cannot make a battery without sulfuric acid. Acid requires sulfur + water + heat. Sulfur is found near volcanic zones.
+
+The interaction engine enforces this automatically — not through unlock gates, but through physics. If you don't have a heat source that reaches iron's smelting point (1538°C), iron ore stays as ore.
+
+#### Implementation Order
+
+Do not add all properties at once. Add them as the game needs them — when the next era of crafting is being built. The current 11 are correct for the foundation. The next batch to add when building the chemistry/food age: `reactivity`, `solubility`, `boilingPoint`, `nutritionValue`, `fermentability`, `decompositionRate`, `toxicity`.
+
+### 15.5 Shared Player Position Sync Improvement
+
+Player positions are broadcast via WebSocket but the current interpolation on the client side produces visible jitter on other players' avatars. Smoother position interpolation (using linear interpolation or dead reckoning) would make the shared world feel more inhabited.
+
+---
+
+### 15.6 Pixel Streaming Architecture → See §13.6
+
+---
+
+---
+# PART VI — ROADMAP & HISTORY
+---
+
+## 16. Recommendations
+
+### Immediate (before next feature build)
+
+1. **Persist organism state to the database** — This is the highest-priority fix. Every server restart wipes the entire ecosystem. Until organism state is saved, the shared ecosystem feature is fragile. Estimated work: one new DB table and ~50 lines in OrganismManager.
+2. **Verify and close B-03 (duplicate Clerk packages)** — The current package.json shows only `@clerk/react` v6, which suggests the duplicate was already resolved. Confirm this is correct and mark the bug closed.
+3. **Add server-side auth to ADMIN_SET_TIME** — This is a low-effort security fix. The server already has the `ADMIN_SECRET` environment variable. Check it against the incoming message before processing.
+4. **Wire rain to fire extinguishing** — The WeatherRenderer and fire simulation grid both exist. Connecting them is plumbing work, not new feature work, and would make the world feel physically consistent.
+
+### Near-Term (next session)
+
+1. **Replace crafting recipe list with contextual hints** — This directly implements the vision. The physics interaction engine already determines what is possible; the UI change is on the client side only.
+2. **Atmosphere pressure/humidity from terrain** — This deepens the weather system without adding new UI complexity. Players will notice that certain valleys are always foggy and certain mountain passes create storms. That feels real.
+3. **Fix B-01 (admin.ts 500 error)** — The admin player list is useful for monitoring. Fixing the API style issue is a small change.
+
+### Longer-Term
+
+1. **Persist organism IDs across speciation events** — Once organism state is in the database, organism IDs should survive server restarts so that species that evolved over weeks do not reset their lineage.
+2. **Add organism predation** — Currently heterotrophs burn energy but have no way to gain energy from autotrophs. True food webs require heterotrophs to move toward autotrophs and consume them. This would create genuine population dynamics (predator-prey cycles, Lotka-Volterra oscillations).
+3. **Smooth player position interpolation** — Dead reckoning or cubic interpolation on other players' positions would reduce visible jitter.
+
+---
+
+## 17. Summary Scorecard
+
+
+| Area                   | Rating            | Notes                                                                                                                         |
+| ---------------------- | ----------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| Vision Clarity         | Excellent         | The session's cleanup work aligned the codebase with the vision. The universe-first philosophy is now consistently expressed. |
+| World Generation       | Excellent         | Geologically accurate resources, 20 biomes, real terrain algorithms.                                                          |
+| Organism Ecosystem     | Good              | Server-authoritative and shared — major improvement this session. Loses state on restart.                                     |
+| Physics-Based Crafting | Good              | 116 materials with real properties, 5 physics interactions, hidden practice tracking. UI integration still pending.           |
+| Settlement System      | Good              | Geology-based specialties working. Trade economy active.                                                                      |
+| Player Systems         | Good              | Shelter/respawn working. Vitals drain and survival loop stable after M12 fixes.                                               |
+| Weather and Seasons    | Good              | Server-authoritative and broadcast. Rain-fire interaction still wired (B-06).                                                 |
+| Late-Game Content      | Good              | M9–M15 systems intact (rockets, First Contact, interplanetary transit, Velar language).                                       |
+| Code Quality           | Good              | Major improvement this session — dead code removed, server crash fixed, clear module separation.                              |
+| Security               | Needs Improvement | Client-side admin check, no server-side auth on ADMIN_SET_TIME. Acceptable for current scale but should improve.              |
+| Data Persistence       | Needs Improvement | Organisms lost on restart. Three DB tables not in init-db.                                                                    |
+| Performance            | Good              | Instanced rendering, LOD, WebAssembly workers all in place.                                                                   |
+| Testing                | Needs Improvement | Infrastructure exists (Vitest, Playwright) but coverage is unknown.                                                           |
+
+
+---
+
+## 18. Change Log
+
+
+| Date       | Version | Changes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| ---------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2026-03-19 | v1      | Initial report                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| 2026-03-20 | v2–v10  | M0–M7 systems documented                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| 2026-03-21 | v11–v18 | M8–M11 documented, playtesting cycles 1–6                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| 2026-03-22 | v19–v22 | M12–M13 documented                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| 2026-03-23 | v23–v25 | M14 documented, agent infrastructure added                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| 2026-03-24 | v26     | M14 bugs found and fixed during playtesting cycles 1–9                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| 2026-03-25 | v27     | M15 Universe Map documented; playtesting cycles 10–12; 6 bugs resolved                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| 2026-03-27 | v28     | Major session: RPG code deleted (preserved in git tag rpg-preserved-20260327), server crash fixed, physics-based crafting built (MaterialRegistry 116 materials, InteractionEngine 5 interactions), geological resource distribution added, organism ecosystem made server-authoritative (OrganismManager 6 Hz, ORGANISM_UPDATE broadcast), player shelter/respawn system added to DB, admin-gated spectator/seeding/dashboard, dead WebSocket handlers removed, director alignment updated |
+| 2026-03-27 | v29     | Structure document: renamed from report.md to structure.md. Research references woven into all major system sections. Full material property arc documented across civilizational eras. Bootstrapping problem from Dartnell. Lotka-Volterra equations in organism section. Comparative advantage in settlement section. References section added.                                                                                                                                           |
+
+
+
+---
+
+### 18.1 Session Log 2026-03-27
+
+This section documents everything created or changed on 2026-03-27, the session that produced this report version.
+
+#### 18.1.1 Foundation Cleanup: Deleting the RPG Layer
+
+The most important work of this session was removal, not addition.
+
+**What was deleted from the client:**
+
+- Dungeon system
+- Quest system
+- XP and leveling system
+- Skill trees
+- Faction system
+- Loot tables
+- Spell system
+
+All of this code was preserved in the git tag `rpg-preserved-20260327` before deletion, so nothing is permanently lost. It was removed because it contradicted the core vision: these are game systems, and this is not a game.
+
+**What was fixed after deletion:**
+
+The server was crashing on startup because it was still importing two modules that had been deleted in an earlier cleanup: `NpcManager` and `OutlawSystem`. These imports were removed. The server can now start cleanly.
+
+Additionally, 360+ lines of dead WebSocket message handlers were removed from both the client and the server. These handlers processed messages for systems that no longer exist: PvP combat, bounties, outlaw status, shops, party management, and trade post interactions. Removing them makes the message protocol simpler and eliminates confusion about what the server actually supports.
+
+**Admin gating:**
+
+Three developer tools were moved behind an admin check so they do not appear for regular players:
+
+- [G] — Spectator camera (fly through the world without a body)
+- [O] — Organism seeding (manually trigger the server to spawn organisms)
+- [B] — Ecosystem dashboard (population chart and organism dot map)
+
+These tools are visible only to the account whose Clerk user ID matches the hardcoded admin ID.
+
+#### 18.1.2 Physics-Based Crafting
+
+The old crafting system used recipe lists: player selects a recipe, game checks whether inventory contains the required items, subtracts them, adds output. This was replaced with physics-based interaction.
+
+**What the new system does:**
+
+Every material in the game now has real physical properties stored in `MaterialRegistry.ts`:
+
+- Flammability (0.0–1.0 scale)
+- Hardness (Mohs scale, 1.0–10.0)
+- Moisture content (0.0–1.0 — dry wood is more flammable than wet wood)
+- Melting point (Celsius)
+- Tensile strength (MPa — megapascals, a measure of how hard it is to pull apart)
+- Workability (0.0–1.0 — how easy it is to shape)
+- Thermal conductivity (W/m·K)
+- Ignition temperature (Celsius)
+- Combustion energy (MJ/kg)
+
+116 materials now have all of these properties defined.
+
+**The five physics interactions in `InteractionEngine.ts`:**
+
+
+| Interaction         | Method                           | Success Calculation                                    |
+| ------------------- | -------------------------------- | ------------------------------------------------------ |
+| Fire — bow drill    | Friction between two wood types  | ~15–55% depending on wood hardness (Mohs) and moisture |
+| Fire — flint + iron | Spark from striking              | Flat 40% base rate (iron hardness check)               |
+| Stone knapping      | Hard stone struck against softer | 70% base rate, modified by hardness difference         |
+| Clay pottery        | Soft clay + water + forming      | 95% success (forgiving material)                       |
+| Smelting            | Ore + fuel + heat source         | Validates temperature against ore melting point        |
+
+
+**Hidden practice tracking:**
+
+The system silently records how many times a player has attempted each interaction. Success rate improves with practice. This is not shown to the player as a progress bar or skill level — it is invisible, just as real-world skill acquisition is invisible in the moment.
+
+**Discovery system:**
+
+The first time a player successfully uses an interaction, they receive a discovery — a knowledge string ID stored in their record. This can be used to track what techniques a player has learned without turning it into a game mechanic.
+
+#### 18.1.3 Geologically Accurate Resource Distribution
+
+Before this session, resource nodes (stone, copper ore, iron ore, coal, gold) appeared at pseudo-random positions across the planet. This session added geological accuracy.
+
+**How it works:**
+
+The world already had tectonic plates generated by Voronoi partitioning of the sphere surface. Each plate was already classified as oceanic or continental. This session connected that geology to resource spawning:
+
+
+| Resource | Real-World Geology                                                | Game Implementation                                                                         |
+| -------- | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| Copper   | Hydrothermal vents, volcanic arcs at convergent plate boundaries  | Spawns near tectonic boundary zones; highest concentration near volcanic/hydrothermal sites |
+| Gold     | Convergent plate boundaries (deep pressure + heat)                | Spawns near convergent boundaries; rare                                                     |
+| Iron     | Sedimentary deposits in stable continental interiors              | Spawns in plate interiors away from active boundaries                                       |
+| Coal     | Low-elevation stable basins, ancient organic material compression | Spawns in low-elevation stable geological basins                                            |
+
+
+**Settlement specialization:**
+
+`SettlementManager.js` on the server now reads the same tectonic plate algorithm used by the client's resource node system. When a settlement is placed, the server queries what geology exists at that position and assigns a specialty:
+
+- Volcanic/hydrothermal boundary → copper mining town
+- Convergent boundary (deep) → gold mining settlement
+- Stable interior → iron mining or farming settlement
+- Coastal → fishing settlement
+- Low plains → farming settlement
+
+This means a player who finds a settlement near a volcanic region will find copper goods available for trade. The settlement's economy is determined by its physical environment, not a random roll.
+
+#### 18.1.4 Shared Organism Ecosystem (Server-Authoritative)
+
+This is the most significant architectural change of the session.
+
+**Before (broken):**
+
+Every player's browser ran its own independent organism simulation. When two players were standing in the same location looking at the same sky, they were seeing completely different sets of creatures. A birth or death in one player's world had no effect on any other player's world. The world was not shared — it was parallel solo experiences that happened to share a map.
+
+**After (correct):**
+
+The server now runs `NaturalSelectionSystem` at 6 Hz (six times per second). Every tick, the server:
+
+1. Updates all organism energy budgets based on the current day/night light level
+2. Ages all organisms
+3. Kills organisms that have run out of energy or reached old age (age > 50,000 ticks)
+4. Applies stochastic selection death (random death chance of 0.2% per tick — simulating predation and environmental pressure)
+5. Allows reproduction when energy > 0.8 and population is below the cap of 300
+6. Moves all organisms by 5–20 meters in their wander direction
+7. Broadcasts `ORGANISM_UPDATE` to all connected players
+
+All players receive the same update. A birth is a birth. A death is a death. Everyone sees it.
+
+**What organisms exist:**
+
+
+| Diet Type      | ID  | Description                                                                                         |
+| -------------- | --- | --------------------------------------------------------------------------------------------------- |
+| Autotroph      | 0   | Gains energy from sunlight (photosynthesis)                                                         |
+| Heterotroph    | 1   | Burns energy at a fixed rate (must eat others to survive — not yet implemented as direct predation) |
+| Mixotroph      | 2   | Partial photosynthesis (gains from light but less than autotrophs)                                  |
+| Chemoautotroph | 3   | Gains energy from chemical reactions (not light-dependent)                                          |
+
+
+**Starting population:** 80 primordial organisms, all autotrophs, seeded in the equatorial band (where light is most reliable). Population can grow to a cap of 300.
+
+**Speciation:** Species differentiation is tracked by Hamming distance on 256-bit genomes. When a descendant's genome drifts far enough from its parent species, a new species ID is assigned.
+
+**Rendering on the client:** Organisms appear as instanced glowing spheres. Level-of-detail (LOD) reduces rendering cost: full detail within 2,000 meters, simplified beyond 8,000 meters.
+
+#### 18.1.5 Player Shelter and Respawn System
+
+Before this session, player respawn behavior after death was not well-defined.
+
+**What was built:**
+
+Every new player now gets a default shelter position assigned on first login. The position is computed deterministically from two inputs: the world seed and the player's user ID. This means the same player always gets the same default shelter regardless of when they log in, even if the server has restarted.
+
+The shelter positions are biased toward the equatorial band of the planet (latitudes between -30 degrees and +30 degrees) to avoid spawning players at the poles where conditions are extreme.
+
+**Registering a new shelter:**
+
+The player presses [H] at any location to register their current position as their shelter. This is saved to the Neon Postgres database.
+
+**Respawn:**
+
+On death, the player respawns at their registered shelter position. The shelter position persists across sessions — it is stored in the database, not just in memory.
+
+**Database migration:**
+
+`PlayerRegistry.js` now calls `migrateShelterSchema()` on server startup, which adds `shelter_x`, `shelter_y`, and `shelter_z` columns to the `players` table if they do not already exist. This is safe to run against an existing database with existing player records.
+
+#### 18.1.6 Director Alignment
+
+The `game-dev-director.md` document (the internal guide for the AI director agent) was rewritten to reflect the correct vision. The previous version still referenced RPG mechanics as valid features. The new version establishes the universe-first philosophy clearly and references `polymorphic-wishing-metcalfe.md` as the single source of truth for what to build next.
+
+---
+
+
+---
+
+---
+# PART VII — REFERENCES
 ---
 
 ## 19. References

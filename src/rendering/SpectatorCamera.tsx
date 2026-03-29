@@ -43,6 +43,13 @@ export function subscribeSpectator(fn: (active: boolean) => void): () => void {
   return () => { _listeners.delete(fn) }
 }
 
+/** Programmatically activate spectator mode (used by renderer bypass). */
+export function requestSpectatorActivation() {
+  // Dispatch a synthetic G keydown — picked up by SpectatorCamera's own listener
+  // after isAdmin is set to true in the store.
+  window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyG', bubbles: true }))
+}
+
 function setSpectatorActive(v: boolean) {
   _spectatorActive = v
   for (const fn of _listeners) fn(v)

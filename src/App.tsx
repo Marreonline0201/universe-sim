@@ -2,6 +2,8 @@ import { Suspense, useEffect, useRef, lazy } from 'react'
 import { SignIn, useAuth, useUser } from '@clerk/react'
 import { SceneRoot } from './rendering/SceneRoot'
 import { HUD } from './ui/HUD'
+import { requestSpectatorActivation } from './rendering/SpectatorCamera'
+import { useGameStore } from './store/gameStore'
 // M72-4: Ecosystem dashboard — live organism/species stats overlay
 import { EcosystemDashboard } from './ui/EcosystemDashboard'
 import { loadOffline, saveOffline } from './game/OfflineSaveManager'
@@ -29,7 +31,7 @@ export default function App() {
     if (bootstrap.resolved && bootstrap.bootstrapping) {
       return <WorldBootstrapScreen status={bootstrap} />
     }
-    return <DevGame />
+    return RENDERER_BYPASS ? <RendererGame /> : <DevGame />
   }
 
   // Show timelapse screen while world is forming — blocks all players
@@ -81,6 +83,27 @@ function DevGame() {
       <EcosystemDashboard />
       {import.meta.env.DEV && <Suspense fallback={null}><AdminPanel /></Suspense>}
     </>
+  )
+}
+
+// ── Renderer mode (pixel streaming server — no player, spectator camera) ─────
+
+function RendererGame() {
+  useWorldSocket()
+  useGameSystemsBootstrap(0)
+
+  // Auto-activate spectator mode so the camera stays above the planet
+  useEffect(() => {
+    useGameStore.getState().setIsAdmin(true)
+    // Wait for terrain + camera to initialize before activating spectator
+    const t = setTimeout(requestSpectatorActivation, 3000)
+    return () => clearTimeout(t)
+  }, [])
+
+  return (
+    <Suspense fallback={<div style={{ color: '#fff', padding: 20 }}>Initializing universe...</div>}>
+      <SceneRoot />
+    </Suspense>
   )
 }
 

@@ -158,7 +158,7 @@ function parseBlocks(md: string): Block[] {
       i++
     }
     if (paraLines.length > 0) {
-      blocks.push({ type: 'paragraph', text: paraLines.join(' ') })
+      blocks.push({ type: 'paragraph', text: paraLines.join('\n') })
     }
   }
 
@@ -454,7 +454,12 @@ function RenderBlock({ block, idx }: { block: Block; idx: number }) {
           color: 'rgba(180,210,255,0.72)',
           lineHeight: 1.8,
         }}>
-          <Inline text={block.text} />
+          {block.text.split('\n').map((line, li, arr) => (
+            <React.Fragment key={li}>
+              <Inline text={line} />
+              {li < arr.length - 1 && <br />}
+            </React.Fragment>
+          ))}
         </p>
       )
 

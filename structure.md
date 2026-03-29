@@ -4282,6 +4282,202 @@ universe-sim/src/ (client changes)
 
 ---
 
+## 20. Background Knowledge: GPU Server Rendering
+
+This section explains every concept used in the pixel streaming pipeline in plain language. Read this when you encounter an error and don't know what it means.
+
+---
+
+### The Big Picture First
+
+Normally your game runs like this:
+```
+Server → sends world data → Your browser → renders 3D graphics → you see it
+```
+
+What we are building:
+```
+GPU server → renders 3D graphics → sends video → Your browser → plays video
+```
+
+Your browser stops doing the hard work. The GPU server does it instead.
+
+---
+
+### What is a GPU?
+
+A **GPU** (Graphics Processing Unit) is a chip designed to do thousands of simple calculations at the same time. Regular CPUs do one thing at a time very fast. GPUs do millions of things at the same time, each slowly. Drawing 3D graphics requires calculating the color of millions of pixels simultaneously — exactly what GPUs are designed for.
+
+Your RTX 4070 Ti has 7680 cores running in parallel. A CPU has 8–32. That's why games need GPUs.
+
+---
+
+### What is WebGL?
+
+**WebGL** is the system that lets a browser talk to a GPU. When Three.js (the game's 3D library) draws the world, it sends commands through WebGL to the GPU. WebGL is just a bridge: JavaScript → WebGL → GPU → pixels on screen.
+
+Without WebGL, Three.js cannot draw anything. WebGL only works inside a browser normally.
+
+---
+
+### What is headless-gl?
+
+Normally WebGL requires a browser window on a screen. **headless-gl** tricks the GPU into running WebGL without any screen or window — "headless" means no display attached.
+
+You would use it like:
+```
+Node.js → headless-gl → GPU → pixel data in memory (no screen)
+```
+
+We could not install it because it needs Python 2 to compile, and that isn't available on the server. So we switched to using an actual browser (Chrome) instead.
+
+---
+
+### What is Xvfb?
+
+**Xvfb** (X Virtual Framebuffer) is a fake screen. On Linux, programs that need a display (like Chrome) crash if there is no screen. Xvfb pretends to be a screen, so Chrome thinks it is running normally.
+
+```
+Xvfb → fake screen :99 → Chrome thinks there is a monitor → Chrome runs
+```
+
+The `:99` is just the name of the fake screen. You could call it `:1` or `:2` — it does not matter as long as everything uses the same number.
+
+When you see the error `Server is already active for display 99`, it means Xvfb is already running from a previous session. The fix is `rm -f /tmp/.X99-lock`.
+
+---
+
+### What is Puppeteer?
+
+**Puppeteer** is a Node.js library that lets you control Chrome from code. It can:
+- Open a browser window (or fake one via Xvfb)
+- Navigate to a URL
+- Click buttons
+- Take screenshots
+- Read what is on the page
+
+In our renderer, Puppeteer loads the game URL in Chrome on the server, then we capture what Chrome draws.
+
+---
+
+### What is --use-gl=egl?
+
+When we launch Chrome, we pass the flag `--use-gl=egl`. This tells Chrome to talk to the GPU using the **EGL** interface instead of the default X11 OpenGL interface.
+
+EGL is a lower-level way to access the GPU that works better in headless/server environments. Without it, Chrome might use software rendering (CPU-based, very slow) instead of the real GPU.
+
+You can verify Chrome is using the GPU by going to `chrome://gpu` — but since we are headless, we check with `nvidia-smi` which shows GPU memory usage going up when Chrome renders.
+
+---
+
+### What is CDP (Chrome DevTools Protocol)?
+
+**CDP** is how Chrome exposes its internals to external tools. Every time you open Chrome DevTools (F12), that panel communicates with Chrome using CDP.
+
+Puppeteer uses CDP under the hood. We specifically use it for:
+
+```javascript
+cdp.send('Page.startScreencast', { format: 'jpeg', quality: 80 })
+```
+
+This tells Chrome: "Start sending me every frame you render as a JPEG image." Chrome then fires a `Page.screencastFrame` event for each frame, containing the image as a base64 string.
+
+This is more efficient than calling `page.screenshot()` in a loop because Chrome pushes frames to us automatically rather than us requesting them one by one.
+
+---
+
+### What is MJPEG?
+
+**MJPEG** (Motion JPEG) is the simplest possible video stream. It is just JPEG images sent one after another over HTTP.
+
+```
+Server → JPEG frame 1 → JPEG frame 2 → JPEG frame 3 → ...
+Browser → displays each JPEG as it arrives → looks like video
+```
+
+The browser displays it in an `<img>` tag. As new JPEGs arrive over the same connection, the image updates.
+
+MJPEG has no real compression between frames (each frame is independent). This means it uses more bandwidth than H.264 video, but it is trivially simple to implement and has very low latency. It is our Phase 1 approach.
+
+**Downside:** At 1280×720 JPEG quality 80, each frame is ~50-80KB. At 15fps that is ~1 MB/s of bandwidth per viewer. Fine for a few players, not scalable to hundreds.
+
+---
+
+### What is H.264 / NVENC?
+
+**H.264** is a video codec — a compression algorithm for video. Instead of sending every frame completely, H.264 sends:
+- **I-frames** (full frames) every ~2 seconds
+- **P-frames** (only what changed since last frame) for everything in between
+
+A player standing still in a forest: the trees don't move. H.264 sends the trees once, then only sends the tiny changes (character moving, leaves rustling). This reduces bandwidth by 10-50× compared to MJPEG.
+
+**NVENC** is NVIDIA's hardware H.264 encoder built into the GPU. Encoding H.264 on CPU takes significant processing power. NVENC does it in dedicated silicon with almost zero CPU cost.
+
+Your RTX 4070 Ti has NVENC confirmed (`h264_nvenc` in the ffmpeg output).
+
+---
+
+### What is WebRTC?
+
+**WebRTC** is a browser technology for real-time communication (video calls, screen sharing). It is what Zoom and Google Meet use.
+
+For our purposes: WebRTC can stream a video track from a server directly to a browser with very low latency (~50ms). It handles:
+- H.264 encoding/decoding
+- Network routing (punching through firewalls)
+- Adaptive quality (reduces quality if network is slow)
+
+WebRTC uses a "handshake" protocol:
+1. Server creates an **offer** (SDP — a description of the stream)
+2. Client receives the offer and creates an **answer**
+3. They exchange **ICE candidates** (network addresses to try)
+4. Connection established, video flows
+
+This is Phase 2 of our pipeline — replacing MJPEG with WebRTC for lower latency and better compression.
+
+---
+
+### What is a Port?
+
+A **port** is a number that identifies which program on a server should receive incoming network traffic. The server has one IP address (142.171.48.138) but runs many programs. Ports separate them.
+
+```
+142.171.48.138:22    → SSH (remote terminal access)
+142.171.48.138:8080  → our renderer's HTTP server
+142.171.48.138:3000  → another program
+```
+
+When you see `EADDRINUSE: address already in use 0.0.0.0:8080`, it means another process is already using port 8080. Fix: `fuser -k 8080/tcp` kills whatever is using it.
+
+**Firewalls** block ports from outside. Vast.ai may block port 8080. The SSH tunnel (`ssh -L 8080:localhost:8080`) bypasses this by routing traffic through the SSH connection which is already open on port 29817.
+
+---
+
+### What is FFmpeg?
+
+**FFmpeg** is a command-line program that can convert, encode, and stream any audio or video format. We use it to:
+- Take raw pixel frames from Chrome
+- Encode them as H.264 using NVENC
+- Output the encoded video to WebRTC or an HTTP stream
+
+Think of it as a translation layer: raw pixels (huge) → H.264 (small) → stream.
+
+---
+
+### Common Errors and What They Mean
+
+| Error | Meaning | Fix |
+|---|---|---|
+| `libcups.so.2: No such file` | Chrome needs a printing library that isn't installed | `apt-get install -y libcups2t64` |
+| `Server is already active for display 99` | Xvfb is still running from a previous session | `rm -f /tmp/.X99-lock` |
+| `EADDRINUSE: address already in use 8080` | Something already has port 8080 | `fuser -k 8080/tcp` |
+| `Cannot find module 'puppeteer'` | Node.js is running from the wrong directory | `cd /workspace/universe-renderer` first |
+| `patch-package: not found` | A package's install script needs a tool that isn't installed | Remove that package or install the tool |
+| `SyntaxError: Missing parentheses in call to print` | Python 2 syntax running under Python 3 | `npm config set python /usr/bin/python3` |
+| `Failed to launch browser process` | Chrome crashed on startup — usually a missing library | Check the full error for `No such file or directory` |
+| Site cannot be reached | Port is blocked by firewall | Use SSH tunnel or find the correct external port |
+
+---
+
 ## 19. References
 
 These works directly inform the design and scientific grounding of Universe Sim. Each is cited in the relevant section above.

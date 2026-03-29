@@ -3782,6 +3782,92 @@ The project uses a multi-agent AI system where specialized Claude Code agents ha
 
 Agent IDs in use: `director`, `status-worker`, `gp-agent`, `knowledge-director`, `cqa`, `car`, `ui-worker`, `interaction`, `ai-npc`, `physics-prof`, `chemistry-prof`, `biology-prof`
 
+### 13.4 GPU Render Server (Pixel Streaming — Phase 1)
+
+**Provider:** Vast.ai
+**Instance:** RTX 4070 Ti (12GB VRAM), Xeon E5-2686 v4, 32GB RAM, 2TB NVMe
+**IP:** 142.171.48.138
+**SSH port:** 29817
+**Repo:** https://github.com/Marreonline0201/universe-renderer
+**Cost:** $0.079/hr
+
+#### Connect
+
+```bash
+ssh -p 29817 root@142.171.48.138
+```
+
+#### One-time setup (already done — do not repeat)
+
+```bash
+# Verify GPU
+nvidia-smi
+
+# Install Chrome dependencies
+apt-get install -y xvfb libgbm-dev libnss3 libatk-bridge2.0-0t64 libdrm2 \
+  libxcomposite1 libxdamage1 libxrandr2 libxss1 libasound2t64 libcups2t64
+
+# Clone renderer
+cd /workspace
+git clone https://github.com/Marreonline0201/universe-renderer.git
+cd universe-renderer
+npm install
+```
+
+#### Start the renderer
+
+```bash
+cd /workspace/universe-renderer
+node server.js
+```
+
+Viewer URL: **http://142.171.48.138:8080**
+Stream URL: **http://142.171.48.138:8080/stream**
+Status URL: **http://142.171.48.138:8080/status**
+
+#### If port/display is already in use (after crash/restart)
+
+```bash
+pkill -f "node server.js"; pkill -f Xvfb; rm -f /tmp/.X99-lock; fuser -k 8080/tcp; sleep 1
+node server.js
+```
+
+#### Run in background (keep terminal free)
+
+```bash
+node server.js &
+```
+
+#### Take a test screenshot of what Chrome is rendering
+
+```bash
+cd /workspace/universe-renderer && node -e "
+const p = require('puppeteer');
+(async () => {
+  const b = await p.launch({ headless: true, args: ['--no-sandbox'] });
+  const page = await b.newPage();
+  await page.goto('https://universe-sim-beryl.vercel.app', { waitUntil: 'domcontentloaded', timeout: 15000 });
+  await page.screenshot({ path: '/workspace/test.jpg', type: 'jpeg' });
+  console.log('saved to /workspace/test.jpg');
+  await b.close();
+})();
+"
+```
+
+#### Download screenshot to local machine
+
+```bash
+# Run on LOCAL terminal (Windows)
+scp -P 29817 root@142.171.48.138:/workspace/test.jpg test.jpg
+```
+
+#### Update renderer code
+
+```bash
+# On GPU server
+cd /workspace/universe-renderer && git pull && node server.js
+```
+
 ---
 
 ## 14. Known Issues and Bugs

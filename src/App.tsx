@@ -15,11 +15,17 @@ const AdminPanel = lazy(() => import('./ui/AdminPanel').then(m => ({ default: m.
 // Dev bypass: set VITE_DEV_BYPASS_AUTH=true in .env.local to skip Clerk login
 const DEV_BYPASS = import.meta.env.DEV && import.meta.env.VITE_DEV_BYPASS_AUTH === 'true'
 
+// Renderer bypass: ?renderer=TOKEN in URL skips auth for the GPU pixel streaming server.
+// Token is set via VITE_RENDERER_TOKEN env var — never committed, never stored on the render server.
+const RENDERER_TOKEN = import.meta.env.VITE_RENDERER_TOKEN
+const urlParams = new URLSearchParams(window.location.search)
+const RENDERER_BYPASS = RENDERER_TOKEN && urlParams.get('renderer') === RENDERER_TOKEN
+
 export default function App() {
   // Bootstrap check must run before any conditional returns (rules of hooks)
   const bootstrap = useBootstrapStatus()
 
-  if (DEV_BYPASS) {
+  if (DEV_BYPASS || RENDERER_BYPASS) {
     if (bootstrap.resolved && bootstrap.bootstrapping) {
       return <WorldBootstrapScreen status={bootstrap} />
     }

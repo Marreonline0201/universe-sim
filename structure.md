@@ -16,7 +16,7 @@
 2. [The Vision](#2-what-this-project-is--the-vision)
 
 ### PART II — GAME WORLD
-6. [All Major Systems](#6-all-major-systems--complete-inventory) ← World Gen, Organisms, Crafting, Emergent Materials, Geology, Settlements, Weather, Player Systems, Late-Game
+6. [All Major Systems](#6-all-major-systems--complete-inventory) ← World Gen, Organisms, Crafting, Emergent Materials, Fluid Simulation, Geology, Settlements, Weather, Player Systems, Late-Game
 7. [UI Panels and Hotkeys](#7-all-ui-panels-and-hotkeys)
 
 ### PART III — TECHNICAL REFERENCE
@@ -2978,6 +2978,440 @@ This is feasible on current hardware because:
 **Estimated per-reaction cost:** < 0.1ms on a single CPU core. A player performing 10 crafting actions per minute costs essentially nothing.
 
 **Where it gets expensive:** fluid simulation (§6.3.4), where millions of packets move and interact continuously. That is a separate problem addressed in the next section.
+
+---
+
+### 6.3.4 Fluid Simulation — How Liquids Work
+
+#### Why Liquid Is the Hardest Problem
+
+Solids are easy. A solid material packet sits where you put it. It has a position, a shape, and it doesn't move unless something pushes it. The game only needs to track one object.
+
+Liquids are fundamentally different. A liquid has no fixed shape — it takes the shape of whatever contains it. It flows downhill. It pools in valleys. It splashes when it hits something. It mixes with other liquids. It evaporates when heated, condenses when cooled. Every drop interacts with every nearby drop, the terrain, gravity, temperature, and wind — simultaneously, continuously, at every moment.
+
+The reason liquid is hard is not that the physics is complicated (the equations are well understood). It is that liquid requires simulating **many small pieces moving independently**. A solid copper ingot is one object. Molten copper is thousands of tiny pieces flowing, colliding, merging, and separating. That transition — from one thing to many things — is the core computational challenge.
+
+#### The Physical Truth: What Melting Actually Is
+
+At the atomic level, melting is the breakdown of structure:
+
+- **Solid**: atoms are locked in a crystal lattice. Each atom vibrates around a fixed position but cannot leave. The lattice gives the material its rigid shape. This is why solids hold their form.
+- **Liquid**: atoms have enough kinetic energy to break free from the lattice. They can slide past each other, but intermolecular forces (van der Waals, hydrogen bonds, metallic bonds) keep them close together. This is why liquids flow but don't fly apart.
+- **Gas**: atoms have enough energy to overcome all intermolecular forces. They fly freely in all directions, filling any container. This is why gas expands to fill a room.
+
+The game simulates this by **fragmenting a material packet into sub-packets when it crosses its melting point**. The sub-packets are the "freed atoms" — they inherit the parent's composition and temperature, but now they can move independently. When they cool below the melting point, they lock back together into a solid.
+
+This is not a metaphor. This is literally what melting is, at a coarser grain size.
+
+#### The Simulation Model: Smoothed Particle Hydrodynamics (SPH)
+
+SPH is a method for simulating fluids using particles instead of a grid. Each particle represents a small volume of liquid. The particles interact with their neighbors to produce realistic fluid behavior: flow, pressure, viscosity, surface tension, and splashing.
+
+**Why SPH and not a grid?** Grid-based methods (like the existing `fluid.worker.ts`) divide space into fixed cells. They work well for large, slow-moving bodies of water (oceans, lakes). But they cannot handle:
+- Pouring liquid from one container to another
+- A waterfall breaking into droplets
+- Molten metal being cast into a mold
+- Rain hitting the ground and splashing
+- Two different liquids mixing at their boundary
+
+SPH handles all of these because the particles move with the fluid — they go wherever the liquid goes, naturally adapting to any shape or motion.
+
+**Each SPH particle stores:**
+
+```
+SPHParticle {
+  // --- From the material packet system (§6.3.3) ---
+  composition: Map<Element, number>    // what this droplet is made of
+  mass: number                          // kg (fixed at creation)
+  temperature: number                   // °C (changes from environment + neighbors)
+
+  // --- SPH physics state ---
+  x, y, z: number                      // position on the sphere surface (world space)
+  vx, vy, vz: number                   // velocity (m/s)
+  density: number                       // kg/m³ (computed from neighbors each tick)
+  pressure: number                      // Pa (computed from density)
+
+  // --- Derived from composition (computed once, updated on temperature change) ---
+  viscosity: number                     // Pa·s — how thick/resistant to flow
+  surfaceTension: number                // N/m — how strongly the surface pulls inward
+  restDensity: number                   // kg/m³ — density at atmospheric pressure
+}
+```
+
+**The five forces on every particle, every tick:**
+
+**1. Pressure force** — particles in high-density regions push outward toward low-density regions. This prevents liquid from compressing into a single point and makes it spread out to fill containers.
+
+Formula: `F_pressure = -∇P / ρ`
+
+Pressure is computed from density using the Tait equation of state:
+`P = B · ((ρ/ρ₀)^γ - 1)` where B is a stiffness constant, ρ₀ is rest density, γ ≈ 7 for water.
+
+This is the same equation used in real computational fluid dynamics. It produces the correct behavior: water is nearly incompressible (high B), so even small density increases create large pressure forces that push particles apart.
+
+**2. Viscosity force** — particles drag on their neighbors, resisting relative motion. High viscosity = honey, lava. Low viscosity = water, alcohol. Zero viscosity = superfluid helium (unreachable in-game).
+
+Formula: `F_viscosity = μ · ∇²v` (Laplacian of velocity field, scaled by dynamic viscosity μ)
+
+**The viscosity comes from the material's composition**, not from a hardcoded value per liquid type:
+- Water (H₂O): μ ≈ 0.001 Pa·s at 20°C — hydrogen bonds are weak
+- Molten copper: μ ≈ 0.004 Pa·s at 1100°C — metallic bonds broken by heat
+- Molten glass (SiO₂): μ ≈ 10⁶ Pa·s at 1000°C — silicon-oxygen network barely broken
+- Honey (sugar solution): μ ≈ 2–10 Pa·s — long sugar molecules tangle
+- Lava (basaltic): μ ≈ 10–100 Pa·s — silicate networks partially intact
+
+Temperature reduces viscosity for all materials (Arrhenius model: `μ = A · e^(Ea/RT)`). Hotter liquid flows faster. This is why lava near the vent flows quickly but slows to a crawl as it cools.
+
+**3. Gravity** — particles fall toward the planet's center. On the sphere surface, this means flowing "downhill" — toward lower terrain elevation.
+
+Formula: `F_gravity = m · g · down_direction`
+
+On a sphere, the "down" direction is toward the planet center: `down = -normalize(position)`. The component of gravity along the terrain surface drives horizontal flow. The component into the terrain is balanced by the terrain's normal force (the ground pushes back).
+
+**4. Surface tension** — particles at the liquid's surface are pulled inward by their neighbors, minimizing surface area. This is what makes water droplets spherical and allows insects to walk on water.
+
+Formula: `F_surface = σ · κ · n̂` where σ is surface tension coefficient, κ is surface curvature, n̂ is surface normal.
+
+Surface tension is computed from composition:
+- Water: σ ≈ 0.073 N/m (hydrogen bonds pull surface inward)
+- Molten iron: σ ≈ 1.8 N/m (strong metallic bonds)
+- Mercury: σ ≈ 0.5 N/m (why mercury forms perfect spherical droplets)
+- Ethanol: σ ≈ 0.022 N/m (weak intermolecular forces)
+
+When two different liquids meet, the difference in surface tension drives **Marangoni flow** — liquid flows from low surface tension to high. This is why soap breaks water tension (soap has lower σ, water flows away from it, creating the spreading pattern).
+
+**5. Terrain collision** — particles cannot pass through the ground. When a particle's position would be below the terrain surface, it is pushed to the surface and its velocity component into the terrain is zeroed (with friction applied to the tangential component).
+
+This is what makes liquid pool in valleys, flow along riverbeds, and fill containers. The terrain acts as a rigid boundary that shapes the flow.
+
+#### The SPH Algorithm (per tick)
+
+```
+for each particle i:
+  1. Find neighbors within kernel radius h (~2× particle spacing)
+     — use spatial hash grid for O(1) neighbor lookup
+
+  2. Compute density:  ρᵢ = Σⱼ mⱼ · W(rᵢⱼ, h)
+     where W is a smoothing kernel (cubic spline) and rᵢⱼ = |posᵢ - posⱼ|
+
+  3. Compute pressure: Pᵢ = B · ((ρᵢ/ρ₀)^γ - 1)
+
+  4. Compute forces:
+     F_pressure  = -Σⱼ mⱼ · (Pᵢ/ρᵢ² + Pⱼ/ρⱼ²) · ∇W(rᵢⱼ, h)
+     F_viscosity = μ · Σⱼ mⱼ · (vⱼ - vᵢ) / ρⱼ · ∇²W(rᵢⱼ, h)
+     F_gravity   = m · g · (-normalize(posᵢ))
+     F_surface   = σ · curvature · surface_normal  (only for surface particles)
+
+  5. Integrate:
+     vᵢ += dt · (F_pressure + F_viscosity + F_gravity + F_surface) / mᵢ
+     posᵢ += dt · vᵢ
+
+  6. Terrain collision:
+     if (length(posᵢ) < PLANET_RADIUS + terrainHeight(posᵢ)):
+       push particle to surface, apply friction
+
+  7. Temperature exchange:
+     — particles exchange heat with neighbors (Fourier's law: Q = k·A·ΔT/d)
+     — particles exchange heat with terrain and air
+     — if temperature crosses melting point → phase transition (see below)
+```
+
+**The kernel function W** is the mathematical smoothing function that defines "how much influence does a neighbor have." Closer neighbors have more influence. The standard choice is the cubic spline kernel, which is smooth, compact (zero outside radius h), and computationally cheap.
+
+#### Phase Transitions: Solid ↔ Liquid ↔ Gas
+
+Phase transitions connect the fluid simulation to the material packet system (§6.3.3). They are the bridge between the static world of solids and the dynamic world of fluids.
+
+**Melting (solid → liquid):**
+```
+When a solid material packet reaches temperature ≥ meltingPoint(composition):
+  1. The solid packet is removed from the world
+  2. N SPH particles are spawned at its position
+     — N = mass / particleMass (particleMass is a resolution parameter, e.g., 0.01 kg)
+     — Each particle inherits: composition, temperature, mass/N
+     — Particles are placed in a tight cluster matching the solid's shape
+     — Particles get zero initial velocity (they start motionless, then flow under gravity)
+  3. The SPH simulation takes over — particles flow, pool, splash
+```
+
+**Freezing (liquid → solid):**
+```
+When a cluster of SPH particles cools below meltingPoint(composition):
+  1. Identify connected clusters of cold particles (particles within kernel radius of each other)
+  2. Each cluster merges into a single solid packet:
+     — mass = sum of particle masses
+     — composition = mass-weighted average of particle compositions
+     — position = center of mass of the cluster
+     — shape = convex hull of particle positions (or simplified bounding shape)
+  3. The solid packet is placed in the world; particles are removed
+```
+
+**Boiling (liquid → gas):**
+```
+When a particle reaches temperature ≥ boilingPoint(composition):
+  1. Particle expands: kernel radius increases, restDensity drops dramatically
+  2. Upward buoyancy force added (hot gas rises)
+  3. If particle rises above terrain + threshold → convert to gas system
+     — Gas particles have much larger spacing, lower interaction frequency
+     — Eventually fade out at high altitude (absorbed into atmosphere model)
+```
+
+**Condensation (gas → liquid):**
+```
+When gas-phase particles cool below boilingPoint:
+  1. Particles contract: kernel radius shrinks, restDensity increases
+  2. Surface tension kicks in → droplets form
+  3. Droplets fall under gravity → rain
+```
+
+**Sublimation and deposition** (solid ↔ gas, skipping liquid) also emerge naturally. Dry ice (solid CO₂) sublimates because its phase diagram has no liquid phase at 1 atm. The simulation checks: at current pressure, does a liquid phase exist between solid and gas? If not, the solid transitions directly to gas particles.
+
+#### Multi-Scale Fluid System
+
+One simulation method cannot efficiently handle all scales of liquid in the game. A raindrop and an ocean are both water, but simulating an ocean with SPH particles would require billions of particles. Instead, the game uses different methods at different scales, with smooth transitions between them.
+
+**Scale 1 — Crafting (SPH particles, 100–2,000 particles)**
+
+This is the most interactive scale. The player directly manipulates liquid:
+- Melting ore in a bloomery → molten metal flows into a channel
+- Pouring molten copper into a stone mold → casting
+- Mixing two chemicals in a clay pot → the liquids swirl together
+- Boiling water → steam rises, water level drops
+- Quenching hot steel → dramatic sizzle, steam cloud
+
+SPH runs at 60 Hz in a Web Worker. 2,000 particles × 50 neighbors × 5 forces = 500,000 operations per tick. At ~10 FLOPs each = 5 MFLOP per tick. A single CPU core does 1–5 GFLOP/s. Cost: < 1% of one core.
+
+**Scale 2 — Local environment (SPH particles, 2,000–20,000 particles)**
+
+Environmental liquid near the player:
+- Rain hitting the ground and forming puddles
+- A small waterfall or creek
+- Blood pooling from a killed animal
+- Spilled liquid from a broken container
+- A hot spring with steam
+
+SPH runs at 30 Hz in a dedicated Web Worker (separate from crafting). 20,000 particles at 30 Hz is ~30 MFLOP per tick — still cheap on a modern CPU. On a GPU compute shader (WebGPU), this could reach 200,000+ particles.
+
+**Scale 3 — Regional (grid-based, Eulerian)**
+
+Rivers, lakes, and large water bodies. Too many particles for SPH — switch to a grid where each cell tracks water volume and flow direction.
+
+```
+GridCell {
+  waterVolume: number     // m³ of water in this cell
+  flowX, flowZ: number    // velocity of water flow (m/s)
+  temperature: number     // °C
+  composition: Map<Element, number>   // dissolved minerals, pollutants
+  depth: number           // computed: waterVolume / cellArea
+}
+```
+
+Rules per tick (0.5–1 Hz — slow, large scale):
+- Water flows from high cells to low cells (terrain height + water depth)
+- Flow rate depends on slope (Manning's equation: `v = (1/n) · R^(2/3) · S^(1/2)` where n is roughness, R is hydraulic radius, S is slope)
+- Evaporation removes water based on temperature and humidity
+- Rain adds water based on weather system (§6.6)
+- Rivers defined by RiverSystem.ts are permanent flow paths with base flow rates
+
+This extends the existing `fluid.worker.ts` and `RiverSystem.ts`. The grid is the same 3D grid already initialized in the worker — it just needs water-specific logic added.
+
+**Scale 4 — Global (mathematical model, no particles or grid)**
+
+Ocean currents, tides, deep water temperature. These are too large and slow for real-time simulation. Instead, they are modeled as:
+- Ocean surface: Gerstner wave shader (already built — `OceanShader.ts`)
+- Currents: pre-computed flow field based on continent positions and Coriolis effect
+- Tides: sinusoidal sea level variation driven by moon position (simple formula)
+- Deep ocean temperature: latitude-based gradient (cold at poles, warm at equator)
+
+No per-frame simulation cost. Just math evaluated when needed.
+
+#### Scale Transitions
+
+The critical engineering challenge is smooth transitions between scales. A raindrop (SPH) must be able to join a puddle (SPH), which grows into a stream (grid), which feeds a river (grid), which reaches the ocean (shader). Going backward must also work: a player scoops water from a river (grid → SPH packet).
+
+**SPH → Grid (particle absorption):**
+```
+When an SPH particle enters a grid cell that already contains water:
+  1. Add particle's mass to cell's waterVolume
+  2. Add particle's momentum to cell's flow velocity (momentum-conserving)
+  3. Mix particle's composition into cell's composition (mass-weighted average)
+  4. Mix particle's temperature into cell's temperature
+  5. Remove the SPH particle
+```
+
+Trigger condition: particle velocity < threshold AND particle is in a cell with waterVolume > threshold. This means fast-moving water (waterfalls, splashes) stays as particles. Slow, settled water becomes grid cells.
+
+**Grid → SPH (particle emission):**
+```
+When a player interacts with a grid cell (scoop, dig channel, break dam):
+  1. Remove requested mass from cell's waterVolume
+  2. Spawn N SPH particles with that mass, inheriting cell's composition and temperature
+  3. Particles get initial velocity matching the cell's flow direction
+```
+
+Also triggered when water flows over a cliff edge (waterfall): grid cells at the edge emit SPH particles that fall freely until they hit water below (absorbed back into grid) or terrain (splash → pool → eventually grid again).
+
+**Grid → Shader (ocean boundary):**
+```
+Grid cells at the ocean boundary do not store water — they connect to the ocean.
+River grid cells that reach sea level feed their flow volume into the ocean's
+total water budget (affecting sea level over very long timescales).
+The ocean shader reads sea level from the simulation state.
+```
+
+#### Mixing and Reactions in Liquid
+
+When two SPH particles of different composition are neighbors, they can mix and react — using the same reaction engine from §6.3.3.
+
+**Diffusion (passive mixing):**
+Each tick, neighboring particles exchange a small fraction of their composition proportional to their contact area and the diffusion coefficient. Over time, two adjacent liquids homogenize. Stirring (player action or turbulent flow) increases the mixing rate by bringing distant particles into contact.
+
+```
+mixRate = D · dt · W(rᵢⱼ, h) / distance
+particle_i.composition += mixRate · (particle_j.composition - particle_i.composition)
+particle_j.composition += mixRate · (particle_i.composition - particle_j.composition)
+```
+
+where D is the diffusion coefficient (depends on temperature and the materials involved).
+
+**Reactions in liquid phase:**
+When two particles' mixed composition satisfies a reaction condition (§6.3.3 reaction engine — Gibbs free energy check), the reaction fires:
+- Acid dissolves metal: HCl particles + Fe particles → FeCl₂ solution + H₂ gas bubbles
+- Salt dissolves in water: NaCl solid particles near H₂O particles → Na⁺ and Cl⁻ dissolve into water composition
+- Oil and water refuse to mix: if immiscible (ΔG of mixing > 0), particles repel at the interface instead of diffusing
+
+**Density-driven layering:**
+Denser liquid sinks, lighter liquid floats. Oil floats on water. Molten slag floats on molten iron (this is how real smelting separates metal from waste). The SPH pressure force naturally produces this layering because denser particles create higher pressure at the bottom.
+
+#### What the Player Sees
+
+The visual representation of fluid adapts to scale:
+
+**SPH particles (crafting and local):**
+- Each particle renders as a small sphere (metaball rendering for smooth appearance)
+- Color derived from composition: water = blue-clear, molten copper = orange-red glow, blood = dark red, oil = dark brown
+- Temperature → emissive glow: particles above 500°C glow red, above 1000°C glow orange-white
+- Surface particles have specular highlights (Fresnel reflection, same as OceanShader.ts)
+- Metaball blobbing: nearby particles visually merge into a smooth surface (marching cubes or screen-space fluid rendering)
+
+**Grid cells (regional):**
+- Water surface mesh generated from grid cells with waterVolume > 0
+- Surface height = terrain height + water depth
+- Uses the existing OceanShader.ts material (Gerstner waves scaled down for rivers/lakes)
+- River foam where flow speed is high (reuse the foam noise from OceanShader.ts)
+
+**Ocean (global):**
+- Unchanged from current implementation: sphere mesh + Gerstner wave vertex displacement + Fresnel + caustics
+
+#### Terrain Interaction: The Container Problem
+
+Liquid needs surfaces to contain it. The terrain height field on the sphere is the primary container. But natural terrain has features that matter for fluid:
+
+**Concavities (valleys, bowls, craters):**
+Water pools wherever the terrain forms a local minimum — a point lower than all its neighbors. The grid-based simulation finds these automatically: water flows into the cell and has nowhere lower to go, so it accumulates. Water depth rises until it reaches the lowest outflow point (the rim of the bowl), then spills over and continues flowing.
+
+**Player-made containers:**
+When a player digs (removes terrain) or builds (adds terrain), they modify the height field. A trench becomes a channel. A ring of piled dirt becomes a dam. A clay pot (crafted object with concave interior) becomes a vessel. The fluid system treats all of these the same way: particles cannot penetrate solid surfaces, so they pool inside whatever shape the surface creates.
+
+**Porosity:**
+Not all terrain is waterproof. Sand absorbs water (high porosity). Clay blocks water (low porosity). Rock is somewhere in between. The grid simulation can model this:
+```
+absorption = porosity · waterVolume · dt
+waterVolume -= absorption
+groundwaterLevel += absorption  // water table rises
+```
+
+This produces springs (groundwater pressure pushes water to the surface where terrain is lower than the water table) and explains why clay-lined channels hold water better than dirt channels.
+
+#### The Complete Water Cycle
+
+When all scales work together, the full hydrological cycle emerges:
+
+```
+EVAPORATION: Ocean + lakes + rivers lose water (temperature + surface area + wind)
+  ↓ water vapor enters atmosphere
+CLOUD FORMATION: Vapor rises, cools below dew point, condenses
+  ↓ water droplets aggregate into clouds (weather system §6.6)
+PRECIPITATION: Clouds release water as rain (liquid) or snow (solid)
+  ↓ SPH particles fall from sky (Scale 1-2)
+SURFACE FLOW: Rain hits terrain, flows downhill
+  ↓ SPH particles merge into grid cells (Scale 2 → Scale 3)
+RIVERS: Grid cells with persistent flow form rivers
+  ↓ matches RiverSystem.ts flow paths
+LAKES: Water accumulates in terrain concavities
+  ↓ grid cells fill up, overflow feeds downstream rivers
+OCEAN: Rivers discharge into the ocean (Scale 3 → Scale 4)
+  ↓ ocean level adjusts over long timescales
+GROUNDWATER: Some rain absorbs into porous terrain
+  ↓ feeds springs, wells, and maintains river base flow in dry season
+```
+
+No part of this cycle is scripted. It all follows from the physics: gravity pulls water down, heat drives evaporation, cooling drives condensation, terrain shape determines where water collects and flows. The weather system (§6.6) provides precipitation. The fluid simulation handles everything after the raindrop forms.
+
+#### Lava: Liquid Rock
+
+Volcanic eruptions produce lava — molten rock flowing on the surface. In this system, lava is not a special case. It is a material packet (composition: silicate minerals) that has been heated above its melting point (~700–1200°C depending on composition).
+
+```
+MAGMA CHAMBER: high-temperature material packets deep underground (world generation)
+  ↓ volcanic event (triggered by tectonic simulation or random with geological probability)
+ERUPTION: packets surface → temperature > melting point → fragment into SPH particles
+  ↓ particles flow downhill (very high viscosity — basaltic: μ ≈ 100 Pa·s, rhyolitic: μ ≈ 10⁶ Pa·s)
+COOLING: particles lose heat to air and terrain → temperature drops
+  ↓ viscosity increases exponentially as temperature drops (Arrhenius)
+SOLIDIFICATION: temperature crosses solidus → particles freeze into solid terrain
+  ↓ new rock with composition determined by the original magma
+```
+
+Basaltic lava (low silica) flows fast and far — like Hawaiian eruptions. Rhyolitic lava (high silica) barely moves — it piles up into domes. The difference is entirely from composition → viscosity. The simulation handles both with the same code.
+
+Lava flowing over water produces instant steam (boiling) + rapid cooling of the lava surface → obsidian (amorphous glass, because cooling was too fast for crystals to form). This emergent behavior falls out naturally from the phase transition and heat exchange rules.
+
+#### Performance Budget
+
+| Scale | Method | Particle/cell count | Tick rate | CPU cost per tick | Worker |
+|-------|--------|-------------------|-----------|-------------------|--------|
+| Crafting | SPH | 100–2,000 | 60 Hz | < 1 ms | Shared with game loop or dedicated |
+| Local env | SPH | 2,000–20,000 | 30 Hz | 2–5 ms | Dedicated Web Worker |
+| Regional | Grid | 10,000–50,000 cells | 1 Hz | 5–10 ms | Existing fluid.worker.ts |
+| Global | Math | 0 | On demand | < 0.1 ms | Main thread |
+| **Total** | | | | **< 15 ms** at peak | **3 workers max** |
+
+On a GPU (WebGPU compute shaders, when available): SPH particle count can increase 10–100× for the same cost. 200,000 local environment particles at 30 Hz is feasible on a mid-range GPU.
+
+The server (for shared world state) only needs to run Scale 3 (grid) and Scale 4 (math). Crafting-scale and local-scale SPH run on the client only — they are visual and player-local. The server broadcasts grid cell water levels in the WORLD_SNAPSHOT, and clients generate local SPH particles for visual detail.
+
+#### Implementation Phases
+
+**Phase 1 — Crafting-scale SPH (connect to material packets)**
+- Implement SPH solver in a Web Worker (pressure, viscosity, gravity, terrain collision)
+- Hook into material packet phase transitions: solid → liquid spawns particles, cooling merges them back
+- Visual: simple sphere rendering per particle with composition-based color
+- Test: melt copper ore in bloomery → molten copper flows into a channel → cools into solid
+
+**Phase 2 — Local environment SPH**
+- Dedicated worker for environmental particles (rain, puddles, small streams)
+- Add surface tension for realistic droplet behavior
+- Metaball rendering for smooth liquid surfaces
+- Connect to weather system: rain events spawn falling particles
+
+**Phase 3 — Grid-based regional water**
+- Extend fluid.worker.ts with water volume tracking, Manning's equation flow
+- SPH ↔ grid transitions (particle absorption / emission)
+- Lakes form in terrain concavities, overflow creates rivers
+- Server syncs grid state in WORLD_SNAPSHOT
+
+**Phase 4 — Full water cycle**
+- Evaporation from water surfaces → feeds weather system humidity
+- Groundwater absorption and springs
+- Seasonal variation (freeze/thaw cycle)
+- Connect ocean shader to grid system at coastlines
+
+**Phase 5 — Lava and exotic fluids**
+- Volcanic events spawn high-temperature SPH particles
+- Lava cooling → terrain modification (new rock forms)
+- Molten metal in industrial processes (blast furnace, casting)
+- Acid, oil, alcohol — all derived from composition, no special cases
 
 ---
 

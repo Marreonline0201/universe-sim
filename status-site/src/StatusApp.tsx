@@ -105,15 +105,15 @@ const GLOBAL_CSS = `
 type View = 'map' | 'agents' | 'docs'
 
 const VIEWS: { id: View; label: string }[] = [
-  { id: 'map',    label: 'WORLD MAP' },
-  { id: 'agents', label: 'AGENT CONTROL' },
   { id: 'docs',   label: 'GAME GUIDE' },
+  { id: 'agents', label: 'AGENT CONTROL' },
+  { id: 'map',    label: 'WORLD MAP' },
 ]
 
 export function StatusApp() {
   const world = useStatusSocket()
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [view, setView] = useState<View>('map')
+  const [view, setView] = useState<View>('docs')
 
   const selectedPlayer = world.players.find(p => p.userId === selectedId) ?? null
   const hasBlocked = Object.values(world.agentState.agents).some(a => a.status === 'blocked')

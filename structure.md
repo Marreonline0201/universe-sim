@@ -3568,85 +3568,111 @@ Agent IDs in use: `director`, `status-worker`, `gp-agent`, `knowledge-director`,
 
 #### Current status
 
-The renderer is working end-to-end with WebSocket JPEG streaming (proven). WebRTC via GStreamer is implemented and SDP exchange works — ICE connection is being finalised on AWS EC2 with open UDP ports.
+**Working end-to-end on local machine (GTX 5070).** The headless-gl approach is proven — Node.js renders Three.js directly on the GPU without any browser. Streams to any device on the network via WebSocket.
+
+Two encoding modes implemented:
+- **NVENC H.264** (primary) — FFmpeg h264_nvenc hardware encoding on GPU → fragmented MP4 → MSE in browser. True 60fps capability. Currently debugging MSE playback on some browsers.
+- **JPEG fallback** — Sharp JPEG encoding on CPU. Works on all browsers everywhere. ~40-50fps on localhost, ~20-30fps over LAN.
 
 ---
 
-#### 13.4.1 Platform: AWS EC2 (active — replacing Vast.ai)
+#### 13.4.1 Local Development (active — GTX 5070)
+
+**Machine:** Developer's Windows PC with NVIDIA GTX 5070
+**Runtime:** Node.js + headless-gl + Three.js (WebGL1)
+**Encoder:** FFmpeg with h264_nvenc (NVENC confirmed working)
+**Port:** 8080 (TCP)
+
+This is the primary development environment. No Chrome, no Xvfb, no Puppeteer — Node.js renders directly via headless-gl talking to the GPU.
+
+#### Start the renderer
+
+```bash
+cd universe-renderer
+node headless-server.js
+```
+
+Viewer URL: **http://localhost:8080**
+LAN URL: **http://10.18.247.152:8080** (other devices on same WiFi)
+Status URL: **http://localhost:8080/status**
+
+#### Key files
+
+```
+universe-renderer/
+  headless-server.js    Main server: headless-gl + Three.js + FFmpeg NVENC + JPEG fallback
+  server.js             Legacy Chrome/Puppeteer approach (for Linux GPU servers)
+  gst_webrtc.py         Legacy GStreamer WebRTC approach (archived)
+  install.sh            Linux server dependency installer
+  bin/                  FFmpeg binaries (Windows, not committed to git)
+  package.json          Dependencies: gl, three@0.152, sharp, ws
+```
+
+#### How it works
+
+```
+Player opens browser → WebSocket connects to server
+  → Server creates per-player camera in Three.js scene
+  → headless-gl renders scene from that camera position
+  → gl.readPixels() captures raw RGBA frame
+  → FFmpeg NVENC encodes to H.264 (or Sharp encodes to JPEG as fallback)
+  → Encoded data sent via WebSocket to browser
+  → Browser decodes and displays (MSE for H.264, Canvas for JPEG)
+  → Player input (mouse/keyboard) sent back via WebSocket
+  → Server updates camera position → next frame reflects input
+```
+
+#### Windows firewall (for LAN access from other devices)
+
+```bash
+netsh advfirewall firewall add rule name="Universe Renderer" dir=in action=allow protocol=TCP localport=8080
+```
+
+---
+
+#### 13.4.2 Cloud Deployment: AWS EC2 (planned — quota pending)
 
 **Instance type:** g4dn.xlarge (NVIDIA T4, 4 vCPU, 16GB RAM)
 **OS:** Ubuntu 22.04 Deep Learning Base AMI (CUDA + NVIDIA drivers pre-installed)
-**Ports open in security group:**
+**Cost:** ~$0.16/hr spot, ~$0.53/hr on-demand
+**Status:** GPU quota increase requested (Running On-Demand G and VT instances → 4 vCPUs). Waiting for AWS approval.
+
+**Ports to open in security group:**
 - TCP 22 — SSH
-- TCP 8080 — HTTP + WebSocket signaling
-- UDP 9000-9010 — WebRTC media (direct, no TURN needed)
+- TCP 8080 — HTTP + WebSocket
+- UDP 9000-9010 — Reserved for future WebRTC direct media
 
-**Why AWS EC2 over Vast.ai:**
-Vast.ai only exposes TCP ports through SSH tunnels. WebRTC needs UDP for low-latency video. AWS security groups open UDP ports in seconds, enabling direct browser ↔ server WebRTC without any relay server.
+**Why AWS EC2:**
+- Open UDP ports in seconds (security groups)
+- No SSH tunnel needed — players connect directly to public IP
+- NVIDIA T4 has NVENC for hardware H.264 encoding
+- Proper networking for public-facing game server
 
-#### Connect
+#### Connect (once live)
 
 ```bash
 ssh -i ~/universe-key.pem ubuntu@<EC2_PUBLIC_IP>
 ```
 
-#### One-time setup
+#### One-time setup (once live)
 
 ```bash
-# Verify GPU
 nvidia-smi
-
-# Install Node.js (if not present)
 curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-apt-get install -y nodejs
-
-# Install Chrome dependencies
-apt-get install -y xvfb libgbm-dev libnss3 libatk-bridge2.0-0t64 libdrm2 \
-  libxcomposite1 libxdamage1 libxrandr2 libxss1 libasound2t64 libcups2t64
-
-# Clone renderer
+apt-get install -y nodejs ffmpeg
 cd /home/ubuntu
 git clone https://github.com/Marreonline0201/universe-renderer.git
-cd universe-renderer
-npm install
-
-# Install GStreamer + WebRTC
-bash install.sh
-```
-
-#### Start the renderer
-
-```bash
-cd /home/ubuntu/universe-renderer
-node server.js
-```
-
-Viewer URL: **http://\<EC2_PUBLIC_IP\>:8080** (no SSH tunnel needed — port is open)
-Status URL: **http://\<EC2_PUBLIC_IP\>:8080/status**
-
-#### If processes are stuck (after crash/restart)
-
-```bash
-pkill -f "node server.js"; pkill -f Xvfb; pkill -f chrome
-for n in 99 100 101 102 103 104 105; do rm -f /tmp/.X${n}-lock; done
-sleep 1
-node server.js
-```
-
-#### Update renderer code
-
-```bash
-cd /home/ubuntu/universe-renderer && git pull && pkill -f "node server.js"; node server.js
+cd universe-renderer && npm install
+node headless-server.js
 ```
 
 ---
 
-#### 13.4.2 Platform: Vast.ai (previous — archived)
+#### 13.4.3 Previous Platforms (archived)
 
-**Instance:** RTX 4070 Ti, Xeon E5-2686 v4, 32GB RAM
-**IP:** 142.171.48.138, SSH port: 29817, Cost: $0.079/hr
+**Vast.ai (RTX 4070 Ti)** — Decommissioned. Only TCP ports available. WebRTC ICE failed over SSH tunnel. Public TURN servers unreliable. GStreamer Python bindings wouldn't install (venv/conda conflict). Cost: $0.079/hr.
 
-Decommissioned because Vast.ai only supports TCP port forwarding — WebRTC ICE connections over TURN relay failed due to unreliable public TURN servers. All work continues on AWS EC2.
+**Chrome/Puppeteer approach (server.js)** — Superseded by headless-gl. Used Chrome on Xvfb with CDP screencast, then GStreamer for WebRTC. Worked for proof of concept but required a full browser per player (~500MB RAM each). The headless-gl approach is lighter and architecturally correct.
 
 
 ---
@@ -3693,12 +3719,11 @@ Without WebGL, Three.js cannot draw anything. WebGL only works inside a browser 
 
 Normally WebGL requires a browser window on a screen. **headless-gl** tricks the GPU into running WebGL without any screen or window — "headless" means no display attached.
 
-You would use it like:
 ```
 Node.js → headless-gl → GPU → pixel data in memory (no screen)
 ```
 
-We could not install it because it needs Python 2 to compile, and that isn't available on the server. So we switched to using an actual browser (Chrome) instead.
+**Status:** Working on Windows with GTX 5070. Could not install on the Vast.ai Linux server (Python 2 build dependency), but installs fine via `npm install gl` on Windows with NVIDIA drivers. This is now the primary rendering approach — no Chrome needed. Requires Three.js v0.152 (last version supporting WebGL1, since headless-gl only implements WebGL 1.0).
 
 ---
 
@@ -3782,7 +3807,7 @@ A player standing still in a forest: the trees don't move. H.264 sends the trees
 
 **NVENC** is NVIDIA's hardware H.264 encoder built into the GPU. Encoding H.264 on CPU takes significant processing power. NVENC does it in dedicated silicon with almost zero CPU cost.
 
-Your RTX 4070 Ti has NVENC confirmed (`h264_nvenc` in the ffmpeg output).
+The GTX 5070 has NVENC confirmed — `h264_nvenc`, `hevc_nvenc`, and `av1_nvenc` all available via FFmpeg. The RTX 4070 Ti (Vast.ai) also had NVENC but was not used because GStreamer nvh264enc plugin was not installed.
 
 ---
 
@@ -3848,132 +3873,114 @@ Think of it as a translation layer: raw pixels (huge) → H.264 (small) → stre
 
 ---
 
-### 13.6 Pixel Streaming Architecture — Actual Implementation
+### 13.6 Pixel Streaming Architecture — Current Implementation
 
-#### What was built
+#### Architecture evolution
 
-After evaluating headless-gl (could not install — Python 2 dependency) and @roamhq/wrtc (unmaintained), the actual approach uses a simpler and more reliable stack:
+Three approaches were tried. Each taught something, leading to the current working system:
+
+| Approach | Outcome |
+|---|---|
+| 1. Chrome + Puppeteer + GStreamer WebRTC (on Vast.ai) | SDP exchange worked, ICE failed (no UDP ports) |
+| 2. Chrome + Puppeteer + GStreamer WebRTC (planned for AWS EC2) | Abandoned — Chrome per player is too heavy |
+| 3. **headless-gl + Three.js + FFmpeg NVENC (on local GTX 5070)** | **Working. This is the correct architecture.** |
+
+#### Current architecture (headless-gl)
 
 ```
-Xvfb (virtual display per player)
-  ↓
-Chrome via Puppeteer (loads game URL, full WebGL rendering)
-  ↓
-GStreamer (captures X11 display, encodes H.264, streams WebRTC)
-  ↓
-Browser <video> element (plays WebRTC stream)
-  ↑
-WebSocket (keyboard + mouse input forwarded via CDP to Chrome)
+Node.js (headless-server.js)
+  ├── headless-gl creates WebGL 1.0 context (talks to GPU directly)
+  ├── Three.js v0.152 renders scene using WebGL1Renderer
+  ├── Per player: own PerspectiveCamera at their position
+  ├── gl.readPixels() captures raw RGBA frame from GPU
+  ├── FFmpeg h264_nvenc encodes H.264 on GPU hardware
+  │   └── Falls back to Sharp JPEG on CPU if NVENC/MSE fails
+  ├── Encoded data sent via WebSocket to player's browser
+  └── Player input (mouse/keyboard) received via WebSocket → updates camera
 ```
 
-Each connected player gets their own isolated Chrome instance and GStreamer process. The game loads exactly as it does in a normal browser — no client code changes needed.
+No Chrome. No Xvfb. No Puppeteer. No GStreamer. Just Node.js talking directly to the GPU.
 
-#### Actual technology stack
+#### Technology stack
 
 | Component | Technology | Notes |
 |---|---|---|
-| Game rendering | Chrome via Puppeteer on Xvfb | Full WebGL, no headless-gl needed |
-| Screen capture | GStreamer `ximagesrc` | Captures the X11 virtual display |
-| H.264 encoding | GStreamer `nvh264enc` (NVENC) or `x264enc` (CPU fallback) | Hardware encoding on NVIDIA GPU |
-| WebRTC streaming | GStreamer `webrtcbin` | Industry-standard, handles ICE/SDP |
-| Signaling | Node.js WebSocket | SDP offer/answer + ICE candidates between GStreamer and browser |
-| Input forwarding | Chrome DevTools Protocol (CDP) | Puppeteer forwards mouse/keyboard to Chrome |
-| STUN | Google public STUN servers | ICE candidate discovery (no TURN needed with open UDP ports) |
+| 3D rendering | Three.js v0.152 + headless-gl (npm `gl`) | WebGL1 — last Three.js version supporting it |
+| Frame capture | `gl.readPixels()` | Raw RGBA pixels from GPU framebuffer |
+| H.264 encoding (primary) | FFmpeg `h264_nvenc` | NVIDIA hardware encoder, ~3-8ms per frame |
+| JPEG encoding (fallback) | Sharp | CPU-based, ~15-25ms per frame, works everywhere |
+| Video container | Fragmented MP4 (`-movflags frag_keyframe+empty_moov`) | Works with browser MSE (Media Source Extensions) |
+| Transport | WebSocket (binary frames) | TCP, works on all networks |
+| Browser decode (H.264) | MSE (MediaSource + SourceBuffer) | Hardware-accelerated in Chrome/Edge |
+| Browser decode (JPEG) | Canvas 2D `drawImage()` | Universal fallback |
+| Input | WebSocket JSON messages | Mouse move/click/scroll, keyboard down/up |
 
-#### Per-player pipeline
-
-```
-Player connects (WebSocket)
-  → Node.js creates session
-  → Xvfb starts on display :100 (or :101, :102... per player)
-  → Chrome launches on that display, loads game URL
-  → Spectator camera auto-activates after 4 seconds
-  → GStreamer starts, captures :100, begins WebRTC negotiation
-  → SDP offer sent to browser
-  → Browser creates answer, sends back
-  → ICE candidates exchanged
-  → Video flows: GStreamer → UDP → browser <video>
-  → Input flows: browser → WebSocket → Node.js → CDP → Chrome
-Player disconnects
-  → Chrome, GStreamer, and Xvfb all stopped and cleaned up
-```
-
-#### Files in universe-renderer repo
+#### Per-player session lifecycle
 
 ```
-universe-renderer/
-  server.js          Node.js: HTTP server, WebSocket signaling, Puppeteer, input forwarding
-  gst_webrtc.py      Python: GStreamer WebRTC pipeline (one process per player)
-  install.sh         One-time server setup (GStreamer packages)
-  package.json       Dependencies: puppeteer, ws
-  .env               GAME_URL, PORT (not committed)
+Browser opens http://server:8080
+  → HTML page loads with <video> (MSE) and <canvas> (JPEG fallback)
+  → WebSocket connects to /stream
+  → Browser tests MSE support for 'video/mp4; codecs="avc1.42001e"'
+  → If MSE supported: sends { t:'mode', mode:'nvenc' }
+    → Server spawns FFmpeg h264_nvenc process for this session
+    → Server pipes raw RGBA frames into FFmpeg stdin
+    → FFmpeg outputs fragmented MP4 to stdout
+    → Server sends MP4 chunks over WebSocket
+    → Browser appends to SourceBuffer → <video> plays
+  → If MSE not supported OR no frames after 4s: sends { t:'mode', mode:'jpeg' }
+    → Server encodes frames as JPEG via Sharp
+    → Browser draws JPEG to <canvas>
+  → Input: browser captures mouse/keyboard → WebSocket JSON → server updates camera
+  → On disconnect: FFmpeg killed, session cleaned up
 ```
 
-#### Auth bypass for renderer
-
-The game at universe-sim-beryl.vercel.app normally requires Clerk login. The renderer bypasses this via a secret token:
-
-- `VITE_RENDERER_TOKEN` set in Vercel env vars
-- Game URL: `https://universe-sim-beryl.vercel.app?renderer=<TOKEN>`
-- `RendererGame` component in App.tsx activates spectator camera automatically
-- Token never stored on the render server
-
-#### Networking: why AWS EC2, not Vast.ai
-
-WebRTC requires UDP for low-latency video. Vast.ai only exposes TCP ports. UDP cannot traverse an SSH tunnel. AWS EC2 security groups open UDP ports instantly:
-
-| Requirement | Vast.ai | AWS EC2 |
-|---|---|---|
-| Open UDP 9000-9010 | Not possible without recreating instance | Security group rule, 10 seconds |
-| TURN server needed | Yes (to relay over TCP) | No (direct UDP) |
-| SSH tunnel required | Yes | No |
-| Player connects to | localhost:8080 via tunnel | \<server-ip\>:8080 directly |
-
-#### ICE configuration (with open UDP ports)
-
-```javascript
-// Browser
-const ICE_SERVERS = [
-  { urls: 'stun:stun.l.google.com:19302' },
-  { urls: 'stun:stun1.l.google.com:19302' },
-];
-```
-
-```python
-# GStreamer
-STUN_SERVER = 'stun://stun.l.google.com:19302'
-TURN_SERVERS = []  # Not needed — direct UDP
-```
-
-#### Input forwarding detail
+#### Input forwarding
 
 ```
-Browser keydown event
-  → WebSocket JSON: { t:'kd', key:'W', code:'KeyW' }
-  → Node.js receives, routes to session's CDP session
-  → CDP: Input.dispatchKeyEvent { type:'keyDown', key:'W' }
-  → Chrome receives keydown as if user pressed it
-  → Game responds (spectator camera moves forward)
+Browser keydown 'W'
+  → WebSocket: { t:'kd', key:'W', code:'KeyW' }
+  → Server: session.keys.add('KeyW')
+  → processHeldKeys() at 60Hz: camera orbits around planet
+  → Next rendered frame reflects new camera position
+  → Frame sent to browser → player sees movement
 ```
 
-Mouse events (move, click, scroll, right-click) follow the same path.
+Mouse drag orbits camera. Scroll wheel zooms. WASD rotates. All input is per-session — each player has independent controls.
 
-#### GPU server infrastructure
+#### Performance (measured on GTX 5070, 1280x720)
 
-| Option | GPU | Cost | UDP ports | Status |
+| Mode | FPS | Latency | Bandwidth | Notes |
 |---|---|---|---|---|
-| AWS EC2 g4dn.xlarge | NVIDIA T4 | ~$0.16/hr spot | Yes — security group | **Active** |
-| Vast.ai RTX 4070 Ti | RTX 4070 Ti | $0.079/hr | No — TCP only | Archived |
-| Hetzner GPU dedicated | Various | ~€120/month | Yes | Future option at scale |
+| NVENC H.264 (localhost) | 60 | ~15-30ms | ~750 KB/s | MSE playback debugging in progress |
+| JPEG (localhost) | 40-60 | ~20-40ms | ~2-3 MB/s | Proven working |
+| JPEG (LAN) | 20-30 | ~40-80ms | ~2-3 MB/s | Proven working on Mac Chrome |
 
-A single T4 GPU handles ~6-10 simultaneous players at 30fps H.264.
+#### Comparison: why headless-gl beats Chrome+Puppeteer
+
+| Factor | Chrome + Puppeteer | headless-gl |
+|---|---|---|
+| RAM per player | ~500MB (full browser) | ~50MB (GL context + scene) |
+| Startup time | 15-20s (Chrome launch + page load) | Instant (camera creation) |
+| Dependencies | Chrome, Xvfb, Puppeteer, CDP | Just npm `gl` package |
+| Rendering | Full browser engine overhead | Direct GPU calls via WebGL |
+| Input forwarding | CDP (complex, async) | Direct camera manipulation (sync) |
+| OS compatibility | Linux only (Xvfb) | Windows, Linux, Mac |
 
 #### Known limitations
 
-- **NVENC on Deep Learning AMI:** Should be available via `nvh264enc` in GStreamer. Falls back to `x264enc` (CPU) automatically if not found.
-- **Per-player Chrome cold start:** Each new connection takes ~15-20 seconds to start Chrome and load the game. This is the startup cost — once connected, it is real-time.
-- **Memory per player:** Each Chrome instance uses ~400-600MB RAM. The T4 has 16GB system RAM — supports ~20 simultaneous players before RAM pressure.
-- **Game is still running client-side:** The game's Three.js rendering still happens in the Chrome browser on the server. The pixel streaming layer captures and forwards this output. A future optimisation is to move Three.js fully server-side (Node.js + headless rendering), but this is not needed yet.
+- **WebGL 1.0 only:** headless-gl implements WebGL 1.0. Three.js v0.153+ requires WebGL 2.0. Pinned to Three.js v0.152.
+- **MSE playback issues:** NVENC H.264 via fragmented MP4 works on some browsers but not all. JPEG fallback covers all cases. Needs debugging for reliable H.264 playback.
+- **gl.readPixels() bottleneck:** Copies pixels from GPU → CPU memory every frame. At 1280x720 RGBA = 3.6MB per frame × 60fps = 216MB/s of GPU→CPU bandwidth. This is the main performance bottleneck.
+- **Single GL context:** All players share one headless-gl context and one Three.js renderer. Rendering is sequential (player 1 frame, player 2 frame, ...). For many players, need to parallelise with worker threads or multiple GL contexts.
+- **Demo scene only:** Currently renders a test planet. Needs to be connected to the actual game world state from Railway.
+
+#### Next steps
+
+1. **Debug NVENC/MSE** — Get H.264 hardware encoding reliably playing in all browsers via MSE
+2. **Connect to Railway** — Replace demo planet with real world state from the WebSocket server
+3. **Deploy to AWS EC2** — GPU quota pending, then deploy headless-server.js to cloud for public access
+4. **Scale to multiple players** — Worker threads for parallel rendering, shared GL contexts
 
 
 ---

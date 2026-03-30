@@ -3381,6 +3381,144 @@ On a GPU (WebGPU compute shaders, when available): SPH particle count can increa
 
 The server (for shared world state) only needs to run Scale 3 (grid) and Scale 4 (math). Crafting-scale and local-scale SPH run on the client only — they are visual and player-local. The server broadcasts grid cell water levels in the WORLD_SNAPSHOT, and clients generate local SPH particles for visual detail.
 
+#### Critical Optimizations
+
+The SPH algorithm is simple. Making it run at 60 Hz in a browser is the engineering challenge. These optimizations are not optional improvements — they are the architectural foundation without which the system cannot function at interactive frame rates.
+
+**1. Spatial Hash Grid — O(n²) → O(n)**
+
+The most important single optimization. SPH requires every particle to find its neighbors within kernel radius h. Naive approach: check every particle against every other particle. With 5,000 particles, that's 25,000,000 distance checks per tick — impossible at 60 Hz.
+
+Spatial hash grid: divide the world into cells of size h. Each particle hashes its position to a cell index. To find neighbors, only check the particle's own cell and the 26 adjacent cells (3×3×3 neighborhood). Average neighbor check drops from n to ~50 particles.
+
+```
+// Hash function: position → cell index
+function hashCell(x, y, z, cellSize) {
+  const ix = Math.floor(x / cellSize)
+  const iy = Math.floor(y / cellSize)
+  const iz = Math.floor(z / cellSize)
+  return (ix * 73856093) ^ (iy * 19349663) ^ (iz * 83492791)
+}
+
+// Each tick:
+// 1. Clear hash table
+// 2. Insert all particles by position hash
+// 3. For each particle, query only 27 neighboring cells
+```
+
+Cost reduction: 5,000 particles goes from 25M distance checks → ~250K. That's a 100× speedup. This is the difference between "impossible" and "trivial."
+
+**2. Sleep/Wake System — Skip Settled Particles**
+
+A particle that hasn't moved significantly for N consecutive ticks is "sleeping." Skip all force calculations for sleeping particles. They cost zero CPU until disturbed.
+
+```
+if (particle.velocity < SLEEP_THRESHOLD for 30 consecutive ticks):
+  particle.sleeping = true
+  // skip all SPH calculations for this particle
+
+if (any neighbor of sleeping particle moves significantly):
+  particle.sleeping = false  // wake up
+```
+
+In practice, 80–95% of fluid particles are sleeping at any moment. A puddle that settled 10 seconds ago has zero ongoing cost. Only the actively flowing portion of a liquid body costs CPU.
+
+**3. Flat Typed Arrays — Avoid JavaScript Object Overhead**
+
+Do NOT store particles as JavaScript objects (`{ x, y, z, vx, vy, vz, ... }`). Object access in JS involves property lookup, hidden class checks, and potential garbage collection pauses.
+
+Instead: store all particle data in flat `Float32Array` buffers. One contiguous array for positions, one for velocities, one for densities.
+
+```
+// Bad — JS objects, GC pressure, cache misses
+particles = [{ x: 1, y: 2, z: 3, vx: 0, ... }, ...]
+
+// Good — flat typed arrays, SIMD-friendly, zero GC
+const STRIDE = 3
+posX = new Float32Array(MAX_PARTICLES)  // or interleaved: pos = new Float32Array(MAX * 3)
+posY = new Float32Array(MAX_PARTICLES)
+posZ = new Float32Array(MAX_PARTICLES)
+velX = new Float32Array(MAX_PARTICLES)
+velY = new Float32Array(MAX_PARTICLES)
+velZ = new Float32Array(MAX_PARTICLES)
+```
+
+Benefits:
+- CPU cache-friendly (sequential memory access)
+- Enables SIMD auto-vectorization (V8 can process 4 floats at once)
+- Zero garbage collection (no object allocation per tick)
+- Direct transfer to GPU via SharedArrayBuffer (zero-copy)
+- ~3–5× faster than object-based approach in V8
+
+**4. Web Workers + SharedArrayBuffer — Off Main Thread, Zero Copy**
+
+The fluid simulation must NEVER run on the main thread. It runs in a dedicated Web Worker. The renderer (main thread) reads particle positions to draw them.
+
+With `SharedArrayBuffer`, the worker writes particle positions directly into shared memory. The main thread reads from the same memory to render. No copying, no message passing, no serialization.
+
+```
+// Main thread: create shared buffer
+const sharedBuf = new SharedArrayBuffer(MAX_PARTICLES * 3 * 4)  // xyz, float32
+const positions = new Float32Array(sharedBuf)
+
+// Send to worker once at startup
+worker.postMessage({ type: 'init', buffer: sharedBuf })
+
+// Worker: write positions every tick (no postMessage needed)
+positions[i * 3 + 0] = particleX
+positions[i * 3 + 1] = particleY
+positions[i * 3 + 2] = particleZ
+
+// Renderer: read positions every frame (same memory, zero copy)
+geometry.attributes.position.array = positions
+geometry.attributes.position.needsUpdate = true
+```
+
+Cost: effectively zero for data transfer. The only synchronization needed is an `Atomics.store/load` on a tick counter so the renderer knows when new data is ready.
+
+**5. Physics LOD — Distance-Based Quality Reduction**
+
+Particles far from the player don't need full-accuracy physics:
+
+| Distance from player | Tick rate | Neighbor search | Notes |
+|---|---|---|---|
+| 0–20 m | 60 Hz | Full (27 cells) | Player is watching closely |
+| 20–50 m | 15 Hz | Reduced (7 cells — face neighbors only) | Visible but not scrutinized |
+| 50–100 m | 2 Hz | Minimal (own cell only) | Background movement |
+| > 100 m | Convert to grid | No SPH | Too far to see individual particles |
+
+This reduces the effective particle count by ~60% in typical gameplay (most fluid is not right next to the player).
+
+**6. Hybrid Rendering: Real Physics + Visual Tricks**
+
+The most important optimization is knowing **when NOT to simulate**. Real SPH physics only runs during active interaction moments. Everything else uses cheap visual approximations:
+
+| Situation | Physics method | Visual method |
+|---|---|---|
+| Player melting/pouring metal | Real SPH (200-500 particles) | Screen-space fluid smoothing on SPH particles |
+| Player mixing chemicals | Real SPH + diffusion | Color blending shader on SPH particles |
+| Rain falling | None | GPU billboard particle system (thousands of quads, no physics) |
+| Rain puddles forming | Heightfield (add volume to grid cell) | Puddle decal texture + animated ripple shader |
+| River | Grid flow (volume + direction) | River mesh + scaled-down Gerstner waves from OceanShader |
+| Waterfall | None | Particle trail effect + splash particles + foam texture at base |
+| Lake | Grid cell (single water volume number) | Flat mesh at water height + wave shader + edge foam |
+| Ocean | None | Pure Gerstner wave shader (already built in OceanShader.ts) |
+| Lava (active flow front) | Real SPH (2,000-5,000 particles) | Emissive shader + heat distortion + cooled parts become terrain texture |
+| Lava (cooled) | None | Terrain with volcanic rock texture |
+| Blood | None | Decal projected onto terrain surface |
+| Water carried in pot | Just a number (mass + composition) | Sloshing animation shader on the pot model |
+
+The SPH system activates only when needed (phase transition triggers it) and deactivates when particles settle (sleep system) or cool into solids (merge back into material packets). During a typical gameplay session, SPH is actively running for maybe 10% of the time — during smelting, pouring, or weather events. The other 90% costs zero.
+
+**Screen-space fluid rendering** (for the moments when SPH is active):
+1. Render each SPH particle as a point sprite into a depth-only buffer
+2. Bilateral Gaussian blur on the depth buffer — this smooths overlapping spheres into a continuous surface
+3. Reconstruct normals from the smoothed depth
+4. Apply water/metal/lava shading (Fresnel, refraction, emissive glow) as a full-screen pass
+5. Composite over the scene
+
+This technique is used by Unreal Engine 5, Unity HDRP, and most modern games with fluid effects. The blur cost is per-pixel (fixed cost regardless of particle count), making it extremely efficient. 5,000 particles render at the same cost as 500.
+
 #### Implementation Phases
 
 **Phase 1 — Crafting-scale SPH (connect to material packets)**

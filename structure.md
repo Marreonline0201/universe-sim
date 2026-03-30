@@ -16,7 +16,7 @@
 2. [The Vision](#2-what-this-project-is--the-vision)
 
 ### PART II — GAME WORLD
-6. [All Major Systems](#6-all-major-systems--complete-inventory) ← World Gen, Organisms, Crafting, Geology, Settlements, Weather, Player Systems, Late-Game
+6. [All Major Systems](#6-all-major-systems--complete-inventory) ← World Gen, Organisms, Crafting, Emergent Materials, Geology, Settlements, Weather, Player Systems, Late-Game
 7. [UI Panels and Hotkeys](#7-all-ui-panels-and-hotkeys)
 
 ### PART III — TECHNICAL REFERENCE
@@ -2810,6 +2810,174 @@ The game has no recipe database. Instead it has **transformation rules** — phy
 - Assembly: Microwave plasma CVD reactor (2.45 GHz microwave at 3–6 kW), diamond seed substrate, cooling system
 - Conditions: H₂ + CH₄ mixture (1–3% CH₄) in microwave plasma → plasma dissociates H₂ → atomic H. Atomic H etches non-diamond carbon (graphite). CH₃ radicals deposit carbon on substrate. Only diamond survives the atomic H etching → diamond grows at ~10 μm/hour
 - Physics: Diamond is metastable at atmospheric pressure — graphite is thermodynamically stable. But kinetically, atomic hydrogen continuously removes graphite-phase carbon while leaving diamond intact. Diamond nucleates and grows on the seed crystal
+
+---
+
+### 6.3.3 Emergent Material System — Nothing Is Pre-Defined
+
+#### The Principle
+
+The universe does not have a recipe list. Helium was not "designed" — it emerged when hydrogen atoms were forced together under extreme temperature and pressure inside a star. Bronze was not "invented" — it is what happens when copper and tin atoms mix above 950°C and cool together. Glass was not "planned" — it is what happens when silicon dioxide melts at 1700°C and cools too quickly to crystallize.
+
+The game should work the same way. **No material is pre-defined. Every material is the result of rules applied to simpler materials under specific conditions.** The system doesn't know what "bronze" is. It knows what happens when a packet of mostly-copper meets a packet of mostly-tin at high temperature. The result has properties calculated from the inputs — and those properties happen to match what humans call bronze.
+
+This means:
+- The developer never writes `{ name: "bronze", hardness: 3.5, meltingPoint: 950 }` as a static entry
+- Instead, the system computes: "a Cu₀.₈₈Sn₀.₁₂ alloy at 25°C has Mohs hardness ≈ 3.5, melting point ≈ 950°C" from the component properties and known alloy rules
+- A player who mixes copper and zinc instead gets a different result — brass — without anyone coding brass
+- A player who mixes copper, tin, AND a small amount of phosphorus gets phosphor bronze — harder, more elastic — also without anyone coding it
+
+The game builds its material universe the same way the real universe did: from the bottom up.
+
+#### What Is a Material Packet
+
+The fundamental unit is not an atom (too expensive) or a named material (too rigid). It is a **material packet** — a chunk of matter with a composition, mass, temperature, and phase.
+
+```
+MaterialPacket {
+  // --- Identity: what is this made of? ---
+  composition: Map<Element, number>    // element → mass fraction (sums to 1.0)
+                                        // e.g., { Cu: 0.88, Sn: 0.12 }
+
+  // --- Physical state ---
+  mass: number                          // kg
+  temperature: number                   // °C
+  phase: 'solid' | 'liquid' | 'gas' | 'plasma'
+  pressure: number                      // Pa (default: 101325 = 1 atm)
+
+  // --- Derived (computed from composition + state, never stored manually) ---
+  meltingPoint: number                  // °C — weighted from components + alloy corrections
+  boilingPoint: number                  // °C
+  density: number                       // kg/m³
+  hardness: number                      // Mohs scale
+  thermalConductivity: number           // W/(m·K)
+  electricalConductivity: number        // S/m
+  tensileStrength: number               // MPa
+  color: [number, number, number]       // RGB derived from composition
+  crystalStructure: string              // FCC, BCC, HCP, amorphous...
+}
+```
+
+Every derived property is **calculated**, not looked up. The calculation uses real material science:
+
+| Property | How it's computed | Source |
+|----------|------------------|--------|
+| Melting point | Weighted average of component melting points + eutectic corrections from binary phase diagrams | CALPHAD method (simplified) |
+| Density | Rule of mixtures: `ρ = Σ(xᵢ · ρᵢ)` with packing corrections for crystal structure | Vegard's law for alloys |
+| Hardness | Hall-Petch relationship for grain size + solid solution strengthening from solute atoms | Metallurgy fundamentals |
+| Electrical conductivity | Matthiessen's rule: `1/σ = 1/σ_base + Σ(cᵢ · Δρᵢ)` — impurities increase resistivity | Resistivity tables |
+| Color | Drude model for metals (free electron plasma frequency → reflectance spectrum), absorption spectrum for non-metals | Optical properties of solids |
+| Crystal structure | Hume-Rothery rules: atomic size ratio, electronegativity difference, valence electron count → FCC/BCC/HCP prediction | Hume-Rothery (1934) |
+
+#### How Materials Combine: The Reaction Engine
+
+When two packets meet under conditions, the **reaction engine** determines what happens. It does not look up recipes. It checks thermodynamics.
+
+**Step 1 — Can a reaction happen?**
+Check Gibbs free energy: `ΔG = ΔH - TΔS`
+- If `ΔG < 0`: reaction is spontaneous (it wants to happen)
+- If `ΔG > 0`: reaction needs energy input
+- If `ΔG ≈ 0`: equilibrium (both forms coexist)
+
+The enthalpy (ΔH) and entropy (ΔS) values come from the elements' standard formation energies — tabulated from real chemistry, stored per element.
+
+**Step 2 — Is there enough energy?**
+- Temperature must be above activation energy threshold (Arrhenius: `k = A·e^(-Ea/RT)`)
+- Some reactions need a catalyst to lower Ea (e.g., iron catalyst for ammonia synthesis)
+- Some need specific atmosphere (reducing = carbon/CO present, oxidizing = oxygen present)
+
+**Step 3 — What comes out?**
+The output packet's composition is computed from stoichiometry:
+- Conservation of mass: total mass in = total mass out
+- Conservation of elements: every atom that goes in comes out (just rearranged)
+- Energy balance: exothermic reactions heat the output, endothermic reactions cool it
+
+**Step 4 — What are the output's properties?**
+All properties are recalculated from the new composition using the formulas above. The system doesn't know it made "bronze" — it made a Cu-Sn solid solution with computed properties.
+
+#### Example: A Player Discovers Bronze
+
+```
+1. Player has: packet A (composition: {Cu: 1.0}, mass: 1.0kg, temp: 25°C, phase: solid)
+              packet B (composition: {Sn: 1.0}, mass: 0.12kg, temp: 25°C, phase: solid)
+
+2. Player puts both in a bloomery and heats to 1100°C
+
+3. Reaction engine:
+   - Cu melting point: 1085°C → packet A transitions to liquid
+   - Sn melting point: 232°C → packet B already liquid
+   - Two liquids in contact → check miscibility: Cu-Sn are fully miscible in liquid phase
+   - Packets merge: new packet {Cu: 0.89, Sn: 0.11}, mass: 1.12kg, temp: 1100°C, phase: liquid
+
+4. Player removes from heat, packet cools below solidus (~950°C for this composition)
+   - Phase → solid
+   - Crystal structure: FCC (Hume-Rothery: Sn atoms substitute into Cu lattice, size ratio 0.93 ≈ OK)
+   - Hardness: higher than pure Cu (solid solution strengthening)
+   - Color: slightly more golden than pure copper
+
+5. The game has created "bronze" without ever defining bronze.
+```
+
+#### Example: Stellar Nucleosynthesis (The Universe Creates Elements)
+
+The same system works at cosmic scale. During world generation, the simulation can model how the planet's elements formed:
+
+```
+1. Primordial hydrogen cloud collapses under gravity
+2. Core temperature reaches 15,000,000°C, pressure reaches 250 billion atm
+3. Reaction engine: H + H → check ΔG at these conditions → fusion is spontaneous
+4. Output: He packet + energy (E = Δm·c²)
+5. As He accumulates, triple-alpha process: He + He + He → C at 100,000,000°C
+6. C + He → O, then Ne, Mg, Si... up to Fe (where fusion becomes endergonic)
+7. Supernova: extreme conditions create everything heavier than iron via neutron capture
+```
+
+This isn't simulated in real-time during gameplay — it runs once during world generation to establish the planet's elemental abundances. But it uses the same reaction engine. The planet's composition is DERIVED, not hardcoded.
+
+#### The Compounding Rule: 1 + 1 = 2
+
+Materials don't just react — they aggregate. Two dirt packets combine into one larger dirt packet. This is simple mass addition with composition averaging:
+
+```
+packet A: {Si: 0.33, O: 0.47, Al: 0.08, Fe: 0.05, ...}, mass: 0.5kg
+packet B: {Si: 0.30, O: 0.50, Al: 0.10, Fe: 0.04, ...}, mass: 0.3kg
+
+Result: weighted composition average, mass: 0.8kg
+  Si: (0.33×0.5 + 0.30×0.3) / 0.8 = 0.319
+  O:  (0.47×0.5 + 0.50×0.3) / 0.8 = 0.481
+  ... etc.
+```
+
+This means:
+- Inventory stacking is just packet merging (compositions average out)
+- Splitting a packet divides mass but keeps the same composition
+- Impurities naturally accumulate or dilute through mixing
+- Ore quality varies by location (different packets have different trace elements)
+- Purification is the process of separating a mixed packet into purer sub-packets
+
+#### What This Replaces
+
+The current `MaterialRegistry.ts` with 118 pre-defined materials becomes:
+1. **Element table** — 118 entries with REAL measured properties (atomic mass, melting point, density, electronegativity, standard formation enthalpy). This is the only static data. It comes from the periodic table — nature's constants.
+2. **Reaction engine** — thermodynamic rules that compute what happens when packets interact
+3. **Property calculator** — derives all material properties from composition using material science formulas
+4. **Packet store** — every object in the world is a packet (or a collection of packets)
+
+The Tier 2 (minerals) and Tier 3 (processed materials) lists in §6.3.1–6.3.2 are no longer definitions — they become **expected emergent results**. They describe what SHOULD emerge when the rules are correct. If the reaction engine, given real Cu and Sn properties, doesn't produce something with bronze-like properties at the right temperature, the rules have a bug — not a missing recipe.
+
+#### Computational Cost
+
+This is feasible on current hardware because:
+- Packets are coarse-grained (not individual atoms — a packet might represent 1 gram to 1 ton of material)
+- Property calculations are simple arithmetic (weighted averages, polynomial fits) — microseconds each
+- Reactions only fire when packets are brought together by a player or NPC action — not continuously
+- The element table (118 entries × ~20 properties) fits in < 10 KB
+- Phase diagram lookups can use pre-computed binary tables for common pairs (Cu-Sn, Fe-C, etc.) — ~500 pairs covers 95% of cases
+- Rare or novel combinations fall back to ideal solution approximations (less accurate but always produces a result)
+
+**Estimated per-reaction cost:** < 0.1ms on a single CPU core. A player performing 10 crafting actions per minute costs essentially nothing.
+
+**Where it gets expensive:** fluid simulation (§6.3.4), where millions of packets move and interact continuously. That is a separate problem addressed in the next section.
 
 ---
 

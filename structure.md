@@ -6233,7 +6233,10 @@ This is a real-world online simulation. The server is the world. The client is a
 │                                                                              │
 │  BROADCAST TO CLIENTS:                                                       │
 │  ├── WORLD_SNAPSHOT (6 Hz): player positions, NPC positions, organism       │
-│  │   positions, weather state, settlement state                              │
+│  │   positions, settlement state                                             │
+│  ├── ENVIRONMENT_STATE (1 Hz): weather (wind speed/dir, rain rate,          │
+│  │   temperature, humidity, cloud cover), fire positions + intensities,      │
+│  │   river flow vectors, sun position, season. Drives client GPU shaders.   │
 │  ├── PHYSICS_EVENT (as needed): SPH particle spawns/updates, material        │
 │  │   reactions, temperature changes, terrain modifications                   │
 │  ├── SOUND_EVENT (as needed): physics event descriptors for audio            │
@@ -6344,52 +6347,94 @@ Neither extreme is ideal. The hybrid approach uses each where it's strongest.
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                                                                             │
-│  MODE 1: State-Based Rendering (default, ~90% of play time)                │
+│  MODE 1: State + Shader Rendering (default, ~90% of play time)             │
 │                                                                             │
-│  Used when: walking, looking around, idle, in inventory, sleeping,         │
-│             talking to other players, navigating, anything without          │
-│             active complex physics in the player's view                     │
+│  Used when: exploring, walking, standing on a beach, watching weather,     │
+│             looking at a campfire, rain falling, rivers flowing, ocean      │
+│             waves, wind blowing through trees — the full living world      │
 │                                                                             │
 │  Server sends: WORLD_SNAPSHOT + CHUNK_DATA + ENTITY_UPDATE                 │
-│  Client does:  Builds and renders 3D scene from received state data        │
-│                Terrain meshes from CHUNK_DATA (heightmap + materials)       │
-│                Character meshes at server-provided positions                │
-│                Static objects (buildings, workstations, containers)         │
-│                Weather particles (rain, snow — visual approximation)        │
-│                Ocean shader (cosmetic waves, not physics)                   │
-│                Sky, lighting, shadows                                       │
+│                + ENVIRONMENT_STATE (wind speed/dir, rain rate, fire        │
+│                  positions, river flow vectors, temperature field)          │
+│  Client does:  Full 3D rendering with GPU shaders that make the world     │
+│                look REAL:                                                   │
 │                                                                             │
-│  Bandwidth: ~13 KB/s steady + ~90 KB burst for new chunks                  │
-│  Client needs: GPU (any modern integrated GPU is fine for this)            │
+│    TERRAIN:     Meshes from CHUNK_DATA with PBR materials, normal maps     │
+│    OCEAN:       Gerstner wave shader (already built) — realistic waves     │
+│                 that respond to wind speed/direction from server. Foam,     │
+│                 Fresnel reflections, depth transparency, shoreline wash.    │
+│    RIVERS:      Flow shader driven by server-provided flow vectors.        │
+│                 Scrolling normal maps, foam at rocks, speed variation.      │
+│    RAIN:        GPU particle system — 10,000+ raindrops as point sprites.  │
+│                 Splash particles on terrain contact. Puddle accumulation    │
+│                 shader on low terrain (heightmap depressions fill up).      │
+│    SNOW:        GPU particle system — slow falling, wind-affected.         │
+│                 Accumulation shader: terrain albedo lerps to white.         │
+│    FIRE:        Billboard particle system with noise-driven distortion.    │
+│                 Emissive glow, light emission (point light at fire pos).    │
+│                 Smoke: alpha-blended particles rising, wind-affected.       │
+│                 Ember sparks: tiny emissive particles with short life.      │
+│    WIND:        Vertex shader displacement on vegetation (grass, trees).   │
+│                 Amplitude and frequency from server wind speed.             │
+│    FOG:         Exponential distance fog with density from server weather.  │
+│    CLOUDS:      Scrolling noise layers at altitude, density from server.   │
+│    LIGHTNING:   Bright flash + branching line geometry (rare, storm only).  │
+│    CHARACTERS:  Animated skeletal meshes at server-provided positions.      │
+│    OBJECTS:     Static meshes with PBR materials.                           │
+│    LIGHTING:    Sun from orbital position, dynamic shadows, ambient.       │
+│                 Point lights from fires/torches with flicker.               │
+│    DAY/NIGHT:   Sky shader with atmospheric scattering. Stars at night.    │
 │                                                                             │
-│  What looks good: terrain, buildings, characters, sky, water surface       │
-│  What can't be shown: active fluid physics, particle interactions,         │
-│                       material deformation, fire detail, smoke turbulence  │
+│  The world looks FULLY REAL in Mode 1. A player standing on a beach sees  │
+│  waves crashing, foam washing up, rain falling, wind bending grass,        │
+│  firelight flickering in the distance, clouds moving overhead. This is     │
+│  NOT a degraded view. This is the normal, full-quality game experience.    │
+│                                                                             │
+│  What the client CANNOT do in Mode 1:                                      │
+│  Only things that require INTERACTIVE physics simulation results:           │
+│    - SPH fluid that the player is actively pouring or mixing               │
+│    - Molten metal flowing into a mold (shape depends on simulation)        │
+│    - Material deforming under hammer blows (precision craft)               │
+│    - Clay being shaped on a wheel (player-driven deformation)              │
+│  These need the server to compute what happens and show the result.        │
+│                                                                             │
+│  Bandwidth: ~15 KB/s steady + ~90 KB burst for new chunks                  │
+│  Client needs: GPU (any modern integrated GPU handles all these shaders)   │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                                                                             │
-│  MODE 2: Video Stream (activated for physics-heavy moments, ~10% of time)  │
+│  MODE 2: Video Stream (only for interactive physics, ~10% of play time)    │
 │                                                                             │
-│  Used when: precision crafting (§6.8.14), smelting at a workstation,       │
-│             pouring liquid, lava nearby, large fire, building collapse,     │
-│             any scene with active SPH/particle/deformation physics          │
+│  Used ONLY when the player is directly interacting with physics:            │
+│    - Precision crafting (§6.8.14): shaping clay, knapping flint, forging   │
+│    - Pouring liquid from one container to another                           │
+│    - Smelting: watching ore melt and metal separate from slag               │
+│    - Active lava flow deforming terrain in front of the player              │
+│    - Any moment where the visual result depends on real-time simulation    │
 │                                                                             │
-│  Server does: renders the scene on its GPU using headless-gl + Three.js    │
-│               encodes H.264 via NVENC (or JPEG fallback)                   │
+│  NOT used for: watching ocean waves, standing near a campfire, rain,       │
+│                walking through a forest, watching NPCs work — all of       │
+│                these look great in Mode 1 with GPU shaders.                 │
+│                                                                             │
+│  Server does: renders the scene on its GPU using server-side 3D renderer   │
+│               encodes H.264 via hardware encoder (or JPEG fallback)        │
 │               streams frames over WebSocket                                 │
 │  Client does: decodes video via MSE and displays in <video> element        │
 │               still captures and forwards player input                      │
 │               still plays sound from SOUND_EVENTs (not from video audio)   │
 │                                                                             │
 │  Bandwidth: ~750 KB/s (H.264) or ~2-3 MB/s (JPEG fallback)               │
-│  Server needs: GPU (NVIDIA with NVENC — already have GTX 5070)            │
+│  Server needs: GPU with hardware encoder                                   │
 │  Client needs: just a browser (no GPU required)                            │
 │                                                                             │
-│  What looks good: EVERYTHING — the server renders the full scene           │
-│                   including fluid dynamics, fire, particle effects,         │
-│                   material glow, caustics, reflections in molten metal      │
+│  Why video is needed here: the player is CREATING the visual result.       │
+│  When you pour copper into a mold, the shape of the liquid depends on      │
+│  SPH simulation. A shader can't fake that — it must be computed.           │
+│  When you hammer metal on an anvil, each blow deforms the mesh in a        │
+│  way that depends on force, angle, temperature. Only the server knows      │
+│  the result. So the server renders it and streams the image.               │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```

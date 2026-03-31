@@ -6180,6 +6180,311 @@ Per player, burst (entering new area):
 
 Per player, terrain modification:
   CHUNK_UPDATE:             ~10 KB per modified chunk  (rare — only when digging/building)
+
+Per player, video stream mode (when active):
+  H.264 NVENC (720p):      ~750 KB/s (~6 Mbit/s)    (replaces all other visual data)
+  JPEG fallback:            ~2-3 MB/s                 (if MSE not supported)
+  Sound data still sent separately as SOUND_EVENTs
+```
+
+#### Hybrid Rendering — Local 3D + Server Video Stream
+
+##### The Problem
+
+The client needs to show the world. Two extremes exist:
+
+1. **Send state data, client renders 3D** — cheap bandwidth (~13 KB/s), but the client must reconstruct complex physics visuals (SPH particles, fire, debris, deforming materials) from abstract position data. This is hard. Thousands of SPH particles flowing in a crucible can't be faithfully rendered from just position arrays — the client would need the full physics context (material properties, surface tension, light interaction with molten metal) to make it look right. The result would either look wrong or require the client to run its own physics (which defeats server authority).
+
+2. **Server renders everything, streams video** — pixel-perfect visuals, but costs ~750 KB/s per player and requires a GPU server. Works for complex scenes but wasteful for a player standing in a field looking at terrain.
+
+Neither extreme is ideal. The hybrid approach uses each where it's strongest.
+
+##### Two Rendering Modes
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                                                                             │
+│  MODE 1: State-Based Rendering (default, ~90% of play time)                │
+│                                                                             │
+│  Used when: walking, looking around, idle, in inventory, sleeping,         │
+│             talking to other players, navigating, anything without          │
+│             active complex physics in the player's view                     │
+│                                                                             │
+│  Server sends: WORLD_SNAPSHOT + CHUNK_DATA + ENTITY_UPDATE                 │
+│  Client does:  Builds and renders 3D scene from received state data        │
+│                Terrain meshes from CHUNK_DATA (heightmap + materials)       │
+│                Character meshes at server-provided positions                │
+│                Static objects (buildings, workstations, containers)         │
+│                Weather particles (rain, snow — visual approximation)        │
+│                Ocean shader (cosmetic waves, not physics)                   │
+│                Sky, lighting, shadows                                       │
+│                                                                             │
+│  Bandwidth: ~13 KB/s steady + ~90 KB burst for new chunks                  │
+│  Client needs: GPU (any modern integrated GPU is fine for this)            │
+│                                                                             │
+│  What looks good: terrain, buildings, characters, sky, water surface       │
+│  What can't be shown: active fluid physics, particle interactions,         │
+│                       material deformation, fire detail, smoke turbulence  │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                                                                             │
+│  MODE 2: Video Stream (activated for physics-heavy moments, ~10% of time)  │
+│                                                                             │
+│  Used when: precision crafting (§6.8.14), smelting at a workstation,       │
+│             pouring liquid, lava nearby, large fire, building collapse,     │
+│             any scene with active SPH/particle/deformation physics          │
+│                                                                             │
+│  Server does: renders the scene on its GPU using headless-gl + Three.js    │
+│               encodes H.264 via NVENC (or JPEG fallback)                   │
+│               streams frames over WebSocket                                 │
+│  Client does: decodes video via MSE and displays in <video> element        │
+│               still captures and forwards player input                      │
+│               still plays sound from SOUND_EVENTs (not from video audio)   │
+│                                                                             │
+│  Bandwidth: ~750 KB/s (H.264) or ~2-3 MB/s (JPEG fallback)               │
+│  Server needs: GPU (NVIDIA with NVENC — already have GTX 5070)            │
+│  Client needs: just a browser (no GPU required)                            │
+│                                                                             │
+│  What looks good: EVERYTHING — the server renders the full scene           │
+│                   including fluid dynamics, fire, particle effects,         │
+│                   material glow, caustics, reflections in molten metal      │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+##### When and How the Switch Happens
+
+The switch between modes is triggered by **the player's actions**, not by scene complexity analysis. This makes it predictable and clean.
+
+```
+Mode Switch Triggers {
+  // ── State → Video (player enters a physics-heavy context) ─────────────────
+
+  trigger_1: "Player presses F at a workstation"
+    // Camera zooms into the workstation (§6.8.14 precision craft mode)
+    // During the zoom animation (0.5s), the server:
+    //   1. Starts rendering this player's view on the GPU
+    //   2. Begins encoding H.264 frames
+    //   3. Sends MODE_SWITCH { mode: 'video' } to client
+    // Client:
+    //   1. Receives MODE_SWITCH
+    //   2. Creates/shows <video> element (or JPEG canvas)
+    //   3. Fades out the 3D canvas, fades in the video
+    //   4. The zoom blur hides any visual discontinuity during the transition
+    //   5. From this point, client displays video frames from server
+    //   6. Client still sends input (mouse position for precision craft, keyboard)
+
+  trigger_2: "Active SPH particles > 200 within 10m of player"
+    // A lava flow reaches the player, or someone pours a large amount of liquid nearby
+    // Server detects the threshold and initiates video mode
+    // Transition: 0.3s crossfade from 3D to video
+
+  trigger_3: "Player enters precision craft mode manually"
+    // Player holds an item and presses the precision key
+    // Same as trigger_1 — zoom in, switch to video
+
+  // ── Video → State (physics event ends) ────────────────────────────────────
+
+  trigger_4: "Player exits workstation (ESC or walks away)"
+    // Camera zooms out
+    // During zoom out (0.5s), server:
+    //   1. Sends final state update (what changed: new items, terrain mods)
+    //   2. Sends MODE_SWITCH { mode: 'state' }
+    //   3. Stops encoding video for this player
+    // Client:
+    //   1. Receives MODE_SWITCH
+    //   2. Fades out video, fades in 3D canvas
+    //   3. 3D scene is already up-to-date from state data received during video mode
+    //      (WORLD_SNAPSHOT continues during video mode — client updates 3D scene in background)
+
+  trigger_5: "Active SPH particles drop below 50 near player"
+    // The liquid solidified, the lava cooled, the pour is done
+    // Server sends final state, switches back to state mode
+    // 0.3s crossfade back to 3D
+}
+```
+
+##### Implementation — How It Actually Works
+
+The technology already exists in the codebase (§13.6). The hybrid system connects it:
+
+```
+Server Side (Node.js + headless-gl + NVENC):
+
+  // The server already has:
+  //   - headless-gl creating a WebGL context
+  //   - Three.js v0.152 rendering scenes
+  //   - FFmpeg h264_nvenc encoding frames at ~3-8ms per frame
+  //   - WebSocket transport for binary frame data
+  //   - Per-player camera management
+
+  // What's new for hybrid mode:
+  //   - The server does NOT render video for all players all the time
+  //   - Video rendering is ON-DEMAND, per player, only during physics moments
+  //   - Each player has a videoMode: boolean flag
+
+  class PlayerSession {
+    videoMode: boolean = false           // starts in state mode
+    camera: THREE.PerspectiveCamera      // player's view (always maintained)
+    ffmpegProcess: ChildProcess | null   // spawned only when videoMode = true
+
+    enterVideoMode() {
+      this.videoMode = true
+      // Spawn FFmpeg NVENC encoder for this player
+      this.ffmpegProcess = spawn('ffmpeg', [
+        '-f', 'rawvideo', '-pix_fmt', 'rgba',
+        '-s', '1280x720', '-r', '30',       // 720p at 30fps
+        '-i', 'pipe:0',                       // raw frames from stdin
+        '-c:v', 'h264_nvenc',                 // NVIDIA hardware encoder
+        '-preset', 'p4',                      // balanced quality/speed
+        '-tune', 'ull',                       // ultra-low-latency
+        '-b:v', '4M',                         // 4 Mbit/s bitrate
+        '-f', 'mp4',
+        '-movflags', 'frag_keyframe+empty_moov',
+        'pipe:1'                              // fragmented MP4 to stdout
+      ])
+      // FFmpeg stdout → WebSocket binary frames to client
+      this.ffmpegProcess.stdout.on('data', chunk => {
+        this.ws.send(chunk)                   // binary frame to browser
+      })
+      // Send mode switch message
+      this.ws.send(JSON.stringify({ t: 'mode', mode: 'video' }))
+    }
+
+    exitVideoMode() {
+      this.videoMode = false
+      if (this.ffmpegProcess) {
+        this.ffmpegProcess.stdin.end()        // graceful shutdown
+        this.ffmpegProcess = null
+      }
+      this.ws.send(JSON.stringify({ t: 'mode', mode: 'state' }))
+    }
+  }
+
+  // Render loop (runs at 30 Hz for video-mode players only):
+  function renderVideoFrames() {
+    for (const session of activeSessions) {
+      if (!session.videoMode) continue        // skip state-mode players — no rendering needed
+
+      // Position camera at player's view
+      renderer.render(scene, session.camera)
+
+      // Read pixels from GPU
+      const pixels = new Uint8Array(1280 * 720 * 4)
+      gl.readPixels(0, 0, 1280, 720, gl.RGBA, gl.UNSIGNED_BYTE, pixels)
+
+      // Feed to this player's FFmpeg process
+      session.ffmpegProcess.stdin.write(Buffer.from(pixels))
+    }
+  }
+
+  // Server cost: rendering ONLY happens for players in video mode
+  // If 50 players are online but only 3 are at workstations, only 3 get rendered
+  // GTX 5070 can handle ~8-10 simultaneous 720p renders at 30fps
+```
+
+```
+Client Side (Browser):
+
+  class GameClient {
+    mode: 'state' | 'video' = 'state'
+    threeCanvas: HTMLCanvasElement           // 3D rendering (always exists)
+    videoElement: HTMLVideoElement           // MSE video playback
+    mediaSource: MediaSource                 // for H.264 decoding
+    sourceBuffer: SourceBuffer | null
+
+    // 3D scene is ALWAYS maintained, even during video mode
+    // This means switching back to state mode is instant — no loading
+    threeScene: THREE.Scene
+    threeRenderer: THREE.WebGLRenderer
+
+    onMessage(data) {
+      if (typeof data === 'string') {
+        const msg = JSON.parse(data)
+
+        if (msg.t === 'mode') {
+          this.switchMode(msg.mode)
+          return
+        }
+
+        // State data — always processed, even during video mode
+        if (msg.t === 'snapshot') this.updateSceneFromSnapshot(msg)
+        if (msg.t === 'chunk')    this.loadChunkData(msg)
+        if (msg.t === 'sound')    this.playSound(msg)
+        if (msg.t === 'entity')   this.updateEntity(msg)
+      } else {
+        // Binary data = video frame (only arrives during video mode)
+        if (this.sourceBuffer && !this.sourceBuffer.updating) {
+          this.sourceBuffer.appendBuffer(data)
+        }
+      }
+    }
+
+    switchMode(newMode: 'state' | 'video') {
+      if (newMode === this.mode) return
+
+      if (newMode === 'video') {
+        // Crossfade: 3D canvas fades out, video fades in
+        this.threeCanvas.style.transition = 'opacity 0.4s'
+        this.threeCanvas.style.opacity = '0'
+        this.videoElement.style.transition = 'opacity 0.4s'
+        this.videoElement.style.opacity = '1'
+        this.videoElement.style.display = 'block'
+        // Start MSE pipeline
+        this.initMSE()
+      } else {
+        // Crossfade: video fades out, 3D canvas fades in
+        this.videoElement.style.opacity = '0'
+        this.threeCanvas.style.opacity = '1'
+        // 3D scene is already up-to-date (state data kept flowing during video mode)
+        setTimeout(() => {
+          this.videoElement.style.display = 'none'
+          this.cleanupMSE()
+        }, 400)
+      }
+
+      this.mode = newMode
+    }
+
+    // Input is ALWAYS captured and sent to server, regardless of mode
+    // In state mode: server uses input to update player position
+    // In video mode: server uses input for precision craft (mouse on work surface)
+  }
+```
+
+##### Why This Works
+
+| Concern | Answer |
+|---------|--------|
+| "How does the client show SPH particles?" | It doesn't. When physics is active, the server renders it and streams video. The client sees pixel-perfect fluid. |
+| "Doesn't video streaming need an expensive GPU server?" | Only for the ~10% of time when players are at workstations or near active physics. The GTX 5070 you already have handles ~8-10 concurrent video streams. |
+| "What about latency in video mode?" | NVENC encoding: ~3-8ms. Network: ~20-50ms. MSE decode: ~5ms. Total: ~30-60ms. For precision crafting (slow, deliberate actions), this is imperceptible. |
+| "What if 50 players all use workstations at once?" | The server queues rendering. At 30fps each, 10 players max at 720p on a single GPU. Beyond that: lower resolution, lower framerate, or add a second GPU. In practice, most players are walking around (state mode = zero GPU cost). |
+| "What does the transition look like?" | Player presses F at bloomery → camera zooms in → 0.4s blur/fade → video appears. The zoom motion and blur hide the switch. Looks intentional, not glitchy. |
+| "Can the 3D scene get out of sync during video mode?" | No — state data (WORLD_SNAPSHOT, CHUNK_UPDATE, ENTITY_UPDATE) continues flowing during video mode. The 3D scene updates silently in the background. When switching back, it's already current. |
+| "What if the player has no GPU at all?" | They can stay in video mode permanently — the server renders everything. This is the full cloud gaming fallback. Bandwidth cost: ~750 KB/s constant. Playable on a Chromebook. |
+
+##### Server Hardware Requirements
+
+```
+For state mode only (no video):
+  Railway Node.js server (no GPU needed)
+  Handles 50+ players at ~650 KB/s total
+
+For hybrid mode (state + video):
+  GPU server with NVIDIA card + NVENC
+  Already have: GTX 5070 (local) — see §13.4
+  Capacity per GPU:
+    720p @ 30fps: ~8-10 concurrent video streams
+    480p @ 30fps: ~15-20 concurrent video streams
+    720p @ 15fps: ~15-20 concurrent video streams (lower framerate for less intense moments)
+
+  Scaling:
+    50 players, 5 at workstations → 5 video streams → 1 GPU handles it easily
+    50 players, 15 at workstations → need 2 GPUs or lower resolution
+    100 players → dedicated GPU server (AWS g5.xlarge or similar)
 ```
 
 ### 6.8.9 Inventory System — Clothing Determines Capacity

@@ -11,10 +11,11 @@
 2. [The Vision](#2-what-this-project-is--the-vision)
 
 ### PART II — GAME WORLD
-6. [All Major Systems](#6-all-major-systems--complete-inventory)
+3. [All Major Systems](#3-all-major-systems--complete-inventory) — World Gen, Organisms, Crafting, Emergent Materials, Fluid Simulation, Geology, Settlements, Weather, Seasons, Player Systems, Combat, Late-Game
+4. [UI Panels and Hotkeys](#4-all-ui-panels-and-hotkeys)
 
 ### REFERENCES
-19. [References](#19-references)
+5. [References](#5-references)
 
 ---
 
@@ -77,13 +78,13 @@ This approach has precedent. *Dwarf Fortress* (Tarn Adams, ongoing) demonstrated
 # PART II — GAME WORLD
 ---
 
-## 6. All Major Systems — Complete Inventory
+## 3. All Major Systems — Complete Inventory
 
-### 6.1 World Generation — Physical Foundation
+### 3.1 World Generation — Physical Foundation
 
 ---
 
-#### 6.1.0 Planetary Formation and Bulk Geochemistry
+#### 3.1.0 Planetary Formation and Bulk Geochemistry
 
 The current world-generation pipeline starts at tectonic plates. That is the wrong starting point. Tectonic plates are an emergent consequence of planetary cooling — they are not where resources come from. Resources come from the planet's bulk chemistry, which was set at accretion, then sorted by differentiation, then fractionated by partial melting, then concentrated by hydrothermal circulation. The tectonic plate is just the last step in a chain that starts in the solar nebula.
 
@@ -91,7 +92,7 @@ This section documents that full chain. The tectonic rules in 6.4.1–6.4.8 are 
 
 ---
 
-##### 6.1.0.1 Planetary Accretion and Bulk Composition
+##### 3.1.0.1 Planetary Accretion and Bulk Composition
 
 A rocky planet forms by gravitational accretion of planetesimals from the protoplanetary disk. The disk's composition follows stellar abundances (solar composition), but the innermost zone where rocky planets form is depleted of volatile elements (H, He, C, N, noble gases) because the young star's heat drove them outward. What remains to build a rocky planet is dominated by refractory elements — those with high condensation temperatures from a cooling gas.
 
@@ -115,7 +116,7 @@ These numbers are not arbitrary — they are the cosmic abundances of refractory
 
 ---
 
-##### 6.1.0.2 Planetary Differentiation and Goldschmidt Classification
+##### 3.1.0.2 Planetary Differentiation and Goldschmidt Classification
 
 When a newly accreted planet is hot enough (from accretional energy + short-lived radioisotope decay — primarily ²⁶Al, with a 730,000-year half-life), the interior melts. This melting is the most important event in planetary history for resource distribution: elements sort themselves by chemical affinity.
 
@@ -145,7 +146,7 @@ These form the hydrosphere, atmosphere, and biosphere. The oceans and atmosphere
 
 ---
 
-##### 6.1.0.3 Bowen's Reaction Series and Magmatic Differentiation
+##### 3.1.0.3 Bowen's Reaction Series and Magmatic Differentiation
 
 Once differentiation has established the mantle, further chemical fractionation occurs every time a piece of mantle melts. This is the second major sorting mechanism, and it controls which elements end up in which types of crustal rock.
 
@@ -201,7 +202,7 @@ With each melting and crystallization cycle at subduction zones, the crustal col
 
 ---
 
-##### 6.1.0.4 Planet Layer Model
+##### 3.1.0.4 Planet Layer Model
 
 The game must generate and track these layers. Each layer has a distinct composition and set of accessible resources:
 
@@ -221,7 +222,7 @@ The game must generate and track these layers. Each layer has a distinct composi
 
 ---
 
-##### 6.1.0.5 Crustal Abundance — Clarke Numbers
+##### 3.1.0.5 Crustal Abundance — Clarke Numbers
 
 The **Clarke number** (named after geochemist Frank Wigglesworth Clarke, 1847–1931) is the average abundance of an element in the continental crust, in parts per million (ppm) by mass. These numbers define how common or rare a resource is in the game world. A resource with a Clarke number of 60 ppm (copper) is ~15,000 times more abundant than one with 0.004 ppm (gold). The game must respect these ratios in deposit size and discovery frequency.
 
@@ -261,7 +262,7 @@ The **Clarke number** (named after geochemist Frank Wigglesworth Clarke, 1847–
 
 ---
 
-##### 6.1.0.6 Mineral Stability — Formation Conditions
+##### 3.1.0.6 Mineral Stability — Formation Conditions
 
 A resource node can only exist if the conditions that formed it actually existed at that location. The game's resource seeder must run a mineral stability check before placing any deposit. Each mineral has a valid temperature window, pressure window, chemical activity window, and atmospheric condition:
 
@@ -292,7 +293,7 @@ A resource node can only exist if the conditions that formed it actually existed
 
 ---
 
-##### 6.1.0.7 World Generation Algorithm — From First Principles
+##### 3.1.0.7 World Generation Algorithm — From First Principles
 
 This is the full ordered sequence the game runs when generating a new world:
 
@@ -338,7 +339,7 @@ Every resource node in the game has a surface expression that derives from the r
 
 ---
 
-#### 6.1.1 Surface Terrain and Biomes
+#### 3.1.1 Surface Terrain and Biomes
 
 The planet is a sphere with a 4-kilometer radius. The terrain is generated using a technique called 3D Fractional Brownian Motion (FBM) with domain warping — this produces natural-looking mountain ranges, valleys, and coastlines without any repetition. Additional passes add ridged mountains and Voronoi-based tectonic plates.
 
@@ -346,7 +347,7 @@ The planet is a sphere with a 4-kilometer radius. The terrain is generated using
 
 River networks are generated with valley carving. Coastal areas are identified and affect settlement behavior.
 
-### 6.2 Organism Ecosystem (Server-Authoritative as of 2026-03-27)
+### 3.2 Organism Ecosystem
 
 The server runs `OrganismManager` at 6 Hz. Organisms have four diet types (autotroph, heterotroph, mixotroph, chemoautotroph), energy budgets tied to the day/night light cycle, stochastic death and reproduction, and 256-bit genomes that enable speciation tracking.
 
@@ -371,7 +372,7 @@ The 256-bit genome and Hamming distance speciation threshold implement the conce
 
 ---
 
-### 6.2.1 Full Organism Species Registry
+### 3.2.1 Full Organism Species Registry
 
 Every living thing in the game is an organism in the simulation. There are no static resource nodes for biological materials — wood, grain, wool, wax, guano, and every other biological product comes from a living organism that was born, grew, and can die. This section documents every species that must exist in the system, organized by kingdom, with their ecological role, biome constraints, products they yield, and how their population dynamics interact with the rest of the simulation.
 
@@ -913,13 +914,13 @@ The current system models organisms as abstract entities with diet types and ene
 - Secondary consumer cap (omnivores) = f(primary consumer + autotroph populations)
 - Apex predator cap = f(secondary consumer population)
 
-### 6.3 Physics-Based Crafting (New 2026-03-27)
+### 3.3 Physics-Based Crafting
 
 116 materials with 11 physics properties each. Five physics interactions: bow-drill fire, flint-and-iron fire, stone knapping, clay pottery, copper/iron smelting. Success rates computed from material properties. Hidden practice tracking. Discovery system for first successes.
 
 ---
 
-### 6.3.1 Complete Material Taxonomy
+### 3.3.1 Complete Material Taxonomy
 
 The material system operates in three tiers. **Elements** are the base layer — single-substance building blocks from the periodic table. **Minerals** are natural multi-element compounds found in the ground. **Processed materials** are what humans make by combining and transforming the first two tiers. The game's crafting arc is the process of moving up through these tiers.
 
@@ -1577,7 +1578,7 @@ Mark Miodownik's *Stuff Matters* (2013) describes the experiential reality behin
 **Design grounding — no recipe list:**
 The decision to derive all interactions from properties rather than a lookup table follows directly from how *Dwarf Fortress* handles material simulation. In that game, fire spreads based on each material's ignition temperature and combustion energy — not because a designer wrote "wood catches fire." The same principle applies here: gunpowder is not a recipe. It is what happens when three materials — each with high reactivity, sufficient combustion energy, and a low ignition threshold — are combined and struck.
 
-### 6.3.2 Complete Production System — How Every Material Is Made
+### 3.3.2 Complete Production System — How Every Material Is Made
 
 The game has no recipe database. Instead it has **transformation rules** — physical and chemical laws that govern what happens when materials are combined under specific conditions. Every Tier 3 material is produced by one or more of five transformation types.
 
@@ -2613,7 +2614,7 @@ The game has no recipe database. Instead it has **transformation rules** — phy
 
 ---
 
-### 6.3.3 Emergent Material System — Nothing Is Pre-Defined
+### 3.3.3 Emergent Material System — Nothing Is Pre-Defined
 
 #### The Principle
 
@@ -2763,7 +2764,7 @@ The current `MaterialRegistry.ts` with 118 pre-defined materials becomes:
 3. **Property calculator** — derives all material properties from composition using material science formulas
 4. **Packet store** — every object in the world is a packet (or a collection of packets)
 
-The Tier 2 (minerals) and Tier 3 (processed materials) lists in §6.3.1–6.3.2 are no longer definitions — they become **expected emergent results**. They describe what SHOULD emerge when the rules are correct. If the reaction engine, given real Cu and Sn properties, doesn't produce something with bronze-like properties at the right temperature, the rules have a bug — not a missing recipe.
+The Tier 2 (minerals) and Tier 3 (processed materials) lists in §3.3.1–6.3.2 are no longer definitions — they become **expected emergent results**. They describe what SHOULD emerge when the rules are correct. If the reaction engine, given real Cu and Sn properties, doesn't produce something with bronze-like properties at the right temperature, the rules have a bug — not a missing recipe.
 
 #### Computational Cost
 
@@ -2777,11 +2778,11 @@ This is feasible on current hardware because:
 
 **Estimated per-reaction cost:** < 0.1ms on a single CPU core. A player performing 10 crafting actions per minute costs essentially nothing.
 
-**Where it gets expensive:** fluid simulation (§6.3.4), where millions of packets move and interact continuously. That is a separate problem addressed in the next section.
+**Where it gets expensive:** fluid simulation (§3.3.4), where millions of packets move and interact continuously. That is a separate problem addressed in the next section.
 
 ---
 
-### 6.3.4 Fluid Simulation — How Liquids Work
+### 3.3.4 Fluid Simulation — How Liquids Work
 
 #### Why Liquid Is the Hardest Problem
 
@@ -2820,7 +2821,7 @@ SPH handles all of these because the particles move with the fluid — they go w
 
 ```
 SPHParticle {
-  // --- From the material packet system (§6.3.3) ---
+  // --- From the material packet system (§3.3.3) ---
   composition: Map<Element, number>    // what this droplet is made of
   mass: number                          // kg (fixed at creation)
   temperature: number                   // °C (changes from environment + neighbors)
@@ -2920,7 +2921,7 @@ for each particle i:
 
 #### Phase Transitions: Solid ↔ Liquid ↔ Gas
 
-Phase transitions connect the fluid simulation to the material packet system (§6.3.3). They are the bridge between the static world of solids and the dynamic world of fluids.
+Phase transitions connect the fluid simulation to the material packet system (§3.3.3). They are the bridge between the static world of solids and the dynamic world of fluids.
 
 **Melting (solid → liquid):**
 ```
@@ -3010,7 +3011,7 @@ Rules per tick (0.5–1 Hz — slow, large scale):
 - Water flows from high cells to low cells (terrain height + water depth)
 - Flow rate depends on slope (Manning's equation: `v = (1/n) · R^(2/3) · S^(1/2)` where n is roughness, R is hydraulic radius, S is slope)
 - Evaporation removes water based on temperature and humidity
-- Rain adds water based on weather system (§6.6)
+- Rain adds water based on weather system (§3.6)
 - Rivers defined by RiverSystem.ts are permanent flow paths with base flow rates
 
 This extends the existing `fluid.worker.ts` and `RiverSystem.ts`. The grid is the same 3D grid already initialized in the worker — it just needs water-specific logic added.
@@ -3061,7 +3062,7 @@ The ocean shader reads sea level from the simulation state.
 
 #### Mixing and Reactions in Liquid
 
-When two SPH particles of different composition are neighbors, they can mix and react — using the same reaction engine from §6.3.3.
+When two SPH particles of different composition are neighbors, they can mix and react — using the same reaction engine from §3.3.3.
 
 **Diffusion (passive mixing):**
 Each tick, neighboring particles exchange a small fraction of their composition proportional to their contact area and the diffusion coefficient. Over time, two adjacent liquids homogenize. Stirring (player action or turbulent flow) increases the mixing rate by bringing distant particles into contact.
@@ -3075,7 +3076,7 @@ particle_j.composition += mixRate · (particle_i.composition - particle_j.compos
 where D is the diffusion coefficient (depends on temperature and the materials involved).
 
 **Reactions in liquid phase:**
-When two particles' mixed composition satisfies a reaction condition (§6.3.3 reaction engine — Gibbs free energy check), the reaction fires:
+When two particles' mixed composition satisfies a reaction condition (§3.3.3 reaction engine — Gibbs free energy check), the reaction fires:
 - Acid dissolves metal: HCl particles + Fe particles → FeCl₂ solution + H₂ gas bubbles
 - Salt dissolves in water: NaCl solid particles near H₂O particles → Na⁺ and Cl⁻ dissolve into water composition
 - Oil and water refuse to mix: if immiscible (ΔG of mixing > 0), particles repel at the interface instead of diffusing
@@ -3131,7 +3132,7 @@ When all scales work together, the full hydrological cycle emerges:
 EVAPORATION: Ocean + lakes + rivers lose water (temperature + surface area + wind)
   ↓ water vapor enters atmosphere
 CLOUD FORMATION: Vapor rises, cools below dew point, condenses
-  ↓ water droplets aggregate into clouds (weather system §6.6)
+  ↓ water droplets aggregate into clouds (weather system §3.6)
 PRECIPITATION: Clouds release water as rain (liquid) or snow (solid)
   ↓ SPH particles fall from sky (Scale 1-2)
 SURFACE FLOW: Rain hits terrain, flows downhill
@@ -3146,7 +3147,7 @@ GROUNDWATER: Some rain absorbs into porous terrain
   ↓ feeds springs, wells, and maintains river base flow in dry season
 ```
 
-No part of this cycle is scripted. It all follows from the physics: gravity pulls water down, heat drives evaporation, cooling drives condensation, terrain shape determines where water collects and flows. The weather system (§6.6) provides precipitation. The fluid simulation handles everything after the raindrop forms.
+No part of this cycle is scripted. It all follows from the physics: gravity pulls water down, heat drives evaporation, cooling drives condensation, terrain shape determines where water collects and flows. The weather system (§3.6) provides precipitation. The fluid simulation handles everything after the raindrop forms.
 
 #### Lava: Liquid Rock
 
@@ -3353,9 +3354,9 @@ This technique is used by Unreal Engine 5, Unity HDRP, and most modern games wit
 
 ---
 
-### 6.4 Geology and Resource Distribution (New 2026-03-27)
+### 3.4 Geology and Resource Distribution
 
-Resource distribution builds on the planetary formation and tectonic structure defined in §6.1. Resource nodes are concentrated according to real geological processes. Settlement specialties assigned by server-side geology query (matching the client algorithm exactly).
+Resource distribution builds on the planetary formation and tectonic structure defined in §3.1. Resource nodes are concentrated according to real geological processes. Settlement specialties assigned by server-side geology query (matching the client algorithm exactly).
 
 **Scientific grounding — why geology determines civilization:**
 Jared Diamond's *Guns, Germs, and Steel* (1997) argues that geography is the primary driver of civilizational development — not intelligence, culture, or luck. Societies that happened to sit on land with domesticable crops, workable metals, and navigable rivers developed faster and outcompeted those that did not. The same logic applies here. A player who starts near a copper-rich volcanic zone has access to metal tools earlier than one who starts in a sedimentary basin with only flint. This is not unfair — it is how reality works. The world rewards exploration and trade precisely because different regions have different resources.
@@ -3364,7 +3365,7 @@ Every resource in the game has one or more real geological formation mechanisms.
 
 ---
 
-#### 6.4.1 Metals and Ores
+#### 3.4.1 Metals and Ores
 
 **Copper** (native copper, malachite, azurite, chalcopyrite)
 
@@ -3496,7 +3497,7 @@ Every resource in the game has one or more real geological formation mechanisms.
 
 ---
 
-#### 6.4.2 Non-Metallic Rock and Mineral Resources
+#### 3.4.2 Non-Metallic Rock and Mineral Resources
 
 **Limestone and chalk** (calcite CaCO₃, aragonite CaCO₃)
 
@@ -3630,13 +3631,13 @@ Every resource in the game has one or more real geological formation mechanisms.
 
 ---
 
-#### 6.4.3 Evaporite and Sedimentary Resources
+#### 3.4.3 Evaporite and Sedimentary Resources
 
 These are addressed with their minerals above (salt, gypsum, potash). See entries above.
 
 ---
 
-#### 6.4.4 Carbon-Bearing Materials
+#### 3.4.4 Carbon-Bearing Materials
 
 **Coal** (peat → lignite → sub-bituminous → bituminous → anthracite)
 
@@ -3664,7 +3665,7 @@ These are addressed with their minerals above (salt, gypsum, potash). See entrie
 
 ---
 
-#### 6.4.5 Radioactive Materials
+#### 3.4.5 Radioactive Materials
 
 **Uranium** (uraninite/pitchblende UO₂, carnotite K₂(UO₂)₂(VO₄)₂, coffinite USiO₄)
 
@@ -3680,7 +3681,7 @@ These are addressed with their minerals above (salt, gypsum, potash). See entrie
 
 ---
 
-#### 6.4.6 Biogenic and Organic Resources
+#### 3.4.6 Biogenic and Organic Resources
 
 **Wood**
 
@@ -3710,7 +3711,7 @@ These are addressed with their minerals above (salt, gypsum, potash). See entrie
 
 ---
 
-#### 6.4.7 Rare and Strategic Materials
+#### 3.4.7 Rare and Strategic Materials
 
 **Platinum group metals** (platinum Pt, palladium Pd, rhodium Rh, iridium Ir, osmium Os, ruthenium Ru)
 
@@ -3732,7 +3733,7 @@ These are addressed with their minerals above (salt, gypsum, potash). See entrie
 
 ---
 
-#### 6.4.8 How the Game Uses This Information
+#### 3.4.8 How the Game Uses This Information
 
 All resource node placement derives from these formation rules. The game runs a geological simulation at world generation time:
 
@@ -3752,7 +3753,7 @@ All resource node placement derives from these formation rules. The game runs a 
 
 Settlement specialties are assigned by querying what resource nodes fall within 200 meters of the settlement seed point. The most abundant or highest-value node determines the specialty. A settlement seeded near a copper porphyry becomes a copper mining town. A settlement seeded in a sedimentary basin near limestone and clay becomes a pottery and masonry town. A settlement near a forest biome boundary with good clay soil becomes a farming and charcoal settlement. No designer places these — the geology places them.
 
-### 6.5 Settlements and Civilization
+### 3.5 Settlements and Civilization
 
 #### The Principle
 
@@ -3794,7 +3795,7 @@ Settlement {
   // ── Knowledge (what processes NPCs have discovered through practice) ──────
   knownProcesses: Set<string>                // 'fire_starting', 'copper_smelting', 'pottery', etc.
   // Knowledge grows when: an NPC successfully performs a new interaction (same discovery system as players)
-  // Knowledge spreads via trade (§6.8.7): when settlements trade, there's a chance of knowledge transfer
+  // Knowledge spreads via trade (§3.8.7): when settlements trade, there's a chance of knowledge transfer
   // Knowledge is NEVER assigned — it is earned through NPC practice
 
   // ── Trade Connections ─────────────────────────────────────────────────────
@@ -3903,7 +3904,7 @@ TradeOffer {
 
 Diamond's *Guns, Germs, and Steel* adds a further insight: the east-west axis of a continent matters because settlements at similar latitudes share climate and can exchange crops and livestock. On a spherical planet with a tilted axis, equatorial settlements share growing seasons. This will eventually influence which settlements grow into trading networks and which remain isolated.
 
-### 6.6 Weather System — Full Atmospheric Simulation
+### 3.6 Weather System — Full Atmospheric Simulation
 
 #### The Principle
 
@@ -4085,7 +4086,7 @@ MaterialMoistureUpdate (per tick, exposed materials only) {
 }
 ```
 
-### 6.7 Season System — Orbital Mechanics
+### 3.7 Season System — Orbital Mechanics
 
 #### The Calendar
 
@@ -4137,7 +4138,7 @@ SeasonSystem {
 
 ```
 Season effects on systems:
-  // Organism energy budgets (§6.2):
+  // Organism energy budgets (§3.2):
   autotroph.photosynthesisRate *= daylightHours / 12    // more light = more energy
   heterotroph.metabolicRate *= 1 + (30 - T_air) × 0.01  // cold = higher metabolism to stay warm
 
@@ -4161,15 +4162,15 @@ Season effects on systems:
   // In winter: sunrise at 8:00, sunset at 16:00 (8h daylight)
 ```
 
-### 6.8 Player Systems
+### 3.8 Player Systems
 
 - WASD movement + mouse look, switchable between first-person and third-person camera
 - Five survival stats: health, hunger, thirst, energy, stamina
-- Shelter registered in database; respawn at shelter on death (new 2026-03-27)
+- Shelter registered in database; respawn at shelter on death (current)
 - Default shelter assigned deterministically on first login (worldSeed + userId hash)
 - Discovery tracking: first success at each physics interaction is recorded
 
-### 6.8.1 Workstation System — Crafting at Physical Machines (Planned)
+### 3.8.1 Workstation System — Crafting at Physical Machines
 
 Crafting happens **at a location**, not in a menu. The player walks to a machine, stands next to it, and works with it. The machine is a physical object with a 3D position in the world.
 
@@ -4248,7 +4249,7 @@ Players can walk into any settlement and use their workstations too. The bloomer
 - `src/crafting/InteractionEngine.ts` — `CraftEnvironment` gains two new optional fields: `nearbyWorkstation` (controls temperature ceiling and available actions) and `heldTool` (affects success rate)
 - `universe-server/src/SettlementManager.js` — settlements generate workstations deterministically from seed + specialty; NPCs get a state machine (idle → gather → carry → process → deliver → deposit → idle) ticking at 0.5 Hz
 
-### 6.8.2 Death, Respawn, and Loot
+### 3.8.2 Death, Respawn, and Loot
 
 #### What Happens Physically When a Player Dies
 
@@ -4332,7 +4333,7 @@ CorpseEntity {
 
 - **Duration:** 60 seconds after death, the corpse fades out over 3 seconds and is removed from the server entity list.
 - **Duplicate prevention:** If the same `playerId` dies again while a previous corpse exists, the old corpse is **immediately removed** (server deletes the old CorpseEntity before creating the new one). This prevents a player dying repeatedly in the same spot from filling the server with corpse entities.
-- **Rendering:** The client renders corpses as the full player body model (same skeleton rig as §6.8.4) in a collapsed ragdoll pose. The pose is calculated once on the server when death occurs (simple ragdoll settle: body falls, limbs sprawl based on terrain slope) and sent as a static skeletal pose. No ongoing ragdoll physics — just a frozen body.
+- **Rendering:** The client renders corpses as the full player body model (same skeleton rig as §3.8.4) in a collapsed ragdoll pose. The pose is calculated once on the server when death occurs (simple ragdoll settle: body falls, limbs sprawl based on terrain slope) and sent as a static skeletal pose. No ongoing ragdoll physics — just a frozen body.
 
 **Step 3 — Dropped Item World Entities**
 
@@ -4375,7 +4376,7 @@ Each death cause maps to a real physical condition crossing a lethal threshold:
 | Attack | `health ≤ 0` from physical damage | Impact force from another entity (animal, player, falling object) exceeds body's structural tolerance |
 | Poison | `toxinLevel > lethalDose` | LD50 per toxin type. Dose-response curve: `mortality_probability = 1 / (1 + e^(-k(dose - LD50)))` |
 
-### 6.8.3 Persistence Model — What Survives a Server Restart
+### 3.8.3 Persistence Model — What Survives a Server Restart
 
 #### The Two-Tier Architecture
 
@@ -4433,7 +4434,7 @@ settlements {
   position:     FLOAT[3] NOT NULL
   specialty:    TEXT NOT NULL                 // 'copper_mining'|'iron_mining'|'farming'|...
   population:   INT DEFAULT 20
-  // No civ_level — sophistication is derived from what NPCs have built and learned (§6.5)
+  // No civ_level — sophistication is derived from what NPCs have built and learned (§3.5)
   known_processes: TEXT[] DEFAULT '{}'       // processes NPCs have discovered: 'fire_starting', 'copper_smelting', ...
   storage:      JSONB DEFAULT '{}'           // MaterialPacket array with real compositions and masses
   trade_offers: JSONB DEFAULT '[]'           // current public trade offers
@@ -4510,7 +4511,7 @@ These exist only while the server is running. On restart, they vanish.
 // ── Active Physics Simulations ────────────────────────────────────────────────
 EphemeralState {
   // SPH particles: all active liquid/gas simulations in the world
-  sphParticles: Map<ParticleId, SPHParticle>     // see §6.3.4 for SPHParticle structure
+  sphParticles: Map<ParticleId, SPHParticle>     // see §3.3.4 for SPHParticle structure
   // typically 0–20,000 active at any time; 0 when no one is melting/pouring
 
   // Temperature field: materials in the world that are not at ambient temperature
@@ -4544,7 +4545,7 @@ Some ephemeral processes produce permanent results:
 - **Player digs a hole** → terrain modification record created (permanent). The dirt particles that flew out are ephemeral visual effects.
 - **Container filled with liquid** → the container is permanent (world_objects table), but the liquid inside it is ephemeral. On restart, containers are empty. If this becomes a problem (players complain about losing stored water), we can promote container contents to permanent state later by storing composition in the container's `state` JSONB field.
 
-### 6.8.4 Player Body and View
+### 3.8.4 Player Body and View
 
 #### Camera System
 
@@ -4740,7 +4741,7 @@ InjurySystem {
   // Healing: injuries heal at baseHealRate × (nutrition_factor) × (rest_factor) × (temperature_factor)
   // baseHealRate: 0.5 HP/minute (a bad cut takes ~2 real hours to heal fully at rest with food)
   // Bandaging (cloth + pressure): stops bleedRate, doubles healRate for that region
-  // Infection risk: open wound (bleedRate > 0) in dirty environment → bacterial growth (see §6.8.2 death causes)
+  // Infection risk: open wound (bleedRate > 0) in dirty environment → bacterial growth (see §3.8.2 death causes)
 }
 ```
 
@@ -4884,7 +4885,7 @@ BodyCustomization {
   //   High muscle + high fat  = powerlifter build  (low speed, very high strength, high insulation)
 
   // ── Stat Effects from Body Type ───────────────────────────────────────────
-  // These modify the BASE values of the fitness stats in §6.8.11:
+  // These modify the BASE values of the fitness stats in §3.8.11:
   //
   // Strength baseline:     0.4 + muscularity × 0.3 + bodyFat × 0.05
   //   thin build: 0.4, muscular: 0.7, powerlifter: 0.75
@@ -4940,7 +4941,7 @@ CharacterAppearance {
   //   - Aging system (wrinkleDepth increases over time)
   //   - Plastic surgery (late-game: another player with medical tools can modify face_params)
   //   - Hair growth (hairLength slowly increases, player must cut it — or not)
-  //   - Fitness changes (muscularity/bodyFat morph slightly with §6.8.11 training over long periods)
+  //   - Fitness changes (muscularity/bodyFat morph slightly with §3.8.11 training over long periods)
 
   // When a player's character is rendered by another client:
   //   1. Client receives face_params + body_params in the player's first WORLD_SNAPSHOT appearance
@@ -4952,7 +4953,7 @@ CharacterAppearance {
 
 #### Clothing Appearance and Equipment Screen
 
-Clothing is not just inventory (§6.8.9) — it is visible on the character model. Every piece of clothing the player wears changes how they look to other players. **Clothing is also a primary monetization channel — cosmetic clothing skins/patterns can be sold.**
+Clothing is not just inventory (§3.8.9) — it is visible on the character model. Every piece of clothing the player wears changes how they look to other players. **Clothing is also a primary monetization channel — cosmetic clothing skins/patterns can be sold.**
 
 **Equipment Screen Layout:**
 
@@ -5004,7 +5005,7 @@ EquipmentScreenUI {
   }
   // Total: 13 visible equipment slots
 
-  // Each slot accepts a ClothingItem (defined in §6.8.9)
+  // Each slot accepts a ClothingItem (defined in §3.8.9)
   // Drag from inventory pocket/backpack to an equipment slot to equip
   // Drag from equipment slot back to inventory to unequip
   // If no free inventory slot: can't unequip (must drop something first)
@@ -5077,7 +5078,7 @@ The player character ages in real-time — very slowly, because the world runs i
 
 ```
 AgingSystem {
-  // ── Time scale: 4× real life (from §6.7) ──────────────────────────────────
+  // ── Time scale: 4× real life (from §3.7) ──────────────────────────────────
   // 1 real hour = 4 game hours
   // 1 real year ≈ 4 game years
   //
@@ -5113,7 +5114,7 @@ AgingSystem {
   // Age 95+: death from old age becomes possible (daily survival check)
 
   // ── Stat effects of aging ─────────────────────────────────────────────────
-  // These modify the FITNESS CAPS from §6.8.11:
+  // These modify the FITNESS CAPS from §3.8.11:
   //
   // Age 18-35:  all caps at 1.0 (peak human)
   // Age 35-50:  speed cap = 1.0 - (age - 35) × 0.005       // loses 0.5% per year
@@ -5144,7 +5145,7 @@ AgingSystem {
   // knowledge, discoveries, and world modifications become legacy.
   //
   // When death from old age occurs:
-  //   - Same death mechanics as §6.8.2 (item drop, corpse, respawn)
+  //   - Same death mechanics as §3.8.2 (item drop, corpse, respawn)
   //   - BUT: the character is reborn as a NEW character (back to age 18)
   //   - They KEEP: discoveries, shelter, placed objects, friend list
   //   - They LOSE: physical appearance (must re-customize face), fitness progress,
@@ -5377,7 +5378,7 @@ AnimationStateMachine {
   }
 
   // ── Layer 2: Injury Modifiers (additive) ──────────────────────────────────
-  // These modify the base animations based on injury state (§6.8.4 injury system).
+  // These modify the base animations based on injury state (§3.8.4 injury system).
   // They are ALWAYS active but with weight = 0 when healthy.
 
   injuryModifiers: {
@@ -5469,7 +5470,7 @@ AnimationStateMachine {
 
 These clips can be authored in Blender using the same 67-bone skeleton rig, exported as GLB, and loaded by Three.js's GLTFLoader. The same clips work for all characters regardless of face/body customization because blend shapes and skeletal animation are independent systems.
 
-### 6.8.5 Multiplayer Conflict Resolution — Physics as Arbiter
+### 3.8.5 Multiplayer Conflict Resolution — Physics as Arbiter
 
 There is no conflict resolution "system." There is physics. Two players interacting with the same object are two physical entities in the same space, and the simulation resolves their actions the same way it resolves any other physics interaction.
 
@@ -5541,7 +5542,7 @@ ContainerPhysics {
   // Pouring liquid in:
   // 1. Player holds a container with liquid and presses "pour" while aiming at the target container
   // 2. Server creates a pour stream (SPH particles or visual) from source to target
-  // 3. Target container's contents update: mass-weighted composition merge (§6.3.3 compounding rule)
+  // 3. Target container's contents update: mass-weighted composition merge (§3.3.3 compounding rule)
   //    newComposition[element] = (existingMass × existingFraction[element] + addedMass × addedFraction[element]) / totalMass
   //    newTemperature = (existingMass × existingTemp + addedMass × addedTemp) / totalMass
   // 4. If two players pour simultaneously:
@@ -5576,7 +5577,7 @@ WorkstationAccess {
 }
 ```
 
-### 6.8.6 Sound System — Physics-Driven Audio
+### 3.8.6 Sound System — Physics-Driven Audio
 
 #### The Principle
 
@@ -5801,7 +5802,7 @@ The audio system must stay within strict CPU limits:
 
 **Voice limiting:** Maximum 16 simultaneous sounds. When a new sound would exceed the limit, the quietest (lowest gain after distance attenuation) sound is dropped. Continuous sounds (fire, river, wind) have reserved slots (max 4) and compete separately from transient sounds (impacts, footsteps).
 
-### 6.8.7 NPC Language and Knowledge Transfer
+### 3.8.7 NPC Language and Knowledge Transfer
 
 #### The Language System
 
@@ -5892,7 +5893,7 @@ This is the core system. NPCs do not tell players what to do. They **do things**
 
 ```
 DemonstrationSystem {
-  // Each NPC in a settlement runs their goal loop (§6.8.1):
+  // Each NPC in a settlement runs their goal loop (§3.8.1):
   // idle → gather → carry → process → deliver → idle
 
   // During the 'process' step, the NPC performs a visible crafting action:
@@ -5994,13 +5995,13 @@ SettlementKnowledge {
 
 The knowledge transfer system works because of the synergy between three other systems:
 
-1. **Physics-based crafting (§6.3)** — there are no recipes to "teach." The knowledge IS the physical process. Seeing it done IS learning it.
-2. **Emergent materials (§6.3.3)** — the output isn't a named item. It's whatever physics produces. The NPC doesn't make "copper" — they make "the orange metal that comes from heating green rock." The player figures out the name (or doesn't — names don't matter, properties do).
-3. **Workstation system (§6.8.1)** — the machine is a physical place. The NPC goes there. The player goes there. They're in the same space doing the same thing. No abstract menu bridges them.
+1. **Physics-based crafting (§3.3)** — there are no recipes to "teach." The knowledge IS the physical process. Seeing it done IS learning it.
+2. **Emergent materials (§3.3.3)** — the output isn't a named item. It's whatever physics produces. The NPC doesn't make "copper" — they make "the orange metal that comes from heating green rock." The player figures out the name (or doesn't — names don't matter, properties do).
+3. **Workstation system (§3.8.1)** — the machine is a physical place. The NPC goes there. The player goes there. They're in the same space doing the same thing. No abstract menu bridges them.
 
 The language barrier is intentional. It forces players to rely on **observation** rather than **instruction**. This is harder, slower, and more frustrating than a tutorial — and that's the point. The satisfaction of figuring out copper smelting by watching an NPC is incomparably greater than reading "combine copper ore + charcoal in bloomery."
 
-### 6.8.8 Client-Server Physics Authority — Who Runs What
+### 3.8.8 Client-Server Physics Authority — Who Runs What
 
 #### The Principle
 
@@ -6026,7 +6027,7 @@ This is a real-world online simulation. The server is the world. The client is a
 │  │   ├── NPC state machines (goal loops, positions, carried items)           │
 │  │   ├── Organism simulation (births, deaths, movement, feeding)            │
 │  │   └── Dropped item positions and despawn timers                           │
-│  ├── Weather and atmosphere (§6.6)                                           │
+│  ├── Weather and atmosphere (§3.6)                                           │
 │  ├── Settlement economy (trade, population, resource stockpiles)             │
 │  ├── Crafting validation (interaction engine runs server-side)               │
 │  └── Death, loot drops, respawn timing                                       │
@@ -6054,7 +6055,7 @@ This is a real-world online simulation. The server is the world. The client is a
 │  │   ├── Lighting (sun position from season/time, torches, campfires)        │
 │  │   ├── Ocean shader (Gerstner waves — visual only, no physics)            │
 │  │   └── UI panels (inventory, workstation, map)                             │
-│  ├── Sound generation (§6.8.6)                                               │
+│  ├── Sound generation (§3.8.6)                                               │
 │  │   ├── Receives SOUND_EVENT from server                                    │
 │  │   ├── Computes audio parameters locally (pitch, volume, timbre)           │
 │  │   ├── Spatial audio positioning from server-provided source position      │
@@ -6076,7 +6077,7 @@ This is a real-world online simulation. The server is the world. The client is a
 
 - **Anti-cheat:** If the client computed reactions, a modified client could claim "I smelted gold from dirt." The server runs the reaction engine — the client only sees the result.
 - **Consistency:** Two players watching the same smelting see the same outcome because the server computed it once.
-- **Sound from physics:** Sound events are a byproduct of server physics. When an impact happens server-side, the server emits a `SOUND_EVENT` with the physics descriptor. The client's audio engine (§6.8.6) converts that into actual audio. The client hears what the server says happened — not what the client thinks happened.
+- **Sound from physics:** Sound events are a byproduct of server physics. When an impact happens server-side, the server emits a `SOUND_EVENT` with the physics descriptor. The client's audio engine (§3.8.6) converts that into actual audio. The client hears what the server says happened — not what the client thinks happened.
 
 #### Latency Mitigation
 
@@ -6172,7 +6173,7 @@ Neither extreme is ideal. The hybrid approach uses each where it's strongest.
 │                                                                             │
 │  MODE 2: Video Stream (activated for physics-heavy moments, ~10% of time)  │
 │                                                                             │
-│  Used when: precision crafting (§6.8.14), smelting at a workstation,       │
+│  Used when: precision crafting (§3.8.14), smelting at a workstation,       │
 │             pouring liquid, lava nearby, large fire, building collapse,     │
 │             any scene with active SPH/particle/deformation physics          │
 │                                                                             │
@@ -6203,7 +6204,7 @@ Mode Switch Triggers {
   // ── State → Video (player enters a physics-heavy context) ─────────────────
 
   trigger_1: "Player presses F at a workstation"
-    // Camera zooms into the workstation (§6.8.14 precision craft mode)
+    // Camera zooms into the workstation (§3.8.14 precision craft mode)
     // During the zoom animation (0.5s), the server:
     //   1. Starts rendering this player's view on the GPU
     //   2. Begins encoding H.264 frames
@@ -6427,7 +6428,7 @@ For hybrid mode (state + video):
     100 players → additional dedicated GPU server
 ```
 
-### 6.8.9 Inventory System — Clothing Determines Capacity
+### 3.8.9 Inventory System — Clothing Determines Capacity
 
 #### The Principle
 
@@ -6473,7 +6474,7 @@ ItemSlot {
   maxWeight: number                    // kg — determined by clothing's slotCapacity
   // Pocket slots: maxWeight = 0.5 kg (small items only)
   // Backpack slots: maxWeight = 5.0 kg per slot
-  // Hand slots: maxWeight = player's carry strength (see §6.8.11 character body)
+  // Hand slots: maxWeight = player's carry strength (see §3.8.11 character body)
   // Belt slots: maxWeight = 2.0 kg (tool weight)
 }
 ```
@@ -6490,7 +6491,7 @@ The first priority for a new player is making better clothing and a carrying con
 
 #### Material Packets in Inventory
 
-Every item in inventory IS a MaterialPacket (§6.3.3). It has composition, mass, temperature, and phase.
+Every item in inventory IS a MaterialPacket (§3.3.3). It has composition, mass, temperature, and phase.
 
 ```
 Inventory rules for MaterialPackets:
@@ -6536,7 +6537,7 @@ LiquidInInventory {
   // - Jumping: spills if > 50% full
   // - Inverting (looking down): spills everything
 
-  // Container contents are ephemeral (see §6.8.3):
+  // Container contents are ephemeral (see §3.8.3):
   // On server restart, containers are empty. The container itself persists.
 }
 ```
@@ -6597,7 +6598,7 @@ InventoryUI {
 }
 ```
 
-### 6.8.10 Terrain Interaction — Digging, Building, and Physical Modification
+### 3.8.10 Terrain Interaction — Digging, Building, and Physical Modification
 
 #### The Principle
 
@@ -6621,7 +6622,7 @@ DigSystem {
   //     iron pickaxe on rock: 0.4
   //     iron shovel on dirt: 1.0
   //
-  //   playerStrength: 0.5–1.0 based on character fitness (see §6.8.11)
+  //   playerStrength: 0.5–1.0 based on character fitness (see §3.8.11)
   //     newPlayer: 0.5, trained player: 0.8, maximum human: 1.0
   //
   //   swingEnergy: kinetic energy of the tool swing (joules)
@@ -6731,7 +6732,7 @@ BuildSystem {
 }
 ```
 
-### 6.8.11 Human Body Simulation — Survival Stats and Physical Limits
+### 3.8.11 Human Body Simulation — Survival Stats and Physical Limits
 
 #### The Principle
 
@@ -6811,7 +6812,7 @@ HumanBodyState {
   //   Clothing insulation: traps body heat
 
   // Heat loss:
-  //   Convection: wind carries heat away (wind chill from §6.6)
+  //   Convection: wind carries heat away (wind chill from §3.6)
   //   Radiation: body radiates heat to cold surroundings
   //   Evaporation: sweating (only works if humidity < 0.9)
   //   Conduction: touching cold surfaces (standing in snow, swimming in cold water)
@@ -6822,9 +6823,9 @@ HumanBodyState {
 
   // Danger zones:
   //   > 40°C: heat exhaustion (vision blur, stamina drain ×3)
-  //   > 42°C: lethal (heat stroke, organ failure — see §6.8.2)
+  //   > 42°C: lethal (heat stroke, organ failure — see §3.8.2)
   //   < 35°C: hypothermia (shivering, stamina drain ×2, movement slow)
-  //   < 28°C: lethal (cardiac arrhythmia — see §6.8.2)
+  //   < 28°C: lethal (cardiac arrhythmia — see §3.8.2)
 
   // ── Sleep / Fatigue ───────────────────────────────────────────────────────
   fatigue: number                    // 0-100 (0 = fully rested, 100 = exhausted)
@@ -6853,9 +6854,9 @@ HumanBodyState {
   // ── Health / Hit Points ───────────────────────────────────────────────────
   health: number                     // 0-100
   // This is NOT an abstract HP bar. It represents overall body integrity.
-  // Damage comes from: physical injury (§6.8.4 injury system), disease, poison, starvation
+  // Damage comes from: physical injury (§3.8.4 injury system), disease, poison, starvation
   // Health regeneration: 0.5 HP/hour when well-fed, hydrated, rested, warm
-  // At 0 health: death (§6.8.2)
+  // At 0 health: death (§3.8.2)
 }
 ```
 
@@ -6888,7 +6889,7 @@ FoodSystem {
   //   Charred food: ~100 kcal/kg (mostly carbon)
 
   // Food poisoning:
-  //   Raw meat has a bacterial load that grows over time (see §6.8.2 infection model)
+  //   Raw meat has a bacterial load that grows over time (see §3.8.2 infection model)
   //   Fresh raw meat (just killed): low risk
   //   Meat left in warm environment for hours: high risk
   //   Preserved meat (salted, smoked, dried): low risk indefinitely
@@ -6938,7 +6939,7 @@ CharacterFitness {
 }
 ```
 
-### 6.8.12 Lighting System
+### 3.8.12 Lighting System
 
 #### The Principle
 
@@ -6947,7 +6948,7 @@ Light in reality comes from the sun, fire, and (later in the technology arc) art
 ```
 LightingSystem {
   // ── Sun ───────────────────────────────────────────────────────────────────
-  // Sun position is computed from: time of day + season (§6.7)
+  // Sun position is computed from: time of day + season (§3.7)
   sunAzimuth = (hourOfDay / 24) × 360 - 180          // degrees (east to west)
   sunElevation = maxElevation × sin(hourFraction × π)  // arc across sky
   // maxElevation depends on latitude + season (higher in summer, lower in winter)
@@ -7001,7 +7002,7 @@ LightingSystem {
 }
 ```
 
-### 6.8.13 Swimming and Underwater Mechanics
+### 3.8.13 Swimming and Underwater Mechanics
 
 ```
 SwimmingSystem {
@@ -7039,7 +7040,7 @@ SwimmingSystem {
   //                           training (endurance 1.0 → 120s max)
 
   // When breath runs out:
-  //   Health drains at 20 HP/s (drowning — see §6.8.2)
+  //   Health drains at 20 HP/s (drowning — see §3.8.2)
   //   Vision darkens from edges
   //   Player must surface or die
 
@@ -7049,7 +7050,7 @@ SwimmingSystem {
   //   Murky/swamp: 1-3m
   //   At depth > 20m: light dims (exponential absorption by water)
 
-  // Underwater sound: §6.8.6 applies — low-pass filter at 800 Hz, speed 1500 m/s
+  // Underwater sound: §3.8.6 applies — low-pass filter at 800 Hz, speed 1500 m/s
 
   // ── Carried items while swimming ──────────────────────────────────────────
   // All items are still in inventory. But:
@@ -7064,7 +7065,7 @@ SwimmingSystem {
 }
 ```
 
-### 6.8.14 Precision Crafting Mode — Zoom-In Interaction
+### 3.8.14 Precision Crafting Mode — Zoom-In Interaction
 
 #### The Principle
 
@@ -7152,7 +7153,7 @@ PrecisionCraftMode {
 }
 ```
 
-### 6.8.15 Player-to-Player Interaction
+### 3.8.15 Player-to-Player Interaction
 
 #### Trade
 
@@ -7209,14 +7210,14 @@ ChatSystem {
   // Messenger pigeon (medieval): send a written note to a known location (slow, unreliable)
   // Signal fire/mirror: visible at 1-5km, binary messaging
   // Telegraph (industrial): electrical signal over wire between two connected stations
-  // Radio (§6.9 late-game): wireless text over any distance to anyone with a receiver
+  // Radio (§3.9 late-game): wireless text over any distance to anyone with a receiver
   // Phone: voice communication (future, requires advanced electronics)
 
   // Each advancement mirrors the real history of human communication technology.
 }
 ```
 
-### 6.8.16 Map and Navigation
+### 3.8.16 Map and Navigation
 
 ```
 NavigationSystem {
@@ -7264,7 +7265,7 @@ NavigationSystem {
 }
 ```
 
-### 6.8.17 Combat System — Physics-Based Damage
+### 3.8.17 Combat System — Physics-Based Damage
 
 #### The Principle
 
@@ -7299,7 +7300,7 @@ PhysicsDamage {
   //   Steel armor: absorption = 0.85
 
   // Hit region determined by collision point:
-  // Raycast from tool/projectile → character mesh → which body region (§6.8.4 injury system)
+  // Raycast from tool/projectile → character mesh → which body region (§3.8.4 injury system)
   // Head hits deal more damage (lower threshold) AND have additional effects (daze, vision blur)
 
   // Tool sharpness matters:
@@ -7353,7 +7354,7 @@ PvPSystem {
 
 ```
 ToolGripSystem {
-  // When a player crafts a tool (§6.8.14 precision craft mode), they don't just
+  // When a player crafts a tool (§3.8.14 precision craft mode), they don't just
   // create a tool — they also define HOW to hold it.
 
   // After crafting, the player enters "grip setup":
@@ -7384,11 +7385,11 @@ ToolGripSystem {
 }
 ```
 
-### 6.8.18 New Player Experience — First Spawn
+### 3.8.18 New Player Experience — First Spawn
 
 #### What the Player Sees on First Login
 
-After character creation (§6.8.4), the player spawns in the world for the first time. This moment must be intuitive without tutorials.
+After character creation (§3.8.4), the player spawns in the world for the first time. This moment must be intuitive without tutorials.
 
 ```
 FirstSpawnDesign {
@@ -7431,7 +7432,7 @@ FirstSpawnDesign {
   //   They get hungry after a few game-hours → they look for food
   //   They notice it getting dark → the campfire becomes essential
   //
-  // The companion system (§6.8.7) can provide subtle hints if the player
+  // The companion system (§3.8.7) can provide subtle hints if the player
   // seems stuck (no actions for several minutes), but never explicit instructions.
 
   // ── Nearby resources guaranteed at spawn ──────────────────────────────────
@@ -7447,7 +7448,7 @@ FirstSpawnDesign {
 }
 ```
 
-### 6.9 Late-Game Systems (M9–M15)
+### 3.9 Late-Game Systems (M9–M15)
 
 These systems were built in earlier sessions and remain in place:
 
@@ -7471,7 +7472,7 @@ These systems were built in earlier sessions and remain in place:
 
 ---
 
-## 7. All UI Panels and Hotkeys
+## 4. All UI Panels and Hotkeys
 
 
 | Key | Panel            | Status                                                       |
@@ -7498,7 +7499,7 @@ These systems were built in earlier sessions and remain in place:
 # PART VII — REFERENCES
 ---
 
-## 19. References
+## 5. References
 
 These works directly inform the design and scientific grounding of Universe Sim. Each is cited in the relevant section above.
 

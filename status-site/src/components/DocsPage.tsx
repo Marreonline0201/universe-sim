@@ -5,7 +5,121 @@
 
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 // @ts-ignore — Vite raw import (requires server.fs.allow: ['..'] in vite.config.ts)
-import rawMd from '../../../structure-public.md?raw'
+import publicMd from '../../../structure-public.md?raw'
+// @ts-ignore
+import fullMd from '../../../structure.md?raw'
+
+// ── Auth ──────────────────────────────────────────────────────────────────────
+// Simple password gate: public visitors see structure-public.md,
+// authenticated users see the full structure.md.
+// Password is checked against a SHA-256 hash stored as a constant.
+// The hash is not reversible — the password itself is never in the source.
+
+const AUTH_HASH = '5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8' // SHA-256
+const AUTH_KEY = 'universe-docs-auth'
+
+async function hashPassword(pw: string): Promise<string> {
+  const data = new TextEncoder().encode(pw)
+  const buf = await crypto.subtle.digest('SHA-256', data)
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('')
+}
+
+function useAuth() {
+  const [authed, setAuthed] = useState(() => {
+    try { return localStorage.getItem(AUTH_KEY) === 'true' } catch { return false }
+  })
+
+  const login = useCallback(async (pw: string): Promise<boolean> => {
+    const h = await hashPassword(pw)
+    if (h === AUTH_HASH) {
+      setAuthed(true)
+      try { localStorage.setItem(AUTH_KEY, 'true') } catch {}
+      return true
+    }
+    return false
+  }, [])
+
+  const logout = useCallback(() => {
+    setAuthed(false)
+    try { localStorage.removeItem(AUTH_KEY) } catch {}
+  }, [])
+
+  return { authed, login, logout }
+}
+
+// ── Login Modal ───────────────────────────────────────────────────────────────
+
+function LoginModal({ onLogin, onClose }: { onLogin: (pw: string) => Promise<boolean>; onClose: () => void }) {
+  const [pw, setPw] = useState('')
+  const [error, setError] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => { inputRef.current?.focus() }, [])
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setLoading(true)
+    setError(false)
+    const ok = await onLogin(pw)
+    setLoading(false)
+    if (ok) onClose()
+    else { setError(true); setPw('') }
+  }
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, zIndex: 1000,
+      background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(6px)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+    }} onClick={onClose}>
+      <form onSubmit={handleSubmit} onClick={e => e.stopPropagation()} style={{
+        background: 'rgba(8,14,28,0.96)',
+        border: '1px solid rgba(0,180,255,0.2)',
+        borderRadius: 8, padding: '28px 32px', width: 320,
+        boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+      }}>
+        <div style={{
+          fontSize: 10, letterSpacing: 3, color: 'rgba(0,180,255,0.4)',
+          marginBottom: 16,
+        }}>
+          ADMIN ACCESS
+        </div>
+        <input
+          ref={inputRef}
+          type="password"
+          placeholder="Password"
+          value={pw}
+          onChange={e => { setPw(e.target.value); setError(false) }}
+          style={{
+            width: '100%', padding: '8px 12px',
+            background: 'rgba(0,20,50,0.6)',
+            border: `1px solid ${error ? 'rgba(255,80,80,0.5)' : 'rgba(0,180,255,0.2)'}`,
+            borderRadius: 4, fontSize: 13,
+            color: 'rgba(220,240,255,0.9)',
+            fontFamily: 'inherit', outline: 'none',
+            boxSizing: 'border-box',
+          }}
+        />
+        {error && (
+          <div style={{ fontSize: 10, color: 'rgba(255,80,80,0.7)', marginTop: 6 }}>
+            Incorrect password
+          </div>
+        )}
+        <button type="submit" disabled={loading || !pw} style={{
+          marginTop: 14, width: '100%', padding: '7px 0',
+          background: pw ? 'rgba(0,180,255,0.15)' : 'rgba(0,180,255,0.05)',
+          border: '1px solid rgba(0,180,255,0.3)',
+          borderRadius: 4, color: '#00d4ff',
+          fontSize: 10, letterSpacing: 2,
+          fontFamily: 'inherit', cursor: pw ? 'pointer' : 'default',
+        }}>
+          {loading ? 'CHECKING...' : 'UNLOCK'}
+        </button>
+      </form>
+    </div>
+  )
+}
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -576,6 +690,8 @@ function getPageHeadings(toc: TocEntry[], activeH2Id: string): TocEntry[] {
 // ── Main component ────────────────────────────────────────────────────────────
 
 export function DocsPage() {
+  const { authed, login, logout } = useAuth()
+  const [showLogin, setShowLogin] = useState(false)
   const [activeH2, setActiveH2]     = useState<string>('')
   const [activeHeading, setActiveHeading] = useState<string>('')
   const [search,   setSearch]       = useState('')
@@ -583,6 +699,8 @@ export function DocsPage() {
   const [leftWidth, setLeftWidth]   = useState(220)
   const [rightWidth, setRightWidth] = useState(200)
   const contentRef                  = useRef<HTMLDivElement>(null)
+
+  const rawMd = authed ? fullMd : publicMd
 
   const onLeftDrag = useCallback((delta: number) => {
     setLeftWidth(w => Math.max(140, Math.min(450, w + delta)))
@@ -592,8 +710,8 @@ export function DocsPage() {
     setRightWidth(w => Math.max(120, Math.min(400, w + delta)))
   }, [])
 
-  const toc    = useMemo(() => parseToc(rawMd),    [])
-  const blocks = useMemo(() => parseBlocks(rawMd), [])
+  const toc    = useMemo(() => parseToc(rawMd),    [rawMd])
+  const blocks = useMemo(() => parseBlocks(rawMd), [rawMd])
   const groups = useMemo(() => buildSectionGroups(toc), [toc])
 
   // Track active section by scroll position
@@ -829,8 +947,40 @@ export function DocsPage() {
           color: 'rgba(0,180,255,0.25)',
           letterSpacing: 1,
           flexShrink: 0,
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
         }}>
-          {groups.length} SECTIONS
+          <span>{groups.length} SECTIONS</span>
+          {authed ? (
+            <button
+              onClick={logout}
+              title="Switch to public view"
+              style={{
+                background: 'none', border: 'none', cursor: 'pointer',
+                color: 'rgba(0,255,136,0.4)', fontSize: 9, fontFamily: 'inherit',
+                letterSpacing: 1, padding: '2px 6px',
+              }}
+              onMouseEnter={e => e.currentTarget.style.color = 'rgba(0,255,136,0.8)'}
+              onMouseLeave={e => e.currentTarget.style.color = 'rgba(0,255,136,0.4)'}
+            >
+              FULL ✓
+            </button>
+          ) : (
+            <button
+              onClick={() => setShowLogin(true)}
+              title="Admin login for full document"
+              style={{
+                background: 'none', border: 'none', cursor: 'pointer',
+                color: 'rgba(0,180,255,0.25)', fontSize: 9, fontFamily: 'inherit',
+                letterSpacing: 1, padding: '2px 6px',
+              }}
+              onMouseEnter={e => e.currentTarget.style.color = 'rgba(0,180,255,0.6)'}
+              onMouseLeave={e => e.currentTarget.style.color = 'rgba(0,180,255,0.25)'}
+            >
+              PUBLIC
+            </button>
+          )}
         </div>
       </div>
 
@@ -931,6 +1081,11 @@ export function DocsPage() {
           })}
         </div>
       </div>
+
+      {/* ── Login modal ──────────────────────────────────────────────── */}
+      {showLogin && (
+        <LoginModal onLogin={login} onClose={() => setShowLogin(false)} />
+      )}
 
     </div>
   )

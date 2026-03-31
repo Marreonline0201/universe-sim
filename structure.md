@@ -4159,24 +4159,29 @@ The planet orbits its star with a tilted axis (23.4° — same as Earth). This t
 
 ```
 SeasonSystem {
-  // One full orbit = 1 game year
-  // Game time runs at accelerated rate: 1 real hour = 1 game day (configurable)
-  // → 1 real day = 24 game days
-  // → ~15 real days = 1 game year (360 game days)
+  // ── Time scale: 1:1 with real life ────────────────────────────────────────
+  // 1 real hour = 1 game hour
+  // 1 real day = 1 game day
+  // 1 real year = 1 game year
+  // The world runs at the same speed as reality.
+  //
+  // Exception: world CREATION (planet formation, organism generation) runs on
+  // a timelapse at server startup. Once the world is populated and running,
+  // time is 1:1. Only an admin can change the timescale.
 
-  yearLength: 360                            // game days per year
-  dayLength: 3600                            // real seconds per game day (1 hour)
+  yearLength: 365                            // game days per year (matches Earth)
+  dayLength: 86400                           // real seconds per game day (24 real hours)
   axialTilt: 23.4                            // degrees — determines season intensity
 
   // Current season determined by day of year:
-  // Day 0-89:   Spring (northern hemisphere) / Autumn (southern)
-  // Day 90-179: Summer / Winter
-  // Day 180-269: Autumn / Spring
-  // Day 270-359: Winter / Summer
+  // Day 0-91:    Spring (northern hemisphere) / Autumn (southern)
+  // Day 91-182:  Summer / Winter
+  // Day 182-273: Autumn / Spring
+  // Day 273-365: Winter / Summer
 
   // Solar declination angle (determines which hemisphere gets more sun):
   solarDeclination = axialTilt × sin(2π × dayOfYear / yearLength)
-  // +23.4° at summer solstice (day 135), -23.4° at winter solstice (day 315)
+  // +23.4° at summer solstice (day ~172), -23.4° at winter solstice (day ~355)
 }
 ```
 
@@ -5100,24 +5105,28 @@ The player character ages in real-time — very slowly, because the world runs i
 
 ```
 AgingSystem {
-  // ── Time scale ────────────────────────────────────────────────────────────
-  // 1 real hour = 1 game day (from §6.7)
-  // 1 real day = 24 game days
-  // 1 real month ≈ 720 game days ≈ 2 game years
-  // 1 real year ≈ 24 game years
+  // ── Time scale: 1:1 with real life (from §6.7) ───────────────────────────
+  // 1 real hour = 1 game hour
+  // 1 real day = 1 game day
+  // 1 real year = 1 game year
   //
-  // A player who plays for a real year has a character that aged 24 years in-game.
+  // This means aging is VERY slow — exactly as slow as real life.
   // Starting age: 18 game-years (player creates an adult character)
-  // After 1 real year: character is 42 game-years old
-  // After 2 real years: character is 66 game-years old
-  // After 3 real years: character is 90 game-years old (near death from old age)
-
-  // BUT: aging only progresses while the player is ONLINE.
-  // Offline time does not age the character. You don't log in after a vacation
-  // to find your character is an old person.
+  // After 1 real year of play: character is 19 years old
+  // After 10 real years: character is 28 years old
+  // After 50 real years: character is 68 years old
+  //
+  // In practice, most players will never see their character reach old age.
+  // This is intentional — aging is a background system that adds depth,
+  // not a gameplay mechanic that forces character resets.
+  //
+  // Aging progresses in real time, whether the player is ONLINE or OFFLINE.
+  // The character exists in the world — time passes for them like everyone else.
+  // A player who doesn't log in for a year returns to a character one year older.
+  // (Only admin can change the timescale — e.g., for testing or special events.)
 
   // ── Visual aging (gradual, continuous) ────────────────────────────────────
-  // Every game-year (real ~15 days of play time):
+  // Every game-year (= 1 real year):
 
   ageEffectsPerGameYear: {
     wrinkleDepth:   +0.02           // face wrinkles deepen (blend shape)
@@ -5153,12 +5162,17 @@ AgingSystem {
   // and world modifications are irreplaceable.
 
   // ── Death from old age ────────────────────────────────────────────────────
-  // After 90 game-years (≈3.75 real years of play time):
+  // After 90 game-years (= 90 real years — effectively never in practice):
   // Each game-day, survival check: random(0,1) > (age - 90) × 0.01
   // At age 90: 0% daily chance of death (just entering the zone)
   // At age 95: 5% daily chance
   // At age 100: 10% daily chance
   // At age 110: 20% daily chance (virtually guaranteed within a game-month)
+  //
+  // In practice, no real player will reach this. The system exists for:
+  // 1. Completeness — the world is real, and real people age and die
+  // 2. NPCs — NPC characters age and die at this rate, creating turnover
+  // 3. Future-proofing — if the game runs for decades, it's handled
   //
   // When death from old age occurs:
   //   - Same death mechanics as §6.8.2 (item drop, corpse, respawn)
@@ -5170,11 +5184,11 @@ AgingSystem {
   //   - The new character is narratively "a descendant" or "a new inhabitant"
 
   // ── Hair growth ───────────────────────────────────────────────────────────
-  // Hair grows continuously (very slowly):
-  //   hairLength += 0.001 per game-day (1mm per game-day)
-  //   ~30mm per game-month, ~360mm per game-year
-  //   In real-time: ~1mm per real-hour of play
-  //   After 10 real hours of play: hair has grown 1cm from starting length
+  // Hair grows at the real human rate: ~0.4mm per day (~15cm per year)
+  // This is the same speed as reality because time is 1:1.
+  //   hairLength += 0.0004 per game-day (0.4mm per day = real human rate)
+  //   ~12mm per real month, ~150mm (15cm) per real year
+  //   After 1 month of play: hair has grown ~1.2cm from starting length
   //
   // Players can cut hair:
   //   Using a sharp tool (flint blade, knife, scissors) → precision craft mode
@@ -6449,7 +6463,7 @@ HumanBodyState {
   calories: number                   // current caloric reserve (kcal)
   // Well-fed human: ~2000 kcal reserve (glycogen in liver + muscles)
   // Starvation threshold: 0 kcal → body begins consuming muscle/fat
-  // Lethal: sustained 0 kcal for 4 game-days (~4 real-hours)
+  // Lethal: sustained 0 kcal for 4 days (real-time — matches real human ~3-4 day starvation limit)
 
   basalMetabolicRate: number         // kcal/hour at rest
   // Average human: ~75 kcal/hour (1800 kcal/day)
@@ -6470,7 +6484,7 @@ HumanBodyState {
   hydration: number                  // liters of body water
   // Normal: ~2.5 liters (above minimum)
   // Dehydration begins: < 1.5 liters
-  // Lethal: < 0.5 liters (sustained for 2 game-days)
+  // Lethal: < 0.5 liters (sustained for 2-3 days — matches real human dehydration limit)
 
   waterLossRate: number              // liters/hour
   // Base: 0.1 L/hour (breathing, sweating at rest)
@@ -6531,8 +6545,9 @@ HumanBodyState {
 
   // ── Sleep / Fatigue ───────────────────────────────────────────────────────
   fatigue: number                    // 0-100 (0 = fully rested, 100 = exhausted)
-  // Fatigue accumulates at ~4.2/hour of wakefulness (100 in ~24 game-hours)
+  // Fatigue accumulates at ~6.25/hour of wakefulness (100 in ~16 hours)
   // Real human: can stay awake ~16 hours comfortably, ~40 hours with difficulty, ~96 hours max
+  // Since time is 1:1, the player must sleep their character every ~16 real hours of play
 
   // Effects of high fatigue:
   //   50-70: stamina recovery rate halved, crafting success rate -10%
@@ -6542,8 +6557,11 @@ HumanBodyState {
 
   // Sleep:
   //   Player must find a safe place and use "sleep" action
-  //   Sleep duration: minimum 6 game-hours for full rest (6 real-minutes)
-  //   Fatigue recovery: -12/game-hour while sleeping (full rest in ~8.3 hours)
+  //   Sleep duration: minimum 6 hours for full rest (6 real hours)
+  //   Fatigue recovery: -12/hour while sleeping (full rest in ~8 hours — real human sleep cycle)
+  //   The player can skip the wait: "Sleep" action fast-forwards the character's sleep
+  //   while the world continues. Player sees a dark screen with time passing indicator.
+  //   They can wake early (partial rest) or be woken by events (damage, loud sounds).
   //   Interrupted sleep: player can be woken by damage, loud sounds, NPC interaction
   //   Sleeping outdoors: vulnerable to weather, predators, other players
   //   Sleeping in shelter: protected, faster recovery (+15/game-hour)

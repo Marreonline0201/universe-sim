@@ -472,6 +472,68 @@ function RenderBlock({ block, idx }: { block: Block; idx: number }) {
   }
 }
 
+// ── Resize Handle ─────────────────────────────────────────────────────────────
+
+function ResizeHandle({ onDrag, side }: { onDrag: (delta: number) => void; side: 'left' | 'right' }) {
+  const dragging = useRef(false)
+  const lastX = useRef(0)
+
+  const onMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    dragging.current = true
+    lastX.current = e.clientX
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+
+    const onMouseMove = (ev: MouseEvent) => {
+      if (!dragging.current) return
+      const delta = ev.clientX - lastX.current
+      lastX.current = ev.clientX
+      onDrag(side === 'left' ? delta : -delta)
+    }
+
+    const onMouseUp = () => {
+      dragging.current = false
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+      window.removeEventListener('mousemove', onMouseMove)
+      window.removeEventListener('mouseup', onMouseUp)
+    }
+
+    window.addEventListener('mousemove', onMouseMove)
+    window.addEventListener('mouseup', onMouseUp)
+  }, [onDrag, side])
+
+  const [hovered, setHovered] = useState(false)
+
+  return (
+    <div
+      onMouseDown={onMouseDown}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        width: 6,
+        flexShrink: 0,
+        cursor: 'col-resize',
+        background: 'transparent',
+        position: 'relative',
+        zIndex: 20,
+      }}
+    >
+      <div style={{
+        position: 'absolute',
+        top: 0,
+        bottom: 0,
+        left: 2,
+        width: hovered ? 2 : 1,
+        background: hovered ? 'rgba(0,180,255,0.5)' : 'rgba(0,180,255,0.1)',
+        transition: 'all 0.15s',
+        borderRadius: 1,
+      }} />
+    </div>
+  )
+}
+
 // ── Build section hierarchy for left nav ──────────────────────────────────────
 
 interface SectionGroup {
@@ -518,7 +580,17 @@ export function DocsPage() {
   const [activeHeading, setActiveHeading] = useState<string>('')
   const [search,   setSearch]       = useState('')
   const [leftExpanded, setLeftExpanded] = useState<string | null>(null)
+  const [leftWidth, setLeftWidth]   = useState(220)
+  const [rightWidth, setRightWidth] = useState(200)
   const contentRef                  = useRef<HTMLDivElement>(null)
+
+  const onLeftDrag = useCallback((delta: number) => {
+    setLeftWidth(w => Math.max(140, Math.min(450, w + delta)))
+  }, [])
+
+  const onRightDrag = useCallback((delta: number) => {
+    setRightWidth(w => Math.max(120, Math.min(400, w + delta)))
+  }, [])
 
   const toc    = useMemo(() => parseToc(rawMd),    [])
   const blocks = useMemo(() => parseBlocks(rawMd), [])
@@ -594,9 +666,8 @@ export function DocsPage() {
 
       {/* ── Left: Section navigation ─────────────────────────────────────── */}
       <div style={{
-        width: 220,
+        width: leftWidth,
         flexShrink: 0,
-        borderRight: '1px solid rgba(0,180,255,0.1)',
         display: 'flex',
         flexDirection: 'column',
         overflow: 'hidden',
@@ -763,6 +834,9 @@ export function DocsPage() {
         </div>
       </div>
 
+      {/* ── Left resize handle ──────────────────────────────────────────── */}
+      <ResizeHandle onDrag={onLeftDrag} side="left" />
+
       {/* ── Center: Main content ─────────────────────────────────────────── */}
       <div
         ref={contentRef}
@@ -771,7 +845,6 @@ export function DocsPage() {
           overflowY: 'auto',
           padding: '32px 48px 80px',
           minWidth: 0,
-          maxWidth: 820,
         }}
       >
         {blocks.map((block, idx) => (
@@ -779,11 +852,13 @@ export function DocsPage() {
         ))}
       </div>
 
+      {/* ── Right resize handle ─────────────────────────────────────────── */}
+      <ResizeHandle onDrag={onRightDrag} side="right" />
+
       {/* ── Right: "On this page" sub-nav ────────────────────────────────── */}
       <div style={{
-        width: 200,
+        width: rightWidth,
         flexShrink: 0,
-        borderLeft: '1px solid rgba(0,180,255,0.08)',
         display: 'flex',
         flexDirection: 'column',
         overflow: 'hidden',

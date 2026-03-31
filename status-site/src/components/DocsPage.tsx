@@ -752,8 +752,14 @@ export function DocsPage() {
 
   // Scroll to heading when ToC item clicked
   const scrollTo = useCallback((id: string) => {
-    const el = contentRef.current?.querySelector(`#${CSS.escape(id)}`)
-    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    const container = contentRef.current
+    const el = container?.querySelector(`#${CSS.escape(id)}`)
+    if (!el || !container) return
+    // Calculate offset within the scroll container, not the viewport
+    const containerRect = container.getBoundingClientRect()
+    const elRect = el.getBoundingClientRect()
+    const offsetTop = elRect.top - containerRect.top + container.scrollTop
+    container.scrollTo({ top: offsetTop - 16, behavior: 'smooth' }) // 16px padding from top
   }, [])
 
   // Right sidebar: headings under active h2

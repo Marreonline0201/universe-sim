@@ -5,7 +5,7 @@
 
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 // @ts-ignore — Vite raw import (requires server.fs.allow: ['..'] in vite.config.ts)
-import rawMd from '../../../structure.md?raw'
+import rawMd from '../../../structure-public.md?raw'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 

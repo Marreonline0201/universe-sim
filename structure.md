@@ -4066,94 +4066,1008 @@ Players can walk into any settlement and use their workstations too. The bloomer
 
 ### 6.8.2 Death, Respawn, and Loot
 
-When a player dies:
+#### What Happens Physically When a Player Dies
 
-1. **Drop items** — a random, small portion of the player's inventory drops as physical objects at the death location. Not everything — losing your entire inventory on death is too punishing. The dropped items are world objects that obey physics (they fall, roll, settle on terrain).
-2. **Corpse** — the player's body remains visible at the death location for **1 minute**, then disappears. If the same player dies again before their previous corpse expires, the old corpse is removed immediately (prevents corpse buildup on the server).
-3. **Dropped items persist** — items on the ground stay after the corpse disappears. They remain for **5 minutes** before despawning to prevent world clutter. Any player can pick them up — looting is available.
-4. **Respawn timer** — 10 seconds. The player waits at a black screen / respawn UI. This is a future ad slot for monetization.
-5. **Respawn location** — the player's registered shelter (stored in Neon Postgres). Default shelter assigned on first login; players can change their shelter in-world.
+Death is not an abstract game state — it is a physical event. The player's body collapses, items scatter, and the world continues without them.
 
-**Server authority:** Death, item drops, and corpse state are all server-authoritative. The server determines what drops (random seed from server), spawns the item entities, and broadcasts to all nearby clients.
+#### The Death Sequence (Server-Authoritative)
+
+The entire death sequence is controlled by the server. The client receives events and renders them, but cannot fabricate or skip any step.
+
+```
+DeathEvent {
+  // Server generates this when player health reaches 0
+  playerId: string
+  causeOfDeath: DeathCause           // 'starvation' | 'hypothermia' | 'drowning' | 'fall' | 'burn' | 'infection' | 'attack' | 'poison'
+  deathPosition: Vec3                // world-space position where the player died
+  deathTimestamp: number             // server monotonic clock (ms)
+  droppedItems: DroppedItem[]        // what fell out of inventory (server-determined)
+  corpseId: string                   // unique ID for the corpse entity
+}
+
+DroppedItem {
+  itemId: string                     // references the MaterialPacket or tool
+  worldPosition: Vec3                // where it lands (deathPosition + random scatter offset)
+  velocity: Vec3                     // initial physics velocity (items tumble outward from body)
+  despawnTimestamp: number            // server clock + 300,000ms (5 minutes)
+}
+```
+
+**Step 1 — Item Drop Calculation (server-side)**
+
+The server determines what drops using a seeded random from the server clock + playerId hash. The drop rules:
+
+- **Drop count:** `floor(inventorySize × dropRate)` where `dropRate` is a random value between **0.05 and 0.20** (5%–20% of inventory slots). A player with 30 items drops 1–6 items.
+- **Selection:** Random without replacement. Each slot has equal probability. Tools the player is currently holding have **2× weight** (you drop what's in your hands when you die — real-world physics).
+- **Scatter physics:** Each dropped item spawns at `deathPosition + randomUnitVector × radius` where `radius ∈ [0.5m, 2.0m]`. Initial velocity: `randomDirection × 1.5 m/s + upward 2.0 m/s` (items tumble outward and fall). After spawning, items are standard physics entities — they roll downhill, settle in crevices, can fall into water.
+- **What NEVER drops:** The player's discovery knowledge (stored in DB, not inventory). Their shelter registration. Their practice counters. Only physical items drop.
+
+```
+// Server-side drop calculation
+function calculateDrops(player: Player, serverRng: SeededRandom): DroppedItem[] {
+  const dropRate = 0.05 + serverRng.next() * 0.15          // 5-20%
+  const dropCount = Math.max(1, Math.floor(player.inventory.length * dropRate))
+
+  // Build weighted pool: held items get 2× weight
+  const pool: WeightedSlot[] = player.inventory.map((item, i) => ({
+    item, weight: (i === player.equippedSlot) ? 2.0 : 1.0
+  }))
+
+  const drops: DroppedItem[] = []
+  for (let i = 0; i < dropCount; i++) {
+    const selected = weightedRandomRemove(pool, serverRng)
+    const angle = serverRng.next() * Math.PI * 2
+    const dist = 0.5 + serverRng.next() * 1.5
+    drops.push({
+      itemId: selected.item.id,
+      worldPosition: vec3Add(player.position, [Math.cos(angle) * dist, 0.3, Math.sin(angle) * dist]),
+      velocity: [Math.cos(angle) * 1.5, 2.0, Math.sin(angle) * 1.5],
+      despawnTimestamp: Date.now() + 300_000   // 5 minutes
+    })
+  }
+  return drops
+}
+```
+
+**Step 2 — Corpse Entity**
+
+The corpse is a server-managed entity with a fixed lifetime:
+
+```
+CorpseEntity {
+  corpseId: string
+  playerId: string                   // whose corpse this is
+  position: Vec3                     // death location
+  rotation: Quaternion               // body orientation (falls in direction of last movement)
+  poseState: 'collapsed'             // ragdoll at death, then settles
+  spawnTimestamp: number
+  despawnTimestamp: number            // spawnTimestamp + 60,000ms (1 minute)
+  skeletalPose: Float32Array         // final bone positions from ragdoll settling
+}
+```
+
+- **Duration:** 60 seconds after death, the corpse fades out over 3 seconds and is removed from the server entity list.
+- **Duplicate prevention:** If the same `playerId` dies again while a previous corpse exists, the old corpse is **immediately removed** (server deletes the old CorpseEntity before creating the new one). This prevents a player dying repeatedly in the same spot from filling the server with corpse entities.
+- **Rendering:** The client renders corpses as the full player body model (same skeleton rig as §6.8.4) in a collapsed ragdoll pose. The pose is calculated once on the server when death occurs (simple ragdoll settle: body falls, limbs sprawl based on terrain slope) and sent as a static skeletal pose. No ongoing ragdoll physics — just a frozen body.
+
+**Step 3 — Dropped Item World Entities**
+
+Dropped items become standard world entities visible to all players within render distance:
+
+- **Physics:** After initial scatter velocity, items are simulated as rigid bodies. They bounce off terrain, roll downhill, can fall into water (where they sink or float depending on density — a wooden tool floats, a stone axe sinks).
+- **Pickup:** Any player can pick up any dropped item by walking within **1.5m** and pressing the interact key. Server validates proximity and item existence before granting the item. First valid pickup request wins.
+- **Despawn:** Each item has an independent 5-minute timer from spawn. When the timer expires, the server removes the entity and broadcasts removal. Items do NOT persist across server restarts.
+- **Stacking:** If items land on the same spot, they pile up visually. No special stacking logic — just physics objects resting on each other.
+
+**Step 4 — Respawn**
+
+```
+RespawnSequence {
+  deathTimestamp: number
+  respawnDelay: 10_000               // 10 seconds, constant
+  respawnPosition: Vec3              // player's registered shelter position (from Neon Postgres)
+  adSlotWindow: [2_000, 8_000]      // milliseconds 2-8 after death: available for ad display (future)
+}
+```
+
+- **What the player sees:** Screen fades to black over 1 second. For the next 10 seconds, the player sees a minimal UI: death cause text ("You froze to death"), a countdown timer, and (future) an ad slot in the center.
+- **Respawn location:** The player's registered shelter, read from `shelters` table in Neon Postgres: `SELECT position FROM shelters WHERE user_id = $1 ORDER BY registered_at DESC LIMIT 1`.
+- **State on respawn:** Full health, full hunger/thirst/energy (you "rested" while dead), same discovery knowledge, same practice counters, inventory minus whatever dropped. The player is not punished twice — the item loss IS the punishment.
+
+#### Causes of Death — Physical Triggers
+
+Each death cause maps to a real physical condition crossing a lethal threshold:
+
+| Cause | Trigger | Physics |
+|-------|---------|---------|
+| Starvation | `hunger ≤ 0` for 120 continuous seconds | Glycogen depleted → organ failure |
+| Dehydration | `thirst ≤ 0` for 90 continuous seconds | Blood volume drops → cardiac arrest |
+| Hypothermia | `bodyTemperature < 28°C` | Core temp below threshold → heart arrhythmia. Body temp follows Newton's law of cooling: `dT/dt = -k(T_body - T_env)` where k depends on clothing insulation |
+| Hyperthermia | `bodyTemperature > 42°C` | Protein denaturation → organ failure |
+| Drowning | `oxygenLevel ≤ 0` while submerged | Breath-hold timer (90s base) depletes, then health drops at 20 HP/s |
+| Fall damage | `impactVelocity > 8 m/s` | Damage = `mass × (v - 8)² / 2` (kinetic energy above safe threshold). Lethal above ~15 m/s (~11m fall) |
+| Burn | `skinTemperature > 60°C` for sustained contact | Tissue damage rate = `k × (T - 45)²` per second. Third-degree at >70°C |
+| Infection | `bacterialLoad > 10⁹` (logistic growth model) | Untreated wound → bacterial population doubles every ~4 hours at 37°C, slower when cold. Lethal when load overwhelms immune response |
+| Attack | `health ≤ 0` from physical damage | Impact force from another entity (animal, player, falling object) exceeds body's structural tolerance |
+| Poison | `toxinLevel > lethalDose` | LD50 per toxin type. Dose-response curve: `mortality_probability = 1 / (1 + e^(-k(dose - LD50)))` |
 
 ### 6.8.3 Persistence Model — What Survives a Server Restart
 
-Two tiers of world state:
+#### The Two-Tier Architecture
 
-**Permanent (persisted to database, survives restarts):**
-- Terrain modifications — dug holes, carved paths, flattened areas
-- Placed objects — containers, workstations, shelters, walls
-- Resource node depletion — already tracked in Neon Postgres
-- Settlement state — population, storage, infrastructure growth
-- Player data — inventory, discoveries, shelter location, stats
+The world has two categories of state, determined by a single principle: **did a player intentionally create this, or is it physics running on its own?** Player-created changes are sacred and permanent. Physics-in-progress is ephemeral and can be recomputed or reset.
 
-**Ephemeral (in-memory only, lost on restart):**
-- SPH particle states — active liquid and gas simulations
-- Temperature states of materials in the world
-- Phase transition progress (mid-melt, mid-freeze, mid-boil)
-- Active crafting processes in progress
-- Dropped loot items on the ground (despawn on restart)
+#### Tier 1 — Permanent State (Neon Postgres)
 
-**The principle:** If a player spent effort to physically change the world (digging, building, placing), that change persists forever. If it's physics running its course (liquid cooling, lava flowing, temperature equalizing), it resets — like how a real puddle evaporates but a well you dug stays.
+These tables survive server restarts, crashes, and migrations. They are the canonical truth of the world.
+
+```
+// ── Terrain Modifications ─────────────────────────────────────────────────────
+terrain_modifications {
+  id:           UUID PRIMARY KEY
+  world_seed:   BIGINT NOT NULL               // which world this belongs to
+  chunk_x:      INT NOT NULL                  // terrain chunk coordinates
+  chunk_z:      INT NOT NULL
+  modification: JSONB NOT NULL                // { type: 'dig'|'fill'|'flatten', vertices: [...], depth: number }
+  created_by:   TEXT NOT NULL                 // player userId who made the change
+  created_at:   TIMESTAMP DEFAULT NOW()
+  INDEX (world_seed, chunk_x, chunk_z)        // spatial lookup for chunk loading
+}
+
+// When a client loads a terrain chunk, the server sends: base procedural terrain (from seed) + all modifications for that chunk.
+// The client applies modifications on top of procedural terrain. This means terrain generation is still deterministic from seed — modifications are a diff layer.
+
+// ── Placed Objects ────────────────────────────────────────────────────────────
+world_objects {
+  id:           UUID PRIMARY KEY
+  world_seed:   BIGINT NOT NULL
+  object_type:  TEXT NOT NULL                 // 'container'|'workstation'|'shelter'|'wall'|'door'|'torch'|...
+  subtype:      TEXT                          // 'bloomery'|'kiln'|'clay_pot'|'stone_wall'|...
+  position:     FLOAT[3] NOT NULL            // world-space [x, y, z]
+  rotation:     FLOAT[4] NOT NULL            // quaternion [x, y, z, w]
+  placed_by:    TEXT NOT NULL                 // player userId
+  placed_at:    TIMESTAMP DEFAULT NOW()
+  state:        JSONB DEFAULT '{}'            // object-specific state (container contents, fuel level, etc.)
+  durability:   FLOAT DEFAULT 1.0            // 0.0 = destroyed, 1.0 = pristine
+  INDEX (world_seed, position)               // spatial queries via cube distance
+}
+
+// ── Resource Node Depletion (already exists) ──────────────────────────────────
+resource_nodes {
+  node_id:      TEXT PRIMARY KEY              // deterministic from seed + position
+  world_seed:   BIGINT NOT NULL
+  depleted:     BOOLEAN DEFAULT FALSE
+  remaining:    FLOAT DEFAULT 1.0            // fraction remaining (1.0 = full, 0.0 = empty)
+  last_mined:   TIMESTAMP
+}
+
+// ── Settlement State ──────────────────────────────────────────────────────────
+settlements {
+  id:           SERIAL PRIMARY KEY
+  world_seed:   BIGINT NOT NULL
+  name:         TEXT NOT NULL
+  position:     FLOAT[3] NOT NULL
+  specialty:    TEXT NOT NULL                 // 'copper_mining'|'iron_mining'|'farming'|...
+  population:   INT DEFAULT 20
+  civ_level:    INT DEFAULT 1                // 1=camp, 2=village, 3=town, 4=city
+  storage:      JSONB DEFAULT '{}'           // { "copper_ore": 150, "charcoal": 80, ... }
+  trade_offers: JSONB DEFAULT '[]'           // current public trade offers
+  updated_at:   TIMESTAMP DEFAULT NOW()
+}
+
+// ── Player State ──────────────────────────────────────────────────────────────
+players {
+  user_id:      TEXT PRIMARY KEY
+  world_seed:   BIGINT NOT NULL
+  inventory:    JSONB NOT NULL               // array of MaterialPacket serializations
+  discoveries:  TEXT[] DEFAULT '{}'           // discovery IDs
+  practice:     JSONB DEFAULT '{}'           // { "fire_friction": 47, "copper_smelt": 12, ... }
+  stats:        JSONB NOT NULL               // { health, hunger, thirst, energy, stamina, bodyTemp }
+  position:     FLOAT[3]                     // last known position (for offline reference)
+  updated_at:   TIMESTAMP DEFAULT NOW()
+}
+
+shelters {
+  id:           SERIAL PRIMARY KEY
+  user_id:      TEXT NOT NULL
+  world_seed:   BIGINT NOT NULL
+  position:     FLOAT[3] NOT NULL
+  registered_at: TIMESTAMP DEFAULT NOW()
+  INDEX (user_id, world_seed)
+}
+```
+
+**Write frequency:** Player state saves every **30 seconds** during active play and immediately on disconnect. Terrain modifications and placed objects save **immediately** on creation (these are rare, high-value events — a player digs maybe once per minute, not 60 times per second). Settlement state saves every **60 seconds**.
+
+**Chunk loading protocol:** When a player enters a new terrain chunk:
+1. Client generates base terrain from `worldSeed` (deterministic, ~5ms per chunk)
+2. Client requests modifications from server: `GET /terrain-mods?chunk=${chunkX},${chunkZ}`
+3. Server queries `terrain_modifications` for that chunk and returns the diff
+4. Client applies diffs on top of base terrain (vertex displacement, material replacement)
+
+This means the server never sends full terrain data — only the human-made changes. A chunk with no modifications needs zero server data.
+
+#### Tier 2 — Ephemeral State (Server RAM Only)
+
+These exist only while the server is running. On restart, they vanish.
+
+```
+// ── Active Physics Simulations ────────────────────────────────────────────────
+EphemeralState {
+  // SPH particles: all active liquid/gas simulations in the world
+  sphParticles: Map<ParticleId, SPHParticle>     // see §6.3.4 for SPHParticle structure
+  // typically 0–20,000 active at any time; 0 when no one is melting/pouring
+
+  // Temperature field: materials in the world that are not at ambient temperature
+  heatedObjects: Map<ObjectId, { temperature: number, coolingRate: number }>
+  // a campfire heats nearby objects; when fire dies, they cool back to ambient
+
+  // Active crafting: smelting in progress, pottery firing, etc.
+  activeCrafts: Map<CraftId, { workstationId: string, startTime: number, materials: MaterialPacket[], progress: number }>
+
+  // Dropped loot: items on the ground from player death or intentional drop
+  groundItems: Map<ItemId, { packet: MaterialPacket, position: Vec3, velocity: Vec3, despawnAt: number }>
+
+  // Weather particles: rain drops, snow flakes, dust (visual only, no persistence needed)
+  // NPC pathfinding state: current waypoint, walk progress (NPCs restart their goal loop from idle on server restart)
+}
+```
+
+**What happens on server restart:**
+- All SPH particles vanish. Any liquid that was mid-flow is gone. Rivers and ocean return to their static/shader state. This is acceptable because liquid simulations are short-lived events (a pour takes 5 seconds, lava flow takes 30 seconds).
+- All heated objects snap to ambient temperature. A forge that was at 1200°C goes cold. The player must relight it. This matches reality — if you leave a forge overnight, it's cold in the morning.
+- All active crafts are lost. If a player was mid-smelt, the materials are gone (consumed but product not produced). This is the penalty for being online during a restart. Restarts should be rare and announced.
+- All ground items vanish. Dropped loot from recent deaths is gone. This is acceptable — 5-minute despawn means most loot is already gone anyway.
+- NPCs restart from `idle` state. They don't remember they were carrying ore to the bloomery. They start a new goal loop iteration.
+
+#### The Boundary: When Ephemeral Becomes Permanent
+
+Some ephemeral processes produce permanent results:
+
+- **Smelting completes** → the output MaterialPacket is added to the player's inventory (permanent)
+- **Lava cools and solidifies** → new terrain is created (terrain modification → permanent). The SPH particles that made up the lava flow are deleted, but the solidified rock they became is a permanent terrain modification.
+- **Player digs a hole** → terrain modification record created (permanent). The dirt particles that flew out are ephemeral visual effects.
+- **Container filled with liquid** → the container is permanent (world_objects table), but the liquid inside it is ephemeral. On restart, containers are empty. If this becomes a problem (players complain about losing stored water), we can promote container contents to permanent state later by storing composition in the container's `state` JSONB field.
 
 ### 6.8.4 Player Body and View
 
-- **First-person view** — the player sees the world through their character's eyes. Own hands and forearms visible for tool use, crafting, and carrying.
-- **Other players** — visible as full-body human models with a **realistic skeletal rig** matching real human anatomy:
-  - Spine (lumbar, thoracic, cervical segments)
-  - Shoulders, elbows, wrists, fingers
-  - Hips, knees, ankles, toes
-  - Neck and head
-- **Inverse kinematics (IK)** — arms reach naturally when mining, crafting, or picking up objects. Legs plant on uneven terrain. Body bends when crouching or reaching the ground.
-- **Injury visibility** — limping when leg is injured, favoring one arm, visible wounds. Other players can see your physical state.
-- **Own body hidden from own camera** — standard FPS approach. But other players see your full body at all times.
+#### Camera System
 
-### 6.8.5 Multiplayer Conflict Resolution
+The player uses **first-person view only**. No third-person toggle — this is a survival game where you experience the world through your eyes, not from behind a floating camera.
 
-No special conflict resolution system. Real-world rules apply:
+```
+CameraRig {
+  // Camera position: at the player's eye height
+  eyeHeight: 1.65                            // meters (average human eye level when standing)
+  crouchEyeHeight: 1.0                       // when crouching
+  proneEyeHeight: 0.3                        // when lying down
 
-- **Mining the same node** — ore fragments fall as physical objects when mined. Whoever picks them up first gets them. The node is a shared physical resource, not instanced per player.
-- **Pouring liquid into the same container** — liquids add together. If two players pour different liquids simultaneously, they mix (composition merges by mass-weighted average, same as the material packet compounding rule in §6.3.3).
-- **Grabbing the same item** — server timestamp determines who reached it first. The other player's grab fails silently (the item is gone).
-- **Using the same workstation** — one player at a time. If someone is already using the bloomery, you wait (same as real life — you don't shove someone off a forge).
+  // Head bob: subtle, tied to movement speed
+  bobAmplitude: 0.03                         // meters of vertical oscillation while walking
+  bobFrequency: 2.0                          // Hz (matches ~4 steps/second walk cycle)
+  runBobAmplitude: 0.06                      // increased when running
+  runBobFrequency: 3.0
+
+  // Look constraints
+  pitchRange: [-85°, +85°]                   // can't look directly up/down (neck limit)
+  yawRange: unlimited                        // full 360° horizontal look
+
+  // First-person arms: separate mesh layer rendered on top of world
+  // These are the only part of the player's own body visible to them
+  armModel: 'first_person_arms'              // simplified mesh: shoulder → elbow → wrist → hand → fingers
+  armFOV: 70°                                // slightly narrower than world FOV to prevent hand clipping
+}
+```
+
+#### Skeletal Rig — Realistic Human Anatomy
+
+Every player character (and every humanoid NPC) uses the same skeletal rig with **67 bones** matching real human anatomy. This is not a simplified game skeleton — it is an anatomically accurate hierarchy that enables realistic movement.
+
+```
+HumanSkeleton {
+  // ── Spine (5 bones) ──────────────────────────────────────────────────────────
+  root                                       // pelvis — the root of all movement
+  ├── spine_lumbar                           // lower back (bending, twisting)
+  │   ├── spine_thoracic                     // upper back (ribcage rotation)
+  │   │   ├── spine_cervical                 // neck
+  │   │   │   └── head                       // head (follows camera yaw/pitch for own player)
+  │   │   │       ├── jaw                    // mouth open/close (eating, speaking)
+  │   │   │       ├── eye_L, eye_R           // eye direction (look-at target)
+  │   │   │
+  // ── Arms (2 × 11 bones = 22 bones) ──────────────────────────────────────────
+  │   │   ├── clavicle_L                     // collarbone (shoulder raise/drop)
+  │   │   │   └── shoulder_L                 // ball-and-socket joint
+  │   │   │       └── upperArm_L
+  │   │   │           └── forearm_L          // elbow (hinge joint, 0°–145° flexion)
+  │   │   │               └── hand_L
+  │   │   │                   ├── thumb_L (3 bones: metacarpal, proximal, distal)
+  │   │   │                   ├── index_L (3 bones)
+  │   │   │                   ├── middle_L (3 bones)
+  │   │   │                   ├── ring_L (3 bones)
+  │   │   │                   └── pinky_L (3 bones)    // not all finger bones animated individually —
+  │   │   │                                             // ring+pinky often share a single curl parameter
+  │   │   │
+  │   │   └── [mirror: clavicle_R → ... → pinky_R]
+  │   │
+  // ── Legs (2 × 7 bones = 14 bones) ───────────────────────────────────────────
+  ├── hip_L                                  // ball-and-socket joint
+  │   └── thigh_L
+  │       └── shin_L                         // knee (hinge joint, 0°–140° flexion)
+  │           └── foot_L
+  │               ├── toe_L                  // forefoot bend (push-off during walk)
+  │               └── heel_L                 // IK target for terrain planting
+  │
+  └── [mirror: hip_R → ... → heel_R]
+}
+// Total: root + 5 spine + 1 head + 2 jaw/eyes + 22 arm + 14 leg + ~20 finger detail = ~67 bones
+```
+
+**Bone constraints (real human joint limits):**
+
+| Joint | Type | Range of Motion |
+|-------|------|-----------------|
+| Neck | Ball-and-socket | Pitch: -40°/+60°, Yaw: ±75°, Roll: ±35° |
+| Shoulder | Ball-and-socket | Flexion: 180°, Abduction: 180°, Rotation: 90° internal / 90° external |
+| Elbow | Hinge | Flexion: 0°–145°, Pronation/Supination: ±90° (forearm rotation) |
+| Wrist | Condyloid | Flexion: 80°, Extension: 70°, Deviation: ±20° |
+| Fingers | Hinge (per phalanx) | Metacarpophalangeal: 0°–90°, Interphalangeal: 0°–110° |
+| Hip | Ball-and-socket | Flexion: 120°, Extension: 30°, Abduction: 45° |
+| Knee | Hinge | Flexion: 0°–140° (no hyperextension) |
+| Ankle | Hinge + rotation | Dorsiflexion: 20°, Plantarflexion: 50°, Inversion/Eversion: ±20° |
+| Spine (per segment) | Limited ball | Flexion: ~15° per segment, Rotation: ~10° per segment |
+
+These constraints prevent impossible poses (arms bending backwards, knees inverting) and make IK solutions look natural.
+
+#### Inverse Kinematics (IK) System
+
+IK drives three systems: **foot placement**, **hand targeting**, and **look-at**.
+
+**Foot IK — terrain adaptation:**
+```
+FootIK {
+  // Every frame, two raycasts from hip downward find terrain contact points
+  rayOrigin: hipBone.worldPosition + [0, 0.1, 0]
+  rayDirection: -surfaceNormal                // down relative to planet surface (spherical world)
+  rayLength: legLength × 1.2                 // slightly longer than max leg reach
+
+  // Terrain contact point becomes the IK target for the ankle bone
+  // The solver adjusts hip height, knee bend, and ankle rotation to plant the foot
+  // On slopes: uphill leg bends more, downhill leg extends more
+  // On stairs/rocks: each foot independently finds its surface
+
+  // Pelvis height adjustment:
+  pelvisOffset = min(leftFootDrop, rightFootDrop)  // pelvis lowers to match the lower foot
+  // This prevents the character from hovering above uneven terrain
+}
+```
+
+**Hand IK — interaction targeting:**
+```
+HandIK {
+  // When the player interacts with something (mine, pick up, use workstation),
+  // the hand reaches toward the interaction point
+
+  // Mining: dominant hand grips tool, follows swing arc (pre-authored animation)
+  //         but IK adjusts the endpoint to hit the actual rock surface position
+
+  // Picking up: hand reaches down to the item's world position
+  //             spine bends forward, knees may flex if item is low
+
+  // Workstation: hands position to the machine's interaction points
+  //              (e.g., hands on bellows handles, or placing ore into furnace opening)
+
+  // The IK chain: shoulder → elbow → wrist → hand
+  // Solver: FABRIK (Forward And Backward Reaching Inverse Kinematics)
+  //   - Faster than CCD for chains of this length
+  //   - Converges in 3-5 iterations
+  //   - Respects joint constraints (elbow doesn't bend backwards)
+}
+```
+
+**Look-at IK — head and eye tracking:**
+```
+LookAtIK {
+  // Other players' heads turn toward things they're looking at
+  // This is NOT the local player's camera (that's direct control)
+  // This is how OTHER players see each other
+
+  // Network sends: each player's camera forward vector (compressed to 2 bytes: yaw + pitch as uint8)
+  // Receiving client: rotates the neck + head bones to match
+  // Eyes: slight additional rotation toward the look target (±5° offset from head)
+
+  // Weight falloff: if look target is behind the player (>90° from forward),
+  // head rotates only to ~75° and eyes handle the remaining offset
+  // Beyond 90°: the character's body must turn (not just the head)
+}
+```
+
+#### What the Local Player Sees vs. What Others See
+
+| Part | Local Player | Other Players |
+|------|-------------|---------------|
+| Head | Invisible (camera is inside it) | Full head mesh + face |
+| Torso | Invisible | Full torso with clothing |
+| Arms | First-person arm model (higher detail hands, different FOV) | Full arm mesh from shoulder |
+| Legs | Invisible (look down → see nothing, or optional: see own feet/knees) | Full leg mesh |
+| Shadow | Full body shadow cast on ground (gives spatial awareness) | Full body shadow |
+| Held items | Visible in first-person hand model | Visible in third-person hand |
+
+The first-person arms are a **separate mesh and render pass** from the world. They render at `armFOV` (70°) on top of the world rendered at `worldFOV` (90°). This prevents the common FPS problem of hands clipping through walls — the arm mesh exists in its own depth space.
+
+#### Injury Visualization
+
+Injuries are not HP bars — they are visible physical states that change how the character looks and moves:
+
+```
+InjurySystem {
+  // Each body region can be independently injured
+  regions: {
+    head:      { health: 0-100, bleedRate: number },
+    torso:     { health: 0-100, bleedRate: number },
+    leftArm:   { health: 0-100, bleedRate: number },
+    rightArm:  { health: 0-100, bleedRate: number },
+    leftLeg:   { health: 0-100, bleedRate: number },
+    rightLeg:  { health: 0-100, bleedRate: number },
+  }
+
+  // Visual effects per region health level:
+  // 100-70%: no visible change
+  // 70-40%:  slight discoloration (bruising shader overlay), minor movement penalty
+  // 40-10%:  visible wound texture, blood decal, significant movement penalty
+  // <10%:    limb barely functional
+
+  // Movement penalties:
+  // Injured leg: walkSpeed × (legHealth / 100), limp animation blends in below 50%
+  // Injured arm: interaction speed × (armHealth / 100), tool swing is slower and less accurate
+  // Injured torso: stamina regeneration × (torsoHealth / 100)
+  // Injured head: vision blur at <30%, screen darkening at <15%
+
+  // Healing: injuries heal at baseHealRate × (nutrition_factor) × (rest_factor) × (temperature_factor)
+  // baseHealRate: 0.5 HP/minute (a bad cut takes ~2 real hours to heal fully at rest with food)
+  // Bandaging (cloth + pressure): stops bleedRate, doubles healRate for that region
+  // Infection risk: open wound (bleedRate > 0) in dirty environment → bacterial growth (see §6.8.2 death causes)
+}
+```
+
+**Limp animation blend:**
+When `leftLeg.health < 50%`, the walk cycle blends a limp animation:
+- Stance phase on injured leg is shorter (hurrying to get weight off it)
+- Swing phase on injured leg has reduced knee flexion (can't bend it fully)
+- Compensatory lean toward the uninjured side
+- Blend weight: `limpWeight = 1.0 - (legHealth / 50)` (0% at 50 HP, 100% at 0 HP)
+
+Other players see all of this. A player limping toward you with a bloody arm and slow movements is visually communicating their state without any HP bar.
+
+### 6.8.5 Multiplayer Conflict Resolution — Physics as Arbiter
+
+There is no conflict resolution "system." There is physics. Two players interacting with the same object are two physical entities in the same space, and the simulation resolves their actions the same way it resolves any other physics interaction.
+
+#### Resource Extraction (Mining, Gathering, Harvesting)
+
+```
+MiningInteraction {
+  // A resource node is a physical object with:
+  nodeHealth: number                         // starts at node's total extractable mass (e.g., 50kg copper ore)
+  fragmentMass: number                       // mass per extraction hit (e.g., 0.5kg per swing)
+
+  // When a player swings a tool at the node:
+  // 1. Server validates: is the player within 2m? Is the tool appropriate? Is the swing animation complete?
+  // 2. Server deducts fragmentMass from nodeHealth
+  // 3. Server spawns a DroppedItem (ore fragment) at the node's surface position
+  //    - The fragment has initial velocity: outward from the impact point + downward gravity
+  //    - It is a standard physics entity — it falls, bounces, rolls, settles
+  // 4. Server broadcasts the spawn to all nearby clients
+
+  // Two players mining the same node simultaneously:
+  // - Both hit the node. Both produce fragments. Fragments scatter in different directions.
+  // - Each player must physically walk to and pick up the fragments they want.
+  // - If player A's fragment rolls toward player B, player B can grab it. No ownership tag.
+  // - When nodeHealth reaches 0, the node is depleted. No more fragments.
+  // - Server processes mining hits in order of arrival (monotonic timestamp).
+  //   If two hits arrive in the same server tick (16ms), both are processed — the node loses 2× fragmentMass.
+}
+```
+
+#### Item Pickup
+
+```
+PickupProtocol {
+  // Items on the ground have no owner. Anyone can pick them up.
+
+  // Client sends: PICKUP_REQUEST { itemId, playerPosition, timestamp }
+  // Server checks:
+  //   1. Does the item still exist? (another player might have grabbed it already)
+  //   2. Is the player within 1.5m of the item's current position?
+  //   3. Is the player's inventory not full?
+
+  // If all checks pass:
+  //   - Item is removed from world entities
+  //   - Item is added to the requesting player's inventory
+  //   - Server broadcasts ITEM_REMOVED { itemId } to all clients
+  //   - Server sends INVENTORY_UPDATE to the picking player
+
+  // If the item no longer exists (race condition):
+  //   - Server sends PICKUP_FAILED { reason: 'gone' } to the requesting player
+  //   - Client shows brief feedback: the item vanishes from their screen
+  //   - No retry. The item is gone. Someone else got it.
+
+  // No locking. No reservation. No "I saw it first" system.
+  // Server timestamp order determines the winner. Network latency means
+  // the closer player (lower ping) has a slight advantage — same as real life
+  // where the closer person reaches the object first.
+}
+```
+
+#### Liquid Containers
+
+```
+ContainerPhysics {
+  // A container (clay pot, bucket, trough) has:
+  capacity: number                           // volume in liters
+  currentVolume: number                      // how full it is
+  contents: MaterialPacket                   // the liquid inside (composition, temperature)
+
+  // Pouring liquid in:
+  // 1. Player holds a container with liquid and presses "pour" while aiming at the target container
+  // 2. Server creates a pour stream (SPH particles or visual) from source to target
+  // 3. Target container's contents update: mass-weighted composition merge (§6.3.3 compounding rule)
+  //    newComposition[element] = (existingMass × existingFraction[element] + addedMass × addedFraction[element]) / totalMass
+  //    newTemperature = (existingMass × existingTemp + addedMass × addedTemp) / totalMass
+  // 4. If two players pour simultaneously:
+  //    - Both pour streams execute. The container receives both.
+  //    - The three-way merge is just two sequential two-way merges (order doesn't matter — addition is commutative).
+  //    - If total volume exceeds capacity, excess overflows as SPH particles that spill and flow.
+}
+```
+
+#### Workstation Access
+
+```
+WorkstationAccess {
+  // A workstation has a single operator slot.
+  state: 'vacant' | 'occupied'
+  operatorId: string | null                  // userId of current operator
+
+  // Player presses F within 5m:
+  //   If vacant: server sets operatorId = playerId, state = 'occupied'
+  //              client opens WorkstationPanel
+  //   If occupied: client shows "[Workstation in use by another player]"
+  //               player must wait or find another workstation
+
+  // Operator leaves (walks away >5m, presses Esc, disconnects):
+  //   Server sets state = 'vacant', operatorId = null
+  //   Any in-progress craft continues if it doesn't require active input
+  //   (a smelt that's already started keeps going — the furnace doesn't need a babysitter)
+  //   But a craft requiring active input (hammering on anvil) pauses.
+
+  // No queue system. No reservation. You walk up, if it's free you use it.
+  // Two players approaching at the same time: first WORKSTATION_USE request to reach the server wins.
+}
+```
 
 ### 6.8.6 Sound System — Physics-Driven Audio
 
-Sound is not a library of pre-assigned audio files mapped to game events. Sound is determined by the physical properties of the interaction, the same way crafting is determined by material properties.
+#### The Principle
 
-**What determines the sound:**
+Every sound in the real world is produced by a physical event: two objects collide and their surfaces vibrate, a fluid turbulates as it flows past an obstacle, air rushes through a narrow opening. The frequency, timbre, and volume of the resulting sound are determined by the physical properties of the objects and the medium.
 
-| Property | Effect on Sound |
-|----------|----------------|
-| Material hardness (Mohs) | Timbre — stone on stone = sharp crack; wood on wood = dull thud |
-| Material density × size | Pitch — heavy/large objects = low frequency; light/small = high |
-| Impact energy (force × velocity) | Volume — gentle tap vs. full swing |
-| Medium between source and listener | Propagation — air = normal; underwater = muffled + faster; solid = conducted |
-| Environment geometry | Reverb — cave = long echo; open field = dry; forest = scattered reflections |
-| Temperature | Some materials change sound when heated (metal pings differently when hot) |
+The game follows the same principle. There is no `sounds/` folder with `campfire_loop.wav` or `footstep_dirt_03.mp3` mapped to game events. Instead, the **audio engine computes what you should hear** from the physics of what is happening.
 
-**Implementation approach:** Audio samples are used as building blocks (raw material sounds: impacts, scrapes, cracks, flows, hisses). The **selection, pitch-shifting, filtering, and mixing** of those samples is driven by the physics properties of the interacting materials and the environment — not by hardcoded event triggers.
+#### The Audio Pipeline
 
-**Examples:**
-- Striking flint on iron pyrite: hardness 7 on hardness 6.5 → sharp, high-pitched crack + spark hiss
-- Pouring water into a clay pot: liquid density × container resonance → hollow splashing, pitch rises as pot fills
-- Hammering hot copper on an anvil: softened metal (lower hardness when hot) → duller thud than cold hammering
-- Footsteps: terrain material (sand = soft crunch, stone = hard tap, mud = wet squelch) × player weight
+```
+PhysicsEvent → SoundDescriptor → SampleSelector → AudioProcessor → WebAudio → Speakers
+
+Step 1: PhysicsEvent
+  Any physics interaction generates an event:
+  { type: 'impact'|'scrape'|'flow'|'break'|'combustion'|'pressure_release',
+    materialA: MaterialPacket,        // first material involved
+    materialB: MaterialPacket | null, // second material (null for single-material events like cracking)
+    energy: number,                   // joules of the interaction
+    contactPoint: Vec3,               // world position where it happened
+    contactNormal: Vec3,              // surface normal at contact
+    relativeVelocity: Vec3 }          // approach speed and direction
+
+Step 2: SoundDescriptor
+  Computed from the physics event + material properties:
+  {
+    // ── Timbre Selection ────────────────────────────────────────────────────
+    // Based on material classification + hardness
+    timbreClass: computeTimbreClass(materialA, materialB)
+    // Classes: 'metallic', 'lithic' (stone/ceramic), 'organic' (wood/bone/leather),
+    //          'granular' (sand/gravel/soil), 'liquid', 'gas' (wind/steam/explosion)
+
+    // ── Pitch ───────────────────────────────────────────────────────────────
+    // Fundamental frequency from object size and material stiffness
+    // f₀ = (1/2L) × √(E/ρ)  where:
+    //   L = characteristic length of the vibrating object (m)
+    //   E = Young's modulus (Pa) — derived from material hardness and crystal structure
+    //   ρ = density (kg/m³) — from MaterialPacket
+    fundamentalFreq: computeF0(materialA)     // Hz
+    // A small stone chip: L=0.03m, E=70GPa, ρ=2700 → f₀ ≈ 2700 Hz (high ping)
+    // A large iron anvil: L=0.5m, E=200GPa, ρ=7800 → f₀ ≈ 320 Hz (deep ring)
+    // A wooden log: L=1.0m, E=12GPa, ρ=600 → f₀ ≈ 70 Hz (low thud)
+
+    // ── Volume ──────────────────────────────────────────────────────────────
+    // Sound power from impact energy
+    // P_sound = η × E_impact / t_contact  where:
+    //   η = acoustic efficiency (metal: 0.01, stone: 0.005, wood: 0.002, sand: 0.0001)
+    //   E_impact = ½mv² (kinetic energy of impact)
+    //   t_contact = contact duration (harder materials = shorter = louder)
+    soundPower: computePower(energy, materialA, materialB)   // watts
+
+    // ── Decay ───────────────────────────────────────────────────────────────
+    // How quickly the sound dies out
+    // Metal: long decay (ringing), τ = 2-5 seconds
+    // Stone: medium decay, τ = 0.1-0.5 seconds
+    // Wood: short decay, τ = 0.05-0.2 seconds
+    // Soft materials: nearly instant, τ < 0.05 seconds
+    decayTime: computeDecay(materialA)   // seconds (time to -60dB)
+  }
+
+Step 3: SampleSelector
+  The engine has a library of ~50 base audio samples organized by timbre class:
+
+  metallic_impact[]: 5 samples (light tap to heavy strike)
+  metallic_scrape[]: 3 samples (slow to fast)
+  metallic_ring[]:   3 samples (small to large resonator)
+  lithic_impact[]:   5 samples
+  lithic_crack[]:    3 samples
+  lithic_grind[]:    3 samples
+  organic_impact[]:  5 samples (wood knock to bone crack)
+  organic_creak[]:   3 samples
+  granular_step[]:   5 samples (packed to loose)
+  granular_pour[]:   3 samples
+  liquid_splash[]:   5 samples (drip to pour)
+  liquid_flow[]:     3 samples (trickle to rush)
+  liquid_bubble[]:   3 samples
+  gas_rush[]:        3 samples (breeze to blast)
+  gas_hiss[]:        3 samples
+  combustion[]:      5 samples (spark to roar)
+
+  Selection: timbreClass + energy level → pick the closest base sample
+  Total: ~55 samples. Compared to typical games that ship 500-2000 samples,
+  this is 10× smaller because the variation comes from processing, not recording.
+
+Step 4: AudioProcessor
+  The selected sample is transformed in real-time by the WebAudio API:
+
+  // Pitch shift to match computed fundamental frequency
+  playbackRate = fundamentalFreq / sampleBaseFreq
+
+  // Volume from sound power + distance attenuation
+  // Inverse square law: I = P / (4π r²) where r = distance from source to listener
+  gain = soundPower / (4 * Math.PI * distance² + 1)   // +1 prevents division by zero at contact
+  // Clamp to [0, 1] for output
+
+  // Decay envelope: exponential falloff
+  // gain(t) = gain₀ × e^(-t/τ) where τ = decayTime
+
+  // Environment filtering:
+  if (underwater) {
+    // Low-pass filter at 800 Hz (water absorbs high frequencies)
+    // Speed of sound: 1500 m/s (vs 343 m/s in air) — affects spatial delay
+    lowpassCutoff = 800
+    speedOfSound = 1500
+  } else if (inCave) {
+    // Convolution reverb with cave impulse response
+    // Reverb time: proportional to cave volume (estimated from nearest walls raycast)
+    reverbTime = estimateCaveVolume(listenerPosition) * 0.001  // seconds
+    reverbWetMix = 0.6
+  } else if (inForest) {
+    // Scattered reflections: short multi-tap delay (tree trunks)
+    // High-frequency absorption from foliage
+    lowpassCutoff = 4000
+    scatterDelay = [20, 35, 55, 80]  // ms, from nearby tree reflections
+    scatterGain = [0.3, 0.2, 0.15, 0.1]
+  } else {
+    // Open field: dry sound, no reverb
+    reverbWetMix = 0.0
+  }
+```
+
+#### Continuous Sounds (Not Impacts)
+
+Some sounds are ongoing processes, not single events:
+
+```
+ContinuousSoundSources {
+  // ── Fire ──────────────────────────────────────────────────────────────────
+  // Fire sound = turbulent gas flow + crackling (moisture in wood popping)
+  // Volume: proportional to fire intensity (fuel burn rate × oxygen supply)
+  // Pitch: base rumble at 80-200 Hz (turbulence), crackle overlays at 1-4 kHz
+  // The crackle rate depends on wood moisture content:
+  //   dryWood (moisture < 0.1): rare crackles, clean burn sound
+  //   wetWood (moisture > 0.4): frequent loud pops, hissing steam overlay
+  fire: {
+    baseFreq: 80 + fuelBurnRate * 120,       // Hz
+    crackleRate: woodMoisture * 10,           // pops per second
+    hissOverlay: woodMoisture > 0.3,          // steam hiss from wet wood
+    volume: fuelBurnRate * 0.5                // normalized
+  }
+
+  // ── Flowing Water ─────────────────────────────────────────────────────────
+  // Sound of water = turbulence at obstacles
+  // Volume: proportional to flow speed × cross-section area
+  // Pitch: small stream = high (2-4 kHz babble), large river = low (100-400 Hz rumble)
+  // River sound uses the queryNearestRiver() data from RiverSystem.ts:
+  water: {
+    baseFreq: 4000 / (riverWidth + 1),        // narrower = higher pitch
+    turbulenceNoise: brownNoise,               // base waveform
+    volume: flowSpeed * crossSection * 0.01,
+    splashOverlay: flowSpeed > 2.0             // rapids add white noise bursts
+  }
+
+  // ── Wind ──────────────────────────────────────────────────────────────────
+  // Wind sound = air flowing past the listener's ears and nearby objects
+  // Pitch: proportional to wind speed (Aeolian tone: f = 0.2 × v / d, where d = object diameter)
+  // Volume: proportional to v² (kinetic energy of air)
+  // Variation: gusts modulate volume sinusoidally (period 3-8 seconds)
+  wind: {
+    baseFreq: 0.2 * windSpeed / 0.02,         // ear diameter ~2cm → Aeolian frequency
+    volume: windSpeed * windSpeed * 0.001,
+    gustModulation: sin(time * gustFreq) * 0.3 + 0.7,   // 70-100% volume oscillation
+    objectWhistle: nearbyThinObjects.map(obj =>  // fence posts, branches whistle
+      ({ freq: 0.2 * windSpeed / obj.diameter, volume: windSpeed * 0.01 }))
+  }
+
+  // ── Footsteps ─────────────────────────────────────────────────────────────
+  // Generated per step from the walk cycle animation (foot contact event)
+  footstep: {
+    // Terrain material at foot contact point determines timbre class:
+    terrainMaterial: getTerrainMaterialAt(footPosition)
+    // stone/rock → lithic_impact, hard tap
+    // sand → granular_step, soft crunch (pitch varies with grain size)
+    // mud → liquid + granular mix, squelch (moisture content determines wet/dry balance)
+    // grass → organic + granular, soft swish
+    // wood (floor/dock) → organic_impact, hollow knock (pitch from plank thickness)
+    // snow → granular, high-pitched crunch (compacting ice crystals)
+    // metal (grating) → metallic_impact, sharp ring
+
+    // Volume from player mass × step force
+    // Running = 2× walking volume
+    // Sneaking = 0.3× walking volume (also slower step frequency)
+    volume: playerMass * stepForce * terrainLoudness[terrainType]
+  }
+}
+```
+
+#### Spatial Audio (3D Positioning)
+
+```
+SpatialAudio {
+  // All sounds are positioned in 3D using WebAudio's PannerNode
+  panningModel: 'HRTF'                      // Head-Related Transfer Function
+                                              // Simulates how sound arrives at each ear differently
+                                              // based on direction — enables "I hear it to my left"
+
+  // Distance attenuation: inverse square law with rolloff
+  distanceModel: 'inverse'
+  refDistance: 1.0                            // full volume at 1 meter
+  maxDistance: 200.0                          // silent beyond 200 meters
+  rolloffFactor: 1.0                         // standard inverse-square (realistic)
+
+  // Sound travels at finite speed (optional, for immersion):
+  // delay = distance / speedOfSound
+  // At 100m: delay = 100/343 = 0.29 seconds
+  // Player sees lightning, then hears thunder 0.3s later per 100m distance
+  // This is subtle but adds enormous realism for distant events (explosions, mining, thunder)
+  propagationDelay: distance / (underwater ? 1500 : 343)   // seconds
+}
+```
+
+#### Performance Budget
+
+The audio system must stay within strict CPU limits:
+
+| Component | Budget | How |
+|-----------|--------|-----|
+| SoundDescriptor computation | <0.1ms per event | Simple arithmetic on material properties — no iteration, no lookup tables |
+| Sample selection | <0.05ms per event | Direct array index from timbre class + energy bucket |
+| WebAudio processing | ~2-3ms total | Handled by browser's audio thread (not main thread). Typically 8-16 concurrent voices max. |
+| Environment estimation | ~0.5ms per frame | Raycast cache for cave/forest/open classification. Recompute only when player moves >5m. |
+| Total audio CPU | <1ms main thread | Most work happens on the browser's audio thread. Main thread only computes SoundDescriptors and sends them to WebAudio. |
+
+**Voice limiting:** Maximum 16 simultaneous sounds. When a new sound would exceed the limit, the quietest (lowest gain after distance attenuation) sound is dropped. Continuous sounds (fire, river, wind) have reserved slots (max 4) and compete separately from transient sounds (impacts, footsteps).
 
 ### 6.8.7 NPC Language and Knowledge Transfer
 
-NPCs do not speak any existing human language. They communicate in a **constructed language** that may vary between settlements (cultural divergence over time).
+#### The Language System
 
-**How players learn from NPCs:**
+NPCs do not speak English, Mandarin, or any existing human language. Each settlement develops its own **constructed language** — a system of vocalizations, gestures, and symbols that evolved within that settlement's history.
 
-NPCs teach by **demonstration**, not by dialogue trees or recipe reveals:
+#### Language Generation (Per Settlement)
 
-1. **Observation** — a player near a settlement watches NPCs perform their daily work: carrying ore to the bloomery, adding charcoal, pulling out smelted copper. The player sees the process happen physically.
-2. **Imitation** — the player tries the same process at the same or a different workstation. Success depends on getting the physics right (correct materials, correct temperature, correct order), not on having "learned" a recipe from the NPC.
-3. **Repetition** — hidden practice tracking means the player gets better at processes they attempt repeatedly. An NPC who has done something 10,000 times is naturally more skilled than a player doing it for the first time.
-4. **Cultural knowledge** — different settlements may have discovered different processes. A settlement near volcanic copper deposits knows copper smelting. A coastal settlement knows salt extraction and fish preservation. Players travel between settlements to observe different techniques.
+Each settlement's language is **deterministically generated from the world seed + settlement ID**, ensuring all players hear the same language from the same NPCs.
 
-**No tutorials, no recipe unlocks, no dialogue menus.** The NPC is a skilled practitioner going about their work. The player is an observer who learns by watching and trying — the same way knowledge spread in the real ancient world.
+```
+SettlementLanguage {
+  settlementId: number
+  seed: number                               // worldSeed × settlementId — deterministic
+
+  // ── Phoneme Inventory ─────────────────────────────────────────────────────
+  // Each settlement selects a subset of human-possible phonemes
+  // Real human languages use 11-141 phonemes (Hawaiian: 13, !Xóõ: 141)
+  // Game settlements use 15-40 phonemes per language
+
+  consonants: Phoneme[]                      // selected from universal phoneme set
+  vowels: Phoneme[]                          // 3-7 vowels (5 is most common cross-linguistically)
+  tones: number                              // 0 (no tonal), 2, 3, or 4 tone levels
+
+  // The phoneme selection is biased by settlement environment:
+  // Coastal settlements: more fricatives (s, sh, f) — mimics wave/wind sounds
+  // Mountain settlements: more stops (k, t, p) — sharp, carries over distance
+  // Forest settlements: more nasals (m, n, ng) — resonates between trees
+  // This is speculative but creates flavor differences players will notice.
+
+  // ── Syllable Structure ────────────────────────────────────────────────────
+  // Determines what combinations of phonemes are allowed
+  syllableTemplate: string                   // e.g., '(C)V(C)' — optional consonant, vowel, optional consonant
+  maxSyllablesPerWord: number                // 1-4 (shorter words for more "advanced" settlements)
+
+  // ── Vocabulary ────────────────────────────────────────────────────────────
+  // Words are generated for ~200 core concepts:
+  // - Objects: fire, water, stone, copper, food, shelter, tool
+  // - Actions: give, take, make, break, go, come, look, eat, hit
+  // - Qualities: hot, cold, big, small, good, bad, fast, slow
+  // - Numbers: 1-10 (base system: 5 or 10 depending on settlement)
+  // - Social: yes, no, friend, stranger, danger, help
+
+  vocabulary: Map<ConceptId, Word>           // concept → word mapping
+
+  // Word generation: chain syllables using Markov chain seeded by settlementSeed
+  // This ensures words sound internally consistent (a settlement's words share phonetic patterns)
+  // Different settlements produce noticeably different-sounding languages
+
+  // ── Grammar ───────────────────────────────────────────────────────────────
+  wordOrder: 'SOV' | 'SVO' | 'VSO'          // subject-object-verb order (SOV is most common worldwide)
+  // Grammar is minimal — NPCs communicate mostly through context + action + gesture
+  // Full grammar is not needed because players don't understand the words anyway.
+  // The language exists for ATMOSPHERE, not for information transfer.
+}
+```
+
+#### What Players Actually Hear
+
+When an NPC speaks, the player hears procedurally generated speech:
+
+```
+NPCSpeech {
+  // 1. NPC's intent (server-side): the NPC wants to communicate something
+  intent: 'greeting' | 'warning' | 'offer_trade' | 'request_help' | 'show_process' | 'farewell'
+
+  // 2. Word selection: intent maps to concept sequence
+  //    'greeting' → [social:friend, action:come, quality:good]
+  //    'warning' → [social:danger, action:go, quality:bad]
+  //    'offer_trade' → [object:copper, action:give, object:food, action:take]
+
+  // 3. Vocalization: words are synthesized or selected from phoneme-based audio
+  //    Option A (cheaper): pre-record ~40 syllable sounds, concatenate per the settlement's phoneme rules
+  //    Option B (richer): use Web Speech API with custom phoneme mapping, pitch-shifted per NPC voice
+  //    The result sounds like speech in an unfamiliar language — recognizable as language, not understandable
+
+  // 4. Gesture overlay: the NPC simultaneously performs a gesture
+  //    'greeting': raises open hand
+  //    'warning': points away + shakes head
+  //    'offer_trade': extends one hand with item, other hand open (receiving)
+  //    'show_process': turns toward workstation and begins working
+  //    Gestures are the REAL communication channel. The spoken words are atmosphere.
+}
+```
+
+#### Knowledge Transfer Through Demonstration
+
+This is the core system. NPCs do not tell players what to do. They **do things**, and the player watches.
+
+```
+DemonstrationSystem {
+  // Each NPC in a settlement runs their goal loop (§6.8.1):
+  // idle → gather → carry → process → deliver → idle
+
+  // During the 'process' step, the NPC performs a visible crafting action:
+
+  ProcessDemonstration {
+    npcId: string
+    workstationId: string
+    inputMaterials: MaterialPacket[]         // what the NPC puts into the workstation
+    action: string                           // 'smelt' | 'grind' | 'shape' | 'fire' | 'weave'
+    outputMaterial: MaterialPacket           // what comes out
+    duration: number                         // seconds the process takes (visible to the watching player)
+
+    // ── What the player sees ──────────────────────────────────────────────
+    // 1. NPC walks to a pile of raw material (e.g., copper ore)
+    // 2. NPC picks up ore (visible in NPC's hands)
+    // 3. NPC walks to the bloomery
+    // 4. NPC places ore into the bloomery opening (hand animation → item disappears into furnace)
+    // 5. NPC adds charcoal (same sequence — NPC fetches charcoal, places it)
+    // 6. NPC operates bellows (arm pumping animation, fire brightens, temperature rises)
+    // 7. Time passes (NPC stands watching, occasionally pumping bellows)
+    // 8. NPC reaches into bloomery and pulls out a copper blob (new item appears in hand)
+    // 9. NPC carries copper to storage area
+
+    // EVERY STEP IS VISIBLE AND PHYSICAL.
+    // The player sees the inputs, the machine, the process, and the output.
+    // They can infer what happened: "that rock went into the furnace with black stuff,
+    // and something shiny came out."
+  }
+
+  // ── What the player does NOT get ────────────────────────────────────────
+  // - No tooltip: "The NPC is smelting copper ore using a bloomery with charcoal as fuel"
+  // - No recipe unlock: "You learned: Copper Smelting!"
+  // - No dialogue option: "[Ask about smelting]"
+  // - No journal entry: "I watched an NPC smelt copper. I should try this."
+
+  // The player must:
+  // 1. Notice what the NPC is doing (attention)
+  // 2. Figure out what materials they used (observation)
+  // 3. Find those materials themselves (exploration)
+  // 4. Try the same process at a workstation (experimentation)
+  // 5. Fail a few times and adjust (learning)
+  // 6. Succeed (discovery — recorded in their discoveries set)
+
+  // This mirrors exactly how ancient humans learned technology from each other:
+  // A traveler visits a foreign village, watches their metalworkers,
+  // goes home, and tries to replicate what they saw.
+
+  // ── Companion System (Future) ───────────────────────────────────────────
+  // A companion NPC that follows the player can provide HINTS, not answers:
+  // - If the player fails to start a fire: companion gestures toward dry wood (not wet wood)
+  // - If the player uses wrong ore in a bloomery: companion shakes head, picks up correct ore, shows it
+  // - The companion learned from their OWN settlement — they only know what their settlement knows
+  // - A companion from a copper settlement can't help with iron smelting
+  // - This creates value in traveling to different settlements: new companions = new knowledge
+}
+```
+
+#### Cultural Divergence
+
+Different settlements know different things, creating a reason to explore:
+
+```
+SettlementKnowledge {
+  // Each settlement has a knowledge set — the processes it has "discovered"
+  // This is determined by settlement specialty + age + trade connections
+
+  // A young copper mining settlement knows:
+  knownProcesses: [
+    'fire_starting',          // everyone knows this
+    'clay_pottery',           // basic ceramics
+    'copper_smelting',        // their specialty
+    'copper_tool_making',     // hammering copper into tools
+  ]
+
+  // An old coastal fishing settlement knows:
+  knownProcesses: [
+    'fire_starting',
+    'salt_extraction',        // evaporating seawater
+    'fish_preservation',      // salt + fish = preserved food
+    'rope_making',            // plant fiber twisting
+    'net_weaving',            // rope into nets
+    'boat_building',          // wood + rope + tar
+  ]
+
+  // A settlement that trades with both might know elements of each.
+  // Knowledge spreads between settlements via trade routes (server simulation):
+  // When two settlements trade, there's a small chance per tick that
+  // the receiving settlement "learns" one of the sender's processes.
+  // knowledgeSpreadRate = tradeVolume × 0.001 per server tick
+
+  // This means the game world's total knowledge grows over time,
+  // even without player intervention. Players arriving in a mature world
+  // find settlements that know more processes. Players in a fresh world
+  // find primitive settlements and must discover more on their own.
+}
+```
+
+#### Why This Works
+
+The knowledge transfer system works because of the synergy between three other systems:
+
+1. **Physics-based crafting (§6.3)** — there are no recipes to "teach." The knowledge IS the physical process. Seeing it done IS learning it.
+2. **Emergent materials (§6.3.3)** — the output isn't a named item. It's whatever physics produces. The NPC doesn't make "copper" — they make "the orange metal that comes from heating green rock." The player figures out the name (or doesn't — names don't matter, properties do).
+3. **Workstation system (§6.8.1)** — the machine is a physical place. The NPC goes there. The player goes there. They're in the same space doing the same thing. No abstract menu bridges them.
+
+The language barrier is intentional. It forces players to rely on **observation** rather than **instruction**. This is harder, slower, and more frustrating than a tutorial — and that's the point. The satisfaction of figuring out copper smelting by watching an NPC is incomparably greater than reading "combine copper ore + charcoal in bloomery."
 
 ### 6.9 Late-Game Systems (M9–M15)
 

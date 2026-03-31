@@ -4522,13 +4522,43 @@ shelters {
 
 **Write frequency:** Player state saves every **30 seconds** during active play and immediately on disconnect. Terrain modifications and placed objects save **immediately** on creation (these are rare, high-value events — a player digs maybe once per minute, not 60 times per second). Settlement state saves every **60 seconds**.
 
-**Chunk loading protocol:** When a player enters a new terrain chunk:
-1. Client generates base terrain from `worldSeed` (deterministic, ~5ms per chunk)
-2. Client requests modifications from server: `GET /terrain-mods?chunk=${chunkX},${chunkZ}`
-3. Server queries `terrain_modifications` for that chunk and returns the diff
-4. Client applies diffs on top of base terrain (vertex displacement, material replacement)
+**Chunk loading protocol:** The client never generates terrain. The server is the sole authority on what the world looks like. The client receives fully computed terrain data and renders it.
 
-This means the server never sends full terrain data — only the human-made changes. A chunk with no modifications needs zero server data.
+When a player enters a new terrain chunk:
+1. Client sends `CHUNK_REQUEST { chunkX, chunkZ }` to the server
+2. Server generates the terrain for that chunk (base from seed + all modifications applied)
+3. Server sends `CHUNK_DATA` back — a compressed terrain payload:
+
+```
+CHUNK_DATA {
+  chunkX: number
+  chunkZ: number
+  // Heightmap: 64×64 grid of terrain heights (Float16 = 2 bytes each → 8 KB)
+  heightmap: Float16Array[4096]
+  // Material IDs per vertex: what the surface is made of (Uint8 → 4 KB)
+  materialMap: Uint8Array[4096]
+  // Normal map: compressed vertex normals for lighting (optional, can be computed client-side from heightmap)
+  // Color tint: per-vertex color variation (Uint8×3 → 12 KB)
+  colorMap: Uint8Array[12288]
+  // Total per chunk: ~24 KB compressed (gzip: ~8-12 KB on wire)
+}
+```
+
+4. Client builds a Three.js mesh from the received data and adds it to the scene
+5. Chunks are cached on the client — no re-request until the server notifies of a modification
+6. When terrain is modified (dig, build), server pushes `CHUNK_UPDATE` for affected chunks
+
+**Bandwidth cost:**
+- A player moving through the world loads ~9 chunks at a time (3×3 grid around them)
+- Initial load: 9 × ~10 KB = ~90 KB (one-time on login or entering new area)
+- Steady state: 0 KB/s (chunks are cached, only updates when modifications happen)
+- Terrain modification: ~10 KB per updated chunk (rare events)
+
+**Why this approach:**
+- The client is truly "eyes only" — it renders what the server shows it, nothing more
+- No game logic runs on the client — no terrain generation code to reverse-engineer or exploit
+- The server can change terrain generation algorithms without updating clients
+- Terrain modifications are seamlessly integrated — the client never sees "base + diff," it just sees terrain
 
 #### Tier 2 — Ephemeral State (Server RAM Only)
 
@@ -6077,7 +6107,7 @@ This is a real-world online simulation. The server is the world. The client is a
 │                                                                              │
 │  RECEIVES AND RENDERS (never computes authoritative state):                  │
 │  ├── Visual rendering                                                        │
-│  │   ├── Terrain mesh from worldSeed + server terrain modifications          │
+│  │   ├── Terrain mesh from server-sent CHUNK_DATA (no local generation)      │
 │  │   ├── Player/NPC body meshes at server-provided positions                 │
 │  │   ├── SPH particle rendering (metaballs) from server particle positions   │
 │  │   ├── Weather visuals (rain particles, snow, fog, clouds, lightning)      │
@@ -6133,15 +6163,23 @@ Client-Side Prediction {
 #### Bandwidth Budget
 
 ```
-Per player, per second:
+Per player, per second (steady state — not moving to new chunks):
   WORLD_SNAPSHOT (6 Hz):    ~2 KB × 6 = 12 KB/s     (positions, compressed)
   PHYSICS_EVENT (variable): ~0.5 KB average           (only during active physics)
   SOUND_EVENT (variable):   ~0.1 KB average           (compact descriptors)
   ENTITY_UPDATE (variable): ~0.2 KB average           (stat changes, inventory)
   Player input (upstream):  ~0.5 KB/s                 (movement + actions)
 
-  Total per player: ~13 KB/s downstream, ~0.5 KB/s upstream
+  Total per player (steady): ~13 KB/s downstream, ~0.5 KB/s upstream
   50 concurrent players: ~650 KB/s total server bandwidth
+
+Per player, burst (entering new area):
+  CHUNK_DATA (9 chunks):    ~90 KB burst              (one-time, cached after)
+  This is a brief spike when the player moves into unexplored terrain.
+  Chunks are cached on the client — subsequent visits to the same area cost nothing.
+
+Per player, terrain modification:
+  CHUNK_UPDATE:             ~10 KB per modified chunk  (rare — only when digging/building)
 ```
 
 ### 6.8.9 Inventory System — Clothing Determines Capacity

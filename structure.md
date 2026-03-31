@@ -4293,18 +4293,25 @@ The planet orbits its star with a tilted axis (23.4° — same as Earth). This t
 
 ```
 SeasonSystem {
-  // ── Time scale: 1:1 with real life ────────────────────────────────────────
-  // 1 real hour = 1 game hour
-  // 1 real day = 1 game day
-  // 1 real year = 1 game year
-  // The world runs at the same speed as reality.
+  // ── Time scale: 4× real life ──────────────────────────────────────────────
+  // 1 real hour = 4 game hours
+  // 6 real hours = 1 game day (24 game hours)
+  // 1 real day = 4 game days
+  // ~91 real days (3 real months) = 1 game year (365 game days)
+  // 1 real year ≈ 4 game years
+  //
+  // This means:
+  //   A 2-hour play session spans 8 game hours — enough to see dawn to afternoon
+  //   A 6-hour session is a full game day — experience day, night, and next dawn
+  //   Seasons change every ~23 real days (~3 weeks)
+  //   A player experiences all 4 seasons in ~3 real months
   //
   // Exception: world CREATION (planet formation, organism generation) runs on
-  // a timelapse at server startup. Once the world is populated and running,
-  // time is 1:1. Only an admin can change the timescale.
+  // a faster timelapse at server startup. Only an admin can change the timescale.
 
-  yearLength: 365                            // game days per year (matches Earth)
-  dayLength: 86400                           // real seconds per game day (24 real hours)
+  timeScale: 4                               // game hours per real hour
+  yearLength: 365                            // game days per year
+  dayLength: 21600                           // real seconds per game day (6 real hours)
   axialTilt: 23.4                            // degrees — determines season intensity
 
   // Current season determined by day of year:
@@ -5270,28 +5277,25 @@ The player character ages in real-time — very slowly, because the world runs i
 
 ```
 AgingSystem {
-  // ── Time scale: 1:1 with real life (from §6.7) ───────────────────────────
-  // 1 real hour = 1 game hour
-  // 1 real day = 1 game day
-  // 1 real year = 1 game year
+  // ── Time scale: 4× real life (from §6.7) ──────────────────────────────────
+  // 1 real hour = 4 game hours
+  // 1 real year ≈ 4 game years
   //
-  // This means aging is VERY slow — exactly as slow as real life.
   // Starting age: 18 game-years (player creates an adult character)
-  // After 1 real year of play: character is 19 years old
-  // After 10 real years: character is 28 years old
-  // After 50 real years: character is 68 years old
+  // After 1 real year: character is 22 years old
+  // After 5 real years: character is 38 years old
+  // After 10 real years: character is 58 years old
+  // After 18 real years: character is 90 years old (old age zone)
   //
-  // In practice, most players will never see their character reach old age.
-  // This is intentional — aging is a background system that adds depth,
-  // not a gameplay mechanic that forces character resets.
+  // Aging is slow but noticeable over years of play. A dedicated long-term
+  // player will see their character visibly age and eventually face old age.
   //
-  // Aging progresses in real time, whether the player is ONLINE or OFFLINE.
+  // Aging progresses in game-time, whether the player is ONLINE or OFFLINE.
   // The character exists in the world — time passes for them like everyone else.
-  // A player who doesn't log in for a year returns to a character one year older.
-  // (Only admin can change the timescale — e.g., for testing or special events.)
+  // A player who doesn't log in for a real year returns to a character 4 years older.
 
   // ── Visual aging (gradual, continuous) ────────────────────────────────────
-  // Every game-year (= 1 real year):
+  // Every game-year (~91 real days):
 
   ageEffectsPerGameYear: {
     wrinkleDepth:   +0.02           // face wrinkles deepen (blend shape)
@@ -5327,17 +5331,17 @@ AgingSystem {
   // and world modifications are irreplaceable.
 
   // ── Death from old age ────────────────────────────────────────────────────
-  // After 90 game-years (= 90 real years — effectively never in practice):
+  // After 90 game-years (~18 real years of play):
   // Each game-day, survival check: random(0,1) > (age - 90) × 0.01
   // At age 90: 0% daily chance of death (just entering the zone)
   // At age 95: 5% daily chance
   // At age 100: 10% daily chance
   // At age 110: 20% daily chance (virtually guaranteed within a game-month)
   //
-  // In practice, no real player will reach this. The system exists for:
-  // 1. Completeness — the world is real, and real people age and die
-  // 2. NPCs — NPC characters age and die at this rate, creating turnover
-  // 3. Future-proofing — if the game runs for decades, it's handled
+  // A very dedicated player could reach old age after ~18 real years.
+  // NPCs age at the same rate — creating generational turnover in settlements.
+  // The aging system rewards long-term play: your character's accumulated
+  // knowledge, discoveries, and world modifications become legacy.
   //
   // When death from old age occurs:
   //   - Same death mechanics as §6.8.2 (item drop, corpse, respawn)
@@ -5349,11 +5353,12 @@ AgingSystem {
   //   - The new character is narratively "a descendant" or "a new inhabitant"
 
   // ── Hair growth ───────────────────────────────────────────────────────────
-  // Hair grows at the real human rate: ~0.4mm per day (~15cm per year)
-  // This is the same speed as reality because time is 1:1.
-  //   hairLength += 0.0004 per game-day (0.4mm per day = real human rate)
-  //   ~12mm per real month, ~150mm (15cm) per real year
-  //   After 1 month of play: hair has grown ~1.2cm from starting length
+  // Hair grows at the real human rate in game-time: ~0.4mm per game-day
+  // At 4× time scale: 1 game-day = 6 real hours, so hair grows ~1.6mm per real day
+  //   hairLength += 0.0004 per game-day (0.4mm per game-day = real human rate)
+  //   ~48mm per real month, ~600mm (60cm) per real year
+  //   After 1 week of play: hair has grown ~1.1cm from starting length
+  //   After 1 month: ~4.8cm — noticeably longer
   //
   // Players can cut hair:
   //   Using a sharp tool (flint blade, knife, scissors) → precision craft mode
@@ -6941,7 +6946,7 @@ HumanBodyState {
   calories: number                   // current caloric reserve (kcal)
   // Well-fed human: ~2000 kcal reserve (glycogen in liver + muscles)
   // Starvation threshold: 0 kcal → body begins consuming muscle/fat
-  // Lethal: sustained 0 kcal for 4 days (real-time — matches real human ~3-4 day starvation limit)
+  // Lethal: sustained 0 kcal for 4 game-days (~24 real hours — compressed from real 3-4 day limit)
 
   basalMetabolicRate: number         // kcal/hour at rest
   // Average human: ~75 kcal/hour (1800 kcal/day)
@@ -6962,7 +6967,7 @@ HumanBodyState {
   hydration: number                  // liters of body water
   // Normal: ~2.5 liters (above minimum)
   // Dehydration begins: < 1.5 liters
-  // Lethal: < 0.5 liters (sustained for 2-3 days — matches real human dehydration limit)
+  // Lethal: < 0.5 liters (sustained for 2-3 game-days — ~12-18 real hours)
 
   waterLossRate: number              // liters/hour
   // Base: 0.1 L/hour (breathing, sweating at rest)
@@ -7023,9 +7028,9 @@ HumanBodyState {
 
   // ── Sleep / Fatigue ───────────────────────────────────────────────────────
   fatigue: number                    // 0-100 (0 = fully rested, 100 = exhausted)
-  // Fatigue accumulates at ~6.25/hour of wakefulness (100 in ~16 hours)
-  // Real human: can stay awake ~16 hours comfortably, ~40 hours with difficulty, ~96 hours max
-  // Since time is 1:1, the player must sleep their character every ~16 real hours of play
+  // Fatigue accumulates at ~6.25/game-hour of wakefulness (100 in ~16 game-hours = ~4 real hours)
+  // Real human: can stay awake ~16 hours comfortably — at 4× time, that's 4 real hours
+  // The player must sleep their character every ~4 real hours of play
 
   // Effects of high fatigue:
   //   50-70: stamina recovery rate halved, crafting success rate -10%
@@ -7035,11 +7040,12 @@ HumanBodyState {
 
   // Sleep:
   //   Player must find a safe place and use "sleep" action
-  //   Sleep duration: minimum 6 hours for full rest (6 real hours)
-  //   Fatigue recovery: -12/hour while sleeping (full rest in ~8 hours — real human sleep cycle)
+  //   Sleep duration: minimum 6 game-hours for full rest (~1.5 real hours)
+  //   Fatigue recovery: -12/game-hour while sleeping (full rest in ~8 game-hours = 2 real hours)
   //   The player can skip the wait: "Sleep" action fast-forwards the character's sleep
   //   while the world continues. Player sees a dark screen with time passing indicator.
   //   They can wake early (partial rest) or be woken by events (damage, loud sounds).
+  //   Fast-forward compresses 8 game-hours into ~30 real seconds of black screen + time display.
   //   Interrupted sleep: player can be woken by damage, loud sounds, NPC interaction
   //   Sleeping outdoors: vulnerable to weather, predators, other players
   //   Sleeping in shelter: protected, faster recovery (+15/game-hour)
@@ -7455,6 +7461,189 @@ NavigationSystem {
   // The player must open the full map screen (pauses camera movement, not game)
   // Navigation is by memory, landmarks, sun position, and compass
   // This is how real navigation worked before GPS
+}
+```
+
+### 6.8.17 Combat System — Physics-Based Damage
+
+#### The Principle
+
+Combat is not a separate system. It is what happens when a moving object contacts a body. A pickaxe swing that hits a wolf deals damage because of kinetic energy, not because there's a "weapon damage" stat. The same pickaxe hitting terrain digs rock. The same pickaxe hitting a player deals the same physics-based damage. There are no "weapons" — there are tools that happen to be dangerous when swung at a living thing.
+
+#### Damage Calculation
+
+```
+PhysicsDamage {
+  // Any rigid body collision with a character (player or NPC or animal) computes damage:
+
+  // Kinetic energy of impact:
+  // KE = ½ × m × v²
+  // where m = mass of the striking object (kg), v = velocity at contact (m/s)
+
+  // Damage to the hit region:
+  // baseDamage = KE / damageThreshold
+  // damageThreshold = how much energy the body region can absorb before injury
+  //   Head: 15 J (very vulnerable — a 1kg rock at 5.5 m/s is lethal)
+  //   Torso: 50 J (ribcage protects organs)
+  //   Arms: 30 J
+  //   Legs: 40 J
+
+  // Armor/clothing reduces damage:
+  // effectiveDamage = baseDamage × (1 - armorAbsorption)
+  //   Bare skin: absorption = 0.0
+  //   Cloth: absorption = 0.05 (almost nothing)
+  //   Leather: absorption = 0.2
+  //   Hardened leather: absorption = 0.35
+  //   Copper armor: absorption = 0.5
+  //   Iron armor: absorption = 0.7
+  //   Steel armor: absorption = 0.85
+
+  // Hit region determined by collision point:
+  // Raycast from tool/projectile → character mesh → which body region (§6.8.4 injury system)
+  // Head hits deal more damage (lower threshold) AND have additional effects (daze, vision blur)
+
+  // Tool sharpness matters:
+  //   A sharp flint edge concentrates force into a small area → higher pressure → more tissue damage
+  //   sharpnessFactor = 1.0 + (toolSharpness × 0.5)  // dull tool: ×1.0, razor sharp: ×1.5
+  //   Sharpness degrades with use (blade dulls after N impacts)
+
+  // Examples:
+  //   Stone axe (2kg) swung at 4 m/s at an unarmored torso:
+  //     KE = 0.5 × 2 × 16 = 16 J, baseDamage = 16/50 = 0.32 (32% of torso health)
+  //   Iron sword (1.5kg) swung at 6 m/s at a leather-armored arm:
+  //     KE = 0.5 × 1.5 × 36 = 27 J, base = 27/30 = 0.9, ×(1-0.2) = 0.72 (72% arm health)
+  //   Thrown rock (0.5kg) at 8 m/s hitting unarmored head:
+  //     KE = 0.5 × 0.5 × 64 = 16 J, base = 16/15 = 1.07 (instant lethal to head)
+  //   Fist punch (~0.7kg fist at 5 m/s) to unarmored torso:
+  //     KE = 0.5 × 0.7 × 25 = 8.75 J, base = 8.75/50 = 0.175 (17.5% — hurts but not lethal)
+}
+```
+
+#### PvP Toggle
+
+```
+PvPSystem {
+  // Each player has a PvP toggle: ON or OFF
+  // Default: OFF (new players are protected)
+
+  // PvP OFF:
+  //   Other players' attacks pass through you (no collision for damage purposes)
+  //   You cannot deal damage to other players either
+  //   You CAN still be damaged by: animals, falls, environment, starvation, etc.
+  //   You CANNOT be robbed (dropped items during trade are still physics objects though)
+  //   Your shelter territory is always protected regardless of PvP state
+
+  // PvP ON:
+  //   Full physics damage from other PvP-ON players
+  //   You can attack and be attacked
+  //   Dropped items on death are lootable by anyone
+  //   Risk/reward: PvP-ON players can fight for resources, defend territory, raid
+
+  // Toggle cooldown: switching PvP state takes 30 game-seconds (7.5 real seconds)
+  //   This prevents exploits: can't toggle OFF mid-fight to avoid a killing blow
+  //   Visual indicator: PvP-ON players have a subtle red glow on their character border
+  //   (visible to other players, so you know who can hurt you)
+
+  // Settlement territory: always safe. PvP damage is disabled within any settlement's territory.
+  // Shelter territory: always safe. PvP damage is disabled within the shelter owner's territory.
+}
+```
+
+#### Tool Grip — Player-Defined Hold Points
+
+```
+ToolGripSystem {
+  // When a player crafts a tool (§6.8.14 precision craft mode), they don't just
+  // create a tool — they also define HOW to hold it.
+
+  // After crafting, the player enters "grip setup":
+  //   The tool floats in front of them (precision mode view)
+  //   Player clicks to place grip points:
+  //     Click 1: primary hand position (where the dominant hand grabs)
+  //     Click 2: secondary hand position (for two-handed tools — optional)
+  //   Player can also set the "business end" (which end is the blade/head):
+  //     Click 3: strike point (the part that hits things)
+
+  // This means:
+  //   A player who makes a stone axe decides where the handle is gripped
+  //   and which end is the cutting edge
+  //   Two players making axes from the same materials might hold them differently
+  //   The grip position affects swing arc, leverage, and effective force
+
+  // Grip stored with the tool:
+  ToolGrip {
+    primaryGrip: Vec3                  // local-space position on tool mesh where hand goes
+    secondaryGrip: Vec3 | null         // second hand (null for one-handed tools)
+    strikePoint: Vec3                  // which end hits things
+    handedness: 'right' | 'left'       // which hand holds it (player preference)
+  }
+
+  // During use: IK positions the player's hand bones to the grip points on the tool mesh
+  // The tool moves with the hand, and the hand moves with the animation
+  // Strike point determines where damage/dig is applied on impact
+}
+```
+
+### 6.8.18 New Player Experience — First Spawn
+
+#### What the Player Sees on First Login
+
+After character creation (§6.8.4), the player spawns in the world for the first time. This moment must be intuitive without tutorials.
+
+```
+FirstSpawnDesign {
+  // ── Spawn location ────────────────────────────────────────────────────────
+  // Every new player spawns at their assigned shelter.
+  // Shelters for new players are clustered near each other and near an NPC settlement.
+  // This ensures:
+  //   1. The player is not alone — other player shelters are within 100-200m
+  //   2. An NPC settlement is within 300-500m (observable from the shelter)
+  //   3. Basic resources (wood, stone, water) are within 50m of spawn
+
+  // ── The shelter ───────────────────────────────────────────────────────────
+  // The default shelter is a simple house shape:
+  //   4 walls (wood or clay depending on biome)
+  //   A roof (thatch or wood planks)
+  //   A door opening (no actual door — player can craft one later)
+  //   A small yard area (5m radius around the house)
+  //   A campfire in the yard (already built — gives light and warmth on first night)
+
+  // The yard is the player's TERRITORY:
+  //   PvP is disabled within the territory regardless of toggle
+  //   Other players cannot modify terrain within the territory
+  //   Other players CAN enter and look around (it's not invisible-walled)
+  //   The owner can expand territory later by building walls/fences
+
+  // ── What the player sees immediately ──────────────────────────────────────
+  // Standing inside their shelter, looking out the door:
+  //   Nearby terrain (biome-appropriate: grass, sand, snow, etc.)
+  //   A few trees/rocks within arm's reach (gathering materials)
+  //   Smoke rising from the campfire in the yard
+  //   In the distance (~300-500m): the NPC settlement — visible huts, moving NPCs
+  //   Other player shelters nearby (some may have players moving around)
+  //   The sky — sun position tells time of day, weather is visible
+
+  // ── No tutorial, no popup, no quest marker ────────────────────────────────
+  // The player figures it out by doing:
+  //   They see the campfire → they approach it → they feel warmth
+  //   They see trees → they try to interact → they gather wood
+  //   They see the NPC settlement → they walk toward it → they watch NPCs working
+  //   They get hungry after a few game-hours → they look for food
+  //   They notice it getting dark → the campfire becomes essential
+  //
+  // The companion system (§6.8.7) can provide subtle hints if the player
+  // seems stuck (no actions for several minutes), but never explicit instructions.
+
+  // ── Nearby resources guaranteed at spawn ──────────────────────────────────
+  // The server ensures every new player shelter has within 50m:
+  //   At least 3 gatherable trees (wood)
+  //   At least 5 loose stones (stone tools)
+  //   A water source within 100m (stream, pond, or river)
+  //   Edible plants (berries, roots) within 100m
+  //   Clay deposit within 200m (for pottery)
+  //
+  // This is not random — the spawn location selection algorithm checks for
+  // resource availability before assigning a shelter position.
 }
 ```
 

@@ -1,6 +1,7 @@
 // ── DocsPage ──────────────────────────────────────────────────────────────────
 // Renders universe-sim/structure.md as a navigable documentation page.
-// Layout: sticky ToC sidebar on the left, scrollable markdown content on the right.
+// Layout: Left = major section nav, Center = scrollable content, Right = "on this page" sub-nav.
+// Inspired by docs.anthropic.com / Claude documentation layout.
 
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 // @ts-ignore — Vite raw import (requires server.fs.allow: ['..'] in vite.config.ts)
@@ -11,7 +12,7 @@ import rawMd from '../../../structure.md?raw'
 interface TocEntry {
   id: string
   text: string
-  level: 2 | 3 | 4
+  level: 2 | 3 | 4 | 5
 }
 
 type Block =
@@ -33,15 +34,18 @@ function slugify(text: string): string {
     .replace(/^-|-$/g, '')
 }
 
+/** Parse all headings for the full ToC */
 function parseToc(md: string): TocEntry[] {
   const entries: TocEntry[] = []
   for (const line of md.split('\n')) {
     const h2 = line.match(/^## (.+)$/)
     const h3 = line.match(/^### (.+)$/)
     const h4 = line.match(/^#### (.+)$/)
+    const h5 = line.match(/^##### (.+)$/)
     if (h2) entries.push({ level: 2, text: h2[1].replace(/\*\*/g, ''), id: slugify(h2[1]) })
     else if (h3) entries.push({ level: 3, text: h3[1].replace(/\*\*/g, ''), id: slugify(h3[1]) })
     else if (h4) entries.push({ level: 4, text: h4[1].replace(/\*\*/g, ''), id: slugify(h4[1]) })
+    else if (h5) entries.push({ level: 5, text: h5[1].replace(/\*\*/g, ''), id: slugify(h5[1]) })
   }
   return entries
 }
@@ -468,15 +472,57 @@ function RenderBlock({ block, idx }: { block: Block; idx: number }) {
   }
 }
 
+// ── Build section hierarchy for left nav ──────────────────────────────────────
+
+interface SectionGroup {
+  entry: TocEntry               // the h2 section
+  children: TocEntry[]          // h3 items under it
+}
+
+function buildSectionGroups(toc: TocEntry[]): SectionGroup[] {
+  const groups: SectionGroup[] = []
+  let current: SectionGroup | null = null
+
+  for (const entry of toc) {
+    if (entry.level === 2) {
+      current = { entry, children: [] }
+      groups.push(current)
+    } else if (entry.level === 3 && current) {
+      current.children.push(entry)
+    }
+  }
+  return groups
+}
+
+/** Get the "on this page" items: h3/h4/h5 headings under the active h2 */
+function getPageHeadings(toc: TocEntry[], activeH2Id: string): TocEntry[] {
+  const items: TocEntry[] = []
+  let inSection = false
+
+  for (const entry of toc) {
+    if (entry.level === 2) {
+      inSection = entry.id === activeH2Id
+      continue
+    }
+    if (inSection && (entry.level === 3 || entry.level === 4 || entry.level === 5)) {
+      items.push(entry)
+    }
+  }
+  return items
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 export function DocsPage() {
-  const [activeId, setActiveId]   = useState<string>('')
-  const [search,   setSearch]     = useState('')
-  const contentRef                = useRef<HTMLDivElement>(null)
+  const [activeH2, setActiveH2]     = useState<string>('')
+  const [activeHeading, setActiveHeading] = useState<string>('')
+  const [search,   setSearch]       = useState('')
+  const [leftExpanded, setLeftExpanded] = useState<string | null>(null)
+  const contentRef                  = useRef<HTMLDivElement>(null)
 
   const toc    = useMemo(() => parseToc(rawMd),    [])
   const blocks = useMemo(() => parseBlocks(rawMd), [])
+  const groups = useMemo(() => buildSectionGroups(toc), [toc])
 
   // Track active section by scroll position
   useEffect(() => {
@@ -484,19 +530,35 @@ export function DocsPage() {
     if (!el) return
 
     function onScroll() {
-      const headings = el!.querySelectorAll('h2[id], h3[id]')
-      let current = ''
+      const headings = el!.querySelectorAll('h2[id], h3[id], h4[id], h5[id]')
+      let currentH2 = ''
+      let currentAny = ''
       for (const h of Array.from(headings)) {
         const rect = h.getBoundingClientRect()
         const containerTop = el!.getBoundingClientRect().top
-        if (rect.top - containerTop <= 24) current = h.id
+        if (rect.top - containerTop <= 40) {
+          currentAny = h.id
+          if (h.tagName === 'H2') currentH2 = h.id
+        }
       }
-      setActiveId(current)
+      // If we haven't passed any h2 yet, find the first h2 from the top
+      if (!currentH2 && toc.length > 0) {
+        const firstH2 = toc.find(t => t.level === 2)
+        if (firstH2) currentH2 = firstH2.id
+      }
+      setActiveH2(currentH2)
+      setActiveHeading(currentAny)
     }
 
     el.addEventListener('scroll', onScroll, { passive: true })
+    onScroll() // initial
     return () => el.removeEventListener('scroll', onScroll)
-  }, [])
+  }, [toc])
+
+  // Auto-expand active section in left nav
+  useEffect(() => {
+    if (activeH2) setLeftExpanded(activeH2)
+  }, [activeH2])
 
   // Scroll to heading when ToC item clicked
   const scrollTo = useCallback((id: string) => {
@@ -504,12 +566,23 @@ export function DocsPage() {
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }, [])
 
-  // Filter ToC by search
-  const filteredToc = useMemo(() => {
-    if (!search) return toc
+  // Right sidebar: headings under active h2
+  const pageHeadings = useMemo(() => getPageHeadings(toc, activeH2), [toc, activeH2])
+
+  // Filter left nav by search
+  const filteredGroups = useMemo(() => {
+    if (!search) return groups
     const q = search.toLowerCase()
-    return toc.filter(e => e.text.toLowerCase().includes(q))
-  }, [toc, search])
+    return groups.filter(g =>
+      g.entry.text.toLowerCase().includes(q) ||
+      g.children.some(c => c.text.toLowerCase().includes(q))
+    ).map(g => ({
+      ...g,
+      children: g.children.filter(c =>
+        c.text.toLowerCase().includes(q) || g.entry.text.toLowerCase().includes(q)
+      ),
+    }))
+  }, [groups, search])
 
   return (
     <div style={{
@@ -519,9 +592,9 @@ export function DocsPage() {
       background: 'rgba(4,8,18,0.95)',
     }}>
 
-      {/* ── Left ToC sidebar ──────────────────────────────────────────────── */}
+      {/* ── Left: Section navigation ─────────────────────────────────────── */}
       <div style={{
-        width: 240,
+        width: 220,
         flexShrink: 0,
         borderRight: '1px solid rgba(0,180,255,0.1)',
         display: 'flex',
@@ -539,11 +612,11 @@ export function DocsPage() {
             color: 'rgba(0,180,255,0.35)',
             marginBottom: 8,
           }}>
-            ENGINEERING REFERENCE
+            GAME GUIDE
           </div>
           <input
             type="text"
-            placeholder="Filter sections..."
+            placeholder="Search..."
             value={search}
             onChange={e => setSearch(e.target.value)}
             style={{
@@ -561,54 +634,118 @@ export function DocsPage() {
           />
         </div>
 
-        {/* ToC entries */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
-          {filteredToc.map(entry => {
-            const isActive = activeId === entry.id
+        {/* Section groups */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: '6px 0' }}>
+          {filteredGroups.map(group => {
+            const isActiveGroup = activeH2 === group.entry.id
+            const isExpanded = leftExpanded === group.entry.id || !!search
+
             return (
-              <button
-                key={entry.id}
-                onClick={() => scrollTo(entry.id)}
-                title={entry.text}
-                style={{
-                  display: 'block',
-                  width: '100%',
-                  padding: entry.level === 2 ? '6px 14px' : entry.level === 3 ? '4px 14px 4px 26px' : '3px 14px 3px 38px',
-                  background: isActive ? 'rgba(0,180,255,0.07)' : 'transparent',
-                  border: 'none',
-                  borderLeft: `2px solid ${isActive ? '#00d4ff' : 'transparent'}`,
-                  color: isActive
-                    ? '#00d4ff'
-                    : entry.level === 2
-                      ? 'rgba(160,200,255,0.65)'
-                      : entry.level === 3
-                        ? 'rgba(110,155,210,0.5)'
-                        : 'rgba(80,120,180,0.4)',
-                  fontSize: entry.level === 2 ? 11 : entry.level === 3 ? 10 : 9,
-                  fontFamily: 'inherit',
-                  letterSpacing: entry.level === 2 ? 0.3 : 0,
-                  fontWeight: entry.level === 2 ? 600 : 400,
-                  cursor: 'pointer',
-                  textAlign: 'left',
-                  lineHeight: 1.4,
-                  transition: 'all 0.1s',
-                  whiteSpace: 'nowrap',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                }}
-                onMouseEnter={e => {
-                  if (!isActive) e.currentTarget.style.color = 'rgba(200,230,255,0.85)'
-                }}
-                onMouseLeave={e => {
-                  if (!isActive) e.currentTarget.style.color = entry.level === 2
-                    ? 'rgba(160,200,255,0.65)'
-                    : entry.level === 3
-                      ? 'rgba(110,155,210,0.5)'
-                      : 'rgba(80,120,180,0.4)'
-                }}
-              >
-                {entry.text}
-              </button>
+              <div key={group.entry.id}>
+                {/* H2 section header */}
+                <button
+                  onClick={() => {
+                    scrollTo(group.entry.id)
+                    setLeftExpanded(isExpanded && !isActiveGroup ? null : group.entry.id)
+                  }}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    width: '100%',
+                    padding: '7px 12px',
+                    background: isActiveGroup ? 'rgba(0,180,255,0.06)' : 'transparent',
+                    border: 'none',
+                    borderLeft: `2px solid ${isActiveGroup ? '#00d4ff' : 'transparent'}`,
+                    color: isActiveGroup ? '#00d4ff' : 'rgba(160,200,255,0.6)',
+                    fontSize: 11,
+                    fontFamily: 'inherit',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    textAlign: 'left',
+                    lineHeight: 1.4,
+                    transition: 'all 0.15s',
+                  }}
+                  onMouseEnter={e => {
+                    if (!isActiveGroup) {
+                      e.currentTarget.style.color = 'rgba(200,230,255,0.85)'
+                      e.currentTarget.style.background = 'rgba(0,180,255,0.03)'
+                    }
+                  }}
+                  onMouseLeave={e => {
+                    if (!isActiveGroup) {
+                      e.currentTarget.style.color = 'rgba(160,200,255,0.6)'
+                      e.currentTarget.style.background = 'transparent'
+                    }
+                  }}
+                >
+                  {/* Expand arrow */}
+                  {group.children.length > 0 && (
+                    <span style={{
+                      fontSize: 8,
+                      color: 'rgba(0,180,255,0.3)',
+                      transition: 'transform 0.15s',
+                      transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
+                      flexShrink: 0,
+                      width: 10,
+                      textAlign: 'center',
+                    }}>
+                      ▶
+                    </span>
+                  )}
+                  {group.children.length === 0 && <span style={{ width: 10, flexShrink: 0 }} />}
+                  <span style={{
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}>
+                    {group.entry.text}
+                  </span>
+                </button>
+
+                {/* H3 children (expandable) */}
+                {isExpanded && group.children.length > 0 && (
+                  <div style={{
+                    overflow: 'hidden',
+                  }}>
+                    {group.children.map(child => {
+                      const isActiveChild = activeH2 === group.entry.id && activeHeading === child.id
+                      return (
+                        <button
+                          key={child.id}
+                          onClick={() => scrollTo(child.id)}
+                          style={{
+                            display: 'block',
+                            width: '100%',
+                            padding: '4px 12px 4px 30px',
+                            background: isActiveChild ? 'rgba(0,180,255,0.04)' : 'transparent',
+                            border: 'none',
+                            color: isActiveChild ? 'rgba(0,212,255,0.8)' : 'rgba(110,155,210,0.45)',
+                            fontSize: 10,
+                            fontFamily: 'inherit',
+                            fontWeight: 400,
+                            cursor: 'pointer',
+                            textAlign: 'left',
+                            lineHeight: 1.5,
+                            transition: 'color 0.1s',
+                            whiteSpace: 'nowrap',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                          }}
+                          onMouseEnter={e => {
+                            if (!isActiveChild) e.currentTarget.style.color = 'rgba(180,210,255,0.7)'
+                          }}
+                          onMouseLeave={e => {
+                            if (!isActiveChild) e.currentTarget.style.color = 'rgba(110,155,210,0.45)'
+                          }}
+                        >
+                          {child.text}
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
             )
           })}
         </div>
@@ -622,11 +759,11 @@ export function DocsPage() {
           letterSpacing: 1,
           flexShrink: 0,
         }}>
-          {toc.length} SECTIONS
+          {groups.length} SECTIONS
         </div>
       </div>
 
-      {/* ── Main content ──────────────────────────────────────────────────── */}
+      {/* ── Center: Main content ─────────────────────────────────────────── */}
       <div
         ref={contentRef}
         style={{
@@ -634,11 +771,90 @@ export function DocsPage() {
           overflowY: 'auto',
           padding: '32px 48px 80px',
           minWidth: 0,
+          maxWidth: 820,
         }}
       >
         {blocks.map((block, idx) => (
           <RenderBlock key={idx} block={block} idx={idx} />
         ))}
+      </div>
+
+      {/* ── Right: "On this page" sub-nav ────────────────────────────────── */}
+      <div style={{
+        width: 200,
+        flexShrink: 0,
+        borderLeft: '1px solid rgba(0,180,255,0.08)',
+        display: 'flex',
+        flexDirection: 'column',
+        overflow: 'hidden',
+      }}>
+        <div style={{
+          padding: '14px 14px 8px',
+          flexShrink: 0,
+        }}>
+          <div style={{
+            fontSize: 9, letterSpacing: 2,
+            color: 'rgba(0,180,255,0.3)',
+            marginBottom: 4,
+          }}>
+            ON THIS PAGE
+          </div>
+        </div>
+
+        <div style={{ flex: 1, overflowY: 'auto', padding: '0 0 12px' }}>
+          {pageHeadings.length === 0 && (
+            <div style={{
+              padding: '8px 14px',
+              fontSize: 10,
+              color: 'rgba(80,120,180,0.3)',
+              fontStyle: 'italic',
+            }}>
+              No subsections
+            </div>
+          )}
+          {pageHeadings.map(entry => {
+            const isActive = activeHeading === entry.id
+            const indent = entry.level === 3 ? 14 : entry.level === 4 ? 26 : 38
+            return (
+              <button
+                key={entry.id}
+                onClick={() => scrollTo(entry.id)}
+                title={entry.text}
+                style={{
+                  display: 'block',
+                  width: '100%',
+                  padding: `3px ${14}px 3px ${indent}px`,
+                  background: 'transparent',
+                  border: 'none',
+                  borderLeft: `1.5px solid ${isActive ? 'rgba(0,180,255,0.5)' : 'transparent'}`,
+                  color: isActive ? 'rgba(0,212,255,0.85)' : entry.level === 3
+                    ? 'rgba(140,180,220,0.5)'
+                    : 'rgba(100,140,190,0.35)',
+                  fontSize: entry.level === 3 ? 10 : 9,
+                  fontFamily: 'inherit',
+                  fontWeight: isActive ? 500 : 400,
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  lineHeight: 1.6,
+                  transition: 'all 0.1s',
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                }}
+                onMouseEnter={e => {
+                  if (!isActive) e.currentTarget.style.color = 'rgba(180,210,255,0.75)'
+                }}
+                onMouseLeave={e => {
+                  if (!isActive) e.currentTarget.style.color = entry.level === 3
+                    ? 'rgba(140,180,220,0.5)'
+                    : 'rgba(100,140,190,0.35)'
+                }}
+              >
+                {entry.text}
+              </button>
+            )
+          })}
+        </div>
       </div>
 
     </div>

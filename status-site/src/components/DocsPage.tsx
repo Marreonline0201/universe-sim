@@ -15,7 +15,7 @@ import fullMd from '../../../structure.md?raw'
 // Password is checked against a SHA-256 hash stored as a constant.
 // The hash is not reversible — the password itself is never in the source.
 
-const AUTH_HASH = '5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8' // SHA-256
+const AUTH_HASH = '71c5d021bf39c2415b06aa46954a525709c33850e9120e1a0ee4d5c851cfd69f' // SHA-256
 const AUTH_KEY = 'universe-docs-auth'
 
 async function hashPassword(pw: string): Promise<string> {

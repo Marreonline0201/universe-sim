@@ -4576,7 +4576,7 @@ The player uses **first-person view only**. No third-person toggle — this is a
 ```
 CameraRig {
   // Camera position: at the player's eye height
-  eyeHeight: 1.65                            // meters (average human eye level when standing)
+  eyeHeight: height_cm × 0.0087              // meters (eye level is ~87% of height: 150cm→1.31m, 190cm→1.65m)
   crouchEyeHeight: 1.0                       // when crouching
   proneEyeHeight: 0.3                        // when lying down
 
@@ -4775,6 +4775,715 @@ When `leftLeg.health < 50%`, the walk cycle blends a limp animation:
 - Blend weight: `limpWeight = 1.0 - (legHealth / 50)` (0% at 50 HP, 100% at 0 HP)
 
 Other players see all of this. A player limping toward you with a bloody arm and slow movements is visually communicating their state without any HP bar.
+
+#### Character Creation — First-Time Face and Body
+
+When a player logs in for the first time, before they enter the world, they enter the **Character Creator**. This is the only time they can customize their appearance. After confirmation, the face and body shape are permanent — stored in the database forever. The only in-game way to change facial features is through plastic surgery (a late-game medical technology requiring advanced tools and another player with medical knowledge).
+
+**Character Creator Screen Layout:**
+
+```
+CharacterCreatorUI {
+  // ── Background ────────────────────────────────────────────────────────────
+  // The game world renders behind the character, blurred (Gaussian blur, radius 20px)
+  // This shows the world the player is about to enter — atmospheric, not a blank screen
+  // Time of day and weather from the live server are visible through the blur
+
+  // ── Character model ───────────────────────────────────────────────────────
+  // Full-body character model stands in the center of the screen
+  // Default pose: relaxed standing, arms slightly away from body
+  // Player can rotate the model by clicking and dragging (orbit around vertical axis)
+  // Scroll to zoom in/out (face detail ↔ full body)
+  // The model updates in real-time as sliders are adjusted
+
+  // ── Customization panels ──────────────────────────────────────────────────
+  // Left side or bottom: tabbed panels for each customization category
+  // Each panel has sliders, color pickers, and preset options
+}
+```
+
+**Customizable Parameters — Face:**
+
+```
+FaceCustomization {
+  // All values are normalized 0.0–1.0 and drive blend shapes on the head mesh.
+  // Blend shapes = morph targets: each parameter smoothly deforms the base mesh.
+  // This is the same system used by Black Desert Online, Skyrim, Baldur's Gate 3.
+
+  // ── Head Shape ────────────────────────────────────────────────────────────
+  headWidth: 0.0–1.0              // narrow ↔ wide
+  headLength: 0.0–1.0             // short ↔ long (front to back)
+  jawWidth: 0.0–1.0               // narrow/pointed ↔ square/wide
+  jawHeight: 0.0–1.0              // short chin ↔ long chin
+  cheekboneWidth: 0.0–1.0         // flat ↔ prominent
+  cheekboneHeight: 0.0–1.0        // low ↔ high
+  foreheadHeight: 0.0–1.0         // short ↔ tall
+  foreheadSlope: 0.0–1.0          // flat ↔ angled back
+
+  // ── Eyes ──────────────────────────────────────────────────────────────────
+  eyeSize: 0.0–1.0                // small ↔ large
+  eyeSpacing: 0.0–1.0             // close together ↔ far apart
+  eyeHeight: 0.0–1.0              // low on face ↔ high on face
+  eyeTilt: 0.0–1.0                // downward outer corner ↔ upward outer corner
+  eyeDepth: 0.0–1.0               // protruding ↔ deep-set
+  eyeColor: Color                  // iris color (full color picker)
+  pupilSize: 0.0–1.0              // small ↔ large (cosmetic, not functional)
+  eyelidShape: 0.0–1.0            // single eyelid ↔ double eyelid (monolid ↔ crease)
+  eyebrowThickness: 0.0–1.0       // thin ↔ thick
+  eyebrowHeight: 0.0–1.0          // low (close to eye) ↔ high (far from eye)
+  eyebrowArch: 0.0–1.0            // flat ↔ high arch
+  eyebrowColor: Color              // independent of hair color
+
+  // ── Nose ──────────────────────────────────────────────────────────────────
+  noseWidth: 0.0–1.0              // narrow ↔ wide
+  noseLength: 0.0–1.0             // short ↔ long
+  noseBridge: 0.0–1.0             // low/flat bridge ↔ high/prominent bridge
+  noseTip: 0.0–1.0                // pointed ↔ rounded
+  nostrilFlare: 0.0–1.0           // narrow nostrils ↔ wide/flared
+  noseTipAngle: 0.0–1.0           // downturned ↔ upturned
+
+  // ── Mouth and Lips ────────────────────────────────────────────────────────
+  mouthWidth: 0.0–1.0             // small ↔ wide
+  upperLipThickness: 0.0–1.0      // thin ↔ full
+  lowerLipThickness: 0.0–1.0      // thin ↔ full
+  lipColor: Color                  // natural lip color (subtle range — pink to brown)
+  mouthHeight: 0.0–1.0            // position on face (low ↔ high)
+  smileDefault: 0.0–1.0           // neutral resting expression (slight frown ↔ slight smile)
+
+  // ── Ears ──────────────────────────────────────────────────────────────────
+  earSize: 0.0–1.0                // small ↔ large
+  earAngle: 0.0–1.0               // flat against head ↔ protruding
+  earPointedness: 0.0–1.0         // rounded ↔ pointed (allows elf-like ears if desired)
+  earlobeAttachment: 0.0–1.0      // attached ↔ free-hanging
+
+  // ── Skin ──────────────────────────────────────────────────────────────────
+  skinColor: Color                 // full range of human skin tones
+  skinTexture: 0.0–1.0            // smooth ↔ rough/weathered
+  freckles: 0.0–1.0               // none ↔ dense freckles
+  moles: 0.0–1.0                  // none ↔ several beauty marks
+  scarPreset: number               // 0 = none, 1-5 = different scar patterns (starting scars)
+  wrinkleDepth: 0.0–1.0           // smooth (young) ↔ deep wrinkles (starting age appearance)
+
+  // ── Hair ──────────────────────────────────────────────────────────────────
+  hairStyle: number                // preset selection from ~20 hairstyles
+  // Styles: bald, buzz cut, short messy, medium straight, medium wavy, medium curly,
+  //         long straight, long wavy, long curly, ponytail, braids, dreadlocks,
+  //         mohawk, top knot, side shave, afro, cornrows, bob, shoulder-length layered
+  hairColor: Color                 // full color picker (natural range: black, brown, blonde, red, grey, white)
+  hairLength: 0.0–1.0             // additional length control within the style
+  facialHairStyle: number          // 0 = none, 1 = stubble, 2 = short beard, 3 = full beard,
+                                   // 4 = goatee, 5 = mustache, 6 = long beard
+  facialHairColor: Color           // can differ from head hair (realistic — beards often redder)
+  facialHairDensity: 0.0–1.0      // patchy ↔ full
+
+  // Total blend shape count: ~40 facial parameters
+  // Each is a morph target on the head mesh — GPU-driven, no performance cost at runtime
+  // The final face is stored as a Float32Array of 40 values (160 bytes) in the database
+}
+```
+
+**Customizable Parameters — Body:**
+
+```
+BodyCustomization {
+  // ── Dimensions ────────────────────────────────────────────────────────────
+  height: number                   // centimeters, range: 150–190 cm
+  // Height affects:
+  //   eyeHeight in camera rig (height × 0.87 — eye level is ~87% of height)
+  //   reach distance for interactions (taller = can reach higher shelves, farther objects)
+  //   stride length (taller = faster walk at same animation speed)
+  //   hitbox size (taller = easier to hit)
+  //   weight baseline (taller people weigh more at same build)
+
+  // ── Body Type ─────────────────────────────────────────────────────────────
+  // Two axes that determine body shape and affect stats:
+  muscularity: 0.0–1.0            // lean/thin ↔ muscular/broad
+  bodyFat: 0.0–1.0                // low body fat ↔ high body fat
+
+  // These are independent axes — all 4 combinations exist:
+  //   Low muscle + low fat    = thin/wiry build    (high speed, low strength, low insulation)
+  //   Low muscle + high fat   = soft/heavy build   (low speed, low strength, high insulation)
+  //   High muscle + low fat   = athletic build     (moderate speed, high strength, low insulation)
+  //   High muscle + high fat  = powerlifter build  (low speed, very high strength, high insulation)
+
+  // ── Stat Effects from Body Type ───────────────────────────────────────────
+  // These modify the BASE values of the fitness stats in §6.8.11:
+  //
+  // Strength baseline:     0.4 + muscularity × 0.3 + bodyFat × 0.05
+  //   thin build: 0.4, muscular: 0.7, powerlifter: 0.75
+  //
+  // Speed baseline:        0.6 - bodyFat × 0.15 + muscularity × 0.05
+  //   thin: 0.6, athletic: 0.65, heavy: 0.45, powerlifter: 0.5
+  //
+  // Endurance baseline:    0.5 + muscularity × 0.1 - bodyFat × 0.1
+  //   thin: 0.5, athletic: 0.6, heavy: 0.4, powerlifter: 0.5
+  //
+  // Cold resistance:       bodyFat × 0.15 (fat insulates — real physiology)
+  //   thin build: almost no insulation, high body fat: significant cold resistance
+  //
+  // Swim buoyancy:         0.5 + bodyFat × 0.3 - muscularity × 0.1
+  //   fat floats, muscle sinks (muscle is denser than water, fat is less dense)
+  //
+  // Calorie burn rate:     BMR × (1 + muscularity × 0.2) (more muscle = burns more at rest)
+  //   muscular characters need to eat more to maintain their body
+
+  // ── Body proportions (visual) ─────────────────────────────────────────────
+  shoulderWidth: 0.0–1.0          // narrow ↔ broad
+  hipWidth: 0.0–1.0               // narrow ↔ wide
+  armLength: 0.0–1.0              // short ↔ long (proportional to height)
+  legLength: 0.0–1.0              // short ↔ long (proportional to height)
+  handSize: 0.0–1.0               // small ↔ large
+  neckThickness: 0.0–1.0          // thin ↔ thick
+
+  // Body shape stored as ~10 morph target values (40 bytes)
+  // Total character appearance data: face (160 bytes) + body (40 bytes) = 200 bytes per player
+}
+```
+
+**Permanence and Storage:**
+
+```
+CharacterAppearance {
+  // Stored in Neon Postgres on first creation:
+  character_appearance {
+    user_id:      TEXT PRIMARY KEY
+    face_params:  FLOAT[40]          // 40 blend shape values
+    body_params:  FLOAT[10]          // 10 body morph values
+    height_cm:    SMALLINT           // 150-190
+    hair_style:   SMALLINT
+    hair_color:   INT                // packed RGB
+    facial_hair:  SMALLINT
+    skin_color:   INT                // packed RGB
+    eye_color:    INT                // packed RGB
+    created_at:   TIMESTAMP
+    birth_day:    INT                // game-day when character was created (for aging)
+  }
+
+  // This record is created ONCE and never modified (except by:)
+  //   - Aging system (wrinkleDepth increases over time)
+  //   - Plastic surgery (late-game: another player with medical tools can modify face_params)
+  //   - Hair growth (hairLength slowly increases, player must cut it — or not)
+  //   - Fitness changes (muscularity/bodyFat morph slightly with §6.8.11 training over long periods)
+
+  // When a player's character is rendered by another client:
+  //   1. Client receives face_params + body_params in the player's first WORLD_SNAPSHOT appearance
+  //   2. Client creates the character mesh with those blend shapes applied
+  //   3. Mesh is cached — only re-created if the player changes (aging tick, rare)
+  //   4. Bandwidth: 200 bytes once per player encounter, then cached
+}
+```
+
+#### Clothing Appearance and Equipment Screen
+
+Clothing is not just inventory (§6.8.9) — it is visible on the character model. Every piece of clothing the player wears changes how they look to other players. **Clothing is also a primary monetization channel — cosmetic clothing skins/patterns can be sold.**
+
+**Equipment Screen Layout:**
+
+```
+EquipmentScreenUI {
+  // ── Activation ────────────────────────────────────────────────────────────
+  // Player presses C (character key) to open the equipment screen
+  // The game world continues behind with a Gaussian blur (same as character creator)
+  // The player's full body model stands in the center, slowly rotating
+
+  // ── Layout ────────────────────────────────────────────────────────────────
+  //
+  //          [Hat]
+  //            │
+  //     ┌──────┴──────┐
+  //     │   [Necklace] │
+  //     │      │       │
+  // [Outer]──[Torso]   │
+  //     │      │       │
+  //  [Belt]───┤     [Bracelet_R]
+  //     │      │       │
+  // [Bracelet_L]──[Ring_L]  [Ring_R]
+  //     │      │
+  //     │   [Legs]
+  //     │      │
+  //     │   [Shoes]
+  //     │
+  //  [Backpack] (behind)
+  //
+  // Lines connect from each slot to the corresponding body part on the 3D model
+  // Dotted lines for empty slots, solid glowing lines for equipped items
+  // Hovering over a slot highlights the body region on the model
+
+  // ── Clothing Slots ────────────────────────────────────────────────────────
+  slots: {
+    head:         'hat' | 'helmet' | 'headband' | null
+    necklace:     'necklace' | 'amulet' | 'scarf' | null
+    torso:        'shirt' | 'tunic' | 'armor_chest' | null
+    outerLayer:   'jacket' | 'cloak' | 'coat' | 'poncho' | null  // worn OVER torso
+    belt:         'belt' | 'tool_belt' | 'sash' | null
+    legs:         'pants' | 'skirt' | 'armor_legs' | null
+    feet:         'shoes' | 'boots' | 'sandals' | null
+    back:         'backpack' | 'satchel' | 'quiver' | null
+    leftWrist:    'bracelet' | 'wristguard' | null
+    rightWrist:   'bracelet' | 'wristguard' | null
+    leftRing:     'ring' | null
+    rightRing:    'ring' | null
+    gloves:       'gloves' | 'mittens' | null
+  }
+  // Total: 13 visible equipment slots
+
+  // Each slot accepts a ClothingItem (defined in §6.8.9)
+  // Drag from inventory pocket/backpack to an equipment slot to equip
+  // Drag from equipment slot back to inventory to unequip
+  // If no free inventory slot: can't unequip (must drop something first)
+}
+```
+
+**Clothing Rendering:**
+
+```
+ClothingMeshSystem {
+  // Each clothing item has a 3D mesh that attaches to the character skeleton.
+  // The mesh is skinned to the same bones as the body — it moves with the character.
+
+  // ── Layering order (render front to back) ─────────────────────────────────
+  // 1. Skin (base body mesh)
+  // 2. Underwear/base layer (always present — decency layer)
+  // 3. Torso clothing (shirt, tunic)
+  // 4. Legs clothing (pants, skirt)
+  // 5. Belt (overlaps torso and legs)
+  // 6. Outer layer (jacket, cloak — rendered on top)
+  // 7. Accessories (necklace, bracelets, rings — small meshes on bones)
+  // 8. Head gear (hat, helmet — on head bone)
+  // 9. Shoes/boots (on foot bones)
+  // 10. Backpack (on spine_thoracic, hanging from shoulders)
+
+  // Layering prevents z-fighting: each layer has a small vertex offset outward from body
+  // layer1: body mesh
+  // layer2: body mesh + 0.5cm offset on normals (underwear)
+  // layer3: body mesh + 1.0cm offset (shirt)
+  // layer4: body mesh + 1.5cm offset (jacket)
+  // This creates physically plausible thickness — a jacket looks thicker than a shirt
+
+  // ── Material appearance ───────────────────────────────────────────────────
+  // Clothing material (leather, cloth, fur, metal) determines the shader:
+  //   Cloth: diffuse, slightly rough, subtle weave normal map
+  //   Leather: glossy, darkens when wet, grain texture
+  //   Fur: hair-card rendering (layered alpha planes), fluffy silhouette
+  //   Metal (armor): PBR metallic shader, reflects environment
+  //   Hide/raw: matte, rough, organic texture
+
+  // Color comes from the crafting process:
+  //   Undyed cloth: cream/beige
+  //   Dyed with plant pigments: limited color range (brown, green, yellow, red, blue)
+  //   Dyed with mineral pigments: brighter colors (available later in tech tree)
+  //   Tanned leather: brown range
+  //   Metal: silver/grey for iron, orange for copper, gold for brass
+
+  // ── Cosmetic skins (MONETIZATION) ─────────────────────────────────────────
+  // Players can purchase cosmetic patterns/textures for clothing slots:
+  //   Pattern overlays: stripes, checks, embroidery, tribal patterns, symbols
+  //   These do NOT affect stats — purely visual
+  //   Applied on top of the base material color
+  //   Stored per-player in the database
+  //   Other players see the cosmetic skin
+  //
+  // Example purchasable cosmetics:
+  //   "Embroidered tunic pattern" — decorative stitching texture on any torso clothing
+  //   "War paint set" — face/body paint overlays (applied to skin layer)
+  //   "Tooled leather pattern" — ornate carving pattern for leather items
+  //   "Fur trim" — adds fur edge rendering to any outer layer
+  //
+  // These are the primary monetization — NOT pay-to-win stats.
+  // A player with purchased cosmetics looks different but has no gameplay advantage.
+}
+```
+
+#### Aging System
+
+The player character ages in real-time — very slowly, because the world runs in real time relative to in-game time.
+
+```
+AgingSystem {
+  // ── Time scale ────────────────────────────────────────────────────────────
+  // 1 real hour = 1 game day (from §6.7)
+  // 1 real day = 24 game days
+  // 1 real month ≈ 720 game days ≈ 2 game years
+  // 1 real year ≈ 24 game years
+  //
+  // A player who plays for a real year has a character that aged 24 years in-game.
+  // Starting age: 18 game-years (player creates an adult character)
+  // After 1 real year: character is 42 game-years old
+  // After 2 real years: character is 66 game-years old
+  // After 3 real years: character is 90 game-years old (near death from old age)
+
+  // BUT: aging only progresses while the player is ONLINE.
+  // Offline time does not age the character. You don't log in after a vacation
+  // to find your character is an old person.
+
+  // ── Visual aging (gradual, continuous) ────────────────────────────────────
+  // Every game-year (real ~15 days of play time):
+
+  ageEffectsPerGameYear: {
+    wrinkleDepth:   +0.02           // face wrinkles deepen (blend shape)
+    skinTexture:    +0.01           // skin becomes rougher
+    hairGreying:    +0.015          // hair color lerps toward grey/white (starts at ~40 game-years)
+    muscleDecay:    -0.005          // max muscularity slightly decreases after 50 game-years
+    postureStooping: +0.005         // spine_thoracic forward bend increases slightly after 60
+  }
+
+  // Age 18-35 game-years: peak physical condition, no visible aging
+  // Age 35-50: very subtle lines around eyes and mouth, no stat effect
+  // Age 50-65: visible wrinkles, hair starts greying, slight stat decline
+  // Age 65-80: prominent wrinkles, mostly grey hair, noticeable stat decline
+  // Age 80-95: deeply weathered face, white hair, significant stat decline
+  // Age 95+: death from old age becomes possible (daily survival check)
+
+  // ── Stat effects of aging ─────────────────────────────────────────────────
+  // These modify the FITNESS CAPS from §6.8.11:
+  //
+  // Age 18-35:  all caps at 1.0 (peak human)
+  // Age 35-50:  speed cap = 1.0 - (age - 35) × 0.005       // loses 0.5% per year
+  //             strength cap = 1.0 - (age - 40) × 0.003     // starts declining at 40
+  //             endurance cap = 1.0 - (age - 35) × 0.004
+  // Age 50-65:  speed cap = 0.925 - (age - 50) × 0.008
+  //             strength cap = 0.97 - (age - 50) × 0.006
+  //             stamina recovery rate × 0.85
+  // Age 65+:    accelerating decline
+  //             max health: 100 - (age - 65) × 1.5 (at 90: max health = 62.5)
+  //
+  // An old character is weaker, slower, less durable — but has all their knowledge,
+  // discoveries, practice counters, built infrastructure, and social connections.
+  // Age is a tradeoff: you lose physical ability but your accumulated knowledge
+  // and world modifications are irreplaceable.
+
+  // ── Death from old age ────────────────────────────────────────────────────
+  // After 90 game-years (≈3.75 real years of play time):
+  // Each game-day, survival check: random(0,1) > (age - 90) × 0.01
+  // At age 90: 0% daily chance of death (just entering the zone)
+  // At age 95: 5% daily chance
+  // At age 100: 10% daily chance
+  // At age 110: 20% daily chance (virtually guaranteed within a game-month)
+  //
+  // When death from old age occurs:
+  //   - Same death mechanics as §6.8.2 (item drop, corpse, respawn)
+  //   - BUT: the character is reborn as a NEW character (back to age 18)
+  //   - They KEEP: discoveries, shelter, placed objects, friend list
+  //   - They LOSE: physical appearance (must re-customize face), fitness progress,
+  //     inventory (dropped at death location), body type resets to new creation
+  //   - This is "generational" play — your knowledge persists through lifetimes
+  //   - The new character is narratively "a descendant" or "a new inhabitant"
+
+  // ── Hair growth ───────────────────────────────────────────────────────────
+  // Hair grows continuously (very slowly):
+  //   hairLength += 0.001 per game-day (1mm per game-day)
+  //   ~30mm per game-month, ~360mm per game-year
+  //   In real-time: ~1mm per real-hour of play
+  //   After 10 real hours of play: hair has grown 1cm from starting length
+  //
+  // Players can cut hair:
+  //   Using a sharp tool (flint blade, knife, scissors) → precision craft mode
+  //   Player controls the cut — can make it any length/style they want
+  //   Bad haircut? Live with it until it grows back.
+  //
+  // Facial hair grows at the same rate (if the character has facial hair enabled)
+  // Shaving requires a sharp edge — stone blade works, metal razor works better
+}
+```
+
+#### Animation State Machine — How the Body Moves
+
+The character's body is always in one animation state. States blend smoothly into each other. The animation system uses a **layered state machine** with full-body states and additive overlays.
+
+```
+AnimationStateMachine {
+  // ── Implementation: Three.js AnimationMixer ───────────────────────────────
+  // Three.js provides AnimationMixer, AnimationAction, and blend weights.
+  // Each state is a pre-authored animation clip (skeletal keyframes).
+  // The state machine manages which clips play and how they blend.
+
+  // ── Layer 0: Locomotion (full body) ───────────────────────────────────────
+  // This layer controls the whole body's base pose and movement.
+  // Only ONE locomotion state is active at a time (with crossfade transitions).
+
+  locomotionStates: {
+    idle: {
+      clip: 'idle_breathe'           // subtle breathing, weight shifting
+      loop: true
+      // Trigger: velocity = 0, not interacting
+    }
+
+    walk: {
+      clip: 'walk_cycle'             // 4-step cycle, arms swing naturally
+      loop: true
+      speed: proportionalToVelocity  // animation speed scales with movement speed
+      // Trigger: velocity > 0.1 m/s AND velocity < runThreshold
+    }
+
+    run: {
+      clip: 'run_cycle'              // faster cycle, arms pump, torso leans forward
+      loop: true
+      speed: proportionalToVelocity
+      // Trigger: velocity > runThreshold (shift held)
+    }
+
+    sprint: {
+      clip: 'sprint_cycle'           // maximum speed, body leans significantly, arms pump high
+      loop: true
+      // Trigger: velocity > sprintThreshold (double-tap shift)
+    }
+
+    crouch_idle: {
+      clip: 'crouch_idle'            // knees bent, torso lowered, arms ready
+      loop: true
+      // Trigger: crouch key (C) held, velocity = 0
+    }
+
+    crouch_walk: {
+      clip: 'crouch_walk'            // slow, low movement
+      loop: true
+      // Trigger: crouch + velocity > 0
+    }
+
+    jump: {
+      clip: 'jump'                   // push off, airborne pose, land
+      loop: false
+      duration: 0.8                  // seconds
+      // Trigger: space key (must have stamina > 15)
+      // On land: blend back to idle/walk based on velocity
+    }
+
+    fall: {
+      clip: 'falling'                // arms spread, legs trailing
+      loop: true
+      // Trigger: not grounded AND vertical velocity < -2 m/s
+      // Transitions to 'land_hard' or 'land_soft' based on impact velocity
+    }
+
+    land_soft: {
+      clip: 'land_soft'              // knees absorb, brief crouch
+      loop: false
+      duration: 0.3
+      // Trigger: landing with velocity < 8 m/s (no damage)
+    }
+
+    land_hard: {
+      clip: 'land_hard'              // collapse forward, roll
+      loop: false
+      duration: 0.8
+      // Trigger: landing with velocity > 8 m/s (fall damage)
+      // Player is immobilized during this animation
+    }
+
+    swim_surface: {
+      clip: 'swim_surface'           // freestyle arms, kick, head above water
+      loop: true
+      // Trigger: in water, head above surface, velocity > 0
+    }
+
+    swim_idle: {
+      clip: 'tread_water'            // legs kick gently, arms sculling
+      loop: true
+      // Trigger: in water, head above surface, velocity = 0
+    }
+
+    swim_dive: {
+      clip: 'swim_underwater'        // full body undulation, arms pulling
+      loop: true
+      // Trigger: in water, head below surface
+    }
+
+    climb: {
+      clip: 'climb'                  // hands reach up, pull body, feet find holds
+      loop: true
+      // Trigger: against a climbable surface (steep rock face, ladder)
+      // IK overrides hand/foot positions to actual surface holds
+    }
+
+    sit: {
+      clip: 'sitting'                // on ground or on object (bench, rock)
+      loop: true
+      // Trigger: player chooses to sit (rest action)
+    }
+
+    sleep: {
+      clip: 'sleeping'               // lying down, eyes closed, breathing
+      loop: true
+      // Trigger: player chooses to sleep (at shelter or safe spot)
+    }
+
+    dead: {
+      clip: 'death_collapse'         // ragdoll-like fall, settle
+      loop: false
+      // Trigger: health = 0
+      // Transitions to static corpse pose
+    }
+  }
+
+  // ── Transitions ───────────────────────────────────────────────────────────
+  // All transitions use crossfade blending:
+  //   idle ↔ walk: 0.2s crossfade
+  //   walk ↔ run: 0.15s crossfade (smooth speed change)
+  //   run ↔ sprint: 0.1s crossfade
+  //   any → jump: 0.1s crossfade (snappy response)
+  //   fall → land: 0.05s (instant on ground contact)
+  //   any → swim: 0.3s crossfade (body adjusts to water)
+  //   any → dead: 0.0s (immediate ragdoll)
+  //
+  // Three.js: action.crossFadeTo(nextAction, fadeDuration, warpBoolean)
+
+  // ── Layer 1: Upper Body Override (additive) ───────────────────────────────
+  // This layer plays ON TOP of locomotion, affecting only upper body bones.
+  // It allows the character to walk/run while doing something with their hands.
+  // Uses AnimationMixer with skeleton masking (only affect spine_thoracic and above).
+
+  upperBodyOverrides: {
+    tool_swing: {
+      clip: 'swing_pickaxe' | 'swing_axe' | 'swing_hammer'
+      loop: false
+      duration: 0.6–0.8              // depends on tool weight and player strength
+      // Trigger: left click while holding a tool
+      // Plays on upper body only — legs continue walking/standing
+      // IK adjusts hand endpoint to actual target position
+    }
+
+    carry_item: {
+      clip: 'carry_one_hand' | 'carry_two_hands' | 'carry_shoulder'
+      loop: true
+      // Selection based on item weight:
+      //   < 2kg: one hand carry (arm at side)
+      //   2-15kg: two hand carry (arms in front of torso)
+      //   15-40kg: shoulder carry (one arm up, resting on shoulder)
+      //   > 40kg: can't carry while moving (must drag or use equipment)
+    }
+
+    pour: {
+      clip: 'pour_liquid'             // tilt container, control angle
+      loop: false
+      // Trigger: pour action with a container
+    }
+
+    eat: {
+      clip: 'eat'                     // hand to mouth, chewing
+      loop: false
+      duration: 2.0                   // seconds per food item
+    }
+
+    drink: {
+      clip: 'drink'                   // container to mouth, tilt, swallow
+      loop: false
+      duration: 1.5
+    }
+
+    throw: {
+      clip: 'throw'                   // wind up, release
+      loop: false
+      duration: 0.5
+      // Item velocity = playerStrength × throwForce × arm animation peak speed
+    }
+
+    wave: {
+      clip: 'wave_hand'              // friendly gesture
+      loop: false
+      duration: 1.5
+      // Trigger: emote key
+    }
+
+    point: {
+      clip: 'point_direction'         // extend arm toward look direction
+      loop: false
+      duration: 1.0
+      // Trigger: emote key — useful for non-verbal communication
+    }
+  }
+
+  // ── Layer 2: Injury Modifiers (additive) ──────────────────────────────────
+  // These modify the base animations based on injury state (§6.8.4 injury system).
+  // They are ALWAYS active but with weight = 0 when healthy.
+
+  injuryModifiers: {
+    limp_left: {
+      clip: 'limp_left_leg'          // shortened stance on left, lean right
+      weight: max(0, 1.0 - leftLeg.health / 50)   // 0 above 50 HP, 1.0 at 0 HP
+      // Additive on top of walk/run — walk becomes limping walk
+    }
+
+    limp_right: {
+      clip: 'limp_right_leg'
+      weight: max(0, 1.0 - rightLeg.health / 50)
+    }
+
+    arm_favor_left: {
+      clip: 'favor_left_arm'          // left arm held close to body, reduced swing
+      weight: max(0, 1.0 - leftArm.health / 50)
+    }
+
+    arm_favor_right: {
+      clip: 'favor_right_arm'
+      weight: max(0, 1.0 - rightArm.health / 50)
+    }
+
+    torso_hunch: {
+      clip: 'hunch_forward'           // protective hunching from torso injury
+      weight: max(0, 1.0 - torso.health / 40)
+    }
+
+    head_daze: {
+      clip: 'head_wobble'             // slight head instability from head injury
+      weight: max(0, 1.0 - head.health / 30)
+    }
+  }
+
+  // ── Layer 3: Fatigue Modifiers (additive) ──────────────────────────────────
+  fatigueModifiers: {
+    tired_posture: {
+      clip: 'tired_slouch'            // shoulders drop, head lowers
+      weight: max(0, (fatigue - 50) / 50)   // kicks in above 50 fatigue
+    }
+
+    exhausted_stumble: {
+      clip: 'random_stumble'          // occasional trip/catch
+      weight: max(0, (fatigue - 80) / 20)   // kicks in above 80 fatigue
+      // Randomly triggers every 10-30 seconds when weight > 0
+    }
+  }
+
+  // ── How it all combines (Three.js implementation) ──────────────────────────
+  //
+  // const mixer = new THREE.AnimationMixer(characterModel)
+  //
+  // // Layer 0: locomotion (full body)
+  // const idleAction = mixer.clipAction(idleClip)
+  // const walkAction = mixer.clipAction(walkClip)
+  // const runAction  = mixer.clipAction(runClip)
+  // // Only one plays at a time, others crossfade to weight 0
+  //
+  // // Layer 1: upper body (masked to spine_thoracic and children)
+  // const swingAction = mixer.clipAction(swingClip)
+  // swingAction.weight = 0  // set to 1 when player swings
+  // // Apply skeleton mask: only bones from spine_thoracic upward
+  // // Three.js doesn't have built-in masking, so we zero out
+  // // leg bone influences in the clip or use a custom mixer
+  //
+  // // Layer 2+3: injury + fatigue (additive)
+  // const limpAction = mixer.clipAction(limpClip)
+  // limpAction.blendMode = THREE.AdditiveAnimationBlendMode
+  // limpAction.weight = computedLimpWeight  // updated per frame
+  //
+  // // Per frame:
+  // mixer.update(deltaTime)
+  // // Then IK runs on top to fix foot placement, hand targets, look-at
+}
+```
+
+**Animation Clip Count (Minimum Viable):**
+
+| Category | Clips | Notes |
+|----------|-------|-------|
+| Locomotion | 15 | idle, walk, run, sprint, crouch×2, jump, fall, land×2, swim×3, climb, sit, sleep, death |
+| Upper body actions | 12 | swing×3 (pick/axe/hammer), carry×3, pour, eat, drink, throw, wave, point |
+| Injury modifiers | 6 | limp×2, arm_favor×2, torso_hunch, head_daze |
+| Fatigue modifiers | 2 | tired_slouch, random_stumble |
+| Precision craft | 4 | clay_shape, knapping, carving, hammering |
+| Facial expressions | 5 | neutral, pain, exertion, cold_shiver, eating |
+| **Total** | **~44 clips** | Each is a skeletal keyframe animation (GLB/GLTF format) |
+
+These clips can be authored in Blender using the same 67-bone skeleton rig, exported as GLB, and loaded by Three.js's GLTFLoader. The same clips work for all characters regardless of face/body customization because blend shapes and skeletal animation are independent systems.
 
 ### 6.8.5 Multiplayer Conflict Resolution — Physics as Arbiter
 

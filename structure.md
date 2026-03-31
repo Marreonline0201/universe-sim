@@ -154,7 +154,7 @@ Neon Postgres (cloud database)
   |
   |-- world_settings         Simulation time, time scale
   |-- players                Position, vitals, shelter position
-  |-- settlements            NPC towns with civLevel and resource inventory
+  |-- settlements            NPC towns with resource inventory and known processes
   |-- node_state             Depleted resource nodes and respawn timers
   |-- npc_memory             Per-player trust/threat records per settlement
   |-- settlement_stockpiles  What each settlement has in storage
@@ -194,7 +194,7 @@ The server and client communicate in real time over a persistent WebSocket conne
 | WORLD_SNAPSHOT            | Full world state (10 Hz)                 |
 | ORGANISM_UPDATE           | All organism positions and events (6 Hz) |
 | BATCH_UPDATE              | Player positions and states              |
-| SETTLEMENT_UPDATE         | Settlement civLevel change               |
+| SETTLEMENT_UPDATE         | Settlement state change (new structure, knowledge, trade) |
 | SEASON_CHANGED            | Season transition                        |
 | STOCKPILE_UPDATE          | Settlement inventory changed             |
 | ROCKET_LAUNCHED           | Someone launched a rocket                |
@@ -3954,18 +3954,152 @@ Settlement specialties are assigned by querying what resource nodes fall within 
 
 ### 6.5 Settlements and Civilization
 
-Server-side `SettlementManager` manages NPC towns with:
+#### The Principle
 
-- Civilization level 0–9 (advances over real time as NPCs craft and research)
-- Resource inventory (what the settlement has produced and stockpiled)
-- Geology-based specialty (copper mining, iron mining, farming, fishing, etc.)
-- Territory radius of 150 meters (NPCs wander within this area)
-- NPC memory: per-player trust and threat records
+A settlement does not have a "civilization level." In reality, no village wakes up one morning and says "we are now Level 3." What happens is: NPCs gather materials, build structures, discover processes, accumulate tools, and trade with neighbors. An observer looking at what they've built and what they know could describe the settlement's state — but that description is **derived from behavior**, not assigned as a stat.
 
-Trade economy: supply and demand adjust prices based on settlement stockpile levels.
+The settlement's sophistication is an **emergent property** of what its NPCs have actually done, not a number that ticks up.
 
-**Design grounding — comparative advantage:**
-The trade system implements David Ricardo's principle of comparative advantage (1817): settlements trade not because one is "better" than another, but because specialization + exchange produces more total value than self-sufficiency. A copper mining settlement that trades ore for grain produces more copper and more food than if both settlements tried to do everything themselves. This emerges naturally from the geology-based specialty system — no designer assigns what gets traded. The geology assigns what is produced. Surplus drives trade offers.
+#### Settlement State — What Is Actually Tracked
+
+```
+Settlement {
+  id: number
+  name: string                               // generated from seed
+  position: Vec3                             // center point on planet surface
+  territory: number                          // radius in meters (starts at 100, grows with population)
+
+  // ── Population ────────────────────────────────────────────────────────────
+  npcs: NPC[]                                // actual NPC entities in this settlement
+  population: number                         // npcs.length — not a stat, a count of living NPCs
+  // Population grows when: food surplus sustains births (1 birth per X days if food > threshold)
+  // Population shrinks when: starvation, disease, predator attacks, players killing NPCs
+
+  // ── Physical Resources (what the settlement actually has) ─────────────────
+  storage: Map<MaterialPacket, number>       // stockpiled materials with real compositions
+  // Not "100 units of copper" — actual MaterialPackets with specific purity and mass
+  // e.g., "34kg of Cu₀.₈₅Fe₀.₁₀S₀.₀₅ (impure copper)" and "12kg of charcoal"
+
+  // ── Built Infrastructure (what NPCs have physically constructed) ──────────
+  structures: WorldObject[]                  // every building, wall, path, workstation that exists
+  // A settlement with 3 huts and a campfire is different from one with stone walls and a bloomery
+  // These are actual world objects — players can see and interact with them
+
+  // ── Workstations (what machines the settlement has built) ─────────────────
+  workstations: Workstation[]                // campfire, grinding stone, bloomery, kiln, forge, etc.
+  // NPCs build workstations when they have the materials and knowledge
+  // A settlement can only smelt copper IF it has built a bloomery
+  // A settlement cannot "unlock" smelting — it must physically construct the machine
+
+  // ── Knowledge (what processes NPCs have discovered through practice) ──────
+  knownProcesses: Set<string>                // 'fire_starting', 'copper_smelting', 'pottery', etc.
+  // Knowledge grows when: an NPC successfully performs a new interaction (same discovery system as players)
+  // Knowledge spreads via trade (§6.8.7): when settlements trade, there's a chance of knowledge transfer
+  // Knowledge is NEVER assigned — it is earned through NPC practice
+
+  // ── Trade Connections ─────────────────────────────────────────────────────
+  tradePartners: Set<number>                 // IDs of other settlements this one trades with
+  tradeOffers: TradeOffer[]                  // current public offers based on surplus vs need
+  // Trade routes emerge from geography: settlements within walkable distance can trade
+  // Settlements separated by mountains, oceans, or hostile territory cannot (until roads/boats exist)
+
+  // ── NPC Memory ────────────────────────────────────────────────────────────
+  collectiveMemory: {
+    playerTrust: Map<string, number>         // per-player: -1.0 (hostile) to +1.0 (trusted)
+    // Trust changes from player actions: helping = +, stealing/killing = -
+    // All NPCs in the settlement share memory (word spreads within a community)
+    threats: Set<string>                     // predator species, hostile player IDs
+  }
+}
+```
+
+#### Observed Sophistication (Derived, Never Stored)
+
+Instead of a `civLevel` integer, the settlement's development is **observable from its state**. For UI display, companion status site, or analytics, a sophistication assessment can be computed:
+
+```
+function assessSettlement(s: Settlement): SettlementAssessment {
+  // Assess based on what actually exists — like an anthropologist visiting a village
+
+  const hasFireMaking    = s.knownProcesses.has('fire_starting')
+  const hasPottery       = s.knownProcesses.has('pottery')
+  const hasMetalSmelting = [...s.knownProcesses].some(p => p.includes('smelting'))
+  const hasForge         = s.workstations.some(w => w.type === 'forge')
+  const hasBlastFurnace  = s.workstations.some(w => w.type === 'blast_furnace')
+  const stoneBuildings   = s.structures.filter(st => st.material.hardness > 4).length
+  const hasWalls         = s.structures.some(st => st.subtype === 'wall' && st.material.hardness > 3)
+  const tradeRoutes      = s.tradePartners.size
+  const populationSize   = s.population
+
+  // Descriptive labels (for display only — NPCs don't know or care about these):
+  if (populationSize < 5)
+    return { label: 'Camp', description: 'A handful of people around a fire' }
+  if (!hasMetalSmelting && populationSize < 20)
+    return { label: 'Hamlet', description: 'Small group with basic tools and shelter' }
+  if (hasMetalSmelting && !hasForge && populationSize < 50)
+    return { label: 'Village', description: 'Settled community with early metalwork' }
+  if (hasForge && stoneBuildings > 5 && populationSize < 150)
+    return { label: 'Town', description: 'Established settlement with smithing and stone construction' }
+  if (hasBlastFurnace && hasWalls && tradeRoutes > 2 && populationSize >= 150)
+    return { label: 'City', description: 'Fortified center with advanced industry and trade networks' }
+
+  // ... and so on. These are OBSERVATIONS, not levels.
+  // A "city" that loses its population to famine becomes a "town" or "hamlet" —
+  // not because a counter decremented, but because the conditions no longer match.
+}
+```
+
+This means:
+- A settlement doesn't "level up" — it **builds things** and **learns things**
+- A settlement can regress — if a plague kills half the population, or a player destroys the bloomery, the settlement's observable sophistication drops because the physical reality changed
+- Two settlements with the same "assessment" might look completely different — one might be a farming village with great pottery, the other a mining camp with crude shelters but excellent metalwork
+- The label is for the player's benefit (and the companion site display), not for game logic
+
+#### Geology-Based Specialty
+
+Specialty is not assigned — it emerges from what resources are nearby.
+
+```
+SettlementSpecialty {
+  // When a settlement is founded (from world generation), NPCs begin gathering
+  // whatever materials are within their territory.
+  // A settlement near a copper vein gathers copper ore.
+  // A settlement near a river gathers clay and fish.
+  // A settlement on fertile plains gathers grain.
+
+  // Over time, the settlement accumulates MORE of what's nearby.
+  // NPCs practice processing those materials → they get better at it.
+  // The settlement naturally specializes because it has the most practice
+  // with its local resources.
+
+  // There is no specialty: 'copper_mining' field in the database.
+  // The specialty is observable: "this settlement has 200kg of copper ore in storage,
+  // a bloomery, and NPCs who have performed 500 successful smelting operations."
+  // An observer would call this a copper mining settlement.
+
+  // If the copper vein is depleted, the settlement doesn't magically keep its specialty.
+  // NPCs start gathering whatever else is available. The settlement adapts or declines.
+}
+```
+
+#### Trade Economy
+
+Supply and demand adjust prices based on settlement stockpile levels. This follows David Ricardo's principle of comparative advantage (1817): settlements trade not because one is "better" than another, but because specialization + exchange produces more total value than self-sufficiency. A settlement near copper that trades ore for grain produces more copper and more food than if both settlements tried to do everything themselves. This emerges naturally from the geology — no designer assigns what gets traded. Surplus drives trade offers.
+
+```
+TradeOffer {
+  // Generated automatically when a settlement has surplus of one material and deficit of another
+  gives: MaterialPacket                      // what they're offering (actual material with composition)
+  givesAmount: number                        // kg
+  wants: string                              // category of what they need: 'food', 'fuel', 'ore', 'tools'
+  wantsMinAmount: number                     // minimum kg they'll accept
+
+  // Price is not fixed — it's determined by scarcity:
+  // High stockpile of copper + low stockpile of food → copper is cheap, food is expensive
+  // The exchange rate shifts dynamically as stockpiles change
+  // No currency exists. All trade is barter — material for material.
+}
+```
 
 Diamond's *Guns, Germs, and Steel* adds a further insight: the east-west axis of a continent matters because settlements at similar latitudes share climate and can exchange crops and livestock. On a spherical planet with a tilted axis, equatorial settlements share growing seasons. This will eventually influence which settlements grow into trading networks and which remain isolated.
 
@@ -4492,8 +4626,9 @@ settlements {
   position:     FLOAT[3] NOT NULL
   specialty:    TEXT NOT NULL                 // 'copper_mining'|'iron_mining'|'farming'|...
   population:   INT DEFAULT 20
-  civ_level:    INT DEFAULT 1                // 1=camp, 2=village, 3=town, 4=city
-  storage:      JSONB DEFAULT '{}'           // { "copper_ore": 150, "charcoal": 80, ... }
+  // No civ_level — sophistication is derived from what NPCs have built and learned (§6.5)
+  known_processes: TEXT[] DEFAULT '{}'       // processes NPCs have discovered: 'fire_starting', 'copper_smelting', ...
+  storage:      JSONB DEFAULT '{}'           // MaterialPacket array with real compositions and masses
   trade_offers: JSONB DEFAULT '[]'           // current public trade offers
   updated_at:   TIMESTAMP DEFAULT NOW()
 }
@@ -7509,7 +7644,7 @@ The project previously had two conflicting Clerk packages installed simultaneous
 | --------------------- | ----------------------------------------------------------- | --------------------------------------------- |
 | world_settings        | Simulation time, time scale                                 | `migrateSchema()` in WorldSettingsSync.js     |
 | players               | Player position, vitals, shelter_x/y/z                      | `migrateShelterSchema()` in PlayerRegistry.js |
-| settlements           | NPC town positions, civLevel, specialty, resource inventory | `migrateSchema()` in SettlementManager.js     |
+| settlements           | NPC town positions, known processes, resource inventory | `migrateSchema()` in SettlementManager.js     |
 | node_state            | Depleted resource nodes and their respawn times             | `migrateSchema()` in NodeStateSync.js         |
 | npc_memory            | Per-player trust and threat scores per settlement           | (SettlementManager)                           |
 | settlement_stockpiles | Stockpile quantities per settlement per material            | Must be created manually (not in init-db)     |

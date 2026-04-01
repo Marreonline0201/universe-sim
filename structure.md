@@ -10125,124 +10125,152 @@ FirstSpawnDesign {
 
 ## 9. Technical Architecture
 
-### 9.1 How the System Is Organized
+### 9.1 System Architecture (Target)
 
-The project has four distinct runtime environments that work together:
+The system has five runtime components that work together. The server is the single authority for all world state. The client is a renderer — eyes and ears only (see §3.6 for full networking spec).
 
 ```
-Browser (player's computer)
-  |
-  |-- Vite/React/Three.js frontend
-  |     Renders the 3D world
-  |     Runs player physics (Rapier3D WASM)
-  |     Runs local UI state (Zustand)
-  |     Connects to Railway WebSocket server
-  |
-  |-- Vercel HTTP API
-        /api/save       Saves player state to database
-        /api/load       Loads player state from database
-        /api/admin      Admin tools (partially broken — see B-01)
-        /api/init-db    Creates database tables on first run
-
-Railway WebSocket Server (always-on Node.js)
-  |
-  |-- WorldClock.js          Authoritative simulation time
-  |-- PlayerRegistry.js      Connected players + shelter positions
-  |-- OrganismManager.js     Ecosystem simulation at 6 Hz
-  |-- SettlementManager.js   NPC settlements with geology-based specialties
-  |-- WeatherSystem.js       8-sector Markov weather state machine
-  |-- SeasonSystem.js        Four-season calendar
-  |-- TradeEconomy.js        Supply/demand economy
-  |-- UniverseRegistry.js    Multiverse room registry
-  |-- SlackAgent.js          Posts world events to Slack
-  |-- TelegramAgent.js       Owner alerts and approval flow
-  |-- DiscordBot.js          Discord integration
-  |-- AgentBus.js            Inter-agent communication
-
-Neon Postgres (cloud database)
-  |
-  |-- world_settings         Simulation time, time scale
-  |-- players                Position, vitals, shelter position
-  |-- settlements            NPC towns with resource inventory and known processes
-  |-- node_state             Depleted resource nodes and respawn timers
-  |-- npc_memory             Per-player trust/threat records per settlement
-  |-- settlement_stockpiles  What each settlement has in storage
-  |-- discoveries            Player discoveries (M13+)
-  |-- planets                Surveyed planet records (M13+)
-  |-- universes              Known universe seeds and stats (M14+)
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ GAME SERVER (always-on Node.js)                                             │
+│                                                                             │
+│ The world lives here. All physics, all AI, all state.                      │
+│                                                                             │
+│ ├── Physics Engine                                                          │
+│ │   ├── Material reaction engine (§3.1 Gibbs free energy, stoichiometry)   │
+│ │   ├── SPH fluid simulation (§3.2 — on demand for active physics)         │
+│ │   ├── Temperature propagation, rigid body, terrain collision             │
+│ │   └── Structural integrity (§3.5 force propagation)                      │
+│ │                                                                           │
+│ ├── World Simulation                                                        │
+│ │   ├── WorldClock — authoritative time (4× real, admin-adjustable)        │
+│ │   ├── AtmosphereSystem — weather, wind, temperature per cell (§3.3)      │
+│ │   ├── SeasonSystem — orbital mechanics, solar declination (§3.3)         │
+│ │   ├── OrganismManager — ecosystem at 6 Hz (§4.2)                         │
+│ │   ├── SoilSystem — nutrients, moisture, erosion per cell (§4.4)          │
+│ │   └── TerrainServer — generates + serves chunks on request               │
+│ │                                                                           │
+│ ├── NPC AI                                                                  │
+│ │   ├── Tier 1 reflexes (every tick, pure math)                            │
+│ │   ├── Tier 2 custom SLM (separate Python/llama.cpp process, local GPU)   │
+│ │   └── Tier 3 LLM API (rare, async calls to Claude/GPT)                  │
+│ │                                                                           │
+│ ├── Entity Management                                                       │
+│ │   ├── PlayerRegistry — positions, stats, inventory, auth                 │
+│ │   ├── SettlementManager — NPC towns, trade economy                       │
+│ │   ├── AnimalManager — individual animal AI, herds, packs                 │
+│ │   └── CropManager — planted crops, growth ticks, soil updates            │
+│ │                                                                           │
+│ └── Networking                                                              │
+│     ├── WebSocket server (state data to clients at 6 Hz)                   │
+│     ├── Video streaming (headless-gl + NVENC, on-demand per player)        │
+│     └── Persistence (writes to database on events + periodic saves)        │
+│                                                                             │
+├── GPU SERVER (can be same machine or separate)                              │
+│   ├── headless-gl + Three.js — renders scenes for video stream mode        │
+│   ├── NVENC H.264 encoding (or JPEG fallback)                              │
+│   ├── NPC SLM inference (Tier 2 decisions, batched)                        │
+│   └── Animal SLM inference (species models, batched)                       │
+│                                                                             │
+├── DATABASE (Postgres)                                                       │
+│   ├── Permanent state: terrain mods, placed objects, settlements,          │
+│   │   players, shelters, resource nodes, character appearances             │
+│   └── See §7.12 for full persistence model                                 │
+│                                                                             │
+├── CLIENT (browser — Three.js)                                               │
+│   ├── Receives CHUNK_DATA, WORLD_SNAPSHOT, ENVIRONMENT_STATE, SOUND_EVENT  │
+│   ├── Renders 3D scene with GPU shaders (Mode 1 — 90% of time)            │
+│   ├── Displays video stream (Mode 2 — precision crafting)                  │
+│   ├── Generates audio from SOUND_EVENTs via WebAudio (§3.4)               │
+│   ├── Captures input → sends to server                                     │
+│   └── Client-side prediction for movement (server corrects)               │
+│                                                                             │
+└── VERCEL (static hosting + HTTP API)                                        │
+    ├── Serves the client bundle (HTML/JS/CSS/WASM)                          │
+    ├── /api/save, /api/load — player state persistence                      │
+    └── Authentication (Clerk)                                                │
 ```
 
 ### 9.2 The WebSocket Protocol
 
-The server and client communicate in real time over a persistent WebSocket connection (think of it as a permanently open phone line between the player's browser and the Railway server).
+Persistent WebSocket between client and game server. All messages are JSON.
 
-**Client sends to server:**
+**Client → Server:**
 
+| Message | When |
+|---------|------|
+| JOIN | Player first connects (sends userId, auth token) |
+| MOVE_INPUT | Player movement (WASD + mouse, sent continuously) |
+| ACTION_REQUEST | Interact (F key at workstation, pick up item, etc.) |
+| TOOL_USE | Tool swing (target position, tool ID) |
+| DROP_ITEM | Drop item from inventory to world |
+| POUR_LIQUID | Pour from container (source, target, angle) |
+| PLACE_OBJECT | Place a built object (position, rotation, material) |
+| CHUNK_REQUEST | Request terrain chunk data (chunkX, chunkZ) |
+| WORKSTATION_USE | Start using a workstation |
+| WORKSTATION_EXIT | Stop using a workstation |
+| CHAT_MESSAGE | Proximity text (500 char max) |
+| PICKUP_REQUEST | Pick up a world item (itemId) |
+| PVP_TOGGLE | Toggle PvP on/off |
+| SLEEP | Start sleeping at current position |
+| ADMIN_SET_TIME | Admin: adjust simulation time (auth-checked) |
 
-| Message                         | When                                   |
-| ------------------------------- | -------------------------------------- |
-| JOIN                            | Player first connects                  |
-| PLAYER_UPDATE                   | Player moves (sent continuously)       |
-| NODE_DESTROYED                  | Player depletes a resource node        |
-| FIRE_STARTED                    | Player starts a fire                   |
-| PLAYER_KILLED                   | Player is killed                       |
-| TRADE_OFFER                     | Player initiates a trade               |
-| TRADE_ACCEPT                    | Player accepts a trade                 |
-| ADMIN_SET_TIME                  | Admin adjusts simulation time          |
-| INTERPLANETARY_TRANSIT_LAUNCHED | Player launches to another planet      |
-| TRANSIT_ARRIVED                 | Player arrives at destination          |
-| VELAR_RESPONSE                  | Player responds to alien communication |
-| VELAR_GATEWAY_ACTIVATED         | Player activates alien gateway         |
+**Server → Client:**
 
-
-**Server sends to client:**
-
-
-| Message                   | What It Means                            |
-| ------------------------- | ---------------------------------------- |
-| WORLD_SNAPSHOT            | Full world state (10 Hz)                 |
-| ORGANISM_UPDATE           | All organism positions and events (6 Hz) |
-| BATCH_UPDATE              | Player positions and states              |
-| SETTLEMENT_UPDATE         | Settlement state change (new structure, knowledge, trade) |
-| SEASON_CHANGED            | Season transition                        |
-| STOCKPILE_UPDATE          | Settlement inventory changed             |
-| ROCKET_LAUNCHED           | Someone launched a rocket                |
-| TRANSIT_ARRIVED_BROADCAST | Someone arrived at another planet        |
-| VELAR_GATEWAY_REVEALED    | Alien gateway position broadcast         |
-| NODE_RESPAWNED            | A depleted resource node has respawned   |
-
-
-Note: This session removed 360+ lines of now-dead handlers from this protocol (PvP, bounty, shop, party, outlaw, trade post). The protocol is cleaner and more accurate to what the system actually does.
+| Message | Rate | Content |
+|---------|------|---------|
+| WORLD_SNAPSHOT | 6 Hz | Player positions, NPC positions, organism positions |
+| ENVIRONMENT_STATE | 1 Hz | Weather, wind, temperature, fire positions, river flow, sun position |
+| CHUNK_DATA | On request | Terrain heightmap + material map + color map (~10KB compressed) |
+| CHUNK_UPDATE | On change | Modified chunk data (terrain dig/build) |
+| ENTITY_UPDATE | On change | Inventory changes, stat changes, discoveries |
+| PHYSICS_EVENT | On physics | SPH particle updates, material reactions, temperature changes |
+| SOUND_EVENT | On physics | Audio descriptor { type, materials, energy, position } |
+| SETTLEMENT_UPDATE | On change | Settlement state (structures, knowledge, trade) |
+| SEASON_CHANGED | Seasonal | Season transition notification |
+| DEATH_EVENT | On death | Player death (cause, drop list, corpse ID) |
+| MODE_SWITCH | On trigger | Switch between state rendering and video streaming |
 
 ### 9.3 Technology Stack
 
+**Client (shipped to browser):**
 
-| Technology              | Version | Plain-English Role                                                 |
-| ----------------------- | ------- | ------------------------------------------------------------------ |
-| React                   | 18.3.1  | Builds and updates the on-screen user interface                    |
-| Three.js                | 0.169.0 | 3D rendering engine that draws the world                           |
-| React Three Fiber       | 8.17.0  | Connects React components to the Three.js scene                    |
-| Vite                    | 5.4.10  | Bundles and serves the code to browsers                            |
-| TypeScript              | 5.6.3   | Strict-typed JavaScript — catches errors before they reach players |
-| Zustand                 | 5.0.1   | Stores and shares game state between components                    |
-| Clerk (@clerk/react v6) | 6.1.1   | Handles user login, sign-up, and sessions                          |
-| Neon Postgres           | 1.0.2   | Cloud database for persistent player and world data                |
-| Rapier3D                | 0.12.0  | WebAssembly physics engine for movement and collisions             |
-| bitecs                  | 0.3.40  | Entity-component system for managing creature and player data      |
-| @xyflow/react           | 12.10.1 | Powers the tech tree diagram view                                  |
-| framer-motion           | 12.38.0 | Smooth UI animations                                               |
-| idb                     | 8.0.0   | Browser-side IndexedDB for caching discoveries locally             |
-| postprocessing          | 6.39.0  | Visual effects (bloom, depth of field, etc.)                       |
+| Technology | Role |
+|-----------|------|
+| Three.js | 3D rendering engine |
+| React + React Three Fiber | UI framework + Three.js integration |
+| Vite | Bundler and dev server |
+| TypeScript | Type-safe client code |
+| Zustand | Client state management |
+| WebAudio API | Sound generation from physics descriptors (§3.4) |
+| Clerk | Authentication (login, sessions) |
+| MSE (MediaSource Extensions) | H.264 video decode for streaming mode |
 
+**Game Server:**
 
-**Build tools (not shipped to players):**
+| Technology | Role |
+|-----------|------|
+| Node.js | Main server runtime |
+| ws | WebSocket server |
+| headless-gl | Server-side GPU rendering (video stream mode) |
+| FFmpeg + NVENC | Hardware H.264 encoding |
+| Sharp | JPEG encoding (fallback) |
+| Postgres client | Database persistence |
 
+**NPC AI (separate process on GPU server):**
 
-| Tool       | Role                                              |
-| ---------- | ------------------------------------------------- |
-| wasm-pack  | Compiles Rust code to WebAssembly for the browser |
-| Playwright | End-to-end browser testing framework              |
-| Vitest     | Unit test runner                                  |
+| Technology | Role |
+|-----------|------|
+| Python + vLLM or llama.cpp | Tier 2 SLM inference |
+| Fine-tuned small model (1-4B params) | NPC decision-making |
+| Claude/GPT API | Tier 3 LLM calls (rare) |
+
+**Build tools:**
+
+| Tool | Role |
+|------|------|
+| wasm-pack | Compiles Rust to WebAssembly |
+| Vitest | Unit tests |
+| Playwright | End-to-end browser tests |
 
 
 ---
@@ -10421,15 +10449,6 @@ git clone https://github.com/Marreonline0201/universe-renderer.git
 cd universe-renderer && npm install
 node headless-server.js
 ```
-
----
-
-#### 13.4.3 Previous Platforms (archived)
-
-**Vast.ai (RTX 4070 Ti)** — Decommissioned. Only TCP ports available. WebRTC ICE failed over SSH tunnel. Public TURN servers unreliable. GStreamer Python bindings wouldn't install (venv/conda conflict). Cost: $0.079/hr.
-
-**Chrome/Puppeteer approach (server.js)** — Superseded by headless-gl. Used Chrome on Xvfb with CDP screencast, then GStreamer for WebRTC. Worked for proof of concept but required a full browser per player (~500MB RAM each). The headless-gl approach is lighter and architecturally correct.
-
 
 ---
 
@@ -10783,53 +10802,24 @@ This keeps the main thread free for rendering.
 
 ---
 
-## 16. Security Assessment
+## 16. Security Principles
 
-### 16.1 Authentication
-
-Clerk handles all authentication. Players sign in with a Clerk-managed identity. The Clerk user ID is available both on the client and in the Vercel API routes via `@clerk/backend`.
-
-### 16.2 Admin Authorization
-
-Admin-gated features (spectator camera, organism seeding, ecosystem dashboard) check the player's Clerk user ID against a hardcoded admin ID on the client. This is a client-side check and could theoretically be bypassed by a technically sophisticated user modifying their browser's JavaScript. For a simulation project of this scale this is acceptable, but it is worth noting.
-
-The `ADMIN_SET_TIME` WebSocket command on the server has no server-side authentication check. Any connected client that knows the message format could change the simulation time. This was a known gap as of v27 and remains unresolved.
-
-### 16.3 Environment Variables
-
-Sensitive credentials (database URL, Clerk keys, Railway token, admin secret) are stored in environment variables and never hard-coded in the source. Vercel manages these for the frontend and API. Railway manages them for the WebSocket server.
-
-### 16.4 Data Handling
-
-Player data stored in Neon Postgres includes: position, vitals, discoveries, and shelter position. No financial information, no personal contact details beyond what Clerk manages externally.
+- **Authentication:** Clerk for player identity. All API routes and WebSocket connections verify auth tokens server-side.
+- **Server authority:** Client cannot modify world state directly. All mutations go through server validation (§3.6).
+- **Admin commands:** Server-side auth check against admin secret before processing (ADMIN_SET_TIME, timescale changes).
+- **Environment variables:** All credentials (database URL, auth keys, API tokens) in environment variables, never in source code.
+- **Player data:** Position, vitals, inventory, discoveries, shelter. No financial or personal contact data beyond auth provider.
 
 ---
 
-## 11. Code Quality
+## 11. Code Quality Notes
 
-### 11.1 Overall Health
-
-The codebase is in significantly better health after this session than before it. The deletion of the RPG layer removed a large block of code that was both incorrect (wrong for the vision) and dead (no longer called anywhere). The server no longer crashes on startup.
-
-The remaining code is organized into clear, single-responsibility modules. `OrganismManager.js` does exactly one thing: manage organisms. `SettlementManager.js` does exactly one thing: manage settlements. `PlayerRegistry.js` does exactly one thing: track players and their shelter positions. This separation makes the code easy to understand and maintain.
-
-### 11.2 Code Patterns
-
-The server is written as Node.js ES modules (using `import`/`export` syntax, `"type": "module"` in package.json). The client is TypeScript with React and Three.js. The two codebases share no direct imports — they communicate only via WebSocket messages, which is the correct architecture for a client-server system.
-
-The seeded PRNG (Mulberry32) is duplicated in several server files (OrganismManager, PlayerRegistry, SettlementManager) and in the client (ResourceNodeManager). This duplication is intentional: each file needs deterministic randomness seeded from the world seed, and keeping the implementation local to each file avoids a shared dependency that could cause subtle bugs if the implementation drifted. The intentional duplication is justified and acceptable.
-
-### 11.3 Error Handling
-
-Database operations are wrapped in try/catch blocks with console.error logging. WebSocket message handlers are also wrapped to prevent a single malformed message from crashing the server process. The server will not crash if the database is unavailable — it logs a warning and continues operating with in-memory state only.
-
-### 11.4 Tests
-
-The project has a Vitest configuration and Playwright end-to-end test infrastructure. The extent of current test coverage is not fully documented in the files reviewed, but the infrastructure exists and is configured in `package.json`.
-
-### 11.5 Documentation
-
-The server files contain thorough inline comments explaining both what the code does and why it is designed the way it is. For example, `OrganismManager.js` opens with a complete description of every step in its tick cycle. `SettlementManager.js` documents the geology algorithm and explicitly notes that it must match the client algorithm exactly. This level of documentation is a genuine strength.
+The codebase will be rebuilt from scratch following the specifications in this document. The current prototype code (pre-restructure) established:
+- Node.js ES modules for server, TypeScript for client
+- Client and server communicate only via WebSocket (no shared imports)
+- Seeded PRNG (Mulberry32) for deterministic world generation
+- Database operations wrapped in try/catch with fallback to in-memory
+- Vitest + Playwright test infrastructure exists
 
 ---
 
@@ -10909,51 +10899,20 @@ Three tables (`settlement_stockpiles`, `discoveries`, `planets`) must be created
 # PART VII — ROADMAP & HISTORY
 ---
 
-## 20. What Is Next
+## 18. Build Priority
 
-(Roadmap items from previous sessions — to be reviewed against current spec)
+The document is the spec. Implementation priority:
 
-## 18. Recommendations
-
-### Immediate (before next feature build)
-
-1. **Persist organism state to the database** — This is the highest-priority fix. Every server restart wipes the entire ecosystem. Until organism state is saved, the shared ecosystem feature is fragile. Estimated work: one new DB table and ~50 lines in OrganismManager.
-2. **Verify and close B-03 (duplicate Clerk packages)** — The current package.json shows only `@clerk/react` v6, which suggests the duplicate was already resolved. Confirm this is correct and mark the bug closed.
-3. **Add server-side auth to ADMIN_SET_TIME** — This is a low-effort security fix. The server already has the `ADMIN_SECRET` environment variable. Check it against the incoming message before processing.
-4. **Wire rain to fire extinguishing** — The WeatherRenderer and fire simulation grid both exist. Connecting them is plumbing work, not new feature work, and would make the world feel physically consistent.
-
-### Near-Term (next session)
-
-1. **Replace crafting recipe list with contextual hints** — This directly implements the vision. The physics interaction engine already determines what is possible; the UI change is on the client side only.
-2. **Atmosphere pressure/humidity from terrain** — This deepens the weather system without adding new UI complexity. Players will notice that certain valleys are always foggy and certain mountain passes create storms. That feels real.
-3. **Fix B-01 (admin.ts 500 error)** — The admin player list is useful for monitoring. Fixing the API style issue is a small change.
-
-### Longer-Term
-
-1. **Persist organism IDs across speciation events** — Once organism state is in the database, organism IDs should survive server restarts so that species that evolved over weeks do not reset their lineage.
-2. **Add organism predation** — Currently heterotrophs burn energy but have no way to gain energy from autotrophs. True food webs require heterotrophs to move toward autotrophs and consume them. This would create genuine population dynamics (predator-prey cycles, Lotka-Volterra oscillations).
-3. **Smooth player position interpolation** — Dead reckoning or cubic interpolation on other players' positions would reduce visible jitter.
-
----
-
-## 19. Summary Scorecard
-
-
-| Area                   | Rating            | Notes                                                                                                                         |
-| ---------------------- | ----------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| Vision Clarity         | Excellent         | The session's cleanup work aligned the codebase with the vision. The universe-first philosophy is now consistently expressed. |
-| World Generation       | Excellent         | Geologically accurate resources, 20 biomes, real terrain algorithms.                                                          |
-| Organism Ecosystem     | Good              | Server-authoritative and shared — major improvement this session. Loses state on restart.                                     |
-| Physics-Based Crafting | Good              | 116 materials with real properties, 5 physics interactions, hidden practice tracking. UI integration still pending.           |
-| Settlement System      | Good              | Geology-based specialties working. Trade economy active.                                                                      |
-| Player Systems         | Good              | Shelter/respawn working. Vitals drain and survival loop stable after M12 fixes.                                               |
-| Weather and Seasons    | Good              | Server-authoritative and broadcast. Rain-fire interaction still wired (B-06).                                                 |
-| Late-Game Content      | Good              | M9–M15 systems intact (rockets, First Contact, interplanetary transit, Velar language).                                       |
-| Code Quality           | Good              | Major improvement this session — dead code removed, server crash fixed, clear module separation.                              |
-| Security               | Needs Improvement | Client-side admin check, no server-side auth on ADMIN_SET_TIME. Acceptable for current scale but should improve.              |
-| Data Persistence       | Needs Improvement | Organisms lost on restart. Three DB tables not in init-db.                                                                    |
-| Performance            | Good              | Instanced rendering, LOD, WebAssembly workers all in place.                                                                   |
-| Testing                | Needs Improvement | Infrastructure exists (Vitest, Playwright) but coverage is unknown.                                                           |
+1. **Core engine** (§3): material system, reaction engine, basic physics
+2. **Player fundamentals** (§7.1-7.4): character, movement, inventory, terrain interaction
+3. **Survival loop** (§7.2, §7.6): hunger/thirst/fatigue, death, respawn
+4. **Crafting** (§6): fire-making, tool crafting, workstations
+5. **World** (§4.1-4.2): terrain generation, basic organisms
+6. **NPC** (§5): settlements, NPC brain, knowledge transfer
+7. **Advanced physics** (§3.2, §3.5): fluid simulation, structural integrity
+8. **Farming + animals** (§4.3-4.4): domestication, agriculture
+9. **Networking polish** (§3.6): hybrid video streaming, optimization
+10. **Sound** (§3.4): physics-driven audio
 
 
 ---
@@ -10974,185 +10933,6 @@ Three tables (`settlement_stockpiles`, `discoveries`, `planets`) must be created
 | 2026-03-27 | v29     | Structure document: renamed from report.md to structure.md. Research references woven into all major system sections. Full material property arc documented across civilizational eras. Bootstrapping problem from Dartnell. Lotka-Volterra equations in organism section. Comparative advantage in settlement section. References section added.                                                                                                                                           |
 
 
-
----
-
-### 21.1 Session Log 2026-03-27
-
-This section documents everything created or changed on 2026-03-27, the session that produced this report version.
-
-#### 18.1.1 Foundation Cleanup: Deleting the RPG Layer
-
-The most important work of this session was removal, not addition.
-
-**What was deleted from the client:**
-
-- Dungeon system
-- Quest system
-- XP and leveling system
-- Skill trees
-- Faction system
-- Loot tables
-- Spell system
-
-All of this code was preserved in the git tag `rpg-preserved-20260327` before deletion, so nothing is permanently lost. It was removed because it contradicted the core vision: these are game systems, and this is not a game.
-
-**What was fixed after deletion:**
-
-The server was crashing on startup because it was still importing two modules that had been deleted in an earlier cleanup: `NpcManager` and `OutlawSystem`. These imports were removed. The server can now start cleanly.
-
-Additionally, 360+ lines of dead WebSocket message handlers were removed from both the client and the server. These handlers processed messages for systems that no longer exist: PvP combat, bounties, outlaw status, shops, party management, and trade post interactions. Removing them makes the message protocol simpler and eliminates confusion about what the server actually supports.
-
-**Admin gating:**
-
-Three developer tools were moved behind an admin check so they do not appear for regular players:
-
-- [G] — Spectator camera (fly through the world without a body)
-- [O] — Organism seeding (manually trigger the server to spawn organisms)
-- [B] — Ecosystem dashboard (population chart and organism dot map)
-
-These tools are visible only to the account whose Clerk user ID matches the hardcoded admin ID.
-
-#### 18.1.2 Physics-Based Crafting
-
-The old crafting system used recipe lists: player selects a recipe, game checks whether inventory contains the required items, subtracts them, adds output. This was replaced with physics-based interaction.
-
-**What the new system does:**
-
-Every material in the game now has real physical properties stored in `MaterialRegistry.ts`:
-
-- Flammability (0.0–1.0 scale)
-- Hardness (Mohs scale, 1.0–10.0)
-- Moisture content (0.0–1.0 — dry wood is more flammable than wet wood)
-- Melting point (Celsius)
-- Tensile strength (MPa — megapascals, a measure of how hard it is to pull apart)
-- Workability (0.0–1.0 — how easy it is to shape)
-- Thermal conductivity (W/m·K)
-- Ignition temperature (Celsius)
-- Combustion energy (MJ/kg)
-
-116 materials now have all of these properties defined.
-
-**The five physics interactions in `InteractionEngine.ts`:**
-
-
-| Interaction         | Method                           | Success Calculation                                    |
-| ------------------- | -------------------------------- | ------------------------------------------------------ |
-| Fire — bow drill    | Friction between two wood types  | ~15–55% depending on wood hardness (Mohs) and moisture |
-| Fire — flint + iron | Spark from striking              | Flat 40% base rate (iron hardness check)               |
-| Stone knapping      | Hard stone struck against softer | 70% base rate, modified by hardness difference         |
-| Clay pottery        | Soft clay + water + forming      | 95% success (forgiving material)                       |
-| Smelting            | Ore + fuel + heat source         | Validates temperature against ore melting point        |
-
-
-**Hidden practice tracking:**
-
-The system silently records how many times a player has attempted each interaction. Success rate improves with practice. This is not shown to the player as a progress bar or skill level — it is invisible, just as real-world skill acquisition is invisible in the moment.
-
-**Discovery system:**
-
-The first time a player successfully uses an interaction, they receive a discovery — a knowledge string ID stored in their record. This can be used to track what techniques a player has learned without turning it into a game mechanic.
-
-#### 18.1.3 Geologically Accurate Resource Distribution
-
-Before this session, resource nodes (stone, copper ore, iron ore, coal, gold) appeared at pseudo-random positions across the planet. This session added geological accuracy.
-
-**How it works:**
-
-The world already had tectonic plates generated by Voronoi partitioning of the sphere surface. Each plate was already classified as oceanic or continental. This session connected that geology to resource spawning:
-
-
-| Resource | Real-World Geology                                                | Game Implementation                                                                         |
-| -------- | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| Copper   | Hydrothermal vents, volcanic arcs at convergent plate boundaries  | Spawns near tectonic boundary zones; highest concentration near volcanic/hydrothermal sites |
-| Gold     | Convergent plate boundaries (deep pressure + heat)                | Spawns near convergent boundaries; rare                                                     |
-| Iron     | Sedimentary deposits in stable continental interiors              | Spawns in plate interiors away from active boundaries                                       |
-| Coal     | Low-elevation stable basins, ancient organic material compression | Spawns in low-elevation stable geological basins                                            |
-
-
-**Settlement specialization:**
-
-`SettlementManager.js` on the server now reads the same tectonic plate algorithm used by the client's resource node system. When a settlement is placed, the server queries what geology exists at that position and assigns a specialty:
-
-- Volcanic/hydrothermal boundary → copper mining town
-- Convergent boundary (deep) → gold mining settlement
-- Stable interior → iron mining or farming settlement
-- Coastal → fishing settlement
-- Low plains → farming settlement
-
-This means a player who finds a settlement near a volcanic region will find copper goods available for trade. The settlement's economy is determined by its physical environment, not a random roll.
-
-#### 18.1.4 Shared Organism Ecosystem (Server-Authoritative)
-
-This is the most significant architectural change of the session.
-
-**Before (broken):**
-
-Every player's browser ran its own independent organism simulation. When two players were standing in the same location looking at the same sky, they were seeing completely different sets of creatures. A birth or death in one player's world had no effect on any other player's world. The world was not shared — it was parallel solo experiences that happened to share a map.
-
-**After (correct):**
-
-The server now runs `NaturalSelectionSystem` at 6 Hz (six times per second). Every tick, the server:
-
-1. Updates all organism energy budgets based on the current day/night light level
-2. Ages all organisms
-3. Kills organisms that have run out of energy or reached old age (age > 50,000 ticks)
-4. Applies stochastic selection death (random death chance of 0.2% per tick — simulating predation and environmental pressure)
-5. Allows reproduction when energy > 0.8 and population is below the cap of 300
-6. Moves all organisms by 5–20 meters in their wander direction
-7. Broadcasts `ORGANISM_UPDATE` to all connected players
-
-All players receive the same update. A birth is a birth. A death is a death. Everyone sees it.
-
-**What organisms exist:**
-
-
-| Diet Type      | ID  | Description                                                                                         |
-| -------------- | --- | --------------------------------------------------------------------------------------------------- |
-| Autotroph      | 0   | Gains energy from sunlight (photosynthesis)                                                         |
-| Heterotroph    | 1   | Burns energy at a fixed rate (must eat others to survive — not yet implemented as direct predation) |
-| Mixotroph      | 2   | Partial photosynthesis (gains from light but less than autotrophs)                                  |
-| Chemoautotroph | 3   | Gains energy from chemical reactions (not light-dependent)                                          |
-
-
-**Starting population:** 80 primordial organisms, all autotrophs, seeded in the equatorial band (where light is most reliable). Population can grow to a cap of 300.
-
-**Speciation:** Species differentiation is tracked by Hamming distance on 256-bit genomes. When a descendant's genome drifts far enough from its parent species, a new species ID is assigned.
-
-**Rendering on the client:** Organisms appear as instanced glowing spheres. Level-of-detail (LOD) reduces rendering cost: full detail within 2,000 meters, simplified beyond 8,000 meters.
-
-#### 18.1.5 Player Shelter and Respawn System
-
-Before this session, player respawn behavior after death was not well-defined.
-
-**What was built:**
-
-Every new player now gets a default shelter position assigned on first login. The position is computed deterministically from two inputs: the world seed and the player's user ID. This means the same player always gets the same default shelter regardless of when they log in, even if the server has restarted.
-
-The shelter positions are biased toward the equatorial band of the planet (latitudes between -30 degrees and +30 degrees) to avoid spawning players at the poles where conditions are extreme.
-
-**Registering a new shelter:**
-
-The player presses [H] at any location to register their current position as their shelter. This is saved to the Neon Postgres database.
-
-**Respawn:**
-
-On death, the player respawns at their registered shelter position. The shelter position persists across sessions — it is stored in the database, not just in memory.
-
-**Database migration:**
-
-`PlayerRegistry.js` now calls `migrateShelterSchema()` on server startup, which adds `shelter_x`, `shelter_y`, and `shelter_z` columns to the `players` table if they do not already exist. This is safe to run against an existing database with existing player records.
-
-#### 18.1.6 Director Alignment
-
-The `game-dev-director.md` document (the internal guide for the AI director agent) was rewritten to reflect the correct vision. The previous version still referenced RPG mechanics as valid features. The new version establishes the universe-first philosophy clearly and references `polymorphic-wishing-metcalfe.md` as the single source of truth for what to build next.
-
----
-
-
----
-
----
 
 ---
 

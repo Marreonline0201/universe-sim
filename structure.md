@@ -5112,8 +5112,14 @@ BodyCustomization {
   handSize: 0.0–1.0               // small ↔ large
   neckThickness: 0.0–1.0          // thin ↔ thick
 
-  // Body shape stored as ~10 morph target values (40 bytes)
-  // Total character appearance data: face (160 bytes) + body (40 bytes) = 200 bytes per player
+  // ── Handedness ──────────────────────────────────────────────────────────
+  dominantHand: 'right' | 'left'  // affects: tool grip default, minimap position,
+                                   // first-person arm priority, which hand swings tools
+  // Right-handed (~90% of real population): tools in right hand, minimap bottom-left
+  // Left-handed (~10%): tools in left hand, minimap bottom-right
+
+  // Body shape stored as ~10 morph target values + 1 byte handedness (41 bytes)
+  // Total character appearance data: face (160 bytes) + body (41 bytes) = 201 bytes per player
 }
 ```
 
@@ -7500,11 +7506,37 @@ NavigationSystem {
   // These are personal notes — other players can't see them
   // "Found copper here", "Dangerous wolves", "Good clay by this river"
 
-  // ── No GPS, no minimap ────────────────────────────────────────────────────
-  // There is no minimap in the corner of the screen during gameplay
-  // There is no real-time tracking
-  // The player must open the full map screen (pauses camera movement, not game)
-  // Navigation is by memory, landmarks, sun position, and compass
+  // ── Minimap ────────────────────────────────────────────────────────────────
+  // A small minimap is always visible in the corner of the screen during gameplay.
+  // It shows a top-down view of the immediate surroundings (~100m radius).
+  //
+  // Position depends on the player's dominant hand (set in character creation):
+  //   Right-handed player: minimap at BOTTOM-LEFT corner
+  //   Left-handed player: minimap at BOTTOM-RIGHT corner
+  //
+  // This keeps the minimap on the opposite side of the screen from the player's
+  // dominant hand interaction zone, avoiding visual interference when using tools
+  // or interacting with objects.
+  //
+  // Minimap content:
+  //   - Terrain elevation as shaded relief (dark = low, light = high)
+  //   - Water bodies in blue
+  //   - Player position: centered white dot with facing direction cone
+  //   - Other nearby players: smaller dots (friends in green, others in grey)
+  //   - Settlement buildings: small square icons
+  //   - Compass ring around the minimap edge (N/S/E/W)
+  //   - Fog of war: unexplored areas are dark/hidden
+  //
+  // The minimap is NOT a satellite view — it only shows what the player has explored.
+  // It updates in real-time as the player moves and discovers new terrain.
+  //
+  // Size: ~120px diameter circle, slightly transparent background
+  // Can be toggled off in settings for players who prefer full immersion
+  // Clicking the minimap opens the full map screen (M key)
+
+  // ── No GPS ────────────────────────────────────────────────────────────────
+  // There is no waypoint arrow, no distance-to-target, no turn-by-turn navigation
+  // Navigation is by memory, landmarks, sun position, compass, and the minimap
   // This is how real navigation worked before GPS
 }
 ```

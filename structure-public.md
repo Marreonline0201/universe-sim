@@ -7278,12 +7278,23 @@ NavigationSystem {
   // These are personal notes — other players can't see them
   // "Found copper here", "Dangerous wolves", "Good clay by this river"
 
-  // ── No GPS, no minimap ────────────────────────────────────────────────────
-  // There is no minimap in the corner of the screen during gameplay
-  // There is no real-time tracking
-  // The player must open the full map screen (pauses camera movement, not game)
-  // Navigation is by memory, landmarks, sun position, and compass
-  // This is how real navigation worked before GPS
+  // ── Minimap ────────────────────────────────────────────────────────────────
+  // A small minimap is always visible in the corner of the screen.
+  // Shows top-down view of immediate surroundings (~100m radius).
+  //
+  // Position depends on the player's dominant hand (set in character creation):
+  //   Right-handed player: minimap at BOTTOM-LEFT corner
+  //   Left-handed player: minimap at BOTTOM-RIGHT corner
+  // Keeps the minimap opposite the dominant hand's interaction zone.
+  //
+  // Content: terrain relief, water, player dot with facing cone,
+  //          nearby players, settlement icons, compass ring, fog of war.
+  // Only shows explored terrain — not a satellite view.
+  // Toggleable in settings. Clicking it opens the full map (M key).
+
+  // ── No GPS ────────────────────────────────────────────────────────────────
+  // No waypoint arrows, no distance-to-target, no turn-by-turn
+  // Navigation by memory, landmarks, sun, compass, and minimap
 }
 ```
 

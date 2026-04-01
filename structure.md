@@ -4103,6 +4103,762 @@ TradeOffer {
 
 Diamond's *Guns, Germs, and Steel* adds a further insight: the east-west axis of a continent matters because settlements at similar latitudes share climate and can exchange crops and livestock. On a spherical planet with a tilted axis, equatorial settlements share growing seasons. This will eventually influence which settlements grow into trading networks and which remain isolated.
 
+### 6.5.1 NPC Brain — Three-Tier Hybrid AI
+
+#### The Principle
+
+NPCs are not scripts. They are simulated humans with curiosity, needs, emotions, memory, and the ability to learn. An NPC doesn't follow a behavior tree that says "if hungry, go to food." An NPC *thinks*: "I'm hungry. Last time I was hungry near the river, I tried fishing and it worked. But it's raining now and the river is high. Maybe I should check the storage first. If there's nothing stored, I'll try fishing anyway — I'm curious if rain affects the catch."
+
+This level of reasoning requires language-model-scale intelligence. But running a full LLM (Claude, GPT) for every NPC decision is financially impossible at scale. The solution is a **three-tier hybrid** where most decisions are handled by a cheap custom-trained small model, and full LLMs are reserved for rare, important moments.
+
+#### The Three Tiers
+
+```
+NPC Brain Architecture {
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // TIER 1: Survival Reflex (every server tick, no AI, pure math)
+  // ═══════════════════════════════════════════════════════════════════════════
+  //
+  // Handles: immediate survival — things a human body does without thinking.
+  // These bypass the brain entirely, like real reflexes.
+  //
+  // Checks (evaluated in priority order, first match wins):
+  //   1. Am I on fire?           → run to water / drop and roll
+  //   2. Am I drowning?          → swim toward surface / shore
+  //   3. Is a predator attacking? → fight (if armed) or flee (if not)
+  //   4. Am I freezing?          → move toward nearest fire / shelter
+  //   5. Is something falling on me? → dodge
+  //
+  // Implementation: simple if/else priority queue
+  // Cost: ~0.01ms per NPC per tick
+  // Frequency: every server tick (6 Hz)
+  //
+  // If no reflex triggers → pass control to Tier 2
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // TIER 2: Custom Small Language Model (every 10-30 game-seconds)
+  // ═══════════════════════════════════════════════════════════════════════════
+  //
+  // The NPC's "thinking brain." A custom fine-tuned small language model
+  // (1-4B parameters) that reasons about what to do next.
+  //
+  // This model was trained specifically for NPC decision-making in this game.
+  // It is NOT a general-purpose LLM. It understands: hunger, curiosity,
+  // social bonds, weather, material properties, crafting processes, danger,
+  // time of day, seasonal patterns, settlement needs, and player interactions.
+  //
+  // ── Input (structured prompt fed to the SLM) ───────────────────────────
+  //
+  // Each decision call packs the NPC's full context into a structured prompt:
+
+  SLMInput {
+    // Identity
+    name: string                     // "Kora"
+    age: number                      // 34 game-years
+    personality: PersonalityVector   // see below
+
+    // Physical state
+    needs: {
+      hunger: number                 // 0.0 (full) to 1.0 (starving)
+      thirst: number                 // 0.0 to 1.0
+      fatigue: number                // 0.0 to 1.0
+      warmth: number                 // 0.0 (freezing) to 1.0 (overheating)
+      safety: number                 // 0.0 (terrified) to 1.0 (completely safe)
+    }
+
+    // Emotional state
+    emotions: {
+      curiosity: number              // 0.0 to 1.0 — how much they want to explore/try new things
+      satisfaction: number           // 0.0 to 1.0 — contentment with current situation
+      loneliness: number             // 0.0 to 1.0 — desire for social interaction
+      boredom: number                // 0.0 to 1.0 — need for novelty (drives exploration)
+      fear: number                   // 0.0 to 1.0 — current anxiety level
+      pride: number                  // 0.0 to 1.0 — satisfaction from accomplishment
+    }
+
+    // Environment
+    environment: {
+      timeOfDay: string              // 'dawn' | 'morning' | 'afternoon' | 'dusk' | 'night'
+      weather: string                // 'clear' | 'cloudy' | 'rain' | 'storm' | 'snow' | 'fog'
+      temperature: number            // °C at NPC's position
+      nearbyEntities: string[]       // ["player:John (trusted)", "wolf (dangerous)", "NPC:Mara (friend)"]
+      nearbyResources: string[]      // ["copper_ore (12m)", "river (30m)", "oak_tree (5m)"]
+      nearbyWorkstations: string[]   // ["bloomery (8m, vacant)", "campfire (3m, burning)"]
+      currentLocation: string        // "inside settlement", "forest edge", "riverbank"
+    }
+
+    // Memory (most relevant recent memories)
+    recentMemories: string[]         // last 10 significant events, most recent first
+    // e.g., ["Tried fishing in rain — caught 2 fish (5 min ago)",
+    //        "Player John gave me copper ore (1 hour ago)",
+    //        "Burned hand on bloomery — was not careful (yesterday)",
+    //        "Found clay deposit south of settlement (3 days ago)"]
+
+    // Knowledge
+    knownProcesses: string[]         // ["fire_starting", "copper_smelting", "pottery", "fishing"]
+    currentGoal: string | null       // "bring copper ore to bloomery" or null if undecided
+
+    // Settlement context
+    settlementNeeds: string[]        // ["low on food", "need more charcoal", "bloomery is broken"]
+    socialRelationships: string[]    // ["Mara: close friend", "Boro: rival", "Elder Tain: respected"]
+  }
+
+  // ── Output (action decision from the SLM) ──────────────────────────────
+
+  SLMOutput {
+    thought: string                  // internal reasoning (logged for debugging, not shown to players)
+    // e.g., "I'm hungry (0.7) and bored (0.6). The settlement needs food.
+    //        I know how to fish and the river is 30m away. It's raining but
+    //        last time I caught fish in rain. I'll go fishing — it satisfies
+    //        hunger AND settlement need AND reduces boredom."
+
+    action: string                   // the chosen action
+    // e.g., "walk_to:river" | "gather:oak_tree" | "use_workstation:bloomery" |
+    //        "talk_to:Mara" | "explore:south" | "sleep" | "eat:stored_fish" |
+    //        "teach:player_nearby" | "build:wall_segment" | "trade:offer_copper"
+
+    priority: number                 // 0.0 to 1.0 — how committed to this action
+    // High priority = won't be easily interrupted
+    // Low priority = will switch if something more interesting happens
+
+    emotionalShift: {                // how this decision affects emotions
+      curiosity: number              // delta (-0.1 to +0.1)
+      satisfaction: number
+      boredom: number
+    }
+  }
+
+  // ── The SLM itself ─────────────────────────────────────────────────────
+
+  CustomSLM {
+    // Base model: fine-tuned from an open-source small model
+    // Candidates: Llama 3.2 1B, Llama 3.2 3B, Phi-3 mini 3.8B, Gemma 2B
+    // Final choice depends on quality vs speed benchmarking
+
+    modelSize: '1-4 GB'             // small enough to run on a single GPU
+    inferenceTime: '5-15ms per NPC' // on server GPU (NVIDIA)
+    contextWindow: 2048              // tokens — enough for the structured input above
+
+    // Training data generation:
+    // 1. Define ~200 scenario templates covering all situations an NPC faces
+    // 2. Use Claude/GPT to generate 500,000+ scenario-response pairs
+    //    Each pair: (SLMInput → SLMOutput with reasoning chain)
+    // 3. Include edge cases:
+    //    - NPC discovers something it's never seen before (curiosity → explore)
+    //    - NPC is starving but the only food is guarded by a predator (risk assessment)
+    //    - Two NPCs want the same resource (social negotiation)
+    //    - NPC witnesses a player helping vs. stealing (trust update)
+    //    - NPC gets bored of the same routine (drive for novelty)
+    //    - Weather changes mid-task (adaptive replanning)
+    // 4. Fine-tune the small model on these pairs using LoRA (low-rank adaptation)
+    //    Training time: ~24-48 hours on a single A100
+    //    Training cost: ~$50-100 per training run
+    // 5. Iterate: play-test → find bad decisions → generate corrections → retrain
+    //    Budget 5 iterations: ~$500 total
+    // 6. Deploy on server GPU alongside the game physics
+
+    // Throughput on a single GPU (e.g., RTX 5070):
+    //   ~100-200 NPC decisions per second (batched inference)
+    //   200 NPCs × 1 decision per 10 game-seconds = 20 decisions per 2.5 real-seconds
+    //   = 8 decisions per real-second — well within budget
+
+    // The model runs as a separate process on the server:
+    //   Python process with vLLM or llama.cpp for inference
+    //   Game server sends SLMInput via local HTTP or Unix socket
+    //   Model returns SLMOutput as JSON
+    //   Latency: <20ms round-trip locally
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // TIER 3: Full LLM (rare, high-stakes moments only)
+  // ═══════════════════════════════════════════════════════════════════════════
+  //
+  // For moments that require genuine open-ended reasoning beyond what the
+  // custom SLM was trained on. These are RARE — maybe 1-5 calls per
+  // settlement per real-hour.
+  //
+  // Triggers:
+  //   - NPC encounters a completely novel situation not in training data
+  //     (e.g., player builds something NPCs have never seen)
+  //   - Settlement-level strategic decisions
+  //     (e.g., "should we send a trade expedition to the distant settlement?")
+  //   - Complex social conflicts
+  //     (e.g., two NPCs both claim the same resource, elder must mediate)
+  //   - First contact with a player (generate a unique greeting/reaction)
+  //   - NPC attempts to invent a new process (creative problem-solving)
+  //
+  // Implementation:
+  //   API call to Claude Haiku or GPT-4o-mini (cheapest viable models)
+  //   Same SLMInput format but with full conversation context
+  //   Response cached: similar future situations reuse the response
+  //     (cache key: hash of situation-type + key parameters)
+  //
+  // Cost:
+  //   ~$0.00015-0.00025 per call
+  //   5 calls/hour × 10 settlements × 24 hours = 1,200 calls/day
+  //   = ~$0.18-0.30/day = ~$100/year
+  //
+  // The LLM response is also added to the SLM training dataset:
+  //   Every Tier 3 call generates a new training pair
+  //   Periodically retrain the SLM with accumulated new pairs
+  //   Over time, the SLM learns to handle more situations → fewer Tier 3 calls
+  //   This is a SELF-IMPROVING system: the game gets smarter as it runs
+}
+```
+
+#### Personality System — Every NPC Is Different
+
+```
+PersonalityVector {
+  // Each NPC has a fixed personality generated at birth from the world seed.
+  // Personality does NOT change (like real humans — core traits are stable).
+  // These values bias the SLM's decisions.
+
+  // Big Five personality traits (real psychology model, Costa & McCrae 1992):
+  openness: 0.0–1.0               // curiosity, creativity, willingness to try new things
+  // High: explores far, tries unknown processes, experiments with materials
+  // Low: sticks to known routines, stays close to home, risk-averse
+
+  conscientiousness: 0.0–1.0      // organization, reliability, work ethic
+  // High: finishes tasks, maintains workstations, keeps settlement tidy
+  // Low: abandons tasks mid-way, messy, unreliable but sometimes creative
+
+  extraversion: 0.0–1.0           // sociability, talkativeness, energy from others
+  // High: seeks company, talks to players, initiates trade, teaches eagerly
+  // Low: works alone, avoids crowds, productive in isolation
+
+  agreeableness: 0.0–1.0          // cooperativeness, empathy, conflict avoidance
+  // High: shares resources, helps others, avoids fights, trusts easily
+  // Low: hoards resources, competitive, suspicious, but better at defending
+
+  neuroticism: 0.0–1.0            // emotional reactivity, anxiety, mood swings
+  // High: panics easily, overreacts to danger, avoids risk, needs reassurance
+  // Low: calm under pressure, handles crises well, stoic
+
+  // Personality is passed to the SLM as part of the input prompt:
+  // "Personality: very curious (openness 0.9), introverted (extraversion 0.2),
+  //  anxious (neuroticism 0.7), hardworking (conscientiousness 0.8)"
+  // The SLM was trained on personality-conditioned responses:
+  //   Same scenario + different personality → different decision
+  //   A high-openness NPC explores a new cave. A low-openness NPC avoids it.
+
+  // Generated deterministically: personality = hash(worldSeed, npcId) → 5 values
+  // Permanent for the NPC's entire life
+}
+```
+
+#### Curiosity System — How NPCs Discover New Things
+
+```
+CuriositySystem {
+  // Curiosity is the engine of NPC progress. Without it, NPCs would
+  // repeat the same actions forever. Curiosity drives them to explore,
+  // experiment, and accidentally discover new processes.
+
+  // ── What triggers curiosity ───────────────────────────────────────────
+  //
+  // Boredom: doing the same task repeatedly increases boredom → increases curiosity
+  //   boredomRate = 0.01 per repetition of the same action type
+  //   After 50 repetitions of "gather_wood": boredom = 0.5, curiosity spikes
+  //
+  // Novel stimuli: seeing something new for the first time
+  //   NPC walks past an unexplored area → curiosity += 0.1
+  //   NPC sees a player using an unknown process → curiosity += 0.2
+  //   NPC finds an unknown material → curiosity += 0.15
+  //
+  // Other NPCs: watching another NPC succeed at something new
+  //   NPC sees Mara make pottery for the first time → curiosity += 0.1
+  //   NPC sees player smelt copper → curiosity += 0.3 (player actions are extra novel)
+
+  // ── What curiosity causes ─────────────────────────────────────────────
+  //
+  // When curiosity > 0.6: the SLM starts considering exploration/experimentation
+  //   "I'm curious about that clay deposit Mara found. Let me go look."
+  //   "I wonder what happens if I put this rock in the fire."
+  //   "That player was doing something at the bloomery I haven't tried."
+  //
+  // When curiosity > 0.8: NPC actively seeks novelty
+  //   Wanders beyond settlement territory
+  //   Tries combining materials it hasn't combined before
+  //   Approaches players to observe what they're doing
+  //
+  // Curiosity decreases when:
+  //   NPC discovers something new → satisfaction spike → curiosity drops by 0.3
+  //   NPC fails at an experiment → curiosity drops by 0.1 (mild discouragement)
+  //   NPC is satisfied with current routine → curiosity slowly decays
+
+  // ── How NPCs make discoveries ─────────────────────────────────────────
+  //
+  // NPCs use the SAME crafting system as players (§6.3, §6.8.1).
+  // When a curious NPC tries a new material combination at a workstation:
+  //   1. The reaction engine (§6.3.3) computes the result
+  //   2. If the result is new: NPC stores it as a discovery
+  //   3. NPC remembers: "heating malachite with charcoal produced copper"
+  //   4. This memory persists → NPC can repeat the process
+  //   5. Other NPCs who watch may also learn (§6.8.7 knowledge transfer)
+  //
+  // Example: How an NPC discovers copper smelting
+  //   1. NPC has high openness (0.8) and growing boredom from gathering
+  //   2. SLM decides: "I'm bored of gathering wood. I found green rocks near
+  //      the volcano last week. I'm curious what happens if I heat them."
+  //   3. NPC carries malachite to the campfire
+  //   4. Campfire temperature (400°C) is too low. Nothing visible happens.
+  //      Memory: "green rock + campfire = nothing interesting"
+  //   5. Days later, boredom rises again. NPC tries the bloomery (1100°C).
+  //   6. Reaction engine: malachite + charcoal at 1100°C → copper + CO2
+  //   7. NPC sees shiny orange material appear. Discovery!
+  //      Memory: "green rock + charcoal + bloomery = orange metal!"
+  //      Satisfaction: +0.5, curiosity: -0.3, pride: +0.4
+  //   8. NPC repeats the process. Practice counter increases.
+  //   9. Other NPCs observe. Knowledge spreads through the settlement.
+}
+```
+
+#### Episodic Memory — What NPCs Remember
+
+```
+MemorySystem {
+  // Each NPC has a memory that stores significant events.
+  // Not everything is remembered — only events that were emotionally significant.
+
+  // ── Memory structure ──────────────────────────────────────────────────
+
+  Memory {
+    timestamp: number                // game-time when it happened
+    description: string              // natural language: "Caught 3 fish at river during rain"
+    emotionalWeight: number          // -1.0 (traumatic) to +1.0 (joyful)
+    entities: string[]               // who/what was involved: ["river", "rain", "fish"]
+    outcome: 'success' | 'failure' | 'neutral'
+    location: Vec3                   // where it happened
+  }
+
+  // ── Storage limits ────────────────────────────────────────────────────
+  //
+  // Each NPC stores up to 200 memories.
+  // When full, the least emotionally significant memory is overwritten.
+  // Traumatic memories (weight < -0.5) and joyful memories (weight > 0.5) persist longer.
+  // Neutral memories fade first — like real human memory.
+  //
+  // Memory consolidation: every game-night (during NPC sleep),
+  //   memories are "consolidated" — similar memories merge into general knowledge:
+  //   ["caught fish at river (success)", "caught fish at river (success)", "caught fish at river (failure)"]
+  //   → consolidated: "fishing at river: usually works (2/3 success rate)"
+  //   This is analogous to how human memory generalizes from episodes to schemas.
+
+  // ── Memory retrieval for SLM ──────────────────────────────────────────
+  //
+  // When building the SLM input, the server selects the 10 most relevant memories:
+  //   Relevance = emotionalWeight × recency × situationalMatch
+  //
+  //   situationalMatch: how similar the memory's context is to the current situation
+  //     Current: "near river, hungry, raining" → memories about rivers, food, rain score high
+  //     Implemented as: keyword overlap between memory.entities and current environment
+  //
+  //   recency: exponential decay — recent memories are more relevant
+  //     recencyScore = e^(-timeSinceMemory / halfLife)
+  //     halfLife = 30 game-days (~7.5 real days)
+  //     A memory from 1 game-day ago: score 0.98
+  //     A memory from 30 game-days ago: score 0.50
+  //     A memory from 90 game-days ago: score 0.13
+  //     Traumatic memories have longer halfLife (180 game-days) — they linger
+
+  // ── Social memory ─────────────────────────────────────────────────────
+  //
+  // NPCs remember interactions with specific entities:
+  //   "Player John gave me copper ore" → trust toward John +0.2
+  //   "Player Alex stole from storage" → trust toward Alex -0.5
+  //   "NPC Mara helped me carry wood" → relationship with Mara +0.1
+  //   "Wolf attacked me at the forest edge" → fear of that area +0.3
+  //
+  // Social memory persists separately from episodic memory (not overwritten by limit).
+  // Each NPC tracks trust/relationship scores for up to 50 entities.
+  // Stored as: Map<entityId, { trust: number, interactions: number, lastSeen: timestamp }>
+}
+```
+
+#### NPC Daily Life Cycle
+
+```
+DailyLifeCycle {
+  // NPCs live on a daily schedule driven by their body simulation.
+  // They have the same survival stats as players (§6.8.11) running at 4× time.
+  // Their day emerges from needs, not from a script.
+
+  // ── Typical day (emergent, not scripted) ──────────────────────────────
+  //
+  // Dawn (~06:00 game-time):
+  //   NPC wakes (fatigue drops below wake threshold during sleep)
+  //   SLM assesses: "Morning. Hungry (0.4). Settlement needs charcoal. Clear weather."
+  //   Decision: eat breakfast from stored food, then work
+  //
+  // Morning (06:00–12:00):
+  //   Primary work period — highest energy, best productivity
+  //   SLM cycles every ~10-30 game-seconds choosing work tasks:
+  //     Gather resources, process at workstations, build structures
+  //   Curiosity may divert: "I've gathered wood 30 times. Boredom is high.
+  //     I want to explore that hill to the south."
+  //
+  // Midday (12:00–14:00):
+  //   Hunger peaks → eat
+  //   Social time: NPCs gather near campfire or central area
+  //   SLM may choose: talk to another NPC, share food, rest
+  //   High-extraversion NPCs initiate conversations
+  //   Low-extraversion NPCs eat alone and go back to work
+  //
+  // Afternoon (14:00–18:00):
+  //   Second work period — less energy, slower
+  //   If it's hot: NPCs with high neuroticism seek shade
+  //   If it's raining: some continue working, some shelter (personality-dependent)
+  //
+  // Dusk (18:00–20:00):
+  //   NPCs return to settlement if they wandered
+  //   Gather around fire (light, warmth, social)
+  //   SLM social decisions: tell stories (gesture + sounds), share discoveries
+  //   A high-openness NPC who discovered something today "demonstrates" it to others
+  //
+  // Night (20:00–06:00):
+  //   Fatigue rises → NPCs seek sleeping spots
+  //   Sleep in shelters (if built) or near fire
+  //   Nocturnal threats: NPCs with low neuroticism may stay up as guards
+  //   SLM for guards: "It's dark. I hear something. Fear is rising.
+  //     I'll add wood to the fire and watch the perimeter."
+  //
+  // This cycle VARIES per NPC. A high-openness NPC might stay out exploring
+  // until dark. A high-conscientiousness NPC follows a regular schedule.
+  // A high-neuroticism NPC goes to bed early because the dark scares them.
+  // The SLM produces these variations naturally from personality + needs.
+}
+```
+
+#### NPC Social Behavior
+
+```
+SocialSystem {
+  // NPCs form relationships, argue, cooperate, compete, and form hierarchies.
+  // All of this emerges from the SLM making social decisions.
+
+  // ── Relationships ─────────────────────────────────────────────────────
+  //
+  // Each NPC tracks relationship scores with every other NPC they've interacted with:
+  //   relationship: -1.0 (hostile) to +1.0 (close bond)
+  //
+  // Relationship changes from interactions:
+  //   Working together on a task:          +0.05 per shared task
+  //   Sharing food when the other is hungry: +0.15
+  //   Competing for the same resource:     -0.05
+  //   Stealing from storage:               -0.3 (affects all who witness)
+  //   Helping when injured:                +0.2
+  //   Teaching a new process:              +0.1 (teacher) / +0.15 (learner)
+  //
+  // High relationship (>0.5): NPCs prefer working together, share food,
+  //   warn each other of danger, sleep nearby
+  // Neutral (0.0): standard coexistence, no preference
+  // Negative (<-0.3): avoid each other, compete for resources, may refuse to help
+
+  // ── Family and reproduction ───────────────────────────────────────────
+  //
+  // When two NPCs have relationship > 0.7, they may form a pair bond:
+  //   SLM decides: "Mara and I have worked together for months. I feel
+  //   close to her. I want to build a shelter near hers."
+  //
+  // Pair-bonded NPCs:
+  //   Share shelter (build one together if needed)
+  //   Share food preferentially
+  //   Work near each other
+  //
+  // Children: if settlement has food surplus AND pair-bonded NPCs exist:
+  //   Probability per game-month: 0.05 (5% chance per month per pair)
+  //   Child NPC spawns with:
+  //     Personality: blend of parents with random variation
+  //     Knowledge: none (must learn everything from scratch)
+  //     Size: small (grows over ~15 game-years to adult size)
+  //   Child NPCs:
+  //     Follow parents, observe their work, gradually learn processes
+  //     Begin independent decisions at ~8 game-years
+  //     Reach adult capability at ~15 game-years
+  //     SLM is active for children too — but with limited knowledge/memory
+
+  // ── Hierarchy (emergent, not assigned) ────────────────────────────────
+  //
+  // There is no "leader" role. Leadership emerges from behavior:
+  //   The NPC who consistently makes good decisions (stored food before winter,
+  //   discovered copper smelting, resolved conflicts) builds social capital.
+  //   Other NPCs remember: "Elder Tain's advice led to good outcomes 8/10 times."
+  //   Over time, NPCs with high social capital are consulted more often.
+  //
+  // The SLM handles this naturally:
+  //   "The settlement needs to decide whether to send a trade party. I remember
+  //   Elder Tain suggested trading last time and it went well. I'll follow
+  //   Tain's suggestion again."
+  //
+  // This is not a formal hierarchy — it's reputation-based influence.
+  // A new NPC with high openness and good ideas can gain influence quickly.
+  // An old NPC who makes bad decisions loses influence gradually.
+
+  // ── Conflict resolution ───────────────────────────────────────────────
+  //
+  // When NPCs disagree (both want the same resource, different plans):
+  //   High-agreeableness NPCs yield
+  //   Low-agreeableness NPCs compete
+  //   If neither yields: the dispute is "noticed" by nearby NPCs
+  //   An NPC with high social capital may mediate (Tier 3 LLM call if complex)
+  //   Unresolved conflicts decrease relationships for both parties
+  //
+  // Physical conflict between NPCs:
+  //   Rare — only when relationship < -0.5 AND both have low agreeableness
+  //   Uses the same physics-based combat system as player combat (§6.8.17)
+  //   Other NPCs react: high-agreeableness NPCs try to stop it,
+  //   high-neuroticism NPCs flee, others watch
+}
+```
+
+#### Settlement Expansion — How NPCs Build
+
+```
+SettlementExpansion {
+  // NPCs build structures through the same building system as players (§6.8.10).
+  // The SLM decides WHAT to build. The NPC physically constructs it.
+
+  // ── Decision to build ─────────────────────────────────────────────────
+  //
+  // The SLM considers settlement needs:
+  //   "We have 25 NPCs but only 6 shelters. 4 NPCs are sleeping outside.
+  //   I have wood and clay. I should build a new shelter."
+  //
+  //   "Winter is coming. Our food storage is exposed to rain.
+  //   I'll build a storage hut with a roof."
+  //
+  //   "Predators attacked twice this month. I'll build a wall section
+  //   on the forest-facing side."
+  //
+  // Building priority emerges from needs, not from a build queue:
+  //   Shelter > food storage > workstations > walls > aesthetic improvements
+
+  // ── Construction process ──────────────────────────────────────────────
+  //
+  // 1. NPC decides to build (SLM output: "build:shelter_hut")
+  // 2. NPC gathers required materials (multiple gather → carry trips)
+  //    The SLM handles this: "I need 20 logs and 50 clay. I have 5 logs.
+  //    I'll gather more wood first."
+  // 3. NPC walks to the build site (SLM chooses location:
+  //    "Near the other shelters but not blocking the path to the river")
+  // 4. NPC places materials using the build system (§6.8.10)
+  //    Walls → roof → door opening
+  //    Each placement is a physical action in the world (visible to players)
+  // 5. Construction takes many game-hours (NPC takes breaks for food, sleep)
+  // 6. Completed structure is added to settlement.structures
+  //    Other NPCs can use it
+
+  // ── New settlement formation ──────────────────────────────────────────
+  //
+  // When a settlement grows too large (population > territory capacity):
+  //   Overcrowding increases boredom and conflict for all NPCs
+  //   SLM for high-openness NPCs: "This settlement is crowded. I've heard
+  //   there are resources to the east. I want to explore and maybe start fresh."
+  //   1-5 NPCs leave together (pair-bonded NPCs leave as a group)
+  //   They walk to a new location (chosen by SLM based on resource proximity)
+  //   They begin building a new settlement from scratch
+  //   The new settlement starts as a "camp" (§6.5 assessment)
+  //   Trade routes may form back to the parent settlement
+
+  // ── Settlement death ──────────────────────────────────────────────────
+  //
+  // If population drops to 0 (starvation, predators, disease, players):
+  //   Structures remain as ruins (permanent terrain objects)
+  //   Resources in storage remain (players or NPCs from other settlements can loot)
+  //   Workstations remain functional (anyone can use them)
+  //   The settlement is "dead" — no NPC activity, no trade, no growth
+  //   Over time: structures decay (durability drops from weather, no maintenance)
+  //   A dead settlement with remaining resources may attract NPCs from elsewhere
+  //   who "re-settle" the ruins (SLM: "These ruins have a working bloomery.
+  //   This is a better location than building from scratch.")
+}
+```
+
+#### NPC Appearance
+
+```
+NPCAppearance {
+  // NPCs use the SAME character model system as players (§6.8.4).
+  // Same 67-bone skeleton, same blend shapes, same clothing system.
+  //
+  // Face and body are generated deterministically from worldSeed + npcId:
+  //   face_params = hash(worldSeed, npcId, 'face') → 40 blend shape values
+  //   body_params = hash(worldSeed, npcId, 'body') → 10 body morph values
+  //   height = 155 + hash(worldSeed, npcId, 'height') % 36  // 155-190cm
+  //   skinColor, hairColor, eyeColor = hash-derived within human-realistic ranges
+  //
+  // NPCs wear clothing crafted from local materials:
+  //   Early settlement: rough hide, woven grass, basic cloth
+  //   Developed settlement: leather, dyed cloth, metal accessories
+  //   Clothing quality reflects settlement sophistication
+  //
+  // NPCs age visually at the same rate as players (§6.8.4 aging system):
+  //   Born → child (small body) → adolescent → adult → elder
+  //   Wrinkles, grey hair, stooped posture in old age
+  //   Death from old age after 90 game-years (~22.5 real years)
+  //
+  // Animation: same state machine as players (§6.8.4 animation).
+  //   NPCs walk, run, crouch, carry, swing tools, eat, sleep, sit
+  //   Injury animations apply when damaged
+  //   Social animations: gesturing while "talking," pointing, waving
+}
+```
+
+#### NPC Pathfinding
+
+```
+Pathfinding {
+  // NPCs need to navigate the world — walk to resources, avoid obstacles,
+  // return to settlement, flee from danger.
+
+  // ── Navigation mesh (server-side) ─────────────────────────────────────
+  //
+  // The server maintains a navigation mesh generated from terrain:
+  //   Walkable surfaces: slope < 45°, not underwater, not blocked by structures
+  //   Updated when terrain changes (dig, build, lava flow)
+  //   Resolution: ~2m per nav cell (balance between accuracy and memory)
+  //
+  // Pathfinding algorithm: A* on the nav mesh
+  //   Heuristic: spherical distance (planet is a sphere, not flat)
+  //   Cost function: distance + slope penalty + danger penalty
+  //     slopeCost = 1.0 + tan(slope) × 2.0  // steep terrain costs more
+  //     dangerCost = memory-based (NPC remembers where predators were seen)
+  //
+  // Path caching: frequently traveled paths (settlement → river, settlement → mine)
+  //   are cached and reused by all NPCs in the settlement.
+  //   Cache invalidated when terrain changes along the path.
+
+  // ── Movement execution ────────────────────────────────────────────────
+  //
+  // Once a path is computed:
+  //   NPC walks along waypoints at walkSpeed (affected by terrain, weather, fatigue)
+  //   Foot IK adapts to terrain (§6.8.4)
+  //   NPC avoids other NPCs and players (local avoidance: steer away from collision)
+  //   If path is blocked (new structure, fallen tree): recompute path
+  //
+  // Movement speed:
+  //   Walk: 1.2 m/s (default)
+  //   Walk with heavy load: 0.8 m/s
+  //   Run (fleeing danger): 3.0 m/s
+  //   In rain/snow: -20% speed
+  //   Uphill: -30% speed
+  //   Injured leg: speed × (legHealth / 100)
+
+  // ── Exploration pathfinding ───────────────────────────────────────────
+  //
+  // When the SLM decides "explore south":
+  //   NPC picks a point ~200m in the chosen direction
+  //   Pathfinds toward it, detouring around obstacles
+  //   Along the way: scans for resources, threats, interesting features
+  //   Each new area discovered is remembered in NPC memory
+  //   If something interesting is found: SLM re-evaluates ("Found a clay deposit!
+  //     Should I gather clay or keep exploring?")
+  //   Exploration range limited by: daylight remaining, fatigue, food/water supply
+  //   NPC always pathfinds back to settlement before night (unless very brave)
+}
+```
+
+#### Performance Budget — NPC AI Server Cost
+
+```
+NPCPerformanceBudget {
+  // For 10 settlements × 20 NPCs = 200 NPCs total:
+
+  // ── Tier 1: Survival reflexes ─────────────────────────────────────────
+  // 200 NPCs × 6 Hz × 0.01ms = 12ms/second (trivial)
+
+  // ── Tier 2: Custom SLM ────────────────────────────────────────────────
+  // Decision frequency: 1 per 10 game-seconds = 1 per 2.5 real-seconds
+  // 200 NPCs / 2.5s = 80 decisions per real-second
+  // At 10ms per inference (batched on GPU): 800ms of GPU time per real-second
+  // This is ~80% of one GPU's capacity — tight but workable
+  // Optimization: stagger decisions (not all NPCs think at the same tick)
+  //   Spread across 2.5 seconds: 80 decisions / 150 ticks = <1 per tick
+  //   Actual GPU utilization: ~15ms bursts every ~30ms — sustainable
+
+  // ── Tier 3: Full LLM API calls ────────────────────────────────────────
+  // 5 calls/hour × 10 settlements = 50 calls/hour
+  // At 200ms per API call: 10 seconds of total wait time per hour
+  // These are async — server doesn't block. NPC continues previous action while waiting.
+
+  // ── Memory storage ────────────────────────────────────────────────────
+  // Per NPC: 200 memories × ~200 bytes = 40 KB
+  // 200 NPCs: 8 MB total memory storage (trivial)
+  // Social memory: 50 entities × 20 bytes = 1 KB per NPC = 200 KB total
+
+  // ── Pathfinding ───────────────────────────────────────────────────────
+  // Nav mesh: ~2MB for the planet (2m resolution, only near settlements)
+  // A* per path request: ~0.5ms
+  // 200 NPCs × ~1 path per 30 game-seconds = 80 paths per 7.5 real-seconds
+  // = ~11 paths per real-second × 0.5ms = 5.5ms/second (trivial)
+
+  // ── Total server cost for NPC AI ──────────────────────────────────────
+  // CPU: ~20ms/second (reflexes + pathfinding + memory management)
+  // GPU: ~800ms/second (SLM inference — shared with video streaming GPU)
+  // RAM: ~10 MB (memory + nav mesh + state)
+  // API: ~$0.30/day (Tier 3 LLM calls)
+  //
+  // For 500 NPCs: GPU becomes the bottleneck. Solutions:
+  //   Reduce decision frequency for distant NPCs (LOD — NPCs far from any player think less)
+  //   Second GPU for inference
+  //   Quantize the SLM to INT4 (2× throughput, slight quality loss)
+
+  // ── NPC LOD (Level of Detail) ─────────────────────────────────────────
+  // NPCs far from all players don't need full AI:
+  //
+  // Distance to nearest player:
+  //   < 100m:   Full AI — Tier 1 + 2 + 3, normal decision rate
+  //   100-500m: Reduced AI — Tier 1 + 2 at half rate (1 per 20 game-seconds)
+  //   500m-2km: Minimal AI — Tier 1 only + simplified daily routine
+  //   > 2km:    Suspended — NPC state frozen, resumes when player approaches
+  //
+  // This means: a world with 500 NPCs but only 30 near a player
+  //   → only 30 NPCs running full AI at any time → GPU budget is fine
+}
+```
+
+#### Self-Improving Training Loop
+
+```
+SLMTrainingLoop {
+  // The NPC AI gets smarter over time. Every Tier 3 LLM call generates a
+  // new training pair that is added to the SLM's training dataset.
+
+  // ── Continuous data collection ────────────────────────────────────────
+  //
+  // 1. Tier 3 call fires (novel situation requiring full LLM reasoning)
+  // 2. Input (SLMInput) and output (full LLM response) are logged
+  // 3. The response is formatted as an SLMOutput training pair
+  // 4. Pair is added to a training buffer (append-only file on disk)
+  //
+  // ── Periodic retraining ───────────────────────────────────────────────
+  //
+  // Every ~1000 new training pairs (roughly every few days of runtime):
+  //   1. Server flags: "SLM retrain available"
+  //   2. Admin (or automated cron) triggers retraining:
+  //      - Load base SLM + LoRA weights
+  //      - Fine-tune on accumulated new pairs (takes ~1-2 hours on GPU)
+  //      - Validate: test against held-out scenarios for quality
+  //      - If quality ≥ previous model: hot-swap the SLM on the server
+  //      - If quality < previous: discard, investigate bad training pairs
+  //   3. New model serves all future Tier 2 decisions
+  //
+  // ── Result over time ──────────────────────────────────────────────────
+  //
+  // Month 1: SLM handles ~80% of situations, 20% go to Tier 3
+  // Month 6: SLM handles ~92% of situations, 8% go to Tier 3
+  // Year 1:  SLM handles ~97% of situations, 3% go to Tier 3
+  //
+  // The game's NPCs literally get smarter the longer the game runs.
+  // Tier 3 costs decrease over time as the SLM absorbs more knowledge.
+  // Eventually, Tier 3 calls become rare edge cases that only fire for
+  // truly unprecedented situations (which means the game is producing
+  // genuinely novel emergent behavior — exactly the goal).
+}
+```
+
 ### 6.6 Weather System — Full Atmospheric Simulation
 
 #### The Principle

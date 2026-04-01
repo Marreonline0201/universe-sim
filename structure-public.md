@@ -3904,6 +3904,56 @@ TradeOffer {
 
 Diamond's *Guns, Germs, and Steel* adds a further insight: the east-west axis of a continent matters because settlements at similar latitudes share climate and can exchange crops and livestock. On a spherical planet with a tilted axis, equatorial settlements share growing seasons. This will eventually influence which settlements grow into trading networks and which remain isolated.
 
+### 3.5.1 NPC Brain — Three-Tier Hybrid AI
+
+#### The Principle
+
+NPCs are not scripts. They are simulated humans with curiosity, needs, emotions, memory, and the ability to learn. An NPC doesn't follow a behavior tree — it *thinks* about what to do based on its internal state and surroundings. This requires a hybrid AI architecture: cheap fast decisions for routine moments, and deeper reasoning for novel situations.
+
+#### Three-Tier Decision Architecture
+
+**Tier 1 — Survival Reflex (every tick, no AI):** Am I on fire? Drowning? Being attacked? Pure reactive math, no thinking required. Like human reflexes.
+
+**Tier 2 — Custom Small Language Model (every 10-30 game-seconds):** A purpose-trained small model (~1-4B parameters) that reasons about NPC decisions. Input: needs, emotions, personality, environment, memories. Output: next action with reasoning. Runs on the server at ~10ms per decision. Handles ~90% of all NPC behavior.
+
+**Tier 3 — Full LLM (rare, important moments):** For genuinely novel situations the custom model wasn't trained on. Settlement-level strategic decisions, complex social conflicts, first encounters with unprecedented events. ~1-5 calls per settlement per hour.
+
+#### Personality — Every NPC Is Different
+
+Based on the Big Five personality model (Costa & McCrae 1992). Each NPC has permanent traits generated at birth:
+
+- **Openness** (0-1): curiosity, willingness to explore and experiment. High = wanders far, tries new things. Low = sticks to routine.
+- **Conscientiousness** (0-1): work ethic, organization. High = finishes tasks, maintains structures. Low = unreliable but sometimes creative.
+- **Extraversion** (0-1): sociability. High = seeks company, talks to players, teaches. Low = works alone, productive in isolation.
+- **Agreeableness** (0-1): cooperativeness. High = shares, helps, avoids conflict. Low = competitive, hoards resources, better at defending.
+- **Neuroticism** (0-1): emotional reactivity. High = panics easily, avoids risk. Low = calm under pressure, handles crises.
+
+Same scenario + different personality = different NPC decision.
+
+#### Curiosity — How NPCs Discover
+
+Curiosity is the engine of NPC progress. Boredom from repetition increases curiosity. Seeing something novel increases curiosity. When curiosity is high, the NPC explores, experiments, tries new material combinations at workstations. Discoveries happen through the same physics-based crafting system as players — the NPC puts materials in a furnace and the reaction engine computes the result. If it's new, the NPC remembers it and can teach others.
+
+#### Memory — What NPCs Remember
+
+Each NPC stores ~200 episodic memories ranked by emotional significance. Traumatic and joyful memories persist longest. Neutral memories fade first. During sleep, similar memories consolidate into general knowledge ("fishing usually works 2/3 of the time"). Social memory tracks trust and relationships with specific entities (players, other NPCs, predators).
+
+#### Daily Life
+
+NPCs live on a daily cycle driven by needs, not scripts. They wake at dawn, eat, work during peak energy hours, socialize at midday, continue working in the afternoon, gather around fire at dusk, and sleep at night. Every aspect varies by personality — a high-openness NPC explores instead of working, a high-neuroticism NPC goes to bed early.
+
+#### Social Behavior
+
+NPCs form relationships (+0.05 per shared task, +0.15 for sharing food, -0.3 for theft). High relationships lead to pair bonds, shared shelters, and eventually children. Leadership emerges from reputation — NPCs whose decisions led to good outcomes are consulted more often. Conflicts between low-agreeableness NPCs can escalate to physical confrontation (same combat physics as players).
+
+#### Settlement Expansion
+
+NPCs build structures through the same system as players. The AI decides what's needed ("We have 25 NPCs but only 6 shelters — I should build one"). When a settlement becomes overcrowded, adventurous NPCs leave to found new settlements elsewhere. Dead settlements leave ruins that can be re-settled.
+
+#### Self-Improving System
+
+Every time the full LLM (Tier 3) handles a novel situation, the response becomes a training pair for the custom model. Periodic retraining means the NPC AI gets smarter over time. Month 1: ~80% handled by custom model. Year 1: ~97%. The game's NPCs literally become more intelligent the longer the game runs.
+
 ### 3.6 Weather System — Full Atmospheric Simulation
 
 #### The Principle

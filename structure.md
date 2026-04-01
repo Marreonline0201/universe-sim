@@ -1729,6 +1729,785 @@ AnimalPlayerInteraction {
 }
 ```
 
+### 6.2.3 Farming and Agriculture — Growing Food from Soil
+
+#### The Principle
+
+Farming is not a minigame. It is the application of soil science, plant biology, weather, and seasonal cycles to produce food at scale. The player does not "plant wheat seed → wait → harvest wheat." They clear land, prepare soil that has real nutrient content, plant seeds in soil that may or may not support that crop, provide water if rain is insufficient, protect from pests and disease, harvest at the right moment, process the harvest, and manage soil fertility across seasons so the land doesn't die.
+
+Every step interacts with systems already specified: weather (§6.6) provides rain and temperature, seasons (§6.7) determine growing windows, terrain (§6.8.10) determines soil access, animals (§6.2.2) provide manure and plowing, organisms (§6.2.1) define plant species, and the material system (§6.3.3) handles everything as MaterialPackets.
+
+#### Soil Model
+
+Every terrain cell has soil properties tracked by the server. Soil is not just "dirt" — it is a complex medium with measurable properties that determine what can grow.
+
+```
+SoilState {
+  // Per terrain cell (~2m × 2m resolution, same as nav mesh)
+
+  // ── Composition ───────────────────────────────────────────────────────
+  texture: {
+    sand: 0.0–1.0                    // drainage, aeration (too much = water drains too fast)
+    silt: 0.0–1.0                    // balanced retention and drainage
+    clay: 0.0–1.0                    // water retention, compaction (too much = waterlogged)
+    // sand + silt + clay = 1.0 always
+    // Ideal for most crops: "loam" = roughly equal parts (~0.4 sand, 0.4 silt, 0.2 clay)
+  }
+  // Soil texture is determined by geology (§6.4):
+  //   Near rivers: silty (flood deposits)
+  //   Volcanic areas: fertile loam (volcanic ash → nutriite-rich)
+  //   Desert: sandy
+  //   Wetlands: high clay
+  //   Mountain: rocky (thin soil layer, high gravel)
+
+  // ── Nutrients (the big three: N-P-K) ──────────────────────────────────
+  nitrogen: number                   // kg/m² — drives leaf growth (most commonly depleted)
+  phosphorus: number                 // kg/m² — drives root and seed development
+  potassium: number                  // kg/m² — drives overall plant health and disease resistance
+
+  // Starting values depend on biome:
+  //   Forest floor: N=0.5, P=0.3, K=0.4 (centuries of leaf litter decomposition)
+  //   Grassland: N=0.4, P=0.25, K=0.35 (grass root decomposition)
+  //   Desert: N=0.05, P=0.05, K=0.1 (almost nothing)
+  //   Volcanic: N=0.3, P=0.6, K=0.5 (phosphorus-rich volcanic minerals)
+  //   River floodplain: N=0.6, P=0.4, K=0.45 (annual flood deposits — best farmland)
+
+  // ── Water ─────────────────────────────────────────────────────────────
+  moisture: 0.0–1.0                  // current water saturation
+  // 0.0 = bone dry (nothing grows)
+  // 0.2–0.6 = optimal range for most crops
+  // 0.8+ = waterlogged (roots suffocate — only rice tolerates this)
+  //
+  // Moisture changes from:
+  //   Rain: +rate depends on precipitation (§6.6) and soil texture
+  //     sandySoil: absorbs fast, drains fast (moisture spikes then drops)
+  //     claySoil: absorbs slow, retains long (waterlogging risk)
+  //   Evaporation: -rate depends on temperature, wind, sun exposure
+  //     evapRate = (1 - humidity) × (temperature / 50) × sunExposure × (1 + wind × 0.1)
+  //   Plant uptake: -rate depends on crop type and growth stage
+  //   Irrigation: +controlled addition by player
+
+  // ── Other properties ──────────────────────────────────────────────────
+  pH: number                         // 0–14 (most crops: 6.0–7.0)
+  // Affected by: rock type (limestone raises pH, granite lowers),
+  //   rain (slightly acidic — pH drops over time in wet climates),
+  //   wood ash addition (+0.5 pH per application),
+  //   lime addition (+1.0 pH per application)
+
+  organicMatter: 0.0–1.0            // decomposed plant/animal material (humus)
+  // High organic matter: better water retention, more nutrients, healthier microbes
+  // Increased by: composting, mulching, leaving crop residue, manure
+  // Decreased by: erosion, over-tilling, removing all crop material
+
+  earthwormDensity: 0.0–1.0         // from §6.2.1 — earthworms improve soil structure
+  // High: better aeration, better drainage, nutrient cycling
+  // Killed by: heavy tilling, waterlogging, extreme cold, no organic matter
+
+  tilled: boolean                    // has the soil been prepared for planting?
+  // Tilling: loosens soil, mixes in organic matter, kills surface weeds
+  // Methods: hand hoe (slow), plow + animal (fast — §6.2.2)
+  // Tilled soil reverts to untilled after ~30 game-days (compacts from rain/traffic)
+}
+```
+
+#### Plant Growth Simulation
+
+Every planted crop is a living organism running the same energy model as §6.2. Growth rate is computed from real inputs, not a timer.
+
+```
+CropGrowth {
+  // A planted seed becomes a crop entity tracked by the server.
+
+  CropEntity {
+    species: string                  // 'wheat' | 'barley' | 'rice' | 'potato' | 'corn' | ...
+    position: Vec3                   // where it's planted
+    growthStage: number              // 0.0 (seed) to 1.0 (harvestable)
+    health: number                   // 0-100 (disease, pest, drought reduce this)
+    age: number                      // game-days since planting
+    waterStress: number              // 0 (well-watered) to 1 (wilting)
+    nutrientStress: number           // 0 (well-fed) to 1 (starving)
+    quality: number                  // 0.0–1.0 (affects yield and seed quality for next generation)
+  }
+
+  // ── Growth rate formula ───────────────────────────────────────────────
+  //
+  // growthPerDay = baseGrowthRate
+  //              × temperatureFactor
+  //              × waterFactor
+  //              × nutrientFactor
+  //              × lightFactor
+  //              × healthFactor
+  //
+  // Each factor is 0.0 (no growth) to 1.0 (optimal):
+
+  temperatureFactor(T, species) {
+    // Each species has an optimal range and absolute limits:
+    //   Wheat: min 5°C, optimal 15-20°C, max 30°C
+    //   Rice:  min 15°C, optimal 25-30°C, max 40°C
+    //   Corn:  min 10°C, optimal 20-30°C, max 35°C
+    //   Potato: min 5°C, optimal 15-20°C, max 25°C
+    //
+    // Below min or above max: factor = 0 (no growth, damage accumulates)
+    // In optimal range: factor = 1.0
+    // Between min/optimal and optimal/max: linear interpolation
+    //
+    // Frost (T < 0°C): immediate damage to non-frost-resistant crops
+    //   health -= 20 per frost night
+    //   Frost-resistant: wheat (survives brief frost), potato tubers (underground, protected)
+    //   Frost-killed: rice, corn, most vegetables
+  }
+
+  waterFactor(moisture, species) {
+    // Too little: plant wilts → growth stops → dies
+    // Too much: roots suffocate → rot → dies
+    //   Wheat: optimal moisture 0.3–0.5
+    //   Rice: optimal moisture 0.7–0.9 (paddy rice grows IN water)
+    //   Potato: optimal 0.3–0.5
+    //   Corn: optimal 0.4–0.6 (heavy water demand)
+    //
+    // waterStress increases when moisture is outside optimal range
+    // waterStress > 0.7 for 3+ game-days → plant dies
+  }
+
+  nutrientFactor(soil, species, growthStage) {
+    // Plants consume nutrients as they grow:
+    //   Early growth (0.0–0.3): heavy nitrogen demand (leaf development)
+    //   Mid growth (0.3–0.7): balanced N-P-K
+    //   Late growth (0.7–1.0): heavy phosphorus demand (seed/fruit development)
+    //
+    // Nutrient consumption per game-day:
+    //   nitrogen -= 0.005 × growthRate (wheat is nitrogen-hungry)
+    //   phosphorus -= 0.003 × growthRate
+    //   potassium -= 0.002 × growthRate
+    //
+    // When a nutrient drops below 0.05: nutrientFactor for that nutrient = 0.3
+    // When a nutrient = 0: nutrientFactor = 0 (growth stops, plant yellows and dies)
+    //
+    // CRITICAL: every harvest removes nutrients. Planting the same crop repeatedly
+    // on the same soil depletes it. Within 3-5 harvests without replenishment,
+    // the soil is dead. This is why crop rotation and fertilization are essential.
+  }
+
+  lightFactor(daylightHours, species) {
+    // Photoperiod sensitivity:
+    //   Long-day plants (wheat, barley, oats): need >14 hours daylight to flower
+    //     → plant in spring, flower in summer (longest days)
+    //   Short-day plants (rice, soybean, cotton): need <12 hours to flower
+    //     → plant in late summer, flower in autumn (shortening days)
+    //   Day-neutral (potato, corn, tomato): flower regardless of day length
+    //     → plant whenever temperature is right
+    //
+    // Light intensity:
+    //   Full sun (no shade): factor = 1.0
+    //   Partial shade (near tree, cloudy): factor = 0.5–0.8
+    //   Deep shade (under dense canopy): factor = 0.1–0.3
+    //     Most crops need full sun. A few tolerate shade (lettuce, spinach, herbs).
+  }
+
+  healthFactor(health) {
+    // health / 100 — simple scaling
+    // Diseased or pest-damaged plants grow slower
+  }
+}
+```
+
+#### Crop Species and Wild-to-Domestic Progression
+
+```
+CropSpecies {
+  // Crops exist in the wild as organisms (§6.2.1). The player domesticates them
+  // the same way they domesticate animals — by selection over generations.
+
+  // ── Wild vs. domestic ─────────────────────────────────────────────────
+  //
+  // Wild wheat: seeds shatter when ripe (fall off the stalk → good for wild reproduction)
+  //   Player harvests: gets ~30% of seeds (rest fell before harvest)
+  //   Seed quality: low (small, inconsistent)
+  //
+  // After 10 generations of selecting plants that HOLD their seeds longer:
+  //   Domestic wheat: seeds stay on stalk until cut → player gets ~90% of seeds
+  //   Seed quality: higher (larger, more consistent)
+  //
+  // This is the Neolithic revolution compressed into gameplay.
+  // Each generation: plant → grow → select best → save seeds → replant
+  //   Quality improves ~3-5% per selected generation
+  //   10 generations of wheat at ~90 game-days per generation = ~900 game-days
+  //   At 4× time: ~225 real days (~7.5 months) to fully domesticate wheat
+  //   This is long — but it's real, and it gives farming players a huge advantage
+
+  // ── Available crop species by biome ───────────────────────────────────
+
+  crops: {
+    // GRAINS (staple calories — civilization builders)
+    wheat: {
+      biome: 'temperate grassland, Mediterranean'
+      tempRange: [5, 30]             // °C
+      optimalTemp: [15, 20]
+      waterRange: [0.3, 0.5]
+      photoperiod: 'long-day'        // needs summer to flower
+      daysToHarvest: 100             // game-days from planting to harvest
+      caloriesPerKg: 3400
+      products: ['grain (flour → bread)', 'straw (animal bedding, thatching, rope)']
+      wildYield: 0.3                 // fraction of potential harvest from wild type
+      domesticYield: 1.0             // after full domestication
+      nutrientDemand: { N: 'high', P: 'medium', K: 'medium' }
+    }
+
+    barley: {
+      biome: 'temperate, semi-arid — more drought-tolerant than wheat'
+      tempRange: [3, 30]
+      optimalTemp: [12, 18]
+      waterRange: [0.2, 0.4]         // less water than wheat
+      photoperiod: 'long-day'
+      daysToHarvest: 90
+      caloriesPerKg: 3200
+      products: ['grain (beer fermentation, bread, animal feed)', 'straw']
+      // Barley was the first grain used for beer (~10,000 BC)
+      // Beer was actually a primary motivation for early agriculture
+      nutrientDemand: { N: 'medium', P: 'medium', K: 'low' }
+    }
+
+    rice: {
+      biome: 'tropical, subtropical — requires warm + wet'
+      tempRange: [15, 40]
+      optimalTemp: [25, 30]
+      waterRange: [0.7, 0.95]        // paddy rice: grows in standing water
+      photoperiod: 'short-day'
+      daysToHarvest: 130
+      caloriesPerKg: 3600
+      products: ['grain (staple food for half the world)', 'straw (weaving, thatching)']
+      specialRequirement: 'paddy'    // needs flooded field — player must build berms to hold water
+      nutrientDemand: { N: 'very high', P: 'high', K: 'medium' }
+    }
+
+    corn: {
+      biome: 'temperate to tropical — needs warm summer'
+      tempRange: [10, 35]
+      optimalTemp: [20, 30]
+      waterRange: [0.4, 0.6]         // heavy water demand
+      photoperiod: 'day-neutral'
+      daysToHarvest: 80
+      caloriesPerKg: 3600
+      products: ['grain (food, animal feed)', 'stalk (fuel, building)', 'cob (fuel)']
+      nutrientDemand: { N: 'very high', P: 'medium', K: 'high' }
+      // Corn depletes soil extremely fast — requires heavy fertilization or rotation
+    }
+
+    // LEGUMES (nitrogen fixers — essential for crop rotation)
+    beans: {
+      biome: 'temperate to tropical — wide range'
+      tempRange: [10, 35]
+      optimalTemp: [18, 28]
+      waterRange: [0.3, 0.5]
+      photoperiod: 'short-day'
+      daysToHarvest: 70
+      caloriesPerKg: 3400
+      products: ['beans (protein-rich food, dried storage)', 'plant matter (compost)']
+      nitrogenFixing: true           // ADDS nitrogen to soil instead of depleting it
+      // Legume roots host Rhizobium bacteria that convert atmospheric N₂ → NH₃
+      // After harvest, roots left in soil release nitrogen for the next crop
+      // This is why the ancient three-field rotation works:
+      //   Year 1: wheat (consumes nitrogen)
+      //   Year 2: beans (restores nitrogen)
+      //   Year 3: fallow or different crop
+      nutrientDemand: { N: 'negative (adds N)', P: 'medium', K: 'low' }
+    }
+
+    lentils: {
+      biome: 'temperate, semi-arid, Mediterranean'
+      tempRange: [5, 30]
+      optimalTemp: [15, 25]
+      daysToHarvest: 80
+      caloriesPerKg: 3500
+      nitrogenFixing: true
+      nutrientDemand: { N: 'negative', P: 'low', K: 'low' }
+    }
+
+    peas: {
+      biome: 'temperate, cool — tolerates light frost'
+      tempRange: [3, 25]
+      optimalTemp: [10, 18]
+      daysToHarvest: 60
+      caloriesPerKg: 800             // fresh peas; dried: 3400
+      nitrogenFixing: true
+      nutrientDemand: { N: 'negative', P: 'low', K: 'low' }
+    }
+
+    // ROOT CROPS (calorie-dense, underground storage)
+    potato: {
+      biome: 'temperate, cool highlands — Andean origin'
+      tempRange: [5, 25]
+      optimalTemp: [15, 20]
+      waterRange: [0.3, 0.5]
+      photoperiod: 'day-neutral'
+      daysToHarvest: 90
+      caloriesPerKg: 770             // lower per kg but HUGE yield per area
+      products: ['tubers (food — boil, roast, mash)', 'starch (extracted)']
+      propagation: 'tuber'           // planted from cut tuber pieces, not seeds
+      // Potatoes produce more calories per hectare than any grain
+      // This is why they transformed European agriculture
+      nutrientDemand: { N: 'medium', P: 'high', K: 'very high' }
+    }
+
+    // FIBER AND INDUSTRIAL CROPS
+    flax: {
+      biome: 'temperate, cool — Fertile Crescent origin'
+      tempRange: [5, 25]
+      optimalTemp: [15, 20]
+      daysToHarvest: 100
+      products: [
+        'fiber (linen cloth — strongest plant textile, used for 30,000+ years)',
+        'seeds (linseed — food, linseed oil for wood treatment and paint base)',
+      ]
+      // Flax fiber processing: pull entire plant → ret in water (soak to rot outer bark) →
+      //   dry → break (crush stems) → scutch (scrape) → hackle (comb) → spin → weave
+      // This is a long production chain that creates employment for many NPCs
+      nutrientDemand: { N: 'low', P: 'medium', K: 'low' }
+    }
+
+    cotton: {
+      biome: 'tropical, subtropical — needs long hot growing season'
+      tempRange: [20, 40]
+      optimalTemp: [25, 35]
+      waterRange: [0.3, 0.5]
+      daysToHarvest: 150
+      products: ['fiber (cotton cloth — soft, breathable, dyeable)', 'seeds (cottonseed oil)']
+      nutrientDemand: { N: 'high', P: 'medium', K: 'medium' }
+    }
+
+    // FRUITS AND VEGETABLES (nutrition, variety, trade value)
+    // These have faster cycles but lower calorie density:
+    berries:  { daysToHarvest: 60, caloriesPerKg: 500, biome: 'temperate forest edge' }
+    squash:   { daysToHarvest: 80, caloriesPerKg: 260, biome: 'temperate to tropical' }
+    onion:    { daysToHarvest: 90, caloriesPerKg: 400, biome: 'temperate, wide range' }
+    cabbage:  { daysToHarvest: 70, caloriesPerKg: 250, biome: 'temperate, cool' }
+    carrot:   { daysToHarvest: 75, caloriesPerKg: 410, biome: 'temperate' }
+
+    // TREES (extremely slow but permanent — plant once, harvest forever)
+    apple:    { daysToFirstHarvest: 1095, // ~3 game-years (~9 real months)
+                caloriesPerKg: 520, annualYieldAfterMature: '50-200 kg per tree',
+                lifespan: '50-100 game-years' }
+    olive:    { daysToFirstHarvest: 1825, // ~5 game-years (~15 real months)
+                products: ['fruit (food, oil — olive oil for cooking, lamp fuel, soap, medicine)'],
+                lifespan: '500+ game-years — nearly immortal' }
+    grape:    { daysToFirstHarvest: 1095,
+                products: ['fruit (food, wine — fermented grape juice, vinegar)'],
+                lifespan: '50-100 game-years' }
+  }
+}
+```
+
+#### Farming Actions — What the Player Does
+
+```
+FarmingActions {
+  // Each action is a physical interaction in the world using existing systems.
+  // No farming UI, no crop menu. Just tools + terrain + seeds.
+
+  // ── 1. Clear land ─────────────────────────────────────────────────────
+  // Remove trees (axe), remove rocks (pickaxe), remove brush (hands or machete)
+  // Slash-and-burn: set fire to vegetation → ash adds potassium to soil (+0.1 K, +0.3 pH)
+  // Already covered by terrain interaction (§6.8.10) and fire system
+
+  // ── 2. Till soil ──────────────────────────────────────────────────────
+  // Break up topsoil to prepare for planting
+  //
+  // Methods (from §6.8.10 + §6.2.2):
+  //   Digging stick: poke holes for individual seeds → 0.1 m²/game-minute
+  //   Stone hoe: scrape and turn topsoil → 0.3 m²/game-minute
+  //   Iron hoe: faster, deeper till → 0.5 m²/game-minute
+  //   Animal-drawn plow: continuous furrow → 5.0 m²/game-minute (requires §6.2.2 trained animal)
+  //
+  // Effect on soil:
+  //   tilled = true
+  //   organicMatter += 0.02 (surface material mixed in)
+  //   earthwormDensity -= 0.05 (tilling damages worm tunnels)
+  //   Over-tilling: earthwormDensity approaches 0 → soil structure degrades → drainage worsens
+  //   Real-world parallel: modern no-till farming exists because over-tilling destroys soil life
+
+  // ── 3. Plant ──────────────────────────────────────────────────────────
+  // Player holds seeds in hand → aims at tilled soil → interact key
+  // Seed is placed in the ground (visible as a small mound)
+  //
+  // Planting rules:
+  //   Soil must be tilled (tilled = true)
+  //   Spacing: ~0.5m between seeds (too close = competition, too far = wasted space)
+  //     Optimal density: 4 plants per m² for grain, 1 per m² for corn, 1 per 4m² for trees
+  //   Depth: automatic (player places on surface, game handles appropriate depth)
+  //   Season: must be within the species' planting window
+  //     Wheat: plant in early spring (day 10-60) OR autumn (day 250-300) for winter wheat
+  //     Rice: plant in late spring (day 60-120) — needs warm soil
+  //     Potato: plant in spring (day 30-90) after last frost
+  //   Wrong season: seed germinates but growth factor = 0 from temperature → dies
+
+  // ── 4. Water (if needed) ──────────────────────────────────────────────
+  // Rain handles most watering automatically (§6.6 weather → §SoilState moisture)
+  // In dry climates or dry seasons, player must irrigate:
+  //
+  //   Manual watering: carry water in container → pour on crop → +0.05 moisture per liter
+  //     Tedious, doesn't scale. Works for a small garden.
+  //
+  //   Irrigation channel: dig a shallow trench from water source to field (§6.8.10 digging)
+  //     Water flows by gravity (must be downhill from source)
+  //     Channel width determines flow rate
+  //     Continuously supplies moisture to adjacent soil cells
+  //     The player invents irrigation by digging — no special "irrigation" system needed
+  //     The fluid system (§6.3.4) handles water flow in channels
+  //
+  //   Flood irrigation (rice paddy): build berms (low walls of mud) around a flat area
+  //     Fill with water → water stands in the paddy → rice grows in standing water
+  //     Requires flat terrain + water source + berms to contain
+
+  // ── 5. Maintain ───────────────────────────────────────────────────────
+  //
+  //   Weeding: unwanted plants grow in any tilled soil with nutrients
+  //     Weeds compete for water, nutrients, and light
+  //     If not removed: crop growth factor reduced by ~30-50%
+  //     Removal: pull by hand (slow), hoe (faster), animal grazing between rows (goats eat weeds)
+  //     Frequency: every ~10 game-days during growing season
+  //
+  //   Pest protection:
+  //     Insects eat crops (caterpillars on cabbage, aphids on grain, locusts on everything)
+  //     Pest arrival: random events, probability scales with crop monoculture size
+  //       Small diverse garden: low pest risk
+  //       Large single-crop field: high pest risk (monoculture attracts specialists)
+  //     Natural pest control:
+  //       Birds eat insects → maintaining bird habitat near fields helps
+  //       Companion planting: some plants repel pests (marigolds repel nematodes,
+  //         basil repels aphids, garlic repels many insects)
+  //       Cats hunt rodents in grain storage (§6.2.2)
+  //     Chemical pest control (later technology): sulfur dust, pyrethrin (from chrysanthemum flowers)
+  //
+  //   Disease protection:
+  //     Fungal diseases: blight (potato), rust (wheat), mildew (grape)
+  //     Spread: density-dependent (close planting → faster spread)
+  //     Wet weather increases fungal disease risk
+  //     Prevention: proper spacing, crop rotation, remove infected plants immediately
+  //     Treatment: copper sulfate spray (Bordeaux mixture — §6.3.3 emergent chemistry)
+
+  // ── 6. Harvest ────────────────────────────────────────────────────────
+  //
+  // When growthStage reaches 1.0 (maturity), the crop is harvestable.
+  // Visual: plant changes color/appearance at maturity
+  //   Wheat: green stalks → golden yellow
+  //   Potato: green leaves → yellowing and wilting (tubers ready underground)
+  //   Corn: green → dry brown husks, ears droop
+  //
+  // Harvest window: the crop stays harvestable for ~15 game-days
+  // After that: quality degrades
+  //   Grain: seeds drop (shatter) → yield decreases 5% per game-day past maturity
+  //   Fruit: falls from tree → rots on ground
+  //   Root crops: stay viable longer in soil (natural cold storage)
+  //
+  // Harvest tools:
+  //   Bare hands: berries, vegetables, pulling root crops
+  //   Sickle (flint → copper → iron): grain harvesting — cut stalks at base
+  //   Knife: fruit, vegetables
+  //
+  // Yield: determined by quality × species domestication level × soil health
+  //   Wild wheat: ~0.5 kg grain per m²
+  //   Domestic wheat (after 10+ generations): ~2.0 kg grain per m²
+  //   Modern wheat (real world): ~8.0 kg/m² — shows how far selective breeding goes
+
+  // ── 7. Process ────────────────────────────────────────────────────────
+  //
+  // Raw harvest → usable food/material (uses existing workstation system §6.8.1):
+  //
+  //   Grain processing chain:
+  //     Harvest stalks → thresh (beat with flail at threshing floor → separates grain from straw)
+  //     → winnow (toss in air, wind removes chaff) → clean grain
+  //     → grind (grinding stone → flour) → mix with water → bake (fire/oven → bread)
+  //   Each step is a physical action at a workstation or by hand
+  //
+  //   Potato: dig from soil → wash → cook (boil, roast, or dry for storage)
+  //   Flax: pull → ret (soak in water 7-14 days) → dry → break → scutch → hackle → spin → weave
+  //   Grape: crush (stomping or press) → ferment in container (yeast + sugar → alcohol + CO₂)
+
+  // ── 8. Save seeds ─────────────────────────────────────────────────────
+  //
+  // The player must save some of the harvest as seeds for next season.
+  // This is the selective breeding mechanism:
+  //   Player looks at harvested plants and picks the BEST ones:
+  //     Tallest wheat → seeds from this plant have +quality
+  //     Biggest potato tuber → cut piece with eyes for replanting
+  //     Sweetest fruit → save seeds
+  //   Saving seeds from the best plants = next generation is slightly better
+  //   quality += 0.03-0.05 per selected generation
+  //
+  // If the player loses all seeds (ate them, destroyed by fire, stolen):
+  //   Must find wild plants again or trade for seeds from NPCs
+  //   This is a real historical catastrophe — seed loss meant famine
+}
+```
+
+#### Soil Depletion and Restoration
+
+```
+SoilFertilityManagement {
+  // The most important concept in agriculture: soil is not infinite.
+  // Every harvest removes nutrients. Without management, land dies.
+
+  // ── Depletion rates ───────────────────────────────────────────────────
+  //
+  // Per harvest of wheat (1m² plot):
+  //   nitrogen -= 0.08 (heavy consumer)
+  //   phosphorus -= 0.03
+  //   potassium -= 0.02
+  //
+  // Starting soil nitrogen = ~0.5 (forest floor)
+  // After 5 wheat harvests without restoration: nitrogen = 0.1 → crop barely grows
+  // After 7 harvests: nitrogen = 0.0 → crop dies, soil is "dead"
+  //
+  // This is why slash-and-burn agriculture moves every few years:
+  //   Clear forest → farm 3-5 years → soil exhausted → abandon → clear new forest
+  //   The abandoned plot takes 20-50 game-years to recover naturally (forest regrowth)
+
+  // ── Restoration methods ───────────────────────────────────────────────
+
+  // 1. CROP ROTATION (free, requires knowledge)
+  cropRotation {
+    // Legumes (beans, peas, lentils) ADD nitrogen to soil
+    //   nitrogen += 0.1 per legume growth cycle (from Rhizobium bacteria)
+    //
+    // Three-field system:
+    //   Field A: wheat (year 1) → beans (year 2) → fallow (year 3) → wheat (year 4)
+    //   Field B: beans (year 1) → fallow (year 2) → wheat (year 3) → beans (year 4)
+    //   Field C: fallow (year 1) → wheat (year 2) → beans (year 3) → fallow (year 4)
+    //   Result: always 1 field producing grain, 1 restoring nitrogen, 1 resting
+    //   Sustainable: can farm the same three fields FOREVER with this rotation
+    //
+    // The player discovers this by trial and error:
+    //   First few wheat harvests: great yield!
+    //   Next few: declining yield. "Why is my wheat smaller?"
+    //   Player notices legume field nearby has greener soil
+    //   Tries planting wheat after beans → yield recovers!
+    //   Discovery: crop rotation (recorded in discovery system)
+  }
+
+  // 2. MANURE (requires domesticated animals)
+  manure {
+    // Animal dung is the original fertilizer (§6.2.2):
+    //   Cow dung: nitrogen +0.06, phosphorus +0.03, potassium +0.04 per application
+    //   Pig dung: nitrogen +0.08 (highest N), phosphorus +0.04, potassium +0.03
+    //   Chicken droppings: nitrogen +0.10, phosphorus +0.06 (very concentrated — "hot" manure)
+    //   Horse dung: nitrogen +0.04, phosphorus +0.02, potassium +0.04
+    //   Sheep dung: nitrogen +0.05, phosphorus +0.03, potassium +0.03
+    //
+    // Application: player collects dung from animal enclosures → carries to field → spreads
+    // Or: graze animals directly on the field after harvest (they eat stubble, deposit manure)
+    //   This is "folding" — a real practice. The field gets fertilized AND weeded simultaneously.
+    //
+    // Composting: pile manure + plant waste → wait 30-60 game-days → compost
+    //   Compost is more balanced and doesn't burn plant roots like fresh manure can
+    //   organicMatter += 0.05 per compost application
+  }
+
+  // 3. OTHER FERTILIZERS
+  otherFertilizers {
+    // Bone meal: ground animal bones → phosphorus +0.08 per application
+    //   Made at grinding stone from any bone (§6.2.1 animal products)
+    //
+    // Wood ash: from any fire → potassium +0.06, pH +0.5
+    //   Easy to obtain — every campfire produces ash
+    //
+    // Fish: buried in soil near plants → nitrogen +0.05, phosphorus +0.04
+    //   The Squanto method — Native Americans taught European colonists this
+    //
+    // Guano: bat/bird droppings from caves → nitrogen +0.12, phosphorus +0.10
+    //   Extremely potent — if the player finds a bat cave, they have the best fertilizer
+    //
+    // Seaweed: collected from coastline → potassium +0.05, plus trace minerals
+    //
+    // Green manure: grow a crop specifically to plow it back into the soil
+    //   Plant clover → let it grow → till it under before it seeds
+    //   nitrogen +0.08, organicMatter +0.04 (same as legume rotation but sacrifices a harvest)
+  }
+
+  // 4. FALLOW (simplest, slowest)
+  fallow {
+    // Leave the field unplanted for a full season
+    // Natural processes slowly restore:
+    //   nitrogen += 0.02 per game-month (decomposition of weeds and organic matter)
+    //   organicMatter += 0.01 per game-month
+    //   earthwormDensity += 0.02 per game-month (worms return to undisturbed soil)
+    // Full recovery from depleted to healthy: ~12-18 game-months (3-4.5 real months)
+    // Faster than natural forest regrowth but slower than active fertilization
+  }
+
+  // ── Erosion ───────────────────────────────────────────────────────────
+  //
+  // Tilled soil on slopes is vulnerable to rain erosion:
+  //   erosionRate = rainfall × slopeAngle × (1 - vegetationCover) × (1 - organicMatter)
+  //   Erosion removes topsoil: all nutrient values decrease proportionally
+  //   Severe erosion: soil layer thins until bedrock is exposed (unfarmable)
+  //
+  // Prevention:
+  //   Terracing: cut steps into hillside → flat planting surfaces → no slope erosion
+  //     Requires significant digging (§6.8.10) but makes mountain farming possible
+  //     This is how Inca agriculture worked on Andean slopes
+  //   Contour plowing: plow across the slope, not up/down → water follows furrows instead of eroding downhill
+  //   Cover crops: plant ground cover between main crops → roots hold soil
+  //   Mulching: lay straw/leaves on soil surface → protects from rain impact
+}
+```
+
+#### Food Preservation — Making Harvests Last
+
+```
+FoodPreservation {
+  // A harvest happens once per season. The food must last until the next harvest.
+  // Without preservation, organic material rots (§6.8.11 food spoilage model).
+
+  // ── Preservation methods (all from real chemistry/physics) ─────────────
+
+  drying {
+    // Remove water → bacteria can't grow → food lasts months/years
+    // Methods:
+    //   Sun drying: lay food in direct sunlight, low humidity → moisture drops to <15%
+    //     Requires: clear weather, 3-5 game-days of exposure
+    //     Works for: grain (already low moisture), meat (jerky), fish, fruit (raisins, dates)
+    //   Smoke drying: hang food over a smoky fire → heat + smoke chemicals preserve
+    //     Requires: smokehouse (enclosed structure with fire pit)
+    //     The smoke contains formaldehyde and phenols that are antimicrobial
+    //     Works for: meat, fish (smoked salmon, smoked ham)
+    //   Result: food moisture < 0.15 → spoilage rate reduced to ~1% of normal
+    //   Dried food lasts 6-12 game-months at room temperature
+  }
+
+  salting {
+    // Salt draws water out of food (osmosis) → bacteria can't grow in high-salt environment
+    // Requires: salt (from §6.4 evaporite deposits or coastal evaporation)
+    // Application: rub salt into meat/fish, or brine (soak in saturated salt water)
+    // Result: food moisture effectively 0 for bacterial purposes
+    // Salted food lasts 1-2 game-years
+    // Salt was the single most important trade commodity in the ancient world for this reason
+  }
+
+  fermentation {
+    // Controlled bacterial/yeast growth that PRESERVES food by producing acid or alcohol
+    // The bacteria you want outcompete the bacteria that cause rot
+    //
+    // Types:
+    //   Lactic fermentation: cabbage → sauerkraut, cucumbers → pickles, milk → yogurt/cheese
+    //     Bacteria (Lactobacillus) convert sugar → lactic acid → pH drops → food preserved
+    //     Requires: container (clay pot), salt (for initial bacterial selection), time (7-30 game-days)
+    //
+    //   Alcoholic fermentation: grain → beer, grape → wine, honey → mead
+    //     Yeast converts sugar → ethanol + CO₂ → alcohol preserves the liquid
+    //     Requires: sugar source, container, yeast (wild yeast from fruit skins or cultivated)
+    //     Beer: grain → malt (soak, sprout, dry) → mash (crush + hot water) → boil → add yeast → wait
+    //     Wine: crush grapes → add yeast (or use natural yeast on grape skin) → seal container → wait
+    //     Time: 14-30 game-days for basic fermentation
+    //
+    //   Vinegar: wine/beer exposed to air → acetic acid bacteria convert alcohol → vinegar
+    //     Vinegar is both a preservative AND a condiment
+    //
+    // Fermented food lasts months to years AND has higher nutritional value than raw
+    // (fermentation breaks down anti-nutrients, produces vitamins, aids digestion)
+  }
+
+  coldStorage {
+    // Cold slows bacterial growth (§6.8.11 spoilage model: temperatureFactor = 0 below 4°C)
+    // Methods:
+    //   Root cellar: dig a pit, store food underground → temperature is ~10-15°C year-round
+    //     Requires: digging (§6.8.10), structure to prevent collapse
+    //     Extends food life by ~3×
+    //   Ice cellar: harvest ice in winter, store in insulated pit → keeps food near 0°C
+    //     Extends food life by ~10×
+    //     Requires: winter cold enough to freeze water + insulation material (straw, sawdust)
+    //   Snow: in winter, simply bury food in snow → natural freezer
+  }
+
+  smoking {
+    // Combined heat + antimicrobial smoke chemicals
+    // Build a smokehouse: enclosed structure with fire pit, racks above
+    // Place meat/fish on racks, maintain low fire with hardwood (oak, hickory best)
+    //   Softwood (pine) produces bitter, resinous smoke — bad for preservation
+    //   Different woods produce different flavors (applewood, cherrywood, mesquite)
+    // Duration: 12-48 game-hours depending on thickness of food
+    // Result: smoked food lasts 3-6 game-months at room temperature
+  }
+
+  // ── Storage containers ────────────────────────────────────────────────
+  //
+  // Preserved food needs proper containers:
+  //   Clay pots with lids: grain, dried food, ferments (sealed with beeswax)
+  //   Barrels (cooper-crafted): salted meat, beer, wine (requires advanced woodworking)
+  //   Leather bags: dried food, grain (portable for travel)
+  //   Baskets (woven): fresh fruit, vegetables (short-term, breathable)
+  //   Underground pits lined with stone: bulk grain storage
+  //
+  // Rodent protection: stored grain attracts rats and mice
+  //   Cat in storage area: reduces rodent loss (§6.2.2)
+  //   Elevated granary: raised platform keeps rodents from ground access
+  //   Sealed containers: clay pots with wax seal — rodent-proof
+}
+```
+
+#### NPC Farming — Settlements Grow Food
+
+```
+NPCFarming {
+  // NPCs farm using the same systems as players. The SLM (§6.5.1) decides
+  // when and what to plant based on settlement needs and available knowledge.
+
+  // ── How settlements start farming ─────────────────────────────────────
+  //
+  // Early settlements: gathering only (forage wild plants, hunt animals)
+  // A curious NPC (high openness) notices: "wild wheat grows near the river every year.
+  //   What if I try putting seeds in the ground near our settlement?"
+  //
+  // The SLM handles this discovery:
+  //   Input: boredom from gathering, knowledge of wild wheat location, curiosity high
+  //   Output: "I'll collect wild wheat seeds and try planting them near camp"
+  //
+  // First harvest is small (wild-type yield). NPC remembers: "planting works!"
+  // Knowledge spreads to other NPCs in the settlement.
+  // Over generations (NPC-selected seeds → domestic quality improves),
+  //   the settlement transitions from gathering → farming.
+  //
+  // This IS the Neolithic revolution happening organically in the game.
+
+  // ── Settlement agricultural decisions (SLM-driven) ─────────────────────
+  //
+  // "We have 30 NPCs. We need ~60,000 kcal/day. Wild gathering provides ~40,000.
+  //  We need to farm to close the gap."
+  //
+  // "It's spring. The soil near the river is fertile. I'll organize planting."
+  //
+  // "Last year's wheat harvest was poor because we didn't weed.
+  //  This year I'll assign two NPCs to weeding duty."
+  //
+  // "The soil is depleted. I remember: planting beans restored the field two years ago.
+  //  Let's rotate to beans this season."
+  //
+  // "We have cattle now. Their dung can fertilize the wheat field.
+  //  I'll have the herder graze them on the harvested stubble."
+  //
+  // All of these are SLM Tier 2 decisions based on memory and needs.
+  // The settlement's agricultural sophistication grows as NPCs learn from
+  //   experience and observation.
+
+  // ── Visible farming activity ──────────────────────────────────────────
+  //
+  // Players visiting a farming settlement see:
+  //   NPCs walking to fields with tools
+  //   NPCs tilling soil (hoe animation)
+  //   Animals pulling plows (if domesticated)
+  //   NPCs scattering seeds (planting animation)
+  //   NPCs pulling weeds between crop rows
+  //   Crops visibly growing over days (tiny sprout → full plant)
+  //   NPCs harvesting with sickles (cutting animation)
+  //   NPCs carrying harvest bundles to threshing area
+  //   NPCs threshing (beating stalks on a flat surface)
+  //   NPCs winnowing (tossing grain in the air near the wind)
+  //   NPCs storing grain in clay pots in a storage structure
+  //
+  // A player can watch this entire chain and learn farming by observation —
+  //   same knowledge transfer system as all NPC skills (§6.8.7).
+}
+```
+
 ### 6.3 Physics-Based Crafting (New 2026-03-27)
 
 116 materials with 11 physics properties each. Five physics interactions: bow-drill fire, flint-and-iron fire, stone knapping, clay pottery, copper/iron smelting. Success rates computed from material properties. Hidden practice tracking. Discovery system for first successes.

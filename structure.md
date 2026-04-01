@@ -1113,6 +1113,622 @@ The current system models organisms as abstract entities with diet types and ene
 - Secondary consumer cap (omnivores) = f(primary consumer + autotroph populations)
 - Apex predator cap = f(secondary consumer population)
 
+### 6.2.2 Animal Behavior — Individual AI and Real Traits
+
+#### The Principle
+
+Every animal in the species registry (§6.2.1) is not just a walking resource bag. Each animal is an individual with real behavioral traits based on its species' biology. A wolf doesn't just "patrol" — it hunts in a pack, communicates with howls, establishes territory, avoids larger predators, raises pups, and remembers where prey was found before. A sheep doesn't just "graze" — it follows the flock, panics when separated, recognizes individual faces (sheep can remember 50 faces for years — real research), and moves toward fresh grass while avoiding areas that smell like predators.
+
+The animal AI uses the **same three-tier system as NPCs** (§6.5.1), but with a species-specific Tier 2 model fine-tuned on animal behavior rather than human behavior.
+
+#### Animal Brain — Simplified Three-Tier
+
+```
+AnimalBrain {
+  // Animals use the same architecture as NPCs but with different training:
+
+  // TIER 1: Instinct (every tick, no AI)
+  // Pure reflexive responses hardwired per species:
+  //   Predator detected → flee (prey species) or assess-attack (predator species)
+  //   Fire detected → flee (all species)
+  //   Offspring threatened → defend (parental species)
+  //   Drowning → swim to shore
+  //   Pain → vocalize + flee source
+  //
+  // These are faster than NPC reflexes — animal reaction time is shorter than human.
+  // Cost: ~0.005ms per animal per tick
+
+  // TIER 2: Species-Specific SLM (every 5-20 game-seconds)
+  // A small model trained on behavioral data for each species category:
+  //   - Ungulate model (cattle, sheep, goat, deer, horse): herd behavior, grazing, flight
+  //   - Carnivore model (wolf, lion): pack hunting, territory, stalking
+  //   - Omnivore model (boar, bear): foraging, rooting, opportunistic
+  //   - Bird model (eagle, chicken): flight/ground, nesting, migration
+  //   - Small prey model (rabbit, fish): hiding, burrow, schooling
+  //
+  // Instead of one model per species, ~5 category models cover all species.
+  // Species-specific parameters (pack size, flight distance, diet) are passed as input.
+  //
+  // Cost: ~5ms per decision (simpler than human NPC model)
+  // Animals far from players use Tier 1 only (LOD system same as NPC)
+
+  // TIER 3: Full LLM (extremely rare)
+  // Only for unprecedented situations:
+  //   Animal encounters a player-built structure it's never seen → how to react?
+  //   Domesticated animal given a completely novel command → interpret intent?
+  // In practice: <1 call per real-hour for the entire animal population
+}
+```
+
+#### Species Trait System
+
+Every individual animal has traits determined by its genome (§6.2 — 256-bit genome with Hamming distance speciation). Traits are expressed as continuous values that affect behavior.
+
+```
+AnimalTraits {
+  // ── Universal traits (all species) ────────────────────────────────────
+
+  // Physical
+  mass: number                       // kg — determines speed, strength, food requirement
+  age: number                        // game-days since birth
+  health: number                     // 0-100 — same injury system as players (§6.8.4)
+  stamina: number                    // 0-100 — sprint capacity, recovery rate
+  pregnancyState: number             // 0 = not pregnant, 1.0 = about to give birth
+
+  // Behavioral (from genome, permanent)
+  boldness: 0.0–1.0                  // willingness to approach novel objects/beings
+  // High boldness: approaches players, investigates new things, easier to tame
+  // Low boldness: flees from anything unfamiliar, harder to tame, better at surviving predators
+
+  aggressiveness: 0.0–1.0            // tendency to fight vs. flee
+  // High: fights when cornered, attacks smaller animals, defends territory fiercely
+  // Low: always flees, avoids confrontation
+
+  sociability: 0.0–1.0               // desire to be near conspecifics (same species)
+  // High: stays in herds/packs, distressed when isolated
+  // Low: solitary, independent
+
+  tamability: 0.0–1.0                // base ease of domestication (species-dependent range)
+  // Dog ancestor (wolf): tamability range 0.4–0.8 (highest of any wild animal)
+  // Sheep: tamability range 0.5–0.9 (very tamable — follows flock, low aggression)
+  // Horse: tamability range 0.2–0.6 (moderate — flighty but trainable)
+  // Deer: tamability range 0.05–0.2 (very low — they bolt)
+  // Wolf (as adult): tamability range 0.01–0.15 (nearly impossible unless raised from pup)
+  // Lion: tamability range 0.0–0.05 (essentially untamable)
+  // The actual value is from the genome — individual variation within species range
+
+  intelligence: 0.0–1.0              // learning speed, problem-solving
+  // High intelligence: learns tricks faster, remembers more, navigates obstacles
+  // Pig: 0.7–0.9 (smarter than dogs in tests)
+  // Dog: 0.6–0.85
+  // Horse: 0.4–0.7
+  // Sheep: 0.3–0.5 (smarter than people think — facial recognition)
+  // Chicken: 0.15–0.3
+
+  // ── Species-specific traits ───────────────────────────────────────────
+
+  // Herd animals (cattle, sheep, goat, horse, deer):
+  flockingStrength: 0.0–1.0         // how tightly they stick to the group
+  flightDistance: number             // meters — how close a threat can get before fleeing
+  // Deer: 50-100m (very flighty)
+  // Cattle: 10-30m (moderate)
+  // Sheep (wild): 30-50m, (domesticated): 5-15m
+  // Horse (wild): 40-80m, (domesticated): 5-10m
+  followLeader: boolean              // do they follow a lead animal?
+  // Sheep: true (strong — one sheep moves, all follow)
+  // Cattle: true (moderate — lead cow guides herd)
+  // Horse: true (lead mare, stallion guards rear)
+
+  // Pack hunters (wolf):
+  packRole: 'alpha' | 'beta' | 'omega' | 'disperser'
+  packCoordination: 0.0–1.0         // how well they hunt as a team
+  howlFrequency: number              // communication — territory marking, pack bonding
+  // Wolves coordinate flanking maneuvers when hunting:
+  //   Alpha initiates chase
+  //   Beta wolves fan out to cut off escape routes
+  //   Pack surrounds prey → exhaust it → bring it down
+  //   This is emergent from the pack hunting model, not scripted
+
+  // Territorial animals (wolf, lion, bear):
+  territoryRadius: number            // meters — home range center
+  markingBehavior: boolean           // scent marking at territory borders
+  // Animals that detect another pack's territory marks avoid that area
+  // Players can notice territory marks (visual: scratched trees, scat piles)
+
+  // Migratory (deer, birds, wildebeest):
+  migrationTrigger: 'season' | 'food_scarcity' | 'none'
+  migrationDistance: number          // how far they move seasonally
+  // Deer: move uphill in summer (cooler), downhill in winter (sheltered)
+  // Wildebeest: follow rain → grass → hundreds of km
+  // Fish: salmon migrate upstream to spawn (seasonal)
+
+  // Nocturnal/diurnal:
+  activityPattern: 'diurnal' | 'nocturnal' | 'crepuscular'
+  // Diurnal (active during day): most birds, cattle, sheep, goat
+  // Nocturnal (active at night): owls, bats, some cats
+  // Crepuscular (dawn/dusk): deer, rabbit, wolf (most active at twilight)
+}
+```
+
+#### Animal Social Structure
+
+```
+AnimalSocialBehavior {
+  // Different species organize differently. This is not a game mechanic —
+  // it's a simulation of real animal social systems.
+
+  // ── Herd structure (cattle, sheep, goat, horse) ────────────────────────
+  Herd {
+    members: Animal[]
+    leader: Animal                   // usually the oldest female (matriarch)
+    // Decision to move: leader initiates, others follow
+    // Grazing: herd moves together, maintains ~2-5m spacing between individuals
+    // Threat response: one animal panics → all panic (contagion model)
+    //   panicSpread = proximity × hearingRange × boldness_inverse
+    //   A bold sheep at the edge spots a wolf → bleats → herd bolts
+    //
+    // Herd formation:
+    //   Grazing: spread loosely, leader at front or center
+    //   Moving: column formation, leader at front
+    //   Threatened: tight cluster, adults on outside, young in center
+    //
+    // Young animals: stay near mother for first ~30% of lifespan
+    //   Imprinting: first large animal the newborn sees becomes "mother"
+    //   (this is real — and it's how hand-raising works for taming)
+  }
+
+  // ── Pack structure (wolf) ──────────────────────────────────────────────
+  Pack {
+    members: Animal[]
+    alpha: Animal                    // dominant pair (male + female)
+    territory: { center: Vec3, radius: number }
+
+    // Pack behavior cycle:
+    //   1. Rest at den (daytime mostly — wolves are crepuscular)
+    //   2. Howl at dusk (communication — "where is everyone?", territory announcement)
+    //   3. Hunt at twilight/night
+    //      - Alpha leads, picks target (weakest prey animal in nearby herd)
+    //      - Pack fans out, coordinates approach
+    //      - Chase: wolves have endurance (can run 60 km/h short burst, 30 km/h sustained)
+    //      - If prey escapes: pack regroups, tries again or picks new target
+    //      - Kill: pack brings down prey with bites to legs and neck
+    //      - Feeding order: alpha pair first, then others by rank
+    //   4. Return to den with food for pups
+    //
+    // Territory defense:
+    //   Scent-mark borders (urine + scratches on trees)
+    //   Howl to warn neighboring packs
+    //   If another pack encroaches: confrontation (snarl → chase → fight if neither yields)
+    //   Lone wolves (dispersers): young wolves that leave their birth pack to find mates
+    //   They wander between territories, avoiding established packs
+  }
+
+  // ── Solitary animals (bear, big cat, boar) ─────────────────────────────
+  Solitary {
+    // No group. Each animal has its own territory.
+    // Encounters with conspecifics:
+    //   Male meets male at territory boundary → aggressive display → fight or retreat
+    //   Male meets female in mating season → courtship → mating → separate
+    //   Mother with cubs → highly defensive, attacks anything that approaches
+    //
+    // Bear: hibernates in winter (find cave, sleep for entire winter season,
+    //   emerge in spring very hungry, body mass -30%)
+    // Big cat: ambush predator (stalks → pounces → one bite to neck)
+    // Boar: rooting behavior (digs up soil with snout → finds tubers, grubs)
+  }
+
+  // ── Flocking (birds) ──────────────────────────────────────────────────
+  Flock {
+    // Boids algorithm (Reynolds 1987) — three rules produce realistic flocking:
+    //   1. Separation: steer to avoid crowding neighbors
+    //   2. Alignment: steer toward average heading of neighbors
+    //   3. Cohesion: steer toward average position of neighbors
+    //
+    // Additional: avoid obstacles, flee from raptors, land at food sources
+    // Migratory birds form V-formations (reduced air resistance — real physics)
+    // Nesting: birds return to the same nesting site each season
+  }
+
+  // ── Schooling (fish) ───────────────────────────────────────────────────
+  School {
+    // Same boids algorithm as birds but in 3D water volume
+    // Fish school to confuse predators (harder to track one individual in a swirling mass)
+    // Schooling breaks when a predator attacks — fish scatter, then reform
+    // Salmon: upstream migration for spawning (against river current, jump waterfalls)
+    //   This creates seasonal food abundance at river locations (bears, eagles, players all benefit)
+  }
+}
+```
+
+#### Domestication — How Players Tame Wild Animals
+
+```
+DomesticationSystem {
+  // Domestication is not a button press. It is a real process that takes time,
+  // patience, and understanding of the animal's behavior — the same way it
+  // worked for ancient humans over generations.
+
+  // ── The real mechanism ────────────────────────────────────────────────
+  //
+  // In reality, domestication happened in two stages:
+  //   1. Taming (individual animal learns to tolerate humans)
+  //   2. Breeding (selecting tame individuals over generations → domesticated species)
+  //
+  // The game simulates both.
+
+  // ── Stage 1: Taming an individual ─────────────────────────────────────
+
+  TamingProcess {
+    // Each animal has a tameness score: 0.0 (fully wild) to 1.0 (fully tame)
+    // Starting tameness = 0.0 for wild animals
+    // The score changes based on player interactions:
+
+    // Positive interactions (increase tameness):
+    feedingByPlayer: +0.02 per feeding
+    //   Player drops food near the animal. Animal eats it.
+    //   Animal remembers: "this human gave me food" (social memory)
+    //   Requires the animal to be close enough AND not fleeing
+    //   First feedings are hard — animal's flightDistance keeps it away
+    //   Player must leave food and back away, wait for animal to approach
+    //   Over many feedings: flightDistance toward THIS player decreases
+
+    proximityWithoutThreat: +0.005 per game-hour spent within 10m without attacking
+    //   Just being near the animal without scaring it builds trust
+    //   The animal learns: "this specific human is not a threat"
+
+    protectionFromPredator: +0.1 per event
+    //   If the player kills a predator that was threatening the animal
+    //   The animal notices and remembers
+
+    healingByPlayer: +0.15 per event
+    //   Player bandages an injured animal (cloth + proximity + interact)
+
+    // Negative interactions (decrease tameness):
+    attackByPlayer: -0.5 per attack
+    //   Hitting the animal with a tool — massive trust loss
+    //   The animal also warns nearby conspecifics (distress call)
+    //   All nearby animals of the same species become harder to tame
+
+    chasing: -0.1 per chase event
+    //   Running at the animal causes it to flee and lose trust
+
+    trapping: -0.2 per trap event
+    //   Confining the animal against its will (pen, cage)
+    //   Trust decreases while confined UNLESS the player also feeds regularly
+    //   Stockholm-style conditioning: feed + confine = slow net positive taming
+    //   This is historically accurate — early goat/sheep domestication
+    //   involved penning wild-caught animals and feeding them
+
+    // ── Species difficulty ──────────────────────────────────────────────
+    //
+    // Time to tame (tameness 0.0 → 0.8, feeding twice per game-day):
+    //   Dog (from wolf pup):  ~30 game-days (~7.5 real days)
+    //   Sheep:                ~15 game-days (~3.75 real days)
+    //   Goat:                 ~20 game-days (~5 real days)
+    //   Pig (from boar):      ~25 game-days (~6.25 real days)
+    //   Cattle:               ~40 game-days (~10 real days)
+    //   Horse:                ~60 game-days (~15 real days)
+    //   Chicken:              ~10 game-days (~2.5 real days)
+    //   Cat:                  ~50 game-days (~12.5 real days) — cats tame slowly, on their terms
+    //   Deer:                 ~200 game-days (~50 real days) — extremely difficult
+    //   Wolf (adult):         nearly impossible — must start from pup
+
+    // ── Imprinting (pups/calves/foals/lambs) ────────────────────────────
+    //
+    // Young animals are MUCH easier to tame than adults.
+    // If the player finds or takes a young animal before it imprints on its mother:
+    //   Tameness starts at 0.3 instead of 0.0
+    //   Taming rate is 3× faster
+    //   The animal treats the player as its parent figure
+    //   This is how wolves were domesticated into dogs — adopt wolf pups
+    //
+    // Finding young animals:
+    //   Spring is birthing season for most species
+    //   Nests, dens, and herds with young are findable
+    //   Taking a young animal from its mother is possible but the mother will defend
+  }
+
+  // ── Stage 2: Breeding for domestication ───────────────────────────────
+
+  SelectiveBreeding {
+    // A single tamed animal is useful but mortal. To create a lasting
+    // domesticated population, the player must BREED tame animals.
+
+    // Breeding requirements:
+    //   Two tame animals (tameness > 0.6) of the same species, opposite sex
+    //   Sufficient food (both well-fed)
+    //   Appropriate season (most species breed in spring)
+    //   Proximity (animals must be within 10m of each other)
+
+    // When conditions met: mating probability per game-day = 0.05
+    // Gestation period: species-dependent (real values)
+    //   Sheep: 150 game-days (~37.5 real days)
+    //   Cattle: 280 game-days (~70 real days)
+    //   Horse: 340 game-days (~85 real days)
+    //   Pig: 114 game-days (~28.5 real days)
+    //   Dog: 63 game-days (~15.75 real days)
+    //   Chicken: 21 game-days (~5.25 real days) — eggs hatch
+
+    // Offspring traits:
+    //   Genome: crossover + mutation from parents (§6.2 genome system)
+    //   Tameness: offspring inherit partial tameness from parents
+    //     offspringTameness = (parent1.tameness + parent2.tameness) / 2 × 0.7
+    //     Plus imprinting bonus if the player is present at birth: +0.2
+    //
+    //   If the player consistently breeds the TAMEST individuals:
+    //     Generation 1: average tameness 0.3
+    //     Generation 5: average tameness 0.55
+    //     Generation 10: average tameness 0.75
+    //     Generation 20: average tameness 0.9 (essentially domestic)
+    //
+    //   This IS the domestication process. Over 20 generations (~5-10 real months
+    //   depending on species), wild wolves become dogs, wild boar become pigs,
+    //   wild horses become domestic horses.
+
+    // Other traits also shift with selective breeding:
+    //   Player breeds the LARGEST sheep → wool yield increases per generation
+    //   Player breeds the CALMEST cattle → flightDistance decreases
+    //   Player breeds the FASTEST horses → speed increases
+    //   Player breeds the SMARTEST dogs → intelligence increases
+    //   Each trait shifts ~2-5% per selected generation toward the selected extreme
+    //
+    //   This is exactly how real selective breeding works. All domestic animals
+    //   are the product of thousands of years of this process. The game compresses
+    //   it into months of real-time play.
+  }
+}
+```
+
+#### Training — Teaching Domestic Animals Tasks
+
+```
+AnimalTraining {
+  // Once tamed (tameness > 0.6), animals can be trained to perform tasks.
+  // Training uses a simple conditioning model (real animal learning theory).
+
+  // ── Conditioning: action → reward → association ───────────────────────
+  //
+  // The player performs an action (gesture, sound, touch) followed by
+  // guiding the animal to do something, then rewards with food.
+  //
+  // Over repetitions, the animal associates the signal with the action.
+  //
+  // Example: training a dog to guard
+  //   1. Player leads dog to settlement perimeter
+  //   2. Player points at perimeter (gesture)
+  //   3. If dog stays → player feeds dog (reward)
+  //   4. Repeat 10-20 times over several game-days
+  //   5. Dog learns: "point at perimeter + stay = food"
+  //   6. Eventually: dog patrols perimeter independently
+  //   7. If a stranger approaches: dog's natural aggression triggers bark/growl
+  //      The dog was "trained" to guard, but it's really: positioned at boundary + natural behavior
+
+  // ── Trainable tasks per species ───────────────────────────────────────
+
+  trainableTasks: {
+    dog: [
+      'guard'         // bark at unknown entities near a location
+      'herd'          // chase and group target species (sheep, goat) toward a location
+      'hunt'          // track and chase prey, bring back to player
+      'follow'        // stay within 5m of player, move when player moves
+      'fetch'         // retrieve thrown object and bring it back
+      'alert'         // bark when predators detected within territory
+    ]
+
+    horse: [
+      'ride'          // accept player mounting, respond to directional input
+      'pull'          // attach to plow/cart, walk forward on command
+      'carry'         // accept heavy items on back (pack horse, increases player carry capacity)
+      'follow'        // follow player without rider
+      'stay'          // remain at a location until called
+    ]
+
+    cattle: [
+      'pull'          // attach to plow/cart (slower than horse, more sustained power)
+      'stay'          // remain in a fenced area
+      'follow'        // follow player (slow, uses food lure)
+    ]
+
+    pig: [
+      'truffle'       // find buried mushrooms/truffles using smell (pig snout detects underground food)
+      'follow'        // follow player (pigs are very food-motivated)
+      'root'          // till soil in a specific area (pig's natural rooting turns over soil — free plowing)
+    ]
+
+    sheep_goat: [
+      'follow'        // follow a bell-wearing lead animal or player
+      'stay'          // remain in a fenced area (grazing)
+    ]
+
+    chicken: [
+      'none'          // chickens can't be trained — they just exist in a coop and lay eggs
+      // Management: player builds a coop, puts chickens inside, feeds grain
+      // Chickens produce eggs automatically (1 egg per 1-2 game-days per hen)
+    ]
+
+    cat: [
+      'none'          // cats can't be trained — they train YOU
+      // Benefit: cats naturally hunt rodents near where they live
+      // A cat in a grain storage area reduces rodent damage to stored food
+      // Cats domesticated themselves historically — attracted by rodents in grain stores
+    ]
+  }
+
+  // ── Training speed ────────────────────────────────────────────────────
+  //
+  // trainingProgress += (animalIntelligence × 0.1 + tameness × 0.05) per successful session
+  // A training session = 1 correct repetition with reward
+  // ~10-30 sessions per task (depending on intelligence):
+  //   Dog (intelligence 0.7): ~10 sessions for 'follow', ~20 for 'herd'
+  //   Horse (intelligence 0.5): ~15 sessions for 'ride', ~25 for 'pull'
+  //   Pig (intelligence 0.8): ~8 sessions for 'truffle' (pigs are very smart)
+  //
+  // Failed training (animal doesn't comply, player punishes) → -0.1 tameness
+  // Patience and consistency are required — like real animal training
+
+  // ── Riding mechanics (horse) ──────────────────────────────────────────
+  //
+  // When a horse is trained for 'ride' and player mounts (interact key):
+  //   Camera stays first-person (player's eye height + horse height = ~2.5m eye level)
+  //   Movement: WASD controls the horse, not the player
+  //     W = walk forward → hold W = trot → shift+W = gallop
+  //     A/D = turn
+  //     S = slow down / stop
+  //     Space = jump (horse can jump ~1.2m obstacles)
+  //   Speed:
+  //     Walk: 1.5 m/s
+  //     Trot: 4 m/s
+  //     Gallop: 12 m/s (much faster than player sprint of ~10 m/s)
+  //   Stamina: horse has its own stamina bar (gallop drains it, walk recovers)
+  //   The player's hands are free while riding — can hold tools, look around
+  //   Dismount: press interact key again
+  //
+  // Untrained horse: bucks player off (throws them — fall damage possible)
+  //   trainedRide < 0.5 → 50% chance of being thrown each mount attempt
+  //   trainedRide > 0.8 → reliable riding
+
+  // ── Plowing mechanics (horse/cattle + plow) ───────────────────────────
+  //
+  // Attach a crafted plow to a trained horse/cattle:
+  //   Player crafts plow: wood frame + iron blade (or stone blade early game)
+  //   Player attaches rope from plow to horse harness
+  //   Player leads horse forward → plow cuts through soil
+  //   Result: tilled soil in the plow's path (terrain modification)
+  //   Speed: much faster than hand-tilling with a hoe
+  //     Hand hoe: ~0.5 m²/game-minute
+  //     Horse plow: ~5 m²/game-minute (10× faster)
+  //   This is why animal domestication was the agricultural revolution —
+  //   it multiplied farming productivity by an order of magnitude
+}
+```
+
+#### Animal Needs and Death
+
+```
+AnimalNeeds {
+  // Animals have survival needs like players, but species-specific:
+
+  // ── Food ──────────────────────────────────────────────────────────────
+  // Each animal must eat according to its diet and body mass.
+  // food_requirement = basalMetabolicRate × activityMultiplier
+  //   Cattle (500kg): ~50 kg grass per game-day
+  //   Sheep (60kg): ~8 kg grass per game-day
+  //   Horse (450kg): ~45 kg grass per game-day
+  //   Dog (30kg): ~2 kg meat per game-day
+  //   Chicken (3kg): ~0.1 kg grain per game-day
+  //
+  // Wild animals forage automatically (Tier 2 AI decides where to graze/hunt)
+  // Domesticated animals in enclosures must be FED by the player
+  // If not fed: health declines → starvation → death (same timeline as §6.8.11)
+  //
+  // Overgrazing: if too many herbivores in one area, grass is consumed faster
+  //   than it regrows → area becomes barren → animals must move or starve
+
+  // ── Water ─────────────────────────────────────────────────────────────
+  // Animals drink at water sources (rivers, ponds, troughs)
+  // Wild animals know where water is (memory)
+  // Domesticated animals need access to water within their enclosure
+  //   Player can build a trough (container) and fill it manually
+  //   Or build the enclosure near a natural water source
+
+  // ── Shelter ───────────────────────────────────────────────────────────
+  // Most animals can survive outdoors (they're adapted to weather)
+  // Extreme weather: blizzard, extreme heat → health damage if unsheltered
+  // Domesticated animals benefit from a barn/shelter:
+  //   Reduces weather stress
+  //   Wool production increases (sheep in shelter → less energy spent on warmth → more wool)
+
+  // ── Disease ───────────────────────────────────────────────────────────
+  // Animals can get sick — same bacterial infection model as players (§6.8.2)
+  // Crowding increases disease spread (density-dependent transmission)
+  //   10 sheep in a small pen: high disease risk
+  //   10 sheep in a large pasture: low disease risk
+  // Disease can spread between animals AND from animals to players (zoonosis)
+  //   This is historically critical: smallpox, influenza, measles all jumped
+  //   from domesticated animals to humans. Diamond's Guns, Germs, and Steel
+  //   documents this as a major factor in civilizational development.
+  // Treatment: herbal medicine (identify medicinal plants → apply to animal)
+  //   Or isolate sick animals to prevent spread
+
+  // ── Reproduction ──────────────────────────────────────────────────────
+  // Wild animals reproduce according to species parameters (§6.2 genome system)
+  // Domesticated animals: player controls breeding by keeping male + female together
+  // Without player breeding control: domesticated animals breed freely → population explosion
+  //   → food shortage → mass starvation in the enclosure
+  //   Player must manage herd size (cull or release excess animals)
+
+  // ── Death ─────────────────────────────────────────────────────────────
+  // Animals die from: starvation, dehydration, predation, disease, old age, player hunting
+  // On death: corpse remains (same as §6.8.2 but no respawn)
+  //   Corpse can be harvested for products (hide, meat, bone, etc. per §6.2.1)
+  //   Unharvested corpse decomposes (turns into organic matter → soil nutrients)
+  //   Decomposition time: ~7 game-days (fungal decomposers from §6.2.1)
+  //
+  // Lifespan:
+  //   Dog: 10-15 game-years    Cattle: 15-20 game-years
+  //   Horse: 25-30 game-years  Sheep: 10-12 game-years
+  //   Pig: 10-15 game-years    Chicken: 5-8 game-years
+  //   Cat: 12-18 game-years
+}
+```
+
+#### Animal-Player Interaction
+
+```
+AnimalPlayerInteraction {
+  // How animals react to players depends on species, tameness, and experience.
+
+  // ── Wild animal encountering a player ─────────────────────────────────
+  //
+  // Prey species (deer, sheep, rabbit):
+  //   Player at > flightDistance: animal ignores or watches
+  //   Player at < flightDistance: animal flees
+  //   Player running toward animal: immediate bolt (entire herd flees)
+  //   Player crouching + moving slowly: flightDistance reduced by 50%
+  //     (sneaking — real hunting technique)
+  //
+  // Predator species (wolf, lion, bear):
+  //   Single predator vs player: usually avoids (humans are unusual/large)
+  //   Wolf pack: may stalk a lone player, especially at night
+  //   Bear: ignores player unless player approaches cubs or food
+  //   If player attacks: predator either fights or flees based on size comparison
+  //
+  // Neutral omnivores (boar):
+  //   Usually ignores player
+  //   If startled or cornered: aggressive charge (boar tusks deal significant damage)
+  //   Mother with piglets: aggressive if approached within 10m
+
+  // ── Tame animal with player ───────────────────────────────────────────
+  //
+  // Tameness > 0.3: animal doesn't flee from this specific player
+  // Tameness > 0.6: animal approaches player for food, follows within 10m
+  // Tameness > 0.8: animal responds to trained commands, can be mounted/led
+  //
+  // Tame animals still remember INDIVIDUAL players:
+  //   Player A tamed the sheep → sheep trusts player A
+  //   Player B (stranger) approaches → sheep is wary (normal wild behavior)
+  //   Player B who ATTACKED the sheep before → sheep flees from player B specifically
+  //   This individual recognition is real — dogs, horses, sheep, pigs all do this
+
+  // ── Sound communication ───────────────────────────────────────────────
+  //
+  // Animals vocalize (part of the physics-driven sound system §6.8.6):
+  //   Cow: moo (contact call — "where are you?"), bellow (distress/mating)
+  //   Sheep: baa (contact call), bleat (lamb calling mother)
+  //   Horse: neigh (alert), nicker (friendly greeting), snort (alarm)
+  //   Dog: bark (alert/play), growl (threat), whine (submission/pain), howl (long-distance)
+  //   Wolf: howl (territory/pack communication), bark (alarm), growl (threat)
+  //   Chicken: cluck (contact), squawk (alarm), crow (rooster dawn call)
+  //   Pig: grunt (foraging), squeal (distress/excitement)
+  //
+  // Players learn to interpret these sounds:
+  //   Dog barking at the forest edge = predator nearby
+  //   Chickens squawking = fox in the coop
+  //   Horse snorting and stamping = something spooked it
+  //   These are real signals that farmers use daily
+}
+```
+
 ### 6.3 Physics-Based Crafting (New 2026-03-27)
 
 116 materials with 11 physics properties each. Five physics interactions: bow-drill fire, flint-and-iron fire, stone knapping, clay pottery, copper/iron smelting. Success rates computed from material properties. Hidden practice tracking. Discovery system for first successes.

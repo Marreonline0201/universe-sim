@@ -9133,6 +9133,341 @@ BuildSystem {
 }
 ```
 
+#### Structural Integrity — How Buildings Stand or Fall
+
+##### The Principle
+
+Every structure in the game is made of MaterialPackets (§6.3.3). A wall is not a "wall object" — it is a collection of MaterialPackets (stone blocks, mud bricks, wooden beams) placed in the world and optionally bonded together. Whether that wall stands or falls is determined by the **same material properties** that determine melting point, hardness, and conductivity: compressive strength, tensile strength, shear strength, density. There is no separate "structural integrity" system — there is physics applied to materials.
+
+##### Every Block Is a MaterialPacket
+
+```
+StructuralBlock {
+  // A placed building block IS a MaterialPacket. It has:
+  packet: MaterialPacket             // composition, mass, density, temperature, phase
+
+  // Structural properties COMPUTED from composition (§6.3.3 property calculator):
+  compressiveStrength: number        // Pa — how much squeezing force before it crushes
+  tensileStrength: number            // Pa — how much pulling force before it snaps
+  shearStrength: number              // Pa — how much sideways force before it shears
+  elasticity: number                 // Young's modulus (Pa) — how much it flexes before breaking
+  // These are NOT stored — they are computed from the MaterialPacket's composition
+  // every time they're needed, same as melting point and hardness.
+
+  // Real material values (computed by property calculator from composition):
+  //   Granite (SiO₂ + Al₂O₃ + feldspar):
+  //     compressive: ~200 MPa, tensile: ~15 MPa, shear: ~25 MPa
+  //   Limestone (CaCO₃):
+  //     compressive: ~60 MPa, tensile: ~5 MPa, shear: ~10 MPa
+  //   Mud brick (clay + straw + water, dried):
+  //     compressive: ~2 MPa, tensile: ~0.2 MPa, shear: ~0.5 MPa
+  //   Oak wood (cellulose + lignin):
+  //     compressive: ~50 MPa (along grain), tensile: ~100 MPa (along grain!)
+  //     Wood is STRONGER in tension than compression — opposite of stone
+  //     This is why wood beams span gaps but stone beams don't
+  //   Copper:
+  //     compressive: ~250 MPa, tensile: ~210 MPa, shear: ~150 MPa
+  //   Iron:
+  //     compressive: ~350 MPa, tensile: ~400 MPa, shear: ~170 MPa
+  //   Steel (iron + carbon alloy):
+  //     compressive: ~400 MPa, tensile: ~500 MPa, shear: ~200 MPa
+
+  // An impure copper block (Cu₀.₈₅Fe₀.₁₀S₀.₀₅) has DIFFERENT structural properties
+  // than pure copper — because the property calculator accounts for impurities.
+  // A player who smelts cleaner copper gets stronger building material.
+  // This is emergent — not coded as a "building material quality" stat.
+
+  // ── Connection state ──────────────────────────────────────────────────
+  connections: Connection[]          // bonds to adjacent blocks
+  grounded: boolean                  // can trace a connection path to terrain?
+
+  Connection {
+    targetBlock: StructuralBlock
+    bondType: 'stacked' | 'mortared' | 'joinery' | 'fastened'
+    bondStrength: number             // Pa — force to break this connection
+    // stacked (no bond, gravity only): bondStrength = friction force = weight × μ
+    //   μ (friction coefficient): stone-on-stone = 0.6, wood-on-wood = 0.4, mud = 0.3
+    //   Stacked blocks can slide off each other under lateral force (wind, impact)
+    // mortared (mud/lime/concrete between blocks):
+    //   mud mortar: bondStrength = 0.1 MPa (weak, dissolves in rain)
+    //   lime mortar: bondStrength = 2.0 MPa (strong, waterproof)
+    //   concrete: bondStrength = 5.0 MPa (very strong)
+    //   The mortar IS a MaterialPacket too — its bondStrength comes from its composition
+    // joinery (wooden notches, pegs, lashing):
+    //   peg joint: bondStrength = 1.5 MPa
+    //   mortise-and-tenon: bondStrength = 3.0 MPa (strongest wood joint)
+    //   rope lashing: bondStrength = 0.5 MPa (stretches, weakens when wet)
+    // fastened (metal nails, bolts):
+    //   iron nail: bondStrength = 4.0 MPa
+    //   iron bolt: bondStrength = 8.0 MPa
+  }
+}
+```
+
+##### Force Propagation — How Load Travels to Ground
+
+```
+ForceSystem {
+  // Every block has weight. Weight is a downward force.
+  // That force must travel through connected blocks to the ground.
+  // If any block in the path receives more force than it can handle → it breaks.
+
+  // ── Gravity load (static) ─────────────────────────────────────────────
+  //
+  // Each block pushes down with its own weight + the weight of everything above it.
+  // Load accumulates downward:
+  //
+  //   [Roof beam: 30kg]      → 300N down
+  //       ↓
+  //   [Wall block: 50kg]     → carries its own 500N + roof's 300N = 800N down
+  //       ↓
+  //   [Wall block: 50kg]     → 500N + 800N from above = 1300N down
+  //       ↓
+  //   [Foundation: 80kg]     → 800N + 1300N from above = 2100N down
+  //       ↓
+  //   [Terrain]              → absorbs 2100N (soil compressive strength must exceed this)
+
+  // ── Load distribution ─────────────────────────────────────────────────
+  //
+  // A block sitting on TWO supports distributes load equally:
+  //   [Beam 30kg on two walls]  →  150N to left wall, 150N to right wall
+  // If off-center: proportional to distance (lever principle)
+  //   [Beam with load at 1/3 from left]  →  200N left, 100N right
+
+  // ── Stress check (per block, per server tick for modified structures) ──
+  //
+  // For each block:
+  //   compressiveStress = totalVerticalLoad / contactArea
+  //   if (compressiveStress > block.compressiveStrength) → CRUSH FAILURE
+  //     Block shatters. Everything above loses support → cascade collapse.
+  //
+  //   tensileStress = appliedTension / crossSectionArea
+  //   if (tensileStress > block.tensileStrength) → SNAP FAILURE
+  //     Block breaks in half. Relevant for beams spanning a gap.
+  //
+  //   shearStress = lateralForce / contactArea
+  //   if (shearStress > block.shearStrength) → SHEAR FAILURE
+  //     Block slides. Relevant for walls under wind or impact.
+
+  // ── Span limits (beams and lintels) ───────────────────────────────────
+  //
+  // A horizontal beam supported at both ends, loaded by its own weight:
+  //   maxSpan = sqrt(8 × tensileStrength × sectionModulus / (density × g × width))
+  //
+  // In practice:
+  //   Oak beam (20cm × 20cm):  max span ~5-6m before it snaps from its own weight
+  //   Stone lintel (30cm × 30cm): max span ~2-3m (stone is weak in tension)
+  //   Iron beam (10cm × 10cm):  max span ~8-10m
+  //   Mud brick: max span ~0.5m (essentially no spanning ability — needs full support)
+  //
+  // This is why:
+  //   Stone buildings have close-spaced columns (Parthenon columns are 2.5m apart)
+  //   Wood buildings have wider rooms (timber framing spans 5m easily)
+  //   Gothic cathedrals needed flying buttresses (stone can't span the nave)
+  //   Iron revolutionized architecture (long spans without columns)
+
+  // ── The arch solution ─────────────────────────────────────────────────
+  //
+  // An arch converts tensile stress (spanning) into compressive stress (pushing down the sides).
+  // Stone is great in compression → arches let stone span much farther than lintels:
+  //   Stone lintel: max ~2-3m
+  //   Stone arch: max ~30m+ (Roman arches spanned this)
+  //
+  // How arches work in the game:
+  //   Player places wedge-shaped blocks (voussoirs) in a curved arrangement
+  //   Each block pushes sideways against its neighbors (compressive)
+  //   The keystone at the top locks the arch
+  //   The two base blocks push outward (thrust) → need thick walls or buttresses to resist
+  //   If the buttress is removed → arch pushes walls apart → collapse
+  //
+  // The player doesn't need to "know" arch physics. They build a curved shape
+  // from wedge blocks. The force propagation system determines if it stands.
+  // If the curve is right and the supports are strong → it works.
+  // If the curve is wrong → blocks fall during construction.
+  //
+  // The same applies to:
+  //   Barrel vault: arch extended into a tunnel
+  //   Dome: arch rotated into a hemisphere
+  //   Groin vault: two barrel vaults crossing at 90°
+  //   Flying buttress: external arch that carries thrust away from a tall wall
+
+  // ── Wind and lateral loads ────────────────────────────────────────────
+  //
+  // Wind applies lateral (sideways) force to walls:
+  //   windForce = 0.5 × airDensity × windSpeed² × wallArea × dragCoefficient
+  //   At 15 m/s wind (strong): ~135N per m² of wall area
+  //   At 30 m/s wind (storm):  ~540N per m² (can topple unbonded walls)
+  //
+  // Tall narrow walls are vulnerable (high moment arm):
+  //   A 3m tall, 0.3m thick unbonded stone wall falls over at ~20 m/s wind
+  //   A 3m tall, 0.6m thick bonded wall survives up to ~40 m/s
+  //   Cross-bracing (diagonal timber inside walls) resists lateral loads
+  //   Buttresses (thick supports on the outside) resist lateral loads
+  //
+  // Player impact (§6.8.17 combat):
+  //   Hitting a wall with a tool applies force at the impact point
+  //   If force > bond strength at that block → block breaks free
+  //   If that block was load-bearing → cascade above it
+  //   Siege warfare: ram a wall until blocks break → roof collapses on defenders
+}
+```
+
+##### Foundation — What the Building Sits On
+
+```
+FoundationSystem {
+  // The ground beneath a building must support the building's total weight.
+  // Different terrain has different bearing capacity.
+
+  // ── Terrain bearing capacity ──────────────────────────────────────────
+  //
+  // bearingCapacity: maximum pressure (Pa) the ground can support before sinking
+  //
+  //   Bedrock (granite, basalt):     10+ MPa (supports anything)
+  //   Dense gravel:                  0.5 MPa
+  //   Compact clay:                  0.2 MPa
+  //   Loose sand:                    0.1 MPa (heavy buildings sink)
+  //   Wet clay/mud:                  0.05 MPa (almost nothing — buildings tilt and sink)
+  //   Peat/swamp:                    0.02 MPa (essentially unbuildable without piling)
+  //
+  // If building pressure > bearingCapacity:
+  //   Building slowly sinks into the ground (rate proportional to excess pressure)
+  //   Uneven sinking → tilting → structural stress → collapse
+  //   This is why the Leaning Tower of Pisa tilts (soft clay on one side)
+
+  // ── Foundation solutions ──────────────────────────────────────────────
+  //
+  // Spread foundation: widen the base of walls → distributes weight over more area
+  //   pressure = weight / area → bigger area = less pressure
+  //   A 1m wide wall on soft soil: too much pressure → sinks
+  //   Same wall on a 2m wide stone base: half the pressure → stable
+  //
+  // Deep foundation: dig down to bedrock, fill with stone
+  //   Bypasses weak surface soil entirely
+  //   Expensive but necessary for large buildings on soft ground
+  //
+  // Pilings: drive wooden posts into soft ground until they hit a hard layer
+  //   Venice is built entirely on wooden pilings driven into lagoon mud
+  //   In-game: player drives sharpened logs into mud → builds on top of the log tops
+  //
+  // Gravel pad: replace soft surface soil with compacted gravel
+  //   Better drainage + higher bearing capacity than clay or mud
+}
+```
+
+##### Structural Decay — Buildings Age
+
+```
+StructuralDecay {
+  // Buildings are not permanent. Materials degrade over time from weather.
+  // This connects directly to the weather system (§6.6) and material properties.
+
+  // ── Rain damage ───────────────────────────────────────────────────────
+  //
+  // Water weakens certain materials:
+  //   Mud brick: bondStrength decreases by 5% per game-day of rain exposure
+  //     Sustained rain for 20 game-days: mud mortar dissolves → blocks fall apart
+  //     Prevention: roof overhang (keeps rain off walls), lime plaster coating
+  //   Wood: moisture absorption → swelling → warping → joint loosening
+  //     bondStrength decreases by 0.5% per game-day of wet exposure
+  //     Prevention: roof overhang, tar/pitch coating (waterproofing)
+  //   Stone: virtually unaffected by rain (geological timescales)
+  //   Lime mortar: waterproof — no rain damage
+  //   Metal fasteners: rust (iron + water + oxygen → iron oxide)
+  //     bondStrength decreases by 1% per game-day wet
+  //     Prevention: oil coating, bronze fasteners (no rust)
+
+  // ── Freeze-thaw damage ────────────────────────────────────────────────
+  //
+  // Water in cracks freezes → expands 9% → widens cracks → thaws → refreezes
+  // Over many cycles: stone blocks crack and crumble
+  //   damagePerCycle = 0.1% of compressiveStrength
+  //   In climates with daily freeze-thaw (spring/autumn): significant over a game-year
+  //   Prevention: dense stone with few pores (granite > limestone > sandstone)
+
+  // ── Maintenance ───────────────────────────────────────────────────────
+  //
+  // Players (and NPCs) must maintain structures:
+  //   Replace crumbling mortar (repoint walls)
+  //   Replace rotting wood beams
+  //   Repair roof leaks (a leaking roof accelerates all interior decay)
+  //   Paint/coat exposed wood and metal
+  //
+  // A well-maintained stone building lasts effectively forever.
+  // An unmaintained wooden building collapses within ~50-100 game-years.
+  // An unmaintained mud building collapses within ~5-10 game-years.
+  //
+  // NPC settlements maintain their buildings through the SLM:
+  //   "The storage hut roof is leaking. I'll repair it with new thatch."
+  //   When no NPCs remain → no maintenance → structures decay → ruins
+  //   This is why §6.5 mentions dead settlements leaving ruins
+
+  // ── Fire damage ───────────────────────────────────────────────────────
+  //
+  // Fire weakens and destroys building materials:
+  //   Wood: burns completely if sustained fire (ignition from §6.3 fire system)
+  //     A wooden wall catches fire → burns for 10-30 game-minutes → collapses
+  //     Fire spreads to adjacent wooden structures (fire contagion)
+  //   Stone: survives fire but thermal shock can crack it
+  //     Stone heated to 500°C+ then rapidly cooled (rain, water) → spalls and cracks
+  //     compressiveStrength reduced by 30-50% after fire exposure
+  //   Mud brick: moderate fire resistance (clay is pre-fired, somewhat heat-resistant)
+  //   Metal: doesn't burn but softens at high temperature
+  //     Iron above 500°C: structural capacity drops significantly
+  //     A building fire doesn't melt iron but weakens it enough to buckle
+  //
+  // Historical example: The Great Fire of London (1666) destroyed 13,000 houses
+  //   because they were all timber-framed. The rebuilding used stone and brick.
+  //   In-game: a player who builds everything from wood risks total loss from one fire.
+}
+```
+
+##### Performance — How Structural Checks Run
+
+```
+StructuralPerformance {
+  // Structural integrity is NOT checked every frame for every block.
+  // It is checked only when something changes.
+
+  // ── When to recalculate ───────────────────────────────────────────────
+  //
+  // Trigger events:
+  //   1. Block placed → check the new block + all blocks it connects to
+  //   2. Block removed (destroyed, dug out) → check all blocks that depended on it
+  //   3. Bond broken (mortar dissolved by rain, nail rusted) → check affected blocks
+  //   4. Impact event (combat, falling object) → check struck block + neighbors
+  //   5. Wind change (storm begins) → check exposed walls
+  //   6. Periodic decay check (once per game-day) → check all weather-exposed blocks
+  //
+  // NOT checked: every frame, every tick, or for blocks with no changes
+
+  // ── Propagation algorithm ─────────────────────────────────────────────
+  //
+  // When a trigger occurs:
+  //   1. Mark the affected block as "dirty"
+  //   2. Trace all connection paths from dirty block upward → mark those dirty too
+  //   3. For each dirty block, compute: can it trace a load path to ground?
+  //      If yes: compute total load on it, check stress vs strength
+  //      If no: block is unsupported → falls
+  //   4. Falling blocks become rigid body physics objects (§6.8.10)
+  //      They tumble, bounce, break into pieces on impact
+  //      Each piece is a new MaterialPacket (smaller mass, same composition)
+  //   5. Cascade: if a falling block hits another structure → damage check → may trigger more collapse
+
+  // ── Cost ──────────────────────────────────────────────────────────────
+  //
+  // Typical structure: 50-200 blocks
+  // Recalculation per event: ~0.5-2ms (trace connections, sum loads, check stress)
+  // Events per game-day (quiet): ~0 (nothing changes)
+  // Events per game-day (construction): ~5-20 (player placing blocks)
+  // Events per game-day (siege): ~50-100 (blocks being destroyed, cascading)
+  //
+  // Maximum cascade: a 1000-block castle losing a load-bearing wall →
+  //   ~500 blocks recalculated → ~5ms → plus physics simulation of falling debris
+  //   Server handles this in one tick. Client sees a spectacular collapse.
+}
+```
+
 ### 6.8.11 Human Body Simulation — Survival Stats and Physical Limits
 
 #### The Principle

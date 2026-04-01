@@ -30,26 +30,23 @@
 ### PART IV — TECHNICAL REFERENCE
 9. [Technical Architecture](#9-technical-architecture)
 10. [Project Structure](#10-project-structure)
-11. [Code Quality](#11-code-quality)
-12. [Dependencies](#12-dependencies-and-third-party-tools)
-13. [Data and Database](#13-data-and-database)
 
 ### PART V — INFRASTRUCTURE & OPERATIONS
-14. [Deployment and Infrastructure](#14-deployment-and-infrastructure)
+11. [Deployment and Infrastructure](#11-deployment-and-infrastructure)
 
 ### PART VI — STATUS & QUALITY
-15. [Performance Analysis](#15-performance-analysis)
-16. [Security Assessment](#16-security-assessment)
-17. [Known Issues & Bugs](#17-known-issues-and-bugs)
-18. [Recommendations](#18-recommendations)
-19. [Summary Scorecard](#19-summary-scorecard)
+12. [Performance Analysis](#12-performance-analysis)
+13. [Security Principles](#13-security-principles)
+14. [Code Quality Notes](#14-code-quality-notes)
+15. [Dependencies](#15-dependencies-and-third-party-tools)
+16. [Data and Database](#16-data-and-database)
 
-### PART VII — ROADMAP & HISTORY
-20. [What Is Next](#20-what-is-next)
-21. [Change Log](#21-change-log)
+### PART VII — ROADMAP
+17. [Build Priority](#17-build-priority)
+18. [Change Log](#18-change-log)
 
 ### PART VIII — REFERENCES
-22. [References](#22-references)
+19. [References](#19-references)
 
 ---
 
@@ -10317,9 +10314,9 @@ universe-sim/
 # PART V — INFRASTRUCTURE & OPERATIONS
 ---
 
-## 14. Deployment and Infrastructure
+## 11. Deployment and Infrastructure
 
-### 14.1 Frontend and API
+### 11.1 Frontend and API
 
 **Platform:** Vercel
 **URL:** [https://universe-sim-beryl.vercel.app](https://universe-sim-beryl.vercel.app)
@@ -10329,7 +10326,7 @@ universe-sim/
 
 The Vite config has two named build entry points: `main` (the game) and `status` (a separate status mini-site canvas). This is a non-standard Vite configuration that should be preserved as-is.
 
-### 14.2 WebSocket Server
+### 11.2 WebSocket Server
 
 **Platform:** Railway
 **URL:** wss://questions-production-63a2.up.railway.app (inferred from CLAUDE.md agent reporting endpoint)
@@ -10340,13 +10337,13 @@ The Railway server is the authoritative source of truth for the simulation. It r
 
 Known historical issue: The Railway server was found intermittently down during playtesting on 2026-03-24 (B-07). Railway does restart crashed processes automatically, but the restart itself causes a brief outage. The organism ecosystem state is lost on restart because organism positions are held in memory, not persisted to the database.
 
-### 14.3 Agent Infrastructure
+### 11.3 Agent Infrastructure
 
 The project uses a multi-agent AI system where specialized Claude Code agents handle different parts of development. Agents report their status via HTTP POST to the Railway server, which powers a live status dashboard. The CLAUDE.md file documents this system fully.
 
 Agent IDs in use: `director`, `status-worker`, `gp-agent`, `knowledge-director`, `cqa`, `car`, `ui-worker`, `interaction`, `ai-npc`, `physics-prof`, `chemistry-prof`, `biology-prof`
 
-### 14.4 GPU Render Server (Pixel Streaming — Current)
+### 11.4 GPU Render Server (Pixel Streaming — Current)
 
 **Repo:** https://github.com/Marreonline0201/universe-renderer
 
@@ -10360,7 +10357,7 @@ Two encoding modes implemented:
 
 ---
 
-#### 13.4.1 Local Development (active — GTX 5070)
+#### 11.4.1 Local Development (active — GTX 5070)
 
 **Machine:** Developer's Windows PC with NVIDIA GTX 5070
 **Runtime:** Node.js + headless-gl + Three.js (WebGL1)
@@ -10414,7 +10411,7 @@ netsh advfirewall firewall add rule name="Universe Renderer" dir=in action=allow
 
 ---
 
-#### 13.4.2 Cloud Deployment: AWS EC2 (planned — quota pending)
+#### 11.4.2 Cloud Deployment: AWS EC2 (planned — quota pending)
 
 **Instance type:** g4dn.xlarge (NVIDIA T4, 4 vCPU, 16GB RAM)
 **OS:** Ubuntu 22.04 Deep Learning Base AMI (CUDA + NVIDIA drivers pre-installed)
@@ -10452,7 +10449,7 @@ node headless-server.js
 
 ---
 
-### 14.5 Background Knowledge: GPU Server Rendering
+### 11.5 Background Knowledge: GPU Server Rendering
 
 This section explains every concept used in the pixel streaming pipeline in plain language. Read this when you encounter an error and don't know what it means.
 
@@ -10648,7 +10645,7 @@ Think of it as a translation layer: raw pixels (huge) → H.264 (small) → stre
 
 ---
 
-### 14.6 Pixel Streaming Architecture — Current Implementation
+### 11.6 Pixel Streaming Architecture — Current Implementation
 
 #### Architecture evolution
 
@@ -10766,15 +10763,15 @@ Mouse drag orbits camera. Scroll wheel zooms. WASD rotates. All input is per-ses
 # PART VI — STATUS & QUALITY
 ---
 
-## 15. Performance Analysis
+## 12. Performance Analysis
 
-### 15.1 Rendering
+### 12.1 Rendering
 
 The most expensive rendering task is the 3D terrain mesh, which is a sphere tessellated into millions of vertices with per-vertex biome coloring and FBM displacement. Three.js handles this with a single draw call using instanced geometry where possible.
 
 The organism system uses instanced rendering — all organisms are drawn in a single GPU call regardless of how many are on screen. LOD reduces the detail of distant organisms automatically.
 
-### 15.2 Server Tick Rates
+### 12.2 Server Tick Rates
 
 
 | System                   | Tick Rate               | Notes                                   |
@@ -10785,7 +10782,7 @@ The organism system uses instanced rendering — all organisms are drawn in a si
 | Weather                  | Event-driven            | State transitions on Markov probability |
 
 
-### 15.3 WebAssembly
+### 12.3 WebAssembly
 
 Three Rust modules compiled to WebAssembly handle the most computationally intensive calculations off the main thread:
 
@@ -10795,14 +10792,14 @@ Three Rust modules compiled to WebAssembly handle the most computationally inten
 
 This keeps the main thread free for rendering.
 
-### 15.4 Known Performance Concerns
+### 12.4 Known Performance Concerns
 
 - The organism rendering does not yet cull organisms that are on the opposite side of the planet from the camera. With 300 organisms potentially active, this is a minor overhead but could become visible on lower-end hardware.
 - The Chemistry Web Worker uses SharedArrayBuffer for the simulation grid. This requires specific HTTP headers (`Cross-Origin-Opener-Policy` and `Cross-Origin-Embedder-Policy`) to be set on the server. Vercel handles this correctly; local development may require manual header configuration.
 
 ---
 
-## 16. Security Principles
+## 13. Security Principles
 
 - **Authentication:** Clerk for player identity. All API routes and WebSocket connections verify auth tokens server-side.
 - **Server authority:** Client cannot modify world state directly. All mutations go through server validation (§3.6).
@@ -10812,7 +10809,7 @@ This keeps the main thread free for rendering.
 
 ---
 
-## 11. Code Quality Notes
+## 14. Code Quality Notes
 
 The codebase will be rebuilt from scratch following the specifications in this document. The current prototype code (pre-restructure) established:
 - Node.js ES modules for server, TypeScript for client
@@ -10823,7 +10820,7 @@ The codebase will be rebuilt from scratch following the specifications in this d
 
 ---
 
-## 12. Dependencies and Third-Party Tools
+## 15. Dependencies and Third-Party Tools
 
 ### Runtime Dependencies (shipped to the browser)
 
@@ -10864,9 +10861,9 @@ The project previously had two conflicting Clerk packages installed simultaneous
 
 ---
 
-## 13. Data and Database
+## 16. Data and Database
 
-### 13.1 Database Tables
+### 16.1 Database Tables
 
 
 | Table                 | What It Stores                                              | Created By                                    |
@@ -10882,11 +10879,11 @@ The project previously had two conflicting Clerk packages installed simultaneous
 | universes             | Known universe seeds and statistics (M14+)                  | `migrateSchema()` in UniverseRegistry.js      |
 
 
-### 13.2 The Shelter Column Migration
+### 16.2 The Shelter Column Migration
 
 The `players` table now has three new columns: `shelter_x`, `shelter_y`, `shelter_z`. These are added automatically on server startup via `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`. This is a non-destructive migration that will not affect existing player records — it simply adds the new columns with null values for players who have not yet registered a shelter.
 
-### 13.3 Data Persistence Gaps
+### 16.3 Data Persistence Gaps
 
 Three tables (`settlement_stockpiles`, `discoveries`, `planets`) must be created manually and are not covered by the automatic `init-db` endpoint. This is a known gap documented in the previous report (B-04 area) and remains unresolved.
 
@@ -10899,7 +10896,7 @@ Three tables (`settlement_stockpiles`, `discoveries`, `planets`) must be created
 # PART VII — ROADMAP & HISTORY
 ---
 
-## 18. Build Priority
+## 17. Build Priority
 
 The document is the spec. Implementation priority:
 
@@ -10917,7 +10914,7 @@ The document is the spec. Implementation priority:
 
 ---
 
-## 21. Change Log
+## 18. Change Log
 
 
 | Date       | Version | Changes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
@@ -10939,7 +10936,7 @@ The document is the spec. Implementation priority:
 # PART VIII — REFERENCES
 ---
 
-## 22. References
+## 19. References
 
 These works directly inform the design and scientific grounding of Universe Sim. Each is cited in the relevant section above.
 

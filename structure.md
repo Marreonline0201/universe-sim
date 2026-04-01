@@ -7724,28 +7724,6 @@ FirstSpawnDesign {
 }
 ```
 
-### 6.9 Late-Game Systems (M9–M15)
-
-These systems were built in earlier sessions and remain in place:
-
-
-| System                       | What It Does                                                     |
-| ---------------------------- | ---------------------------------------------------------------- |
-| Rivers and sailing           | River networks with current physics; watercraft navigation       |
-| Animals and hunting          | Passive animal AI; hunting for food                              |
-| Gunpowder (M11)              | Real black powder chemistry; muskets and cannons                 |
-| Castles (M11)                | Fortified building blocks; siege mechanics                       |
-| Astronomy (M11)              | Accurate night sky; constellation observation                    |
-| Rockets (M12)                | Orbital mechanics; launch pad; fuel chemistry                    |
-| Radio (M12)                  | Morse code broadcasts between players                            |
-| First Contact (M13)          | Alien signal decoding; probe dispatch                            |
-| Nuclear reactor (M13)        | Fission physics; uranium fuel management                         |
-| Interplanetary transit (M14) | Travel to another procedural planet; 20-second cinematic transit |
-| Velar language (M14)         | 5-glyph alien alphabet; decoding puzzle                          |
-| Velar gateway (M14)          | Universe-to-universe travel                                      |
-| Universe Map (M15)           | Companion site page showing all discovered worlds                |
-
-
 ---
 
 ## 7. All UI Panels and Hotkeys

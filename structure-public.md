@@ -1,25 +1,60 @@
 # Universe Sim — Game Design Document
 
-**Last Updated**: 2026-03-31
+**Last Updated**: 2026-04-01
 
 ---
 
 ## Table of Contents
 
-### PART I — VISION & DESIGN
+### PART I — VISION
 1. [Executive Summary](#1-executive-summary)
 2. [The Vision](#2-what-this-project-is--the-vision)
 
-### PART II — GAME WORLD
-3. [All Major Systems](#3-all-major-systems--complete-inventory) — World Gen, Organisms, Crafting, Emergent Materials, Fluid Simulation, Geology, Settlements, Weather, Seasons, Player Systems, Combat, Late-Game
-4. [UI Panels and Hotkeys](#4-all-ui-panels-and-hotkeys)
+### PART II — CORE ENGINE
+3. [Core Simulation Engine](#3-core-simulation-engine)
+    - 3.1 Emergent Material System
+    - 3.2 Fluid Simulation
+    - 3.3 Atmospheric Model (Weather & Seasons)
+    - 3.4 Sound Engine
+    - 3.5 Structural Physics
+    - 3.6 Networking & Hybrid Rendering
+
+### PART III — GAME WORLD
+4. [World & Life](#4-world--life)
+    - 4.1 World Generation
+    - 4.2 Organism Ecosystem & Species
+    - 4.3 Geology & Resource Distribution
+5. [Civilization](#5-civilization)
+    - 5.1 Settlements
+    - 5.2 NPC Brain
+    - 5.3 NPC Language & Knowledge Transfer
+6. [Crafting & Production](#6-crafting--production)
+    - 6.1 Material Taxonomy
+    - 6.2 Production System
+    - 6.3 Physics-Based Crafting & Workstations
+    - 6.4 Precision Crafting Mode
+7. [Player Systems](#7-player-systems)
+    - 7.1 Character Creation & Body
+    - 7.2 Survival Stats
+    - 7.3 Inventory
+    - 7.4 Terrain Interaction
+    - 7.5 Combat
+    - 7.6 Death & Respawn
+    - 7.7 Multiplayer & PvP
+    - 7.8 Player-to-Player Interaction
+    - 7.9 Swimming & Underwater
+    - 7.10 Lighting
+    - 7.11 Map & Navigation
+    - 7.12 Persistence Model
+    - 7.13 New Player Experience
+8. [UI Panels and Hotkeys](#8-ui-panels-and-hotkeys)
 
 ### REFERENCES
-5. [References](#5-references)
+9. [References](#9-references)
 
 ---
 
-# PART I — VISION & DESIGN
+# PART I — VISION
 ---
 
 ## 1. Executive Summary
@@ -78,9 +113,1706 @@ This approach has precedent. *Dwarf Fortress* (Tarn Adams, ongoing) demonstrated
 # PART II — GAME WORLD
 ---
 
-## 3. All Major Systems — Complete Inventory
 
-### 3.1 World Generation — Physical Foundation
+---
+
+# PART II — CORE ENGINE
+---
+
+## 3. Core Simulation Engine
+
+These are the foundational physics systems that power every other system in the game. The material system determines what things are. The fluid system determines how liquids move. The atmospheric model determines weather. The sound engine determines what you hear. The structural system determines whether buildings stand. The networking layer determines who computes what. Everything else in this document is built on top of these six systems.
+
+### 3.1 Emergent Material System — Nothing Is Pre-Defined
+
+#### The Principle
+
+The universe does not have a recipe list. Helium was not "designed" — it emerged when hydrogen atoms were forced together under extreme temperature and pressure inside a star. Bronze was not "invented" — it is what happens when copper and tin atoms mix above 950°C and cool together. Glass was not "planned" — it is what happens when silicon dioxide melts at 1700°C and cools too quickly to crystallize.
+
+The game should work the same way. **No material is pre-defined. Every material is the result of rules applied to simpler materials under specific conditions.** The system doesn't know what "bronze" is. It knows what happens when a packet of mostly-copper meets a packet of mostly-tin at high temperature. The result has properties calculated from the inputs — and those properties happen to match what humans call bronze.
+
+This means:
+- The developer never writes `{ name: "bronze", hardness: 3.5, meltingPoint: 950 }` as a static entry
+- Instead, the system computes: "a Cu₀.₈₈Sn₀.₁₂ alloy at 25°C has Mohs hardness ≈ 3.5, melting point ≈ 950°C" from the component properties and known alloy rules
+- A player who mixes copper and zinc instead gets a different result — brass — without anyone coding brass
+- A player who mixes copper, tin, AND a small amount of phosphorus gets phosphor bronze — harder, more elastic — also without anyone coding it
+
+The game builds its material universe the same way the real universe did: from the bottom up.
+
+#### What Is a Material Packet
+
+The fundamental unit is not an atom (too expensive) or a named material (too rigid). It is a **material packet** — a chunk of matter with a composition, mass, temperature, and phase.
+
+```
+MaterialPacket {
+  // --- Identity: what is this made of? ---
+  composition: Map<Element, number>    // element → mass fraction (sums to 1.0)
+                                        // e.g., { Cu: 0.88, Sn: 0.12 }
+
+  // --- Physical state ---
+  mass: number                          // kg
+  temperature: number                   // °C
+  phase: 'solid' | 'liquid' | 'gas' | 'plasma'
+  pressure: number                      // Pa (default: 101325 = 1 atm)
+
+  // --- Derived (computed from composition + state, never stored manually) ---
+  meltingPoint: number                  // °C — weighted from components + alloy corrections
+  boilingPoint: number                  // °C
+  density: number                       // kg/m³
+  hardness: number                      // Mohs scale
+  thermalConductivity: number           // W/(m·K)
+  electricalConductivity: number        // S/m
+  tensileStrength: number               // MPa
+  color: [number, number, number]       // RGB derived from composition
+  crystalStructure: string              // FCC, BCC, HCP, amorphous...
+}
+```
+
+Every derived property is **calculated**, not looked up. The calculation uses real material science:
+
+| Property | How it's computed | Source |
+|----------|------------------|--------|
+| Melting point | Weighted average of component melting points + eutectic corrections from binary phase diagrams | CALPHAD method (simplified) |
+| Density | Rule of mixtures: `ρ = Σ(xᵢ · ρᵢ)` with packing corrections for crystal structure | Vegard's law for alloys |
+| Hardness | Hall-Petch relationship for grain size + solid solution strengthening from solute atoms | Metallurgy fundamentals |
+| Electrical conductivity | Matthiessen's rule: `1/σ = 1/σ_base + Σ(cᵢ · Δρᵢ)` — impurities increase resistivity | Resistivity tables |
+| Color | Drude model for metals (free electron plasma frequency → reflectance spectrum), absorption spectrum for non-metals | Optical properties of solids |
+| Crystal structure | Hume-Rothery rules: atomic size ratio, electronegativity difference, valence electron count → FCC/BCC/HCP prediction | Hume-Rothery (1934) |
+
+#### How Materials Combine: The Reaction Engine
+
+When two packets meet under conditions, the **reaction engine** determines what happens. It does not look up recipes. It checks thermodynamics.
+
+**Step 1 — Can a reaction happen?**
+Check Gibbs free energy: `ΔG = ΔH - TΔS`
+- If `ΔG < 0`: reaction is spontaneous (it wants to happen)
+- If `ΔG > 0`: reaction needs energy input
+- If `ΔG ≈ 0`: equilibrium (both forms coexist)
+
+The enthalpy (ΔH) and entropy (ΔS) values come from the elements' standard formation energies — tabulated from real chemistry, stored per element.
+
+**Step 2 — Is there enough energy?**
+- Temperature must be above activation energy threshold (Arrhenius: `k = A·e^(-Ea/RT)`)
+- Some reactions need a catalyst to lower Ea (e.g., iron catalyst for ammonia synthesis)
+- Some need specific atmosphere (reducing = carbon/CO present, oxidizing = oxygen present)
+
+**Step 3 — What comes out?**
+The output packet's composition is computed from stoichiometry:
+- Conservation of mass: total mass in = total mass out
+- Conservation of elements: every atom that goes in comes out (just rearranged)
+- Energy balance: exothermic reactions heat the output, endothermic reactions cool it
+
+**Step 4 — What are the output's properties?**
+All properties are recalculated from the new composition using the formulas above. The system doesn't know it made "bronze" — it made a Cu-Sn solid solution with computed properties.
+
+#### Example: A Player Discovers Bronze
+
+```
+1. Player has: packet A (composition: {Cu: 1.0}, mass: 1.0kg, temp: 25°C, phase: solid)
+              packet B (composition: {Sn: 1.0}, mass: 0.12kg, temp: 25°C, phase: solid)
+
+2. Player puts both in a bloomery and heats to 1100°C
+
+3. Reaction engine:
+   - Cu melting point: 1085°C → packet A transitions to liquid
+   - Sn melting point: 232°C → packet B already liquid
+   - Two liquids in contact → check miscibility: Cu-Sn are fully miscible in liquid phase
+   - Packets merge: new packet {Cu: 0.89, Sn: 0.11}, mass: 1.12kg, temp: 1100°C, phase: liquid
+
+4. Player removes from heat, packet cools below solidus (~950°C for this composition)
+   - Phase → solid
+   - Crystal structure: FCC (Hume-Rothery: Sn atoms substitute into Cu lattice, size ratio 0.93 ≈ OK)
+   - Hardness: higher than pure Cu (solid solution strengthening)
+   - Color: slightly more golden than pure copper
+
+5. The game has created "bronze" without ever defining bronze.
+```
+
+#### Example: Stellar Nucleosynthesis (The Universe Creates Elements)
+
+The same system works at cosmic scale. During world generation, the simulation can model how the planet's elements formed:
+
+```
+1. Primordial hydrogen cloud collapses under gravity
+2. Core temperature reaches 15,000,000°C, pressure reaches 250 billion atm
+3. Reaction engine: H + H → check ΔG at these conditions → fusion is spontaneous
+4. Output: He packet + energy (E = Δm·c²)
+5. As He accumulates, triple-alpha process: He + He + He → C at 100,000,000°C
+6. C + He → O, then Ne, Mg, Si... up to Fe (where fusion becomes endergonic)
+7. Supernova: extreme conditions create everything heavier than iron via neutron capture
+```
+
+This isn't simulated in real-time during gameplay — it runs once during world generation to establish the planet's elemental abundances. But it uses the same reaction engine. The planet's composition is DERIVED, not hardcoded.
+
+#### The Compounding Rule: 1 + 1 = 2
+
+Materials don't just react — they aggregate. Two dirt packets combine into one larger dirt packet. This is simple mass addition with composition averaging:
+
+```
+packet A: {Si: 0.33, O: 0.47, Al: 0.08, Fe: 0.05, ...}, mass: 0.5kg
+packet B: {Si: 0.30, O: 0.50, Al: 0.10, Fe: 0.04, ...}, mass: 0.3kg
+
+Result: weighted composition average, mass: 0.8kg
+  Si: (0.33×0.5 + 0.30×0.3) / 0.8 = 0.319
+  O:  (0.47×0.5 + 0.50×0.3) / 0.8 = 0.481
+  ... etc.
+```
+
+This means:
+- Inventory stacking is just packet merging (compositions average out)
+- Splitting a packet divides mass but keeps the same composition
+- Impurities naturally accumulate or dilute through mixing
+- Ore quality varies by location (different packets have different trace elements)
+- Purification is the process of separating a mixed packet into purer sub-packets
+
+#### What This Replaces
+
+The current `MaterialRegistry.ts` with 118 pre-defined materials becomes:
+1. **Element table** — 118 entries with REAL measured properties (atomic mass, melting point, density, electronegativity, standard formation enthalpy). This is the only static data. It comes from the periodic table — nature's constants.
+2. **Reaction engine** — thermodynamic rules that compute what happens when packets interact
+3. **Property calculator** — derives all material properties from composition using material science formulas
+4. **Packet store** — every object in the world is a packet (or a collection of packets)
+
+The Tier 2 (minerals) and Tier 3 (processed materials) lists in §3.1–6.3.2 are no longer definitions — they become **expected emergent results**. They describe what SHOULD emerge when the rules are correct. If the reaction engine, given real Cu and Sn properties, doesn't produce something with bronze-like properties at the right temperature, the rules have a bug — not a missing recipe.
+
+#### Computational Cost
+
+This is feasible on current hardware because:
+- Packets are coarse-grained (not individual atoms — a packet might represent 1 gram to 1 ton of material)
+- Property calculations are simple arithmetic (weighted averages, polynomial fits) — microseconds each
+- Reactions only fire when packets are brought together by a player or NPC action — not continuously
+- The element table (118 entries × ~20 properties) fits in < 10 KB
+- Phase diagram lookups can use pre-computed binary tables for common pairs (Cu-Sn, Fe-C, etc.) — ~500 pairs covers 95% of cases
+- Rare or novel combinations fall back to ideal solution approximations (less accurate but always produces a result)
+
+**Estimated per-reaction cost:** < 0.1ms on a single CPU core. A player performing 10 crafting actions per minute costs essentially nothing.
+
+**Where it gets expensive:** fluid simulation (§3.4), where millions of packets move and interact continuously. That is a separate problem addressed in the next section.
+
+---
+
+
+### 3.2 Fluid Simulation — How Liquids Work
+
+#### Why Liquid Is the Hardest Problem
+
+Solids are easy. A solid material packet sits where you put it. It has a position, a shape, and it doesn't move unless something pushes it. The game only needs to track one object.
+
+Liquids are fundamentally different. A liquid has no fixed shape — it takes the shape of whatever contains it. It flows downhill. It pools in valleys. It splashes when it hits something. It mixes with other liquids. It evaporates when heated, condenses when cooled. Every drop interacts with every nearby drop, the terrain, gravity, temperature, and wind — simultaneously, continuously, at every moment.
+
+The reason liquid is hard is not that the physics is complicated (the equations are well understood). It is that liquid requires simulating **many small pieces moving independently**. A solid copper ingot is one object. Molten copper is thousands of tiny pieces flowing, colliding, merging, and separating. That transition — from one thing to many things — is the core computational challenge.
+
+#### The Physical Truth: What Melting Actually Is
+
+At the atomic level, melting is the breakdown of structure:
+
+- **Solid**: atoms are locked in a crystal lattice. Each atom vibrates around a fixed position but cannot leave. The lattice gives the material its rigid shape. This is why solids hold their form.
+- **Liquid**: atoms have enough kinetic energy to break free from the lattice. They can slide past each other, but intermolecular forces (van der Waals, hydrogen bonds, metallic bonds) keep them close together. This is why liquids flow but don't fly apart.
+- **Gas**: atoms have enough energy to overcome all intermolecular forces. They fly freely in all directions, filling any container. This is why gas expands to fill a room.
+
+The game simulates this by **fragmenting a material packet into sub-packets when it crosses its melting point**. The sub-packets are the "freed atoms" — they inherit the parent's composition and temperature, but now they can move independently. When they cool below the melting point, they lock back together into a solid.
+
+This is not a metaphor. This is literally what melting is, at a coarser grain size.
+
+#### The Simulation Model: Smoothed Particle Hydrodynamics (SPH)
+
+SPH is a method for simulating fluids using particles instead of a grid. Each particle represents a small volume of liquid. The particles interact with their neighbors to produce realistic fluid behavior: flow, pressure, viscosity, surface tension, and splashing.
+
+**Why SPH and not a grid?** Grid-based methods (like the existing `fluid.worker.ts`) divide space into fixed cells. They work well for large, slow-moving bodies of water (oceans, lakes). But they cannot handle:
+- Pouring liquid from one container to another
+- A waterfall breaking into droplets
+- Molten metal being cast into a mold
+- Rain hitting the ground and splashing
+- Two different liquids mixing at their boundary
+
+SPH handles all of these because the particles move with the fluid — they go wherever the liquid goes, naturally adapting to any shape or motion.
+
+**Each SPH particle stores:**
+
+```
+SPHParticle {
+  // --- From the material packet system (§3.3) ---
+  composition: Map<Element, number>    // what this droplet is made of
+  mass: number                          // kg (fixed at creation)
+  temperature: number                   // °C (changes from environment + neighbors)
+
+  // --- SPH physics state ---
+  x, y, z: number                      // position on the sphere surface (world space)
+  vx, vy, vz: number                   // velocity (m/s)
+  density: number                       // kg/m³ (computed from neighbors each tick)
+  pressure: number                      // Pa (computed from density)
+
+  // --- Derived from composition (computed once, updated on temperature change) ---
+  viscosity: number                     // Pa·s — how thick/resistant to flow
+  surfaceTension: number                // N/m — how strongly the surface pulls inward
+  restDensity: number                   // kg/m³ — density at atmospheric pressure
+}
+```
+
+**The five forces on every particle, every tick:**
+
+**1. Pressure force** — particles in high-density regions push outward toward low-density regions. This prevents liquid from compressing into a single point and makes it spread out to fill containers.
+
+Formula: `F_pressure = -∇P / ρ`
+
+Pressure is computed from density using the Tait equation of state:
+`P = B · ((ρ/ρ₀)^γ - 1)` where B is a stiffness constant, ρ₀ is rest density, γ ≈ 7 for water.
+
+This is the same equation used in real computational fluid dynamics. It produces the correct behavior: water is nearly incompressible (high B), so even small density increases create large pressure forces that push particles apart.
+
+**2. Viscosity force** — particles drag on their neighbors, resisting relative motion. High viscosity = honey, lava. Low viscosity = water, alcohol. Zero viscosity = superfluid helium (unreachable in-game).
+
+Formula: `F_viscosity = μ · ∇²v` (Laplacian of velocity field, scaled by dynamic viscosity μ)
+
+**The viscosity comes from the material's composition**, not from a hardcoded value per liquid type:
+- Water (H₂O): μ ≈ 0.001 Pa·s at 20°C — hydrogen bonds are weak
+- Molten copper: μ ≈ 0.004 Pa·s at 1100°C — metallic bonds broken by heat
+- Molten glass (SiO₂): μ ≈ 10⁶ Pa·s at 1000°C — silicon-oxygen network barely broken
+- Honey (sugar solution): μ ≈ 2–10 Pa·s — long sugar molecules tangle
+- Lava (basaltic): μ ≈ 10–100 Pa·s — silicate networks partially intact
+
+Temperature reduces viscosity for all materials (Arrhenius model: `μ = A · e^(Ea/RT)`). Hotter liquid flows faster. This is why lava near the vent flows quickly but slows to a crawl as it cools.
+
+**3. Gravity** — particles fall toward the planet's center. On the sphere surface, this means flowing "downhill" — toward lower terrain elevation.
+
+Formula: `F_gravity = m · g · down_direction`
+
+On a sphere, the "down" direction is toward the planet center: `down = -normalize(position)`. The component of gravity along the terrain surface drives horizontal flow. The component into the terrain is balanced by the terrain's normal force (the ground pushes back).
+
+**4. Surface tension** — particles at the liquid's surface are pulled inward by their neighbors, minimizing surface area. This is what makes water droplets spherical and allows insects to walk on water.
+
+Formula: `F_surface = σ · κ · n̂` where σ is surface tension coefficient, κ is surface curvature, n̂ is surface normal.
+
+Surface tension is computed from composition:
+- Water: σ ≈ 0.073 N/m (hydrogen bonds pull surface inward)
+- Molten iron: σ ≈ 1.8 N/m (strong metallic bonds)
+- Mercury: σ ≈ 0.5 N/m (why mercury forms perfect spherical droplets)
+- Ethanol: σ ≈ 0.022 N/m (weak intermolecular forces)
+
+When two different liquids meet, the difference in surface tension drives **Marangoni flow** — liquid flows from low surface tension to high. This is why soap breaks water tension (soap has lower σ, water flows away from it, creating the spreading pattern).
+
+**5. Terrain collision** — particles cannot pass through the ground. When a particle's position would be below the terrain surface, it is pushed to the surface and its velocity component into the terrain is zeroed (with friction applied to the tangential component).
+
+This is what makes liquid pool in valleys, flow along riverbeds, and fill containers. The terrain acts as a rigid boundary that shapes the flow.
+
+#### The SPH Algorithm (per tick)
+
+```
+for each particle i:
+  1. Find neighbors within kernel radius h (~2× particle spacing)
+     — use spatial hash grid for O(1) neighbor lookup
+
+  2. Compute density:  ρᵢ = Σⱼ mⱼ · W(rᵢⱼ, h)
+     where W is a smoothing kernel (cubic spline) and rᵢⱼ = |posᵢ - posⱼ|
+
+  3. Compute pressure: Pᵢ = B · ((ρᵢ/ρ₀)^γ - 1)
+
+  4. Compute forces:
+     F_pressure  = -Σⱼ mⱼ · (Pᵢ/ρᵢ² + Pⱼ/ρⱼ²) · ∇W(rᵢⱼ, h)
+     F_viscosity = μ · Σⱼ mⱼ · (vⱼ - vᵢ) / ρⱼ · ∇²W(rᵢⱼ, h)
+     F_gravity   = m · g · (-normalize(posᵢ))
+     F_surface   = σ · curvature · surface_normal  (only for surface particles)
+
+  5. Integrate:
+     vᵢ += dt · (F_pressure + F_viscosity + F_gravity + F_surface) / mᵢ
+     posᵢ += dt · vᵢ
+
+  6. Terrain collision:
+     if (length(posᵢ) < PLANET_RADIUS + terrainHeight(posᵢ)):
+       push particle to surface, apply friction
+
+  7. Temperature exchange:
+     — particles exchange heat with neighbors (Fourier's law: Q = k·A·ΔT/d)
+     — particles exchange heat with terrain and air
+     — if temperature crosses melting point → phase transition (see below)
+```
+
+**The kernel function W** is the mathematical smoothing function that defines "how much influence does a neighbor have." Closer neighbors have more influence. The standard choice is the cubic spline kernel, which is smooth, compact (zero outside radius h), and computationally cheap.
+
+#### Phase Transitions: Solid ↔ Liquid ↔ Gas
+
+Phase transitions connect the fluid simulation to the material packet system (§3.3). They are the bridge between the static world of solids and the dynamic world of fluids.
+
+**Melting (solid → liquid):**
+```
+When a solid material packet reaches temperature ≥ meltingPoint(composition):
+  1. The solid packet is removed from the world
+  2. N SPH particles are spawned at its position
+     — N = mass / particleMass (particleMass is a resolution parameter, e.g., 0.01 kg)
+     — Each particle inherits: composition, temperature, mass/N
+     — Particles are placed in a tight cluster matching the solid's shape
+     — Particles get zero initial velocity (they start motionless, then flow under gravity)
+  3. The SPH simulation takes over — particles flow, pool, splash
+```
+
+**Freezing (liquid → solid):**
+```
+When a cluster of SPH particles cools below meltingPoint(composition):
+  1. Identify connected clusters of cold particles (particles within kernel radius of each other)
+  2. Each cluster merges into a single solid packet:
+     — mass = sum of particle masses
+     — composition = mass-weighted average of particle compositions
+     — position = center of mass of the cluster
+     — shape = convex hull of particle positions (or simplified bounding shape)
+  3. The solid packet is placed in the world; particles are removed
+```
+
+**Boiling (liquid → gas):**
+```
+When a particle reaches temperature ≥ boilingPoint(composition):
+  1. Particle expands: kernel radius increases, restDensity drops dramatically
+  2. Upward buoyancy force added (hot gas rises)
+  3. If particle rises above terrain + threshold → convert to gas system
+     — Gas particles have much larger spacing, lower interaction frequency
+     — Eventually fade out at high altitude (absorbed into atmosphere model)
+```
+
+**Condensation (gas → liquid):**
+```
+When gas-phase particles cool below boilingPoint:
+  1. Particles contract: kernel radius shrinks, restDensity increases
+  2. Surface tension kicks in → droplets form
+  3. Droplets fall under gravity → rain
+```
+
+**Sublimation and deposition** (solid ↔ gas, skipping liquid) also emerge naturally. Dry ice (solid CO₂) sublimates because its phase diagram has no liquid phase at 1 atm. The simulation checks: at current pressure, does a liquid phase exist between solid and gas? If not, the solid transitions directly to gas particles.
+
+#### Multi-Scale Fluid System
+
+One simulation method cannot efficiently handle all scales of liquid in the game. A raindrop and an ocean are both water, but simulating an ocean with SPH particles would require billions of particles. Instead, the game uses different methods at different scales, with smooth transitions between them.
+
+**Scale 1 — Crafting (SPH particles, 100–2,000 particles)**
+
+This is the most interactive scale. The player directly manipulates liquid:
+- Melting ore in a bloomery → molten metal flows into a channel
+- Pouring molten copper into a stone mold → casting
+- Mixing two chemicals in a clay pot → the liquids swirl together
+- Boiling water → steam rises, water level drops
+- Quenching hot steel → dramatic sizzle, steam cloud
+
+SPH runs at 60 Hz in a Web Worker. 2,000 particles × 50 neighbors × 5 forces = 500,000 operations per tick. At ~10 FLOPs each = 5 MFLOP per tick. A single CPU core does 1–5 GFLOP/s. Cost: < 1% of one core.
+
+**Scale 2 — Local environment (SPH particles, 2,000–20,000 particles)**
+
+Environmental liquid near the player:
+- Rain hitting the ground and forming puddles
+- A small waterfall or creek
+- Blood pooling from a killed animal
+- Spilled liquid from a broken container
+- A hot spring with steam
+
+SPH runs at 30 Hz in a dedicated Web Worker (separate from crafting). 20,000 particles at 30 Hz is ~30 MFLOP per tick — still cheap on a modern CPU. On a GPU compute shader (WebGPU), this could reach 200,000+ particles.
+
+**Scale 3 — Regional (grid-based, Eulerian)**
+
+Rivers, lakes, and large water bodies. Too many particles for SPH — switch to a grid where each cell tracks water volume and flow direction.
+
+```
+GridCell {
+  waterVolume: number     // m³ of water in this cell
+  flowX, flowZ: number    // velocity of water flow (m/s)
+  temperature: number     // °C
+  composition: Map<Element, number>   // dissolved minerals, pollutants
+  depth: number           // computed: waterVolume / cellArea
+}
+```
+
+Rules per tick (0.5–1 Hz — slow, large scale):
+- Water flows from high cells to low cells (terrain height + water depth)
+- Flow rate depends on slope (Manning's equation: `v = (1/n) · R^(2/3) · S^(1/2)` where n is roughness, R is hydraulic radius, S is slope)
+- Evaporation removes water based on temperature and humidity
+- Rain adds water based on weather system (§6)
+- Rivers defined by RiverSystem.ts are permanent flow paths with base flow rates
+
+This extends the existing `fluid.worker.ts` and `RiverSystem.ts`. The grid is the same 3D grid already initialized in the worker — it just needs water-specific logic added.
+
+**Scale 4 — Global (mathematical model, no particles or grid)**
+
+Ocean currents, tides, deep water temperature. These are too large and slow for real-time simulation. Instead, they are modeled as:
+- Ocean surface: Gerstner wave shader (already built — `OceanShader.ts`)
+- Currents: pre-computed flow field based on continent positions and Coriolis effect
+- Tides: sinusoidal sea level variation driven by moon position (simple formula)
+- Deep ocean temperature: latitude-based gradient (cold at poles, warm at equator)
+
+No per-frame simulation cost. Just math evaluated when needed.
+
+#### Scale Transitions
+
+The critical engineering challenge is smooth transitions between scales. A raindrop (SPH) must be able to join a puddle (SPH), which grows into a stream (grid), which feeds a river (grid), which reaches the ocean (shader). Going backward must also work: a player scoops water from a river (grid → SPH packet).
+
+**SPH → Grid (particle absorption):**
+```
+When an SPH particle enters a grid cell that already contains water:
+  1. Add particle's mass to cell's waterVolume
+  2. Add particle's momentum to cell's flow velocity (momentum-conserving)
+  3. Mix particle's composition into cell's composition (mass-weighted average)
+  4. Mix particle's temperature into cell's temperature
+  5. Remove the SPH particle
+```
+
+Trigger condition: particle velocity < threshold AND particle is in a cell with waterVolume > threshold. This means fast-moving water (waterfalls, splashes) stays as particles. Slow, settled water becomes grid cells.
+
+**Grid → SPH (particle emission):**
+```
+When a player interacts with a grid cell (scoop, dig channel, break dam):
+  1. Remove requested mass from cell's waterVolume
+  2. Spawn N SPH particles with that mass, inheriting cell's composition and temperature
+  3. Particles get initial velocity matching the cell's flow direction
+```
+
+Also triggered when water flows over a cliff edge (waterfall): grid cells at the edge emit SPH particles that fall freely until they hit water below (absorbed back into grid) or terrain (splash → pool → eventually grid again).
+
+**Grid → Shader (ocean boundary):**
+```
+Grid cells at the ocean boundary do not store water — they connect to the ocean.
+River grid cells that reach sea level feed their flow volume into the ocean's
+total water budget (affecting sea level over very long timescales).
+The ocean shader reads sea level from the simulation state.
+```
+
+#### Mixing and Reactions in Liquid
+
+When two SPH particles of different composition are neighbors, they can mix and react — using the same reaction engine from §3.3.
+
+**Diffusion (passive mixing):**
+Each tick, neighboring particles exchange a small fraction of their composition proportional to their contact area and the diffusion coefficient. Over time, two adjacent liquids homogenize. Stirring (player action or turbulent flow) increases the mixing rate by bringing distant particles into contact.
+
+```
+mixRate = D · dt · W(rᵢⱼ, h) / distance
+particle_i.composition += mixRate · (particle_j.composition - particle_i.composition)
+particle_j.composition += mixRate · (particle_i.composition - particle_j.composition)
+```
+
+where D is the diffusion coefficient (depends on temperature and the materials involved).
+
+**Reactions in liquid phase:**
+When two particles' mixed composition satisfies a reaction condition (§3.3 reaction engine — Gibbs free energy check), the reaction fires:
+- Acid dissolves metal: HCl particles + Fe particles → FeCl₂ solution + H₂ gas bubbles
+- Salt dissolves in water: NaCl solid particles near H₂O particles → Na⁺ and Cl⁻ dissolve into water composition
+- Oil and water refuse to mix: if immiscible (ΔG of mixing > 0), particles repel at the interface instead of diffusing
+
+**Density-driven layering:**
+Denser liquid sinks, lighter liquid floats. Oil floats on water. Molten slag floats on molten iron (this is how real smelting separates metal from waste). The SPH pressure force naturally produces this layering because denser particles create higher pressure at the bottom.
+
+#### What the Player Sees
+
+The visual representation of fluid adapts to scale:
+
+**SPH particles (crafting and local):**
+- Each particle renders as a small sphere (metaball rendering for smooth appearance)
+- Color derived from composition: water = blue-clear, molten copper = orange-red glow, blood = dark red, oil = dark brown
+- Temperature → emissive glow: particles above 500°C glow red, above 1000°C glow orange-white
+- Surface particles have specular highlights (Fresnel reflection, same as OceanShader.ts)
+- Metaball blobbing: nearby particles visually merge into a smooth surface (marching cubes or screen-space fluid rendering)
+
+**Grid cells (regional):**
+- Water surface mesh generated from grid cells with waterVolume > 0
+- Surface height = terrain height + water depth
+- Uses the existing OceanShader.ts material (Gerstner waves scaled down for rivers/lakes)
+- River foam where flow speed is high (reuse the foam noise from OceanShader.ts)
+
+**Ocean (global):**
+- Unchanged from current implementation: sphere mesh + Gerstner wave vertex displacement + Fresnel + caustics
+
+#### Terrain Interaction: The Container Problem
+
+Liquid needs surfaces to contain it. The terrain height field on the sphere is the primary container. But natural terrain has features that matter for fluid:
+
+**Concavities (valleys, bowls, craters):**
+Water pools wherever the terrain forms a local minimum — a point lower than all its neighbors. The grid-based simulation finds these automatically: water flows into the cell and has nowhere lower to go, so it accumulates. Water depth rises until it reaches the lowest outflow point (the rim of the bowl), then spills over and continues flowing.
+
+**Player-made containers:**
+When a player digs (removes terrain) or builds (adds terrain), they modify the height field. A trench becomes a channel. A ring of piled dirt becomes a dam. A clay pot (crafted object with concave interior) becomes a vessel. The fluid system treats all of these the same way: particles cannot penetrate solid surfaces, so they pool inside whatever shape the surface creates.
+
+**Porosity:**
+Not all terrain is waterproof. Sand absorbs water (high porosity). Clay blocks water (low porosity). Rock is somewhere in between. The grid simulation can model this:
+```
+absorption = porosity · waterVolume · dt
+waterVolume -= absorption
+groundwaterLevel += absorption  // water table rises
+```
+
+This produces springs (groundwater pressure pushes water to the surface where terrain is lower than the water table) and explains why clay-lined channels hold water better than dirt channels.
+
+#### The Complete Water Cycle
+
+When all scales work together, the full hydrological cycle emerges:
+
+```
+EVAPORATION: Ocean + lakes + rivers lose water (temperature + surface area + wind)
+  ↓ water vapor enters atmosphere
+CLOUD FORMATION: Vapor rises, cools below dew point, condenses
+  ↓ water droplets aggregate into clouds (weather system §6)
+PRECIPITATION: Clouds release water as rain (liquid) or snow (solid)
+  ↓ SPH particles fall from sky (Scale 1-2)
+SURFACE FLOW: Rain hits terrain, flows downhill
+  ↓ SPH particles merge into grid cells (Scale 2 → Scale 3)
+RIVERS: Grid cells with persistent flow form rivers
+  ↓ matches RiverSystem.ts flow paths
+LAKES: Water accumulates in terrain concavities
+  ↓ grid cells fill up, overflow feeds downstream rivers
+OCEAN: Rivers discharge into the ocean (Scale 3 → Scale 4)
+  ↓ ocean level adjusts over long timescales
+GROUNDWATER: Some rain absorbs into porous terrain
+  ↓ feeds springs, wells, and maintains river base flow in dry season
+```
+
+No part of this cycle is scripted. It all follows from the physics: gravity pulls water down, heat drives evaporation, cooling drives condensation, terrain shape determines where water collects and flows. The weather system (§6) provides precipitation. The fluid simulation handles everything after the raindrop forms.
+
+#### Lava: Liquid Rock
+
+Volcanic eruptions produce lava — molten rock flowing on the surface. In this system, lava is not a special case. It is a material packet (composition: silicate minerals) that has been heated above its melting point (~700–1200°C depending on composition).
+
+```
+MAGMA CHAMBER: high-temperature material packets deep underground (world generation)
+  ↓ volcanic event (triggered by tectonic simulation or random with geological probability)
+ERUPTION: packets surface → temperature > melting point → fragment into SPH particles
+  ↓ particles flow downhill (very high viscosity — basaltic: μ ≈ 100 Pa·s, rhyolitic: μ ≈ 10⁶ Pa·s)
+COOLING: particles lose heat to air and terrain → temperature drops
+  ↓ viscosity increases exponentially as temperature drops (Arrhenius)
+SOLIDIFICATION: temperature crosses solidus → particles freeze into solid terrain
+  ↓ new rock with composition determined by the original magma
+```
+
+Basaltic lava (low silica) flows fast and far — like Hawaiian eruptions. Rhyolitic lava (high silica) barely moves — it piles up into domes. The difference is entirely from composition → viscosity. The simulation handles both with the same code.
+
+Lava flowing over water produces instant steam (boiling) + rapid cooling of the lava surface → obsidian (amorphous glass, because cooling was too fast for crystals to form). This emergent behavior falls out naturally from the phase transition and heat exchange rules.
+
+#### Performance Budget
+
+| Scale | Method | Particle/cell count | Tick rate | CPU cost per tick | Worker |
+|-------|--------|-------------------|-----------|-------------------|--------|
+| Crafting | SPH | 100–2,000 | 60 Hz | < 1 ms | Shared with game loop or dedicated |
+| Local env | SPH | 2,000–20,000 | 30 Hz | 2–5 ms | Dedicated Web Worker |
+| Regional | Grid | 10,000–50,000 cells | 1 Hz | 5–10 ms | Existing fluid.worker.ts |
+| Global | Math | 0 | On demand | < 0.1 ms | Main thread |
+| **Total** | | | | **< 15 ms** at peak | **3 workers max** |
+
+On a GPU (WebGPU compute shaders, when available): SPH particle count can increase 10–100× for the same cost. 200,000 local environment particles at 30 Hz is feasible on a mid-range GPU.
+
+The server (for shared world state) only needs to run Scale 3 (grid) and Scale 4 (math). Crafting-scale and local-scale SPH run on the client only — they are visual and player-local. The server broadcasts grid cell water levels in the WORLD_SNAPSHOT, and clients generate local SPH particles for visual detail.
+
+#### Critical Optimizations
+
+The SPH algorithm is simple. Making it run at 60 Hz in a browser is the engineering challenge. These optimizations are not optional improvements — they are the architectural foundation without which the system cannot function at interactive frame rates.
+
+**1. Spatial Hash Grid — O(n²) → O(n)**
+
+The most important single optimization. SPH requires every particle to find its neighbors within kernel radius h. Naive approach: check every particle against every other particle. With 5,000 particles, that's 25,000,000 distance checks per tick — impossible at 60 Hz.
+
+Spatial hash grid: divide the world into cells of size h. Each particle hashes its position to a cell index. To find neighbors, only check the particle's own cell and the 26 adjacent cells (3×3×3 neighborhood). Average neighbor check drops from n to ~50 particles.
+
+```
+// Hash function: position → cell index
+function hashCell(x, y, z, cellSize) {
+  const ix = Math.floor(x / cellSize)
+  const iy = Math.floor(y / cellSize)
+  const iz = Math.floor(z / cellSize)
+  return (ix * 73856093) ^ (iy * 19349663) ^ (iz * 83492791)
+}
+
+// Each tick:
+// 1. Clear hash table
+// 2. Insert all particles by position hash
+// 3. For each particle, query only 27 neighboring cells
+```
+
+Cost reduction: 5,000 particles goes from 25M distance checks → ~250K. That's a 100× speedup. This is the difference between "impossible" and "trivial."
+
+**2. Sleep/Wake System — Skip Settled Particles**
+
+A particle that hasn't moved significantly for N consecutive ticks is "sleeping." Skip all force calculations for sleeping particles. They cost zero CPU until disturbed.
+
+```
+if (particle.velocity < SLEEP_THRESHOLD for 30 consecutive ticks):
+  particle.sleeping = true
+  // skip all SPH calculations for this particle
+
+if (any neighbor of sleeping particle moves significantly):
+  particle.sleeping = false  // wake up
+```
+
+In practice, 80–95% of fluid particles are sleeping at any moment. A puddle that settled 10 seconds ago has zero ongoing cost. Only the actively flowing portion of a liquid body costs CPU.
+
+**3. Flat Typed Arrays — Avoid JavaScript Object Overhead**
+
+Do NOT store particles as JavaScript objects (`{ x, y, z, vx, vy, vz, ... }`). Object access in JS involves property lookup, hidden class checks, and potential garbage collection pauses.
+
+Instead: store all particle data in flat `Float32Array` buffers. One contiguous array for positions, one for velocities, one for densities.
+
+```
+// Bad — JS objects, GC pressure, cache misses
+particles = [{ x: 1, y: 2, z: 3, vx: 0, ... }, ...]
+
+// Good — flat typed arrays, SIMD-friendly, zero GC
+const STRIDE = 3
+posX = new Float32Array(MAX_PARTICLES)  // or interleaved: pos = new Float32Array(MAX * 3)
+posY = new Float32Array(MAX_PARTICLES)
+posZ = new Float32Array(MAX_PARTICLES)
+velX = new Float32Array(MAX_PARTICLES)
+velY = new Float32Array(MAX_PARTICLES)
+velZ = new Float32Array(MAX_PARTICLES)
+```
+
+Benefits:
+- CPU cache-friendly (sequential memory access)
+- Enables SIMD auto-vectorization (V8 can process 4 floats at once)
+- Zero garbage collection (no object allocation per tick)
+- Direct transfer to GPU via SharedArrayBuffer (zero-copy)
+- ~3–5× faster than object-based approach in V8
+
+**4. Web Workers + SharedArrayBuffer — Off Main Thread, Zero Copy**
+
+The fluid simulation must NEVER run on the main thread. It runs in a dedicated Web Worker. The renderer (main thread) reads particle positions to draw them.
+
+With `SharedArrayBuffer`, the worker writes particle positions directly into shared memory. The main thread reads from the same memory to render. No copying, no message passing, no serialization.
+
+```
+// Main thread: create shared buffer
+const sharedBuf = new SharedArrayBuffer(MAX_PARTICLES * 3 * 4)  // xyz, float32
+const positions = new Float32Array(sharedBuf)
+
+// Send to worker once at startup
+worker.postMessage({ type: 'init', buffer: sharedBuf })
+
+// Worker: write positions every tick (no postMessage needed)
+positions[i * 3 + 0] = particleX
+positions[i * 3 + 1] = particleY
+positions[i * 3 + 2] = particleZ
+
+// Renderer: read positions every frame (same memory, zero copy)
+geometry.attributes.position.array = positions
+geometry.attributes.position.needsUpdate = true
+```
+
+Cost: effectively zero for data transfer. The only synchronization needed is an `Atomics.store/load` on a tick counter so the renderer knows when new data is ready.
+
+**5. Physics LOD — Distance-Based Quality Reduction**
+
+Particles far from the player don't need full-accuracy physics:
+
+| Distance from player | Tick rate | Neighbor search | Notes |
+|---|---|---|---|
+| 0–20 m | 60 Hz | Full (27 cells) | Player is watching closely |
+| 20–50 m | 15 Hz | Reduced (7 cells — face neighbors only) | Visible but not scrutinized |
+| 50–100 m | 2 Hz | Minimal (own cell only) | Background movement |
+| > 100 m | Convert to grid | No SPH | Too far to see individual particles |
+
+This reduces the effective particle count by ~60% in typical gameplay (most fluid is not right next to the player).
+
+**6. Hybrid Rendering: Real Physics + Visual Tricks**
+
+The most important optimization is knowing **when NOT to simulate**. Real SPH physics only runs during active interaction moments. Everything else uses cheap visual approximations:
+
+| Situation | Physics method | Visual method |
+|---|---|---|
+| Player melting/pouring metal | Real SPH (200-500 particles) | Screen-space fluid smoothing on SPH particles |
+| Player mixing chemicals | Real SPH + diffusion | Color blending shader on SPH particles |
+| Rain falling | None | GPU billboard particle system (thousands of quads, no physics) |
+| Rain puddles forming | Heightfield (add volume to grid cell) | Puddle decal texture + animated ripple shader |
+| River | Grid flow (volume + direction) | River mesh + scaled-down Gerstner waves from OceanShader |
+| Waterfall | None | Particle trail effect + splash particles + foam texture at base |
+| Lake | Grid cell (single water volume number) | Flat mesh at water height + wave shader + edge foam |
+| Ocean | None | Pure Gerstner wave shader (already built in OceanShader.ts) |
+| Lava (active flow front) | Real SPH (2,000-5,000 particles) | Emissive shader + heat distortion + cooled parts become terrain texture |
+| Lava (cooled) | None | Terrain with volcanic rock texture |
+| Blood | None | Decal projected onto terrain surface |
+| Water carried in pot | Just a number (mass + composition) | Sloshing animation shader on the pot model |
+
+The SPH system activates only when needed (phase transition triggers it) and deactivates when particles settle (sleep system) or cool into solids (merge back into material packets). During a typical gameplay session, SPH is actively running for maybe 10% of the time — during smelting, pouring, or weather events. The other 90% costs zero.
+
+**Screen-space fluid rendering** (for the moments when SPH is active):
+1. Render each SPH particle as a point sprite into a depth-only buffer
+2. Bilateral Gaussian blur on the depth buffer — this smooths overlapping spheres into a continuous surface
+3. Reconstruct normals from the smoothed depth
+4. Apply water/metal/lava shading (Fresnel, refraction, emissive glow) as a full-screen pass
+5. Composite over the scene
+
+This technique is used by Unreal Engine 5, Unity HDRP, and most modern games with fluid effects. The blur cost is per-pixel (fixed cost regardless of particle count), making it extremely efficient. 5,000 particles render at the same cost as 500.
+
+#### Implementation Phases
+
+**Phase 1 — Crafting-scale SPH (connect to material packets)**
+- Implement SPH solver in a Web Worker (pressure, viscosity, gravity, terrain collision)
+- Hook into material packet phase transitions: solid → liquid spawns particles, cooling merges them back
+- Visual: simple sphere rendering per particle with composition-based color
+- Test: melt copper ore in bloomery → molten copper flows into a channel → cools into solid
+
+**Phase 2 — Local environment SPH**
+- Dedicated worker for environmental particles (rain, puddles, small streams)
+- Add surface tension for realistic droplet behavior
+- Metaball rendering for smooth liquid surfaces
+- Connect to weather system: rain events spawn falling particles
+
+**Phase 3 — Grid-based regional water**
+- Extend fluid.worker.ts with water volume tracking, Manning's equation flow
+- SPH ↔ grid transitions (particle absorption / emission)
+- Lakes form in terrain concavities, overflow creates rivers
+- Server syncs grid state in WORLD_SNAPSHOT
+
+**Phase 4 — Full water cycle**
+- Evaporation from water surfaces → feeds weather system humidity
+- Groundwater absorption and springs
+- Seasonal variation (freeze/thaw cycle)
+- Connect ocean shader to grid system at coastlines
+
+**Phase 5 — Lava and exotic fluids**
+- Volcanic events spawn high-temperature SPH particles
+- Lava cooling → terrain modification (new rock forms)
+- Molten metal in industrial processes (blast furnace, casting)
+- Acid, oil, alcohol — all derived from composition, no special cases
+
+---
+
+
+### 3.3 Atmospheric Model — Weather and Seasons
+
+#### The Principle
+
+Weather in reality is not random — it is the result of thermodynamics applied to a rotating sphere with uneven heating. The sun heats the equator more than the poles. Hot air rises, cold air sinks. Moisture evaporates from oceans, condenses when it cools, and falls as rain. Mountains force air upward, creating rain on the windward side and dry conditions on the leeward side (rain shadow). All of this is computable from terrain + solar angle + ocean position.
+
+#### Atmospheric Model (Server-Side, 1 Hz Tick)
+
+The server divides the planet into an **atmospheric grid** — one cell per terrain chunk (~64m resolution). Each cell tracks physical quantities that drive weather.
+
+```
+AtmosphereCell {
+  // ── Thermodynamics ────────────────────────────────────────────────────────
+  airTemperature: number             // °C — the temperature a player feels at this location
+  surfaceTemperature: number         // °C — ground/water surface temp (drives convection)
+  humidity: number                   // 0.0–1.0 — mass ratio of water vapor to dry air
+  pressure: number                   // Pa — barometric pressure
+
+  // ── Wind ──────────────────────────────────────────────────────────────────
+  windVelocity: Vec2                 // m/s — horizontal wind vector (drives clouds, affects player)
+  verticalAirSpeed: number           // m/s — updraft (+) or downdraft (-) (drives cloud formation)
+
+  // ── Cloud and Precipitation ───────────────────────────────────────────────
+  cloudCover: number                 // 0.0–1.0 — fraction of sky covered
+  cloudWaterContent: number          // kg/m³ — liquid water in clouds (when > threshold → rain)
+  precipitationType: 'none' | 'rain' | 'snow' | 'hail' | 'sleet'
+  precipitationRate: number          // mm/hour
+  snowDepth: number                  // meters of accumulated snow on ground
+
+  // ── Derived (computed per tick) ───────────────────────────────────────────
+  visibility: number                 // meters — reduced by fog, rain, snow, dust
+  uvIndex: number                    // 0–11+ — affects sunburn, vitamin D, material degradation
+}
+```
+
+#### Temperature Calculation
+
+Temperature at any point is computed from first principles, not from a lookup table:
+
+```
+T_air(position) = T_base(latitude, season)
+                  + ΔT_altitude(elevation)
+                  + ΔT_ocean(distanceToOcean)
+                  + ΔT_time(hourOfDay)
+                  + ΔT_cloud(cloudCover)
+                  + ΔT_wind(windChill)
+
+Where:
+  T_base(lat, season):
+    // Solar angle determines base temperature
+    // At equator, noon sun is nearly vertical → max heating
+    // At poles, sun is always low → minimal heating
+    // Season shifts the solar declination angle
+    solarAngle = 90° - |latitude - solarDeclination|
+    T_base = -20 + 50 × sin(solarAngle × π/180)    // -20°C at poles to +30°C at equator
+
+  ΔT_altitude(elevation):
+    // Lapse rate: temperature drops ~6.5°C per 1000m altitude
+    // This is the International Standard Atmosphere lapse rate
+    ΔT = -6.5 × (elevation / 1000)
+
+  ΔT_ocean(distance):
+    // Ocean moderates temperature (maritime vs continental climate)
+    // Near ocean: smaller temperature swings. Inland: larger swings.
+    maritimeFactor = 1.0 / (1.0 + distance / 500)    // 500m halflife
+    ΔT = maritimeFactor × (oceanSurfaceTemp - T_base) × 0.3
+
+  ΔT_time(hour):
+    // Diurnal cycle: coldest at dawn (06:00), warmest in afternoon (14:00)
+    // Amplitude depends on cloud cover (clouds insulate → smaller swing)
+    diurnalAmplitude = 8 × (1 - cloudCover × 0.5)    // ±8°C clear, ±4°C overcast
+    ΔT = diurnalAmplitude × sin((hour - 6) × π / 12)
+
+  ΔT_cloud(cloudCover):
+    // Clouds trap heat at night, block sun during day
+    if (isDaytime) ΔT = -cloudCover × 5              // cooler during day
+    else           ΔT = +cloudCover × 3              // warmer at night
+
+  ΔT_wind(windSpeed):
+    // Wind chill: effective temperature drop from wind
+    // Uses the NWS wind chill formula (simplified):
+    if (T_air < 10 && windSpeed > 1.3)
+      ΔT = 13.12 + 0.6215 × T_air - 11.37 × windSpeed^0.16 + 0.3965 × T_air × windSpeed^0.16 - T_air
+    else ΔT = 0
+```
+
+#### Pressure and Wind
+
+```
+Pressure at altitude:
+  // Barometric formula: P = P₀ × exp(-Mgh/RT)
+  P(h) = 101325 × exp(-0.0289644 × 9.81 × h / (8.314 × (T + 273.15)))
+
+Wind generation:
+  // Wind flows from high pressure to low pressure (pressure gradient force)
+  // Modified by Coriolis effect (planet rotation)
+  pressureGradient = (P_neighbor - P_cell) / cellDistance
+  coriolisForce = 2 × ω × sin(latitude) × windSpeed    // ω = planet angular velocity
+
+  // Mountains block and redirect wind:
+  if (terrainHeight > airLayerHeight)
+    windVelocity = deflect(windVelocity, terrainNormal)
+    // Windward side: forced uplift → condensation → rain
+    verticalAirSpeed += windSpeed × sin(terrainSlope)
+```
+
+#### Cloud Formation and Precipitation
+
+```
+Cloud formation process:
+  1. Air rises (updraft from heating, terrain uplift, or pressure convergence)
+  2. Rising air cools at the adiabatic lapse rate (9.8°C/km dry, 6.5°C/km wet)
+  3. When air cools below dew point → water vapor condenses → cloud forms
+     dewPoint = T - (100 - humidity × 100) / 5    // simplified Magnus formula
+     if (T_air < dewPoint) → cloudCover increases, cloudWaterContent increases
+
+  4. When cloudWaterContent exceeds threshold → precipitation begins
+     precipThreshold = 0.3    // g/m³ — typical for real clouds
+     if (cloudWaterContent > precipThreshold)
+       precipitationRate = (cloudWaterContent - precipThreshold) × 10    // mm/hour
+
+  5. Precipitation type depends on air temperature at ground level:
+     if (T_ground > 2°C)   → rain
+     if (T_ground ∈ [-2, 2]) → sleet (mixed)
+     if (T_ground < -2°C)  → snow
+     if (updraft > 10 m/s && T_cloud < -20°C) → hail (strong thunderstorm)
+```
+
+#### Rain Shadow Effect
+
+Mountains create wet windward sides and dry leeward sides:
+
+```
+When wind hits a mountain:
+  1. Air forced upward on windward side → cools → condenses → rain on windward slope
+  2. Air crosses the ridge → descends on leeward side → warms (adiabatic) → humidity drops
+  3. Leeward side receives much less precipitation → dry biome (desert, steppe)
+
+  // This is why the eastern side of the Cascade Range in Washington is dry
+  // while the western side gets 2000mm+ of rain per year.
+  // The game replicates this from terrain + wind direction alone — no biome painting needed.
+```
+
+#### Effects on Game Systems
+
+| Weather State | Effect on Player | Effect on Materials | Effect on NPCs | Effect on Sound |
+|---------------|-----------------|--------------------|-----------------|-----------------|
+| Rain | Visibility reduced to 200-500m. Body temperature drops faster. Clothing gets wet (weight increase). | Wood moisture increases (+0.01/minute exposed). Flammability drops. Metal surfaces oxidize faster. Clay becomes workable. | NPCs seek shelter. Gathering pauses. | Rain ambient noise. Footstep sounds become wet/splashy. |
+| Snow | Visibility 100-300m. Hypothermia risk. Movement speed -30% in deep snow. | All moisture increases. Snow accumulates on surfaces. Melts above 0°C → water. | NPCs stay indoors. Population stress increases. | Muffled ambient. Crunching footsteps. |
+| Storm | Visibility <100m. Lightning strikes random tall objects (trees, structures). Wind pushes player movement. | Unsecured items blow. Fire extinguished. Trees can break (wind > 25 m/s). | NPCs shelter. Settlement damage possible. | Loud wind, thunder (distance = sound delay). |
+| Fog | Visibility 20-80m. No temperature effect. | Moisture condenses on surfaces. | NPCs navigate slowly. | All sounds muffled, close-range enhanced. |
+| Clear | Full visibility. Sun exposure → sunburn if prolonged. | Materials dry (moisture -0.005/minute). Optimal for fire-making. | Full activity cycle. | Dry acoustics, bird calls. |
+| Hot/dry | Heat stroke risk above 40°C. Thirst drain ×2. | Wood dries fast (fire risk). Mud cracks. Clay unusable (too dry). | NPCs rest midday. Water-seeking behavior. | Dry wind, heat shimmer visual. |
+
+#### Material Moisture Model
+
+Rain and weather directly change material properties in the world:
+
+```
+MaterialMoistureUpdate (per tick, exposed materials only) {
+  if (raining && materialIsExposed) {
+    material.moisture += precipitationRate × 0.001 × dt   // absorbs rain
+    material.moisture = min(material.moisture, material.maxAbsorption)
+    // maxAbsorption depends on material porosity:
+    // wood: 0.8, cloth: 0.9, stone: 0.05, metal: 0.0, soil: 0.6
+  }
+
+  if (!raining && sunExposed) {
+    // Evaporation: rate depends on temperature, wind, humidity
+    evapRate = (1 - humidity) × (T_air / 50) × (1 + windSpeed × 0.1)
+    material.moisture -= evapRate × 0.001 × dt
+    material.moisture = max(material.moisture, 0)
+  }
+
+  // Wet wood can't burn:
+  if (material.moisture > 0.4) material.flammability = 0
+  // Partially wet wood is hard to ignite:
+  else if (material.moisture > 0.1)
+    material.flammability *= (1 - material.moisture × 2)
+}
+```
+
+#### Season System — Orbital Mechanics
+
+#### The Calendar
+
+The planet orbits its star with a tilted axis (23.4° — same as Earth). This tilt causes seasons.
+
+```
+SeasonSystem {
+  // ── Time scale: 4× real life ──────────────────────────────────────────────
+  // 1 real hour = 4 game hours
+  // 6 real hours = 1 game day (24 game hours)
+  // 1 real day = 4 game days
+  // ~91 real days (3 real months) = 1 game year (365 game days)
+  // 1 real year ≈ 4 game years
+  //
+  // This means:
+  //   A 2-hour play session spans 8 game hours — enough to see dawn to afternoon
+  //   A 6-hour session is a full game day — experience day, night, and next dawn
+  //   Seasons change every ~23 real days (~3 weeks)
+  //   A player experiences all 4 seasons in ~3 real months
+  //
+  // Exception: world CREATION (planet formation, organism generation) runs on
+  // a faster timelapse at server startup. Only an admin can change the timescale.
+
+  timeScale: 4                               // game hours per real hour
+  yearLength: 365                            // game days per year
+  dayLength: 21600                           // real seconds per game day (6 real hours)
+  axialTilt: 23.4                            // degrees — determines season intensity
+
+  // Current season determined by day of year:
+  // Day 0-91:    Spring (northern hemisphere) / Autumn (southern)
+  // Day 91-182:  Summer / Winter
+  // Day 182-273: Autumn / Spring
+  // Day 273-365: Winter / Summer
+
+  // Solar declination angle (determines which hemisphere gets more sun):
+  solarDeclination = axialTilt × sin(2π × dayOfYear / yearLength)
+  // +23.4° at summer solstice (day ~172), -23.4° at winter solstice (day ~355)
+}
+```
+
+#### Season Effects
+
+| Season | Temperature Modifier | Daylight Hours | Weather Bias | Gameplay Impact |
+|--------|---------------------|----------------|-------------|-----------------|
+| Spring | +0 to +5°C gradual warming | 12→14 hours | More rain, fog lifting | Snow melts → rivers flood. Plants grow. Animals breed. Soil workable. |
+| Summer | +8 to +12°C | 14→16 hours | Clear/hot dominant, afternoon storms | Peak farming. Fire risk (dry materials). Long work days. Heat stroke risk. |
+| Autumn | -2 to -5°C cooling | 12→10 hours | Increasing rain, wind | Harvest season. Leaves change. Animals fatten. Days shorten. |
+| Winter | -10 to -15°C | 8→10 hours | Snow, ice, fog | Hypothermia danger. Rivers freeze (walkable). Food scarce. Short days → limited activity. |
+
+```
+Season effects on systems:
+  // Organism energy budgets (§2):
+  autotroph.photosynthesisRate *= daylightHours / 12    // more light = more energy
+  heterotroph.metabolicRate *= 1 + (30 - T_air) × 0.01  // cold = higher metabolism to stay warm
+
+  // Farming:
+  cropGrowthRate = baseRate × seasonGrowthMultiplier × soilQuality × waterAvailability
+  // Spring: ×0.5 (starting), Summer: ×1.0 (peak), Autumn: ×0.3 (slowing), Winter: ×0.0 (dormant)
+
+  // Water state:
+  if (T_air < 0) {
+    // Rivers freeze: surface becomes walkable solid (ice hardness ~1.5 Mohs)
+    // Lakes freeze: fishing through ice holes possible
+    // Ocean edges freeze: extends walkable coastline
+    // Snow accumulates: 1cm per hour of snowfall, compacts over time
+    // Ice thickens: ~2cm per day below 0°C (Stefan's law of ice growth)
+  }
+
+  // Day/night cycle:
+  sunriseHour = 6 - (daylightHours - 12) / 2
+  sunsetHour = 18 + (daylightHours - 12) / 2
+  // In summer: sunrise at 5:00, sunset at 21:00 (16h daylight)
+  // In winter: sunrise at 8:00, sunset at 16:00 (8h daylight)
+```
+
+
+### 3.4 Sound Engine — Physics-Driven Audio
+
+#### The Principle
+
+Every sound in the real world is produced by a physical event: two objects collide and their surfaces vibrate, a fluid turbulates as it flows past an obstacle, air rushes through a narrow opening. The frequency, timbre, and volume of the resulting sound are determined by the physical properties of the objects and the medium.
+
+The game follows the same principle. There is no `sounds/` folder with `campfire_loop.wav` or `footstep_dirt_03.mp3` mapped to game events. Instead, the **audio engine computes what you should hear** from the physics of what is happening.
+
+#### The Audio Pipeline
+
+```
+PhysicsEvent → SoundDescriptor → SampleSelector → AudioProcessor → WebAudio → Speakers
+
+Step 1: PhysicsEvent
+  Any physics interaction generates an event:
+  { type: 'impact'|'scrape'|'flow'|'break'|'combustion'|'pressure_release',
+    materialA: MaterialPacket,        // first material involved
+    materialB: MaterialPacket | null, // second material (null for single-material events like cracking)
+    energy: number,                   // joules of the interaction
+    contactPoint: Vec3,               // world position where it happened
+    contactNormal: Vec3,              // surface normal at contact
+    relativeVelocity: Vec3 }          // approach speed and direction
+
+Step 2: SoundDescriptor
+  Computed from the physics event + material properties:
+  {
+    // ── Timbre Selection ────────────────────────────────────────────────────
+    // Based on material classification + hardness
+    timbreClass: computeTimbreClass(materialA, materialB)
+    // Classes: 'metallic', 'lithic' (stone/ceramic), 'organic' (wood/bone/leather),
+    //          'granular' (sand/gravel/soil), 'liquid', 'gas' (wind/steam/explosion)
+
+    // ── Pitch ───────────────────────────────────────────────────────────────
+    // Fundamental frequency from object size and material stiffness
+    // f₀ = (1/2L) × √(E/ρ)  where:
+    //   L = characteristic length of the vibrating object (m)
+    //   E = Young's modulus (Pa) — derived from material hardness and crystal structure
+    //   ρ = density (kg/m³) — from MaterialPacket
+    fundamentalFreq: computeF0(materialA)     // Hz
+    // A small stone chip: L=0.03m, E=70GPa, ρ=2700 → f₀ ≈ 2700 Hz (high ping)
+    // A large iron anvil: L=0.5m, E=200GPa, ρ=7800 → f₀ ≈ 320 Hz (deep ring)
+    // A wooden log: L=1.0m, E=12GPa, ρ=600 → f₀ ≈ 70 Hz (low thud)
+
+    // ── Volume ──────────────────────────────────────────────────────────────
+    // Sound power from impact energy
+    // P_sound = η × E_impact / t_contact  where:
+    //   η = acoustic efficiency (metal: 0.01, stone: 0.005, wood: 0.002, sand: 0.0001)
+    //   E_impact = ½mv² (kinetic energy of impact)
+    //   t_contact = contact duration (harder materials = shorter = louder)
+    soundPower: computePower(energy, materialA, materialB)   // watts
+
+    // ── Decay ───────────────────────────────────────────────────────────────
+    // How quickly the sound dies out
+    // Metal: long decay (ringing), τ = 2-5 seconds
+    // Stone: medium decay, τ = 0.1-0.5 seconds
+    // Wood: short decay, τ = 0.05-0.2 seconds
+    // Soft materials: nearly instant, τ < 0.05 seconds
+    decayTime: computeDecay(materialA)   // seconds (time to -60dB)
+  }
+
+Step 3: SampleSelector
+  The engine has a library of ~50 base audio samples organized by timbre class:
+
+  metallic_impact[]: 5 samples (light tap to heavy strike)
+  metallic_scrape[]: 3 samples (slow to fast)
+  metallic_ring[]:   3 samples (small to large resonator)
+  lithic_impact[]:   5 samples
+  lithic_crack[]:    3 samples
+  lithic_grind[]:    3 samples
+  organic_impact[]:  5 samples (wood knock to bone crack)
+  organic_creak[]:   3 samples
+  granular_step[]:   5 samples (packed to loose)
+  granular_pour[]:   3 samples
+  liquid_splash[]:   5 samples (drip to pour)
+  liquid_flow[]:     3 samples (trickle to rush)
+  liquid_bubble[]:   3 samples
+  gas_rush[]:        3 samples (breeze to blast)
+  gas_hiss[]:        3 samples
+  combustion[]:      5 samples (spark to roar)
+
+  Selection: timbreClass + energy level → pick the closest base sample
+  Total: ~55 samples. Compared to typical games that ship 500-2000 samples,
+  this is 10× smaller because the variation comes from processing, not recording.
+
+Step 4: AudioProcessor
+  The selected sample is transformed in real-time by the WebAudio API:
+
+  // Pitch shift to match computed fundamental frequency
+  playbackRate = fundamentalFreq / sampleBaseFreq
+
+  // Volume from sound power + distance attenuation
+  // Inverse square law: I = P / (4π r²) where r = distance from source to listener
+  gain = soundPower / (4 * Math.PI * distance² + 1)   // +1 prevents division by zero at contact
+  // Clamp to [0, 1] for output
+
+  // Decay envelope: exponential falloff
+  // gain(t) = gain₀ × e^(-t/τ) where τ = decayTime
+
+  // Environment filtering:
+  if (underwater) {
+    // Low-pass filter at 800 Hz (water absorbs high frequencies)
+    // Speed of sound: 1500 m/s (vs 343 m/s in air) — affects spatial delay
+    lowpassCutoff = 800
+    speedOfSound = 1500
+  } else if (inCave) {
+    // Convolution reverb with cave impulse response
+    // Reverb time: proportional to cave volume (estimated from nearest walls raycast)
+    reverbTime = estimateCaveVolume(listenerPosition) * 0.001  // seconds
+    reverbWetMix = 0.6
+  } else if (inForest) {
+    // Scattered reflections: short multi-tap delay (tree trunks)
+    // High-frequency absorption from foliage
+    lowpassCutoff = 4000
+    scatterDelay = [20, 35, 55, 80]  // ms, from nearby tree reflections
+    scatterGain = [0.3, 0.2, 0.15, 0.1]
+  } else {
+    // Open field: dry sound, no reverb
+    reverbWetMix = 0.0
+  }
+```
+
+#### Continuous Sounds (Not Impacts)
+
+Some sounds are ongoing processes, not single events:
+
+```
+ContinuousSoundSources {
+  // ── Fire ──────────────────────────────────────────────────────────────────
+  // Fire sound = turbulent gas flow + crackling (moisture in wood popping)
+  // Volume: proportional to fire intensity (fuel burn rate × oxygen supply)
+  // Pitch: base rumble at 80-200 Hz (turbulence), crackle overlays at 1-4 kHz
+  // The crackle rate depends on wood moisture content:
+  //   dryWood (moisture < 0.1): rare crackles, clean burn sound
+  //   wetWood (moisture > 0.4): frequent loud pops, hissing steam overlay
+  fire: {
+    baseFreq: 80 + fuelBurnRate * 120,       // Hz
+    crackleRate: woodMoisture * 10,           // pops per second
+    hissOverlay: woodMoisture > 0.3,          // steam hiss from wet wood
+    volume: fuelBurnRate * 0.5                // normalized
+  }
+
+  // ── Flowing Water ─────────────────────────────────────────────────────────
+  // Sound of water = turbulence at obstacles
+  // Volume: proportional to flow speed × cross-section area
+  // Pitch: small stream = high (2-4 kHz babble), large river = low (100-400 Hz rumble)
+  // River sound uses the queryNearestRiver() data from RiverSystem.ts:
+  water: {
+    baseFreq: 4000 / (riverWidth + 1),        // narrower = higher pitch
+    turbulenceNoise: brownNoise,               // base waveform
+    volume: flowSpeed * crossSection * 0.01,
+    splashOverlay: flowSpeed > 2.0             // rapids add white noise bursts
+  }
+
+  // ── Wind ──────────────────────────────────────────────────────────────────
+  // Wind sound = air flowing past the listener's ears and nearby objects
+  // Pitch: proportional to wind speed (Aeolian tone: f = 0.2 × v / d, where d = object diameter)
+  // Volume: proportional to v² (kinetic energy of air)
+  // Variation: gusts modulate volume sinusoidally (period 3-8 seconds)
+  wind: {
+    baseFreq: 0.2 * windSpeed / 0.02,         // ear diameter ~2cm → Aeolian frequency
+    volume: windSpeed * windSpeed * 0.001,
+    gustModulation: sin(time * gustFreq) * 0.3 + 0.7,   // 70-100% volume oscillation
+    objectWhistle: nearbyThinObjects.map(obj =>  // fence posts, branches whistle
+      ({ freq: 0.2 * windSpeed / obj.diameter, volume: windSpeed * 0.01 }))
+  }
+
+  // ── Footsteps ─────────────────────────────────────────────────────────────
+  // Generated per step from the walk cycle animation (foot contact event)
+  footstep: {
+    // Terrain material at foot contact point determines timbre class:
+    terrainMaterial: getTerrainMaterialAt(footPosition)
+    // stone/rock → lithic_impact, hard tap
+    // sand → granular_step, soft crunch (pitch varies with grain size)
+    // mud → liquid + granular mix, squelch (moisture content determines wet/dry balance)
+    // grass → organic + granular, soft swish
+    // wood (floor/dock) → organic_impact, hollow knock (pitch from plank thickness)
+    // snow → granular, high-pitched crunch (compacting ice crystals)
+    // metal (grating) → metallic_impact, sharp ring
+
+    // Volume from player mass × step force
+    // Running = 2× walking volume
+    // Sneaking = 0.3× walking volume (also slower step frequency)
+    volume: playerMass * stepForce * terrainLoudness[terrainType]
+  }
+}
+```
+
+#### Spatial Audio (3D Positioning)
+
+```
+SpatialAudio {
+  // All sounds are positioned in 3D using WebAudio's PannerNode
+  panningModel: 'HRTF'                      // Head-Related Transfer Function
+                                              // Simulates how sound arrives at each ear differently
+                                              // based on direction — enables "I hear it to my left"
+
+  // Distance attenuation: inverse square law with rolloff
+  distanceModel: 'inverse'
+  refDistance: 1.0                            // full volume at 1 meter
+  maxDistance: 200.0                          // silent beyond 200 meters
+  rolloffFactor: 1.0                         // standard inverse-square (realistic)
+
+  // Sound travels at finite speed (optional, for immersion):
+  // delay = distance / speedOfSound
+  // At 100m: delay = 100/343 = 0.29 seconds
+  // Player sees lightning, then hears thunder 0.3s later per 100m distance
+  // This is subtle but adds enormous realism for distant events (explosions, mining, thunder)
+  propagationDelay: distance / (underwater ? 1500 : 343)   // seconds
+}
+```
+
+#### Performance Budget
+
+The audio system must stay within strict CPU limits:
+
+| Component | Budget | How |
+|-----------|--------|-----|
+| SoundDescriptor computation | <0.1ms per event | Simple arithmetic on material properties — no iteration, no lookup tables |
+| Sample selection | <0.05ms per event | Direct array index from timbre class + energy bucket |
+| WebAudio processing | ~2-3ms total | Handled by browser's audio thread (not main thread). Typically 8-16 concurrent voices max. |
+| Environment estimation | ~0.5ms per frame | Raycast cache for cave/forest/open classification. Recompute only when player moves >5m. |
+| Total audio CPU | <1ms main thread | Most work happens on the browser's audio thread. Main thread only computes SoundDescriptors and sends them to WebAudio. |
+
+**Voice limiting:** Maximum 16 simultaneous sounds. When a new sound would exceed the limit, the quietest (lowest gain after distance attenuation) sound is dropped. Continuous sounds (fire, river, wind) have reserved slots (max 4) and compete separately from transient sounds (impacts, footsteps).
+
+
+### 3.5 Structural Physics — How Buildings Stand or Fall
+
+Every structure is made of MaterialPackets (§3.1). Whether it stands or falls is determined by the same material properties that determine melting point and hardness: compressive strength, tensile strength, and shear strength. Gravity loads propagate downward through connections. Where stress exceeds material strength, blocks break and cascade collapse occurs. Arches convert tension to compression, allowing stone to span gaps. Foundations must match terrain bearing capacity. Weather decays materials over time — rain dissolves mud mortar, freeze-thaw cracks stone, fire destroys wood. See the full internal specification for force propagation algorithms, span limit formulas, and performance budgets.
+
+### 3.6 Networking & Hybrid Rendering
+
+#### The Principle
+
+This is a real-world online simulation. The server is the world. The client is a window into that world — eyes and ears only. If the server doesn't know about it, it didn't happen. This prevents cheating and ensures all players experience the same reality.
+
+#### Authority Model
+
+```
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                         SERVER (Node.js)                             │
+│                                                                              │
+│  AUTHORITATIVE (server computes, broadcasts results):                        │
+│  ├── All physics simulations                                                 │
+│  │   ├── SPH fluid particles (melting, pouring, lava, water flow)           │
+│  │   ├── Material packet reactions (Gibbs free energy, stoichiometry)        │
+│  │   ├── Temperature propagation (heat transfer between objects)             │
+│  │   ├── Rigid body physics (dropped items, thrown objects, digging debris)  │
+│  │   └── Terrain collision and modification                                  │
+│  ├── All entity state                                                        │
+│  │   ├── Player positions (server validates movement)                        │
+│  │   ├── Player stats (health, hunger, thirst, energy, stamina, temperature)│
+│  │   ├── Player inventory (server controls all add/remove)                   │
+│  │   ├── NPC state machines (goal loops, positions, carried items)           │
+│  │   ├── Organism simulation (births, deaths, movement, feeding)            │
+│  │   └── Dropped item positions and despawn timers                           │
+│  ├── Weather and atmosphere (§6)                                           │
+│  ├── Settlement economy (trade, population, resource stockpiles)             │
+│  ├── Crafting validation (interaction engine runs server-side)               │
+│  └── Death, loot drops, respawn timing                                       │
+│                                                                              │
+│  BROADCAST TO CLIENTS:                                                       │
+│  ├── WORLD_SNAPSHOT (6 Hz): player positions, NPC positions, organism       │
+│  │   positions, weather state, settlement state                              │
+│  ├── PHYSICS_EVENT (as needed): SPH particle spawns/updates, material        │
+│  │   reactions, temperature changes, terrain modifications                   │
+│  ├── SOUND_EVENT (as needed): physics event descriptors for audio            │
+│  │   { type, materialA, materialB, energy, position, contactNormal }        │
+│  └── ENTITY_UPDATE (as needed): inventory changes, stat changes, deaths     │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                         CLIENT (Browser, Three.js)                           │
+│                                                                              │
+│  RECEIVES AND RENDERS (never computes authoritative state):                  │
+│  ├── Visual rendering                                                        │
+│  │   ├── Terrain mesh from server-sent CHUNK_DATA (no local generation)      │
+│  │   ├── Player/NPC body meshes at server-provided positions                 │
+│  │   ├── SPH particle rendering (metaballs) from server particle positions   │
+│  │   ├── Weather visuals (rain particles, snow, fog, clouds, lightning)      │
+│  │   ├── Lighting (sun position from season/time, torches, campfires)        │
+│  │   ├── Ocean shader (Gerstner waves — visual only, no physics)            │
+│  │   └── UI panels (inventory, workstation, map)                             │
+│  ├── Sound generation (§8.6)                                               │
+│  │   ├── Receives SOUND_EVENT from server                                    │
+│  │   ├── Computes audio parameters locally (pitch, volume, timbre)           │
+│  │   ├── Spatial audio positioning from server-provided source position      │
+│  │   └── Environment filtering (cave/forest/underwater) from local geometry  │
+│  ├── Input capture                                                           │
+│  │   ├── WASD + mouse → sends MOVE_INPUT to server                          │
+│  │   ├── Click/interact → sends ACTION_REQUEST to server                     │
+│  │   ├── Tool swing → sends TOOL_USE { target, position } to server         │
+│  │   └── Drop/pour/place → sends corresponding request to server            │
+│  └── Client-side prediction (for responsiveness)                             │
+│      ├── Player movement is predicted locally, corrected by server          │
+│      ├── Tool swing animation plays immediately, result comes from server   │
+│      └── Camera and first-person arms are client-only (no server involved)  │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Why Server-Authoritative Physics
+
+- **Anti-cheat:** If the client computed reactions, a modified client could claim "I smelted gold from dirt." The server runs the reaction engine — the client only sees the result.
+- **Consistency:** Two players watching the same smelting see the same outcome because the server computed it once.
+- **Sound from physics:** Sound events are a byproduct of server physics. When an impact happens server-side, the server emits a `SOUND_EVENT` with the physics descriptor. The client's audio engine (§8.6) converts that into actual audio. The client hears what the server says happened — not what the client thinks happened.
+
+#### Latency Mitigation
+
+Server-authoritative physics adds latency. A player swings a pickaxe → request goes to server → server computes → result comes back. At 50ms round-trip, this is barely noticeable. At 200ms, it feels sluggish. Mitigations:
+
+```
+Client-Side Prediction {
+  // Movement: client immediately moves the player mesh, server corrects if wrong
+  // If server position diverges > 0.5m from client prediction → snap correction
+
+  // Tool animations: client plays the swing animation immediately
+  // The physical result (rock fragment, sparks, sound) waits for server confirmation
+  // Typical delay: 30-80ms — fast enough that animation covers the gap
+
+  // Crafting: client shows "processing..." immediately when player starts a craft
+  // Server validates and returns result. If invalid, client shows failure feedback.
+
+  // Pouring liquid: client shows a visual pour stream immediately
+  // Actual SPH particles are spawned by server and streamed to client
+  // Visual stream hides the 50ms gap before real particles appear
+}
+```
+
+#### Bandwidth Budget
+
+```
+Per player, per second (steady state — not moving to new chunks):
+  WORLD_SNAPSHOT (6 Hz):    ~2 KB × 6 = 12 KB/s     (positions, compressed)
+  PHYSICS_EVENT (variable): ~0.5 KB average           (only during active physics)
+  SOUND_EVENT (variable):   ~0.1 KB average           (compact descriptors)
+  ENTITY_UPDATE (variable): ~0.2 KB average           (stat changes, inventory)
+  Player input (upstream):  ~0.5 KB/s                 (movement + actions)
+
+  Total per player (steady): ~13 KB/s downstream, ~0.5 KB/s upstream
+  50 concurrent players: ~650 KB/s total server bandwidth
+
+Per player, burst (entering new area):
+  CHUNK_DATA (9 chunks):    ~90 KB burst              (one-time, cached after)
+  This is a brief spike when the player moves into unexplored terrain.
+  Chunks are cached on the client — subsequent visits to the same area cost nothing.
+
+Per player, terrain modification:
+  CHUNK_UPDATE:             ~10 KB per modified chunk  (rare — only when digging/building)
+
+Per player, video stream mode (when active):
+  H.264 hardware encoder (720p):      ~750 KB/s (~6 Mbit/s)    (replaces all other visual data)
+  JPEG fallback:            ~2-3 MB/s                 (if MSE not supported)
+  Sound data still sent separately as SOUND_EVENTs
+```
+
+#### Hybrid Rendering — Local 3D + Server Video Stream
+
+##### The Problem
+
+The client needs to show the world. Two extremes exist:
+
+1. **Send state data, client renders 3D** — cheap bandwidth (~13 KB/s), but the client must reconstruct complex physics visuals (SPH particles, fire, debris, deforming materials) from abstract position data. This is hard. Thousands of SPH particles flowing in a crucible can't be faithfully rendered from just position arrays — the client would need the full physics context (material properties, surface tension, light interaction with molten metal) to make it look right. The result would either look wrong or require the client to run its own physics (which defeats server authority).
+
+2. **Server renders everything, streams video** — pixel-perfect visuals, but costs ~750 KB/s per player and requires a GPU server. Works for complex scenes but wasteful for a player standing in a field looking at terrain.
+
+Neither extreme is ideal. The hybrid approach uses each where it's strongest.
+
+##### Two Rendering Modes
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                                                                             │
+│  MODE 1: State + Shader Rendering (default, ~90% of play time)             │
+│                                                                             │
+│  Used when: exploring, walking, standing on a beach, watching weather,     │
+│             looking at a campfire, rain falling, rivers flowing, ocean      │
+│             waves, wind blowing through trees — the full living world      │
+│                                                                             │
+│  Server sends: WORLD_SNAPSHOT + CHUNK_DATA + ENTITY_UPDATE                 │
+│                + ENVIRONMENT_STATE (wind, rain, fire positions, flow       │
+│                  vectors, temperature field)                                │
+│  Client does:  Full 3D rendering with GPU shaders that make the world     │
+│                look REAL:                                                   │
+│                                                                             │
+│    TERRAIN:     Meshes with PBR materials, normal maps                     │
+│    OCEAN:       Gerstner wave shader — realistic waves responding to wind  │
+│                 Foam, Fresnel reflections, depth transparency, shore wash  │
+│    RIVERS:      Flow shader driven by server flow vectors, foam at rocks   │
+│    RAIN:        GPU particle system — 10,000+ raindrops, splash on contact│
+│    SNOW:        Particle system, accumulation shader on terrain            │
+│    FIRE:        Billboard particles, emissive glow, point light, smoke    │
+│    WIND:        Vertex displacement on grass and trees from server wind    │
+│    FOG:         Exponential distance fog from server weather               │
+│    CLOUDS:      Scrolling noise layers, density from server                │
+│    CHARACTERS:  Animated skeletal meshes at server positions               │
+│    LIGHTING:    Sun, dynamic shadows, point lights from fires/torches     │
+│    DAY/NIGHT:   Atmospheric scattering sky shader, stars at night         │
+│                                                                             │
+│  The world looks FULLY REAL in Mode 1. A player on a beach sees waves     │
+│  crashing, foam washing up, rain falling, wind bending grass, firelight   │
+│  flickering. This is the normal, full-quality game experience.             │
+│                                                                             │
+│  What the client CANNOT do in Mode 1 (only interactive physics):           │
+│    - SPH fluid the player is actively pouring or mixing                    │
+│    - Molten metal flowing into a mold (shape depends on simulation)        │
+│    - Material deforming under hammer blows (precision craft)               │
+│    - Clay being shaped on a wheel (player-driven deformation)              │
+│                                                                             │
+│  Bandwidth: ~15 KB/s steady + ~90 KB burst for new chunks                  │
+│  Client needs: GPU (any modern integrated GPU handles these shaders)       │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                                                                             │
+│  MODE 2: Video Stream (only for interactive physics, ~10% of play time)    │
+│                                                                             │
+│  Used ONLY when the player is directly interacting with physics:            │
+│    - Precision crafting: shaping clay, knapping flint, forging metal       │
+│    - Pouring liquid from one container to another                           │
+│    - Smelting: watching ore melt and metal separate from slag               │
+│    - Active lava flow deforming terrain in front of the player              │
+│                                                                             │
+│  NOT used for: ocean waves, campfire, rain, walking through forest —       │
+│                all of these look great in Mode 1 with GPU shaders.          │
+│                                                                             │
+│  Server does: renders the scene on its GPU                                 │
+│               encodes H.264 via hardware encoder                            │
+│               streams frames over WebSocket                                 │
+│  Client does: decodes video and displays it                                │
+│               still captures and forwards player input                      │
+│               still plays sound from SOUND_EVENTs                           │
+│                                                                             │
+│  Bandwidth: ~750 KB/s (H.264) or ~2-3 MB/s (JPEG fallback)               │
+│  Server needs: GPU with hardware encoder                                   │
+│  Client needs: just a browser (no GPU required)                            │
+│                                                                             │
+│  Why video is needed here: the player is CREATING the visual result.       │
+│  When you pour copper into a mold, the shape depends on SPH simulation.    │
+│  A shader can't fake that — it must be computed and shown.                  │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+##### When and How the Switch Happens
+
+The switch between modes is triggered by **the player's actions**, not by scene complexity analysis. This makes it predictable and clean.
+
+```
+Mode Switch Triggers {
+  // ── State → Video (player enters a physics-heavy context) ─────────────────
+
+  trigger_1: "Player presses F at a workstation"
+    // Camera zooms into the workstation (§8.14 precision craft mode)
+    // During the zoom animation (0.5s), the server:
+    //   1. Starts rendering this player's view on the GPU
+    //   2. Begins encoding H.264 frames
+    //   3. Sends MODE_SWITCH { mode: 'video' } to client
+    // Client:
+    //   1. Receives MODE_SWITCH
+    //   2. Creates/shows <video> element (or JPEG canvas)
+    //   3. Fades out the 3D canvas, fades in the video
+    //   4. The zoom blur hides any visual discontinuity during the transition
+    //   5. From this point, client displays video frames from server
+    //   6. Client still sends input (mouse position for precision craft, keyboard)
+
+  trigger_2: "Active SPH particles > 200 within 10m of player"
+    // A lava flow reaches the player, or someone pours a large amount of liquid nearby
+    // Server detects the threshold and initiates video mode
+    // Transition: 0.3s crossfade from 3D to video
+
+  trigger_3: "Player enters precision craft mode manually"
+    // Player holds an item and presses the precision key
+    // Same as trigger_1 — zoom in, switch to video
+
+  // ── Video → State (physics event ends) ────────────────────────────────────
+
+  trigger_4: "Player exits workstation (ESC or walks away)"
+    // Camera zooms out
+    // During zoom out (0.5s), server:
+    //   1. Sends final state update (what changed: new items, terrain mods)
+    //   2. Sends MODE_SWITCH { mode: 'state' }
+    //   3. Stops encoding video for this player
+    // Client:
+    //   1. Receives MODE_SWITCH
+    //   2. Fades out video, fades in 3D canvas
+    //   3. 3D scene is already up-to-date from state data received during video mode
+    //      (WORLD_SNAPSHOT continues during video mode — client updates 3D scene in background)
+
+  trigger_5: "Active SPH particles drop below 50 near player"
+    // The liquid solidified, the lava cooled, the pour is done
+    // Server sends final state, switches back to state mode
+    // 0.3s crossfade back to 3D
+}
+```
+
+##### Implementation — How It Actually Works
+
+The hybrid system works as follows:
+
+```
+Server Side (Node.js + server-side renderer + hardware encoder):
+
+  // The server already has:
+  //   - server-side renderer creating a WebGL context
+  //   - Three.js rendering scenes
+  //   - video encoder hardware_h264 encoding frames at ~3-8ms per frame
+  //   - WebSocket transport for binary frame data
+  //   - Per-player camera management
+
+  // What's new for hybrid mode:
+  //   - The server does NOT render video for all players all the time
+  //   - Video rendering is ON-DEMAND, per player, only during physics moments
+  //   - Each player has a videoMode: boolean flag
+
+  class PlayerSession {
+    videoMode: boolean = false           // starts in state mode
+    camera: THREE.PerspectiveCamera      // player's view (always maintained)
+    ffmpegProcess: ChildProcess | null   // spawned only when videoMode = true
+
+    enterVideoMode() {
+      this.videoMode = true
+      // Spawn video encoder hardware encoder encoder for this player
+      this.ffmpegProcess = spawn('ffmpeg', [
+        '-f', 'rawvideo', '-pix_fmt', 'rgba',
+        '-s', '1280x720', '-r', '30',       // 720p at 30fps
+        '-i', 'pipe:0',                       // raw frames from stdin
+        '-c:v', 'hardware_h264',                 // NVIDIA hardware encoder
+        '-preset', 'p4',                      // balanced quality/speed
+        '-tune', 'ull',                       // ultra-low-latency
+        '-b:v', '4M',                         // 4 Mbit/s bitrate
+        '-f', 'mp4',
+        '-movflags', 'frag_keyframe+empty_moov',
+        'pipe:1'                              // fragmented MP4 to stdout
+      ])
+      // video encoder stdout → WebSocket binary frames to client
+      this.ffmpegProcess.stdout.on('data', chunk => {
+        this.ws.send(chunk)                   // binary frame to browser
+      })
+      // Send mode switch message
+      this.ws.send(JSON.stringify({ t: 'mode', mode: 'video' }))
+    }
+
+    exitVideoMode() {
+      this.videoMode = false
+      if (this.ffmpegProcess) {
+        this.ffmpegProcess.stdin.end()        // graceful shutdown
+        this.ffmpegProcess = null
+      }
+      this.ws.send(JSON.stringify({ t: 'mode', mode: 'state' }))
+    }
+  }
+
+  // Render loop (runs at 30 Hz for video-mode players only):
+  function renderVideoFrames() {
+    for (const session of activeSessions) {
+      if (!session.videoMode) continue        // skip state-mode players — no rendering needed
+
+      // Position camera at player's view
+      renderer.render(scene, session.camera)
+
+      // Read pixels from GPU
+      const pixels = new Uint8Array(1280 * 720 * 4)
+      gl.readPixels(0, 0, 1280, 720, gl.RGBA, gl.UNSIGNED_BYTE, pixels)
+
+      // Feed to this player's video encoder process
+      session.ffmpegProcess.stdin.write(Buffer.from(pixels))
+    }
+  }
+
+  // Server cost: rendering ONLY happens for players in video mode
+  // If 50 players are online but only 3 are at workstations, only 3 get rendered
+  // dedicated GPU can handle ~8-10 simultaneous 720p renders at 30fps
+```
+
+```
+Client Side (Browser):
+
+  class GameClient {
+    mode: 'state' | 'video' = 'state'
+    threeCanvas: HTMLCanvasElement           // 3D rendering (always exists)
+    videoElement: HTMLVideoElement           // MSE video playback
+    mediaSource: MediaSource                 // for H.264 decoding
+    sourceBuffer: SourceBuffer | null
+
+    // 3D scene is ALWAYS maintained, even during video mode
+    // This means switching back to state mode is instant — no loading
+    threeScene: THREE.Scene
+    threeRenderer: THREE.WebGLRenderer
+
+    onMessage(data) {
+      if (typeof data === 'string') {
+        const msg = JSON.parse(data)
+
+        if (msg.t === 'mode') {
+          this.switchMode(msg.mode)
+          return
+        }
+
+        // State data — always processed, even during video mode
+        if (msg.t === 'snapshot') this.updateSceneFromSnapshot(msg)
+        if (msg.t === 'chunk')    this.loadChunkData(msg)
+        if (msg.t === 'sound')    this.playSound(msg)
+        if (msg.t === 'entity')   this.updateEntity(msg)
+      } else {
+        // Binary data = video frame (only arrives during video mode)
+        if (this.sourceBuffer && !this.sourceBuffer.updating) {
+          this.sourceBuffer.appendBuffer(data)
+        }
+      }
+    }
+
+    switchMode(newMode: 'state' | 'video') {
+      if (newMode === this.mode) return
+
+      if (newMode === 'video') {
+        // Crossfade: 3D canvas fades out, video fades in
+        this.threeCanvas.style.transition = 'opacity 0.4s'
+        this.threeCanvas.style.opacity = '0'
+        this.videoElement.style.transition = 'opacity 0.4s'
+        this.videoElement.style.opacity = '1'
+        this.videoElement.style.display = 'block'
+        // Start MSE pipeline
+        this.initMSE()
+      } else {
+        // Crossfade: video fades out, 3D canvas fades in
+        this.videoElement.style.opacity = '0'
+        this.threeCanvas.style.opacity = '1'
+        // 3D scene is already up-to-date (state data kept flowing during video mode)
+        setTimeout(() => {
+          this.videoElement.style.display = 'none'
+          this.cleanupMSE()
+        }, 400)
+      }
+
+      this.mode = newMode
+    }
+
+    // Input is ALWAYS captured and sent to server, regardless of mode
+    // In state mode: server uses input to update player position
+    // In video mode: server uses input for precision craft (mouse on work surface)
+  }
+```
+
+##### Why This Works
+
+| Concern | Answer |
+|---------|--------|
+| "How does the client show SPH particles?" | It doesn't. When physics is active, the server renders it and streams video. The client sees pixel-perfect fluid. |
+| "Doesn't video streaming need an expensive GPU server?" | Only for the ~10% of time when players are at workstations or near active physics. The dedicated GPU you already have handles ~8-10 concurrent video streams. |
+| "What about latency in video mode?" | hardware encoder encoding: ~3-8ms. Network: ~20-50ms. MSE decode: ~5ms. Total: ~30-60ms. For precision crafting (slow, deliberate actions), this is imperceptible. |
+| "What if 50 players all use workstations at once?" | The server queues rendering. At 30fps each, 10 players max at 720p on a single GPU. Beyond that: lower resolution, lower framerate, or add a second GPU. In practice, most players are walking around (state mode = zero GPU cost). |
+| "What does the transition look like?" | Player presses F at bloomery → camera zooms in → 0.4s blur/fade → video appears. The zoom motion and blur hide the switch. Looks intentional, not glitchy. |
+| "Can the 3D scene get out of sync during video mode?" | No — state data (WORLD_SNAPSHOT, CHUNK_UPDATE, ENTITY_UPDATE) continues flowing during video mode. The 3D scene updates silently in the background. When switching back, it's already current. |
+| "What if the player has no GPU at all?" | They can stay in video mode permanently — the server renders everything. This is the full cloud gaming fallback. Bandwidth cost: ~750 KB/s constant. Playable on a Chromebook. |
+
+##### Server Hardware Requirements
+
+```
+For state mode only (no video):
+  Node.js server (no GPU needed)
+  Handles 50+ players at ~650 KB/s total
+
+For hybrid mode (state + video):
+  GPU server with NVIDIA card + hardware encoder
+  Requires dedicated GPU server
+  Capacity per GPU:
+    720p @ 30fps: ~8-10 concurrent video streams
+    480p @ 30fps: ~15-20 concurrent video streams
+    720p @ 15fps: ~15-20 concurrent video streams (lower framerate for less intense moments)
+
+  Scaling:
+    50 players, 5 at workstations → 5 video streams → 1 GPU handles it easily
+    50 players, 15 at workstations → need 2 GPUs or lower resolution
+    100 players → additional dedicated GPU server
+```
+
+
+
+---
+
+# PART III — GAME WORLD
+---
+
+## 4. World & Life
+
+### 4.1 World Generation — Physical Foundation
 
 ---
 
@@ -347,7 +2079,8 @@ The planet is a sphere with a 4-kilometer radius. The terrain is generated using
 
 River networks are generated with valley carving. Coastal areas are identified and affect settlement behavior.
 
-### 3.2 Organism Ecosystem
+
+### 4.2 Organism Ecosystem & Species Registry
 
 The server runs `OrganismManager` at 6 Hz. Organisms have four diet types (autotroph, heterotroph, mixotroph, chemoautotroph), energy budgets tied to the day/night light cycle, stochastic death and reproduction, and 256-bit genomes that enable speciation tracking.
 
@@ -372,7 +2105,7 @@ The 256-bit genome and Hamming distance speciation threshold implement the conce
 
 ---
 
-### 3.2.1 Full Organism Species Registry
+#### Full Organism Species Registry
 
 Every living thing in the game is an organism in the simulation. There are no static resource nodes for biological materials — wood, grain, wool, wax, guano, and every other biological product comes from a living organism that was born, grew, and can die. This section documents every species that must exist in the system, organized by kingdom, with their ecological role, biome constraints, products they yield, and how their population dynamics interact with the rest of the simulation.
 
@@ -914,13 +2647,815 @@ The current system models organisms as abstract entities with diet types and ene
 - Secondary consumer cap (omnivores) = f(primary consumer + autotroph populations)
 - Apex predator cap = f(secondary consumer population)
 
-### 3.3 Physics-Based Crafting
 
-116 materials with 11 physics properties each. Five physics interactions: bow-drill fire, flint-and-iron fire, stone knapping, clay pottery, copper/iron smelting. Success rates computed from material properties. Hidden practice tracking. Discovery system for first successes.
+### 4.3 Geology & Resource Distribution
+
+Resource distribution builds on the planetary formation and tectonic structure defined in §1. Resource nodes are concentrated according to real geological processes. Settlement specialties assigned by server-side geology query (matching the client algorithm exactly).
+
+**Scientific grounding — why geology determines civilization:**
+Jared Diamond's *Guns, Germs, and Steel* (1997) argues that geography is the primary driver of civilizational development — not intelligence, culture, or luck. Societies that happened to sit on land with domesticable crops, workable metals, and navigable rivers developed faster and outcompeted those that did not. The same logic applies here. A player who starts near a copper-rich volcanic zone has access to metal tools earlier than one who starts in a sedimentary basin with only flint. This is not unfair — it is how reality works. The world rewards exploration and trade precisely because different regions have different resources.
+
+Every resource in the game has one or more real geological formation mechanisms. A player who understands these can search intelligently instead of wandering randomly. The entries below cover every resource in the game's material taxonomy — how it forms, under what conditions, and what terrain signals its presence.
 
 ---
 
-### 3.3.1 Complete Material Taxonomy
+#### 3.4.1 Metals and Ores
+
+**Copper** (native copper, malachite, azurite, chalcopyrite)
+
+*Formation mechanism 1 — Porphyry copper deposits:* The most common copper source. When a magma body cools beneath a subduction zone, hot saline fluids circulate through the cooling rock and precipitate copper sulfides (chalcopyrite, bornite) in a disseminated halo around the intrusion. These deposits are enormous but low-grade — billions of tonnes of rock at 0.3–1.5% copper. They form exclusively at convergent plate boundaries where oceanic crust subducts under continental crust.
+
+*Formation mechanism 2 — Hydrothermal vein deposits:* Hotter, more concentrated mineralizing fluids travel along fault systems and fracture zones. As they cool, copper minerals drop out of solution and fill the fracture walls. These deposits are smaller but much richer (2–10% copper). The veins often follow fault scarps visible at the surface. Associated with volcanic arcs.
+
+*Formation mechanism 3 — Native copper in basalt:* In places where basaltic lava flows over groundwater-saturated terrain, copper-bearing hydrothermal solutions percolate upward through gas vesicles (amygdules) in the cooling basalt and deposit native metallic copper — the purest natural copper, requiring no smelting, only hammering. The Michigan Upper Peninsula produced native copper this way for thousands of years of pre-contact indigenous metalwork. Found in flood basalt provinces.
+
+*Formation mechanism 4 — Secondary enrichment (gossans):* When a sulfide ore body is exposed to weathering, rainwater dissolves the copper and carries it downward. Below the water table, this dissolved copper re-precipitates in a supergene zone — much higher grade than the original ore. The gossanous (rusted-orange) surface cap above the water table is a visible exploration signal. Malachite (green) and azurite (blue) oxidation minerals appear at surface outcrops.
+
+*Game search signal:* Volcanic terrain at plate boundaries. Bright green (malachite) or blue (azurite) rock patches at surface. Rusted orange gossan caps.
+
+---
+
+**Tin** (cassiterite — SnO₂)
+
+*Formation mechanism 1 — Granitic pegmatite veins:* Tin concentrates in the last fraction of magma to solidify when a granite intrusion cools. This late-stage fluid is enriched in volatile elements (fluorine, boron, water) and rare metals including tin, tungsten, and lithium. It intrudes into the surrounding country rock as coarse-crystalline pegmatite veins. Cassiterite (tin oxide) forms large, well-crystallized black crystals within these veins. The veins cut through or occur within granite plutons.
+
+*Formation mechanism 2 — Alluvial/placer deposits:* Cassiterite is dense (6.9 g/cm³) and chemically inert — it survives weathering intact. When pegmatite veins erode, the cassiterite washes downstream and settles in river bends and gravel bars, exactly like gold. The great tin fields of Southeast Asia (Malaysia, Indonesia, Thailand) are almost entirely alluvial placer deposits worked by hydraulic dredging. Tin can often be found by panning river sediments near granite highlands.
+
+*Game search signal:* Granitic highlands, coarse-grained pale rock (granite outcrops). River gravels and alluvial plains downstream of granite terrain. Heavy black mineral grains in river sediment.
+
+---
+
+**Lead** (galena — PbS)
+
+*Formation mechanism 1 — Mississippi Valley-type (MVT) deposits:* Lead and zinc sulfides (galena and sphalerite) precipitate when warm saline brines expelled from deep sedimentary basins migrate upward and encounter carbonate rocks (limestone, dolomite). The brines carry dissolved lead and zinc; when they cool or mix with sulfur-rich fluids, galena and sphalerite precipitate in open pores and cavities of the limestone. These deposits form far from volcanoes — in stable sedimentary platforms, often hundreds of kilometers from any plate boundary. The name comes from the major Pb-Zn districts of Missouri, Kansas, and Oklahoma.
+
+*Formation mechanism 2 — Hydrothermal veins:* As with copper, lead also precipitates in fault-controlled hydrothermal veins. Galena typically co-occurs with silver (argentite is often intergrown within galena crystals), which is why lead smelting historically yielded silver as a byproduct. These deposits are associated with volcanic arcs.
+
+*Formation mechanism 3 — Sediment-hosted stratiform deposits:* Some lead deposits formed as seafloor hydrothermal vents discharged metal-rich brines onto the ocean bottom. The galena precipitated in flat layers interbedded with normal marine sediment — called sediment-hosted massive sulfide (SHMS) deposits. These appear as flat, tabular ore bodies within sedimentary sequences.
+
+*Game search signal:* Limestone terrain (grey, layered rock) in sedimentary platforms. River valleys cutting through carbonate rock sequences. Bright silver-grey metallic mineral (galena is highly reflective, cube-shaped).
+
+---
+
+**Iron** (hematite Fe₂O₃, magnetite Fe₃O₄, limonite FeOOH, siderite FeCO₃)
+
+*Formation mechanism 1 — Banded Iron Formations (BIF):* The world's largest iron deposits. Between 2.5 and 1.8 billion years ago, the early ocean was rich in dissolved ferrous iron (Fe²⁺) because the atmosphere had no free oxygen. When photosynthetic cyanobacteria began producing oxygen, it oxidized the dissolved iron to insoluble ferric iron (Fe³⁺), which precipitated as hematite and magnetite in alternating red and grey bands on the seafloor. These ancient ocean deposits are now exposed as thick, layered rock formations in ancient continental cratons — the Precambrian shield rocks of Australia, Brazil, Canada, Ukraine, India, and West Africa. They are flat-lying, laterally extensive (hundreds of kilometers), and contain billions of tonnes of iron ore.
+
+*Formation mechanism 2 — Lateritic iron (limonite):* In tropical climates with intense chemical weathering, iron in ordinary rock is oxidized and concentrated near the surface as laterite — a reddish, iron-rich soil horizon. Any silica and alumina dissolve away; iron hydroxides (limonite, goethite) remain. Laterite is low-grade but widespread and accessible. Historical bog iron — extracted from limonite-rich swamp sediments — powered the early Iron Age in Europe and Asia. Found in tropical biomes and ancient weathered landscapes.
+
+*Formation mechanism 3 — Magmatic iron (magnetite in igneous rock):* Some granitic and basaltic intrusions contain enough iron and titanium that magnetite crystallizes as a discrete mineral phase and can form exploitable concentrations. These deposits are smaller than BIFs but occur near volcanic arcs. Magnetite is strongly magnetic — a lodestone placed near the ore will deflect visibly.
+
+*Game search signal:* Ancient stable continental interiors (cratons), flat layered red-and-grey striped rock. Tropical terrain with red soils. Swamp edges (bog iron). Magnetic compass deflection near magnetite deposits.
+
+---
+
+**Gold** (native gold, electrum, gold tellurides)
+
+*Formation mechanism 1 — Lode gold (orogenic/mesothermal veins):* The most important gold source historically. During mountain-building events, large volumes of hot fluid are expelled from deeply buried metamorphic rocks and migrate upward through fault zones. These fluids carry dissolved gold (as gold-bisulfide complexes) and deposit it as native gold in quartz veins when the fluids cool and depressurize. The gold occurs as fine disseminations and visible specks within white quartz. Found along ancient suture zones and fold belts — the roots of ancient mountain ranges, now eroded down to metamorphic basement rocks.
+
+*Formation mechanism 2 — Epithermal gold (volcanic systems):* In active volcanic arcs, shallow hydrothermal circulation deposits gold near the surface (within 1 km depth). Hot acidic fluids move through volcanic rock and precipitate gold and silver where they boil or cool abruptly. Two subtypes: high-sulfidation (acidic, near volcanic vents, associated with sulfur and arsenic minerals) and low-sulfidation (neutral pH, white quartz veins, associated with calcite and adularia). Both are found in young volcanic terrains at convergent boundaries.
+
+*Formation mechanism 3 — Placer gold:* Gold is dense (19.3 g/cm³) and chemically inert. When lode deposits erode, gold travels downstream and concentrates in river bedload. It settles wherever water velocity drops — the inside of meander bends, below waterfalls, behind large boulders, at bedrock irregularities on the riverbed. Fine gold panning from river sediments (alluvial placer) was the entry point for gold discovery in nearly every historical gold rush. Ancient, deeply weathered placer deposits (paleoplacers) may be buried under younger sediment.
+
+*Game search signal:* White quartz veins in metamorphic terrain. Volcanic arc terrain (fresh or ancient). Gold panned from river gravel — follow rivers upstream toward gold-bearing highlands. Very rare; small deposit size.
+
+---
+
+**Silver** (native silver, argentite Ag₂S, electrum, horn silver AgCl)
+
+*Formation mechanism 1 — Hydrothermal veins with lead:* Silver is the most common precious metal in hydrothermal vein systems. Argentite (silver sulfide) intergrows with galena (lead sulfide) so intimately that smelting lead ore almost always yields silver. The great silver deposits of history — Laurion (Greece), Potosí (Bolivia), Zacatecas (Mexico), Comstock Lode (Nevada) — are all hydrothermal vein systems. Silver occurs in the same fault-controlled veins as lead and zinc, associated with volcanic arcs.
+
+*Formation mechanism 2 — Epithermal silver:* At shallower depths and lower temperatures than gold-bearing systems, silver precipitates in large amounts in low-sulfidation epithermal veins. The silver minerals are different: argentite, pyrargyrite (ruby silver), proustite. These vein systems can have spectacular high-grade "bonanza" zones where the veins widen and silver content rises sharply.
+
+*Formation mechanism 3 — Secondary supergene silver:* When a silver sulfide ore body weathers, rainwater oxidizes and mobilizes the silver, which re-deposits as horn silver (AgCl, cerargyrite) — a pale grey waxy mineral — or as native silver whiskers and wire-like crystal habits near the surface. Secondary native silver can form large masses just below the oxidized zone.
+
+*Game search signal:* Same terrain as lead and gold. Galena (silver-grey cubic) is a reliable indicator — lead smelting reveals silver. Light-grey waxy mineral near surface (horn silver). Associated with volcanic arcs and fold belts.
+
+---
+
+**Aluminum** (bauxite — gibbsite Al(OH)₃, boehmite AlOOH, diaspore AlOOH)
+
+*Formation mechanism — Tropical lateritic weathering:* Aluminum cannot be found as a concentrated ore in igneous or sedimentary rocks — it is the third most abundant element in the crust, but it is locked in aluminosilicate minerals (feldspars, micas) and cannot be separated by simple chemistry. Bauxite forms only through extreme tropical weathering. In hot, wet equatorial climates, millions of years of rainfall dissolve and remove all silica, iron, calcium, and sodium from rock, leaving behind a concentrated residue of aluminum hydroxide — bauxite. This is a surficial deposit, formed in place above the parent rock. No bauxite exists in cold or arid climates. The thicker the soil profile and the older the land surface, the higher the bauxite grade.
+
+*Additional note:* Aluminum smelting (Hall-Héroult process) requires electricity — a civilization must reach the Electrical Age before aluminum becomes accessible. Even if bauxite is found, it cannot be processed without electrolytic reduction.
+
+*Game search signal:* Old, deeply weathered tropical terrain. Red-brown soil with white nodules. No mountain building needed — flat, ancient land surface.
+
+---
+
+**Tungsten** (wolframite (Fe,Mn)WO₄, scheelite CaWO₄)
+
+*Formation mechanism — Contact metamorphic skarns and greisens:* Tungsten concentrates in the same late-stage granitic fluids as tin — the last fractions of cooling magma enriched in volatiles. Wolframite forms in greisen veins (fluorine-rich alteration zones) within and around granite intrusions. Scheelite forms in contact metamorphic skarns — zones where granite magma baked adjacent limestone and injected calcium-tungstate into the carbonate. Both deposit types occur within or immediately adjacent to granite plutons, often in the same district as tin.
+
+*Game search signal:* Granite terrain. Dense, dark-brown to black heavy crystals (wolframite) in veins. Often co-located with tin mining areas. Scheelite fluoresces bright blue-white under UV light.
+
+---
+
+**Chromium** (chromite FeCr₂O₄)
+
+*Formation mechanism 1 — Stratiform chromite in layered intrusions:* When large volumes of basaltic magma cool slowly in a magma chamber, minerals crystallize in sequence by density. Chromite, being dense and early-crystallizing, settles to the floor of the magma chamber and accumulates in discrete layers — sometimes meters thick and laterally continuous for kilometers. The Bushveld Complex (South Africa) contains over 70% of world chromite reserves this way.
+
+*Formation mechanism 2 — Podiform chromite in ophiolites:* Ophiolites are fragments of ancient oceanic crust and upper mantle thrust onto continents during tectonic collisions. The mantle portion (peridotite/dunite) contains irregular, lens-shaped pods of chromite formed in the mantle wedge above a subduction zone. These podiform bodies are smaller and more scattered than stratiform deposits.
+
+*Game search signal:* Ancient cratons with large, flat layered igneous complexes (dark, banded mafic rock). Mountain belts containing ophiolite sequences (dark green peridotite/serpentinite).
+
+---
+
+**Nickel** (pentlandite (Fe,Ni)₉S₈, lateritic nickel in garnierite)
+
+*Formation mechanism 1 — Magmatic sulfide deposits:* When large volumes of nickel-rich basaltic or komatiitic magma intrude into the crust, sulfur from the surrounding rocks can be incorporated into the melt. The sulfur separates as an immiscible sulfide liquid that scavenges nickel, copper, and platinum from the silicate melt and sinks to the bottom of the intrusion. Pentlandite crystallizes from this sulfide liquid. Classic deposits: Sudbury (Canada — formed by a meteorite impact melting the crust), Norilsk (Russia), Thompson (Canada).
+
+*Formation mechanism 2 — Lateritic nickel (garnierite):* In tropical climates, weathering of nickel-bearing peridotite/serpentinite concentrates nickel as green garnierite in the weathering profile. Lateritic nickel makes up ~60% of world nickel resources. Less rich per tonne than sulfide deposits but much more widespread in tropical terrain over ultramafic rocks.
+
+*Game search signal:* Large mafic-ultramafic intrusions (dark, heavy rock). Meteorite impact craters (circular lakes, shocked rock). Tropical terrain over dark green serpentinite.
+
+---
+
+**Zinc** (sphalerite ZnS)
+
+*Formation mechanism — Mississippi Valley-type and volcanogenic massive sulfide:* Zinc always co-occurs with lead in MVT deposits (see Lead above) and in volcanic-hosted massive sulfide (VMS) deposits — ancient seafloor hot spring mounds now incorporated into mountain belts. In VMS deposits, metal-rich fluids vented onto the seafloor and precipitated zinc and copper sulfides as massive mounds, later metamorphosed and deformed by tectonic activity. Zinc is so closely associated with lead that the two are almost always mined together.
+
+*Game search signal:* Same terrain as lead. Yellow-brown to black heavy mineral (sphalerite).
+
+---
+
+**Manganese** (pyrolusite MnO₂, rhodonite MnSiO₃, rhodochrosite MnCO₃)
+
+*Formation mechanism 1 — Sedimentary manganese nodules:* On the deep ocean floor, manganese precipitates slowly from cold seawater, forming fist-sized nodules rich in manganese, cobalt, nickel, and copper. These are not accessible early game — deep-sea mining requires industrial infrastructure.
+
+*Formation mechanism 2 — Shallow marine sedimentary beds:* Ancient shallow-sea sediments can contain manganese carbonate and oxide beds deposited by bacterial activity in anoxic conditions. Found in ancient sedimentary sequences, often associated with BIF iron formations.
+
+*Formation mechanism 3 — Supergene concentration:* Near-surface weathering of manganiferous rock produces soft, black pyrolusite coatings and dendrites on rock fractures. This is the most accessible surface deposit — a shiny black dendritic mineral on rock faces.
+
+*Game search signal:* Black dendritic mineral on fractured rock. Ancient sedimentary terrain. Associated with iron-bearing formations.
+
+---
+
+#### 3.4.2 Non-Metallic Rock and Mineral Resources
+
+**Limestone and chalk** (calcite CaCO₃, aragonite CaCO₃)
+
+*Formation mechanism 1 — Biogenic marine carbonate:* Limestone is almost entirely biological in origin. Marine organisms — coral, mollusks, foraminifera, coccolithophores — build their shells and skeletons from calcium carbonate extracted from seawater. When they die, their shells accumulate on the seafloor and compact into limestone over millions of years. A 10-meter limestone bed represents tens of millions of years of marine sedimentation. Chalk is a particularly pure, fine-grained variety of limestone formed from microscopic coccolithophore shells, deposited in shallow warm epicontinental seas (Cretaceous chalk beds of England, France, and Kansas formed in exactly this way — the white cliffs of Dover were ocean floor 70 million years ago).
+
+*Formation mechanism 2 — Chemical precipitation:* In warm, shallow, supersaturated marine water, carbonate can precipitate directly from solution as ooids (small rounded grains) or as carbonate mud — producing limestone without biological input. Travertine forms this way around hot springs (carbonate-rich thermal water deposits calcium carbonate as it degasses CO₂).
+
+*Formation mechanism 3 — Reef buildup:* Coral reefs accumulate massive volumes of biogenic carbonate in place, creating thick, porous reef limestone — excellent for groundwater storage and cave formation.
+
+*Game search signal:* Flat, layered grey-white rock in sedimentary terrain away from plate boundaries. Often contains visible shell fragments, coral fossils. Karst topography (sinkholes, caves, disappearing rivers).
+
+---
+
+**Clay** (kaolinite Al₂Si₂O₅(OH)₄, illite, smectite/montmorillonite, halloysite)
+
+*Formation mechanism 1 — Weathering of feldspar-bearing rock:* Clay is the decomposition product of feldspar. All granite, most sandstone, and most metamorphic rock contain feldspar. When rainwater (slightly acidic from dissolved CO₂) attacks feldspar over thousands of years, it strips out sodium, potassium, and calcium, leaving behind a clay mineral lattice of aluminum and silicon. The type of clay depends on the parent rock and drainage conditions: kaolinite forms under intense leaching (tropical, well-drained); illite under moderate leaching; smectite under poor drainage with magnesium-rich water.
+
+*Formation mechanism 2 — Hydrothermal alteration:* Near volcanic vents and hot springs, acidic hydrothermal fluids aggressively alter igneous rock to kaolin and alunite. This produces high-purity kaolin deposits (china clay) associated with granite intrusions and volcanic systems. Cornwall (England) and Limoges (France) china clay deposits formed this way.
+
+*Formation mechanism 3 — Sedimentary clay beds:* Eroded clay particles transported by rivers settle in lakes, river deltas, and ocean floors as thick, soft clay layers. River floodplains always have surface clay — the fine-grained fraction of flood sediment.
+
+*Game search signal:* Everywhere there is standing water and fine-grained sediment — river valleys, lake beds, deltas, floodplains. Tropical terrain produces the purest kaolin. Clay is never rare. Identified by its plastic behavior when wet: it sticks to the finger, holds a shape, dries white or buff.
+
+---
+
+**Sand and quartz** (SiO₂ — quartz, quartzite, quartz sand)
+
+*Formation mechanism 1 — Weathering of quartz-bearing rock:* Quartz is the most chemically resistant common mineral. When granite, sandstone, or metamorphic rock weathers, feldspar dissolves into clay, dark minerals oxidize, but quartz grains survive intact. Rivers carry these grains downstream; wind transports them further. Sand is weathered quartz. A desert dune is a concentration of quartz grains stripped from rock over millions of years of erosion.
+
+*Formation mechanism 2 — Coastal and aeolian concentration:* Waves wash lighter and more soluble minerals away, concentrating heavy, resistant quartz grains as beach sand. Wind winnows fine silt away from deflation surfaces, leaving a quartz-sand lag.
+
+*Formation mechanism 3 — Hydrothermal quartz veins:* Pure silica precipitates from hydrothermal fluids as white quartz veins that cut through virtually every rock type. These veins are not useful as bulk silica (too hard to process in bulk), but they signal hydrothermal activity and often contain the gold and silver that precipitated alongside the quartz.
+
+*Game search signal:* River bars, beaches, dunes — quartz sand is ubiquitous. Pure white quartzite outcrops in metamorphic terrain. White quartz veins everywhere. Silica is effectively inexhaustible.
+
+---
+
+**Flint and chert** (cryptocrystalline SiO₂)
+
+*Formation mechanism — Biogenic silica in marine sediment:* Flint and chert are dense, fine-grained forms of silica that form when silica from dissolved marine organisms (radiolarians, diatoms, siliceous sponges) recrystallizes in nodules within carbonate mud during burial. The silica precipitates as irregular nodules and lenses within limestone beds. Flint is a type of chert found specifically within chalk — it formed in Cretaceous chalk seas and is the material that made Stone Age Europe possible. Without chalk terrain, there is no flint.
+
+*Game search signal:* Inside limestone and chalk outcrops — look for dark grey to black nodular masses within white or grey limestone layers. Cliff faces exposing limestone beds. Flint is identifiable by its conchoidal (shell-shaped) fracture when struck.
+
+---
+
+**Gypsum** (CaSO₄·2H₂O) and **Anhydrite** (CaSO₄)
+
+*Formation mechanism — Evaporite basin:* Gypsum forms when a landlocked sea or a marine basin becomes isolated and begins evaporating. As the water becomes increasingly saline, calcium sulfate reaches saturation first and precipitates as gypsum (at lower temperatures) or anhydrite (at higher temperatures or deeper burial). Gypsum always underlies halite (salt) in an evaporite sequence — it precipitates at higher water activity. Ancient evaporite sequences are found in intracratonic basins (the interior of continents, where ancient seas once existed). The Michigan Basin, Permian Basin (Texas), Zechstein Basin (North Sea region), and Keuper beds (Central Europe) are all gypsum-salt sequences from ancient evaporated seas.
+
+*Game search signal:* Same terrain as salt — sedimentary basins with ancient marine history. Soft, white-to-grey rock that scratches easily with a fingernail. Often interbedded with halite in outcrop. Alabaster is a fine-grained variety.
+
+---
+
+**Salt** (halite — NaCl)
+
+*Formation mechanism 1 — Evaporite basin (marine evaporation):* When an arm of the sea becomes isolated — by tectonic closure, a sand bar, or a change in sea level — and the climate is arid enough that evaporation exceeds inflow, the water concentrates. Calcium carbonate precipitates first (limestone), then gypsum, then halite (common salt), then the more soluble potassium and magnesium salts (sylvite, carnallite, bischofite). A complete evaporite sequence records the entire drying history of an ancient sea. The Mediterranean Sea almost completely evaporated 5–6 million years ago (Messinian Salinity Crisis), leaving up to 3 km of salt beneath the present seafloor. In the game: large sedimentary basins in arid zones contain salt domes and bedded halite.
+
+*Formation mechanism 2 — Salt diapirs (underground domes):* Salt is less dense than most rock and flows plastically under pressure. Over millions of years, thick salt beds become gravitationally unstable and pierce upward through overlying sediment as rising salt diapirs — underground salt pillars and domes. These can reach the surface as salt plugs or salt glaciers (Iran has surface salt glaciers today). A player walking over a salt dome may find salt outcrops far from any basin or ancient sea.
+
+*Formation mechanism 3 — Playa lake evaporation (surface salt flats):* In desert basins with no drainage outlet (endorheic basins), seasonal rain dissolves salts from surrounding terrain and carries them into a central lake. When the lake dries, salt is left behind as a hard white crust. The Bonneville Salt Flats (Utah), Salar de Uyuni (Bolivia), Chott el Djerid (Tunisia), and Sambhar Lake (India) all formed this way. Surface salt flats are immediately visible and collectable without mining.
+
+*Formation mechanism 4 — Sea spray and coastal salt pans:* In coastal zones with tidal flats and strong sun, seawater trapped in shallow pools evaporates and deposits thin salt crusts. Traditional salt production in the Mediterranean, Bay of Biscay, and East Asia relied entirely on solar evaporation in artificial coastal salt pans (salinas). No underground mining required.
+
+*Game search signal:* White surface crust in dry, flat basin terrain (salt flat — immediately visible and collectable). Arid coastal tidal flats (sea salt pans). Underground salt domes detectable only by drilling or mining near dome margins. Evaporite sequences in sedimentary basins interbedded with gypsum. Taste-test: salt has an unmistakable cubic crystal habit and solubility in water.
+
+---
+
+**Potash** (sylvite KCl, carnallite KMgCl₃·6H₂O, polyhalite K₂Ca₂Mg(SO₄)₄·2H₂O)
+
+*Formation mechanism — Late-stage evaporite precipitation:* Potassium salts are more soluble than halite and precipitate only in the final stages of brine evaporation — requiring ~90% water loss. This means potash deposits form only in the deepest, most isolated parts of evaporite basins where brine became maximally concentrated. Potash layers sit above gypsum and halite in the evaporite stratigraphy and are therefore deeper. The Permian evaporites of New Mexico (Carlsbad Potash District) and Saskatchewan (the world's largest potash reserves) formed in closed marine basins during particularly arid periods.
+
+*Game search signal:* Deep below salt deposits in sedimentary basins. Never exposed at surface in humid climates (too soluble — it would have dissolved). Only accessible in arid regions or by mining below the salt layer.
+
+---
+
+**Saltpeter** (potassium nitrate KNO₃, also calcium nitrate Ca(NO₃)₂ and sodium nitrate NaNO₃)
+
+*Formation mechanism 1 — Cave bat guano nitrification:* Bats roost in caves in vast colonies and deposit thick layers of guano. Bacteria in the guano decompose organic nitrogen compounds (uric acid, proteins) to ammonium, then nitrifying bacteria (Nitrosomonas, Nitrobacter) oxidize ammonium to nitrite and then nitrate. The nitrate migrates into cave wall soil and crystallizes on cool cave surfaces as saltpeter efflorescence — the white powdery crust that cave miners scraped for gunpowder. Medieval European and Asian gunpowder industries depended on cave-floor soil collection and leaching.
+
+*Formation mechanism 2 — Soil nitrification in animal enclosures:* Urine and manure from livestock decompose and nitrify in stable floors and compost heaps. The nitrate crystallizes on stable walls and under hay as white efflorescence. Pre-industrial "nitre plantations" deliberately composted animal manure to grow saltpeter. The French government maintained royal nitre plantations; Gustavus Adolphus of Sweden ran military nitre farms. Not a geological deposit — a biological one.
+
+*Formation mechanism 3 — Atacama Desert caliche:* The Atacama Desert of Chile is the driest place on Earth. Over millions of years, aerosol deposition from the ocean (fog, sea spray) and decomposition of biological material accumulated nitrate salts in the soil with no rain to dissolve them. The Atacama caliche beds — thick horizontal layers of calcium and sodium nitrate mixed with sand — were the world's primary nitrate source before the Haber-Bosch process (1913). Found only in hyper-arid terrain.
+
+*Game search signal:* White crystalline efflorescence on cave walls and floors (especially near bat roosting zones). Stable floors, barn walls, and composting areas. Hyper-arid desert terrain with no modern drainage.
+
+---
+
+**Phosphate** (apatite Ca₅(PO₄)₃(OH,F,Cl), phosphorite, guano)
+
+*Formation mechanism 1 — Marine phosphorite:* Phosphorus concentrates in ocean water where cold, nutrient-rich deep water upwells onto shallow continental shelves. Biological productivity is extremely high; dead organisms rain down and decompose, releasing phosphorus that reprecipitates as nodular or bedded phosphorite on the seafloor. Found along ancient upwelling zones and passive continental margins. Morocco, Florida, and North Africa have major phosphorite deposits of this type.
+
+*Formation mechanism 2 — Guano accumulation:* Seabird colonies on islands, rocky coasts, and isolated cliffs deposit guano rich in phosphate. In arid climates, guano preserves and concentrates. The Chincha Islands (Peru) had guano deposits 50 meters thick from centuries of seabird accumulation. Bat guano in caves similarly concentrates phosphate.
+
+*Formation mechanism 3 — Igneous apatite:* Apatite crystallizes from most magmas as an accessory mineral, concentrated in some carbonatite intrusions. Not the primary source for bulk phosphate, but accessible as individual crystals.
+
+*Game search signal:* Ancient continental margins, flat-lying grey nodular rock in marine sedimentary sequences. Seabird island rookeries. Cave systems with large bat populations.
+
+---
+
+**Sulfur** (native S, pyrite FeS₂, sulfate minerals)
+
+*Formation mechanism 1 — Volcanic sublimation (fumarolic sulfur):* At active volcanic vents (fumaroles), sulfur dioxide and hydrogen sulfide gas emerge from the magma below. As these gases meet cooler air, native sulfur sublimates directly onto rock surfaces as bright yellow crystalline deposits. These fumarolic sulfur deposits are found at volcanoes worldwide — the sulfur mines of Sicily (exploited since antiquity) formed this way from Neogene volcanic activity.
+
+*Formation mechanism 2 — Caprock sulfur (biogenic reduction of anhydrite):* Bacteria can reduce calcium sulfate (anhydrite or gypsum) back to hydrogen sulfide, which then oxidizes to native sulfur. This process occurs at the top of salt domes where sulfate-bearing water meets hydrocarbon seeps. The resulting caprock sulfur deposits (as at the Texas Gulf Coast domes) were the primary US sulfur source before the mid-20th century (Frasch process).
+
+*Formation mechanism 3 — Sulfide ores (pyrite):* Pyrite (FeS₂ — fool's gold) is the most abundant sulfide mineral in the crust. It forms in almost any hydrothermal deposit, in sedimentary black shales (framboidal pyrite from bacterial sulfate reduction), and in metamorphic rocks. Pyrite is not itself the target — it is a source of sulfur for acid production (roasting pyrite yields SO₂ → H₂SO₄). Pyrite occurs everywhere that reducing conditions existed.
+
+*Game search signal:* Yellow crystalline crust on volcanic rocks (fumarolic). Bright brass-yellow cubic crystals (pyrite) — identifiable by extreme hardness (unlike gold, which is soft) and greenish-black streak. Black shale units.
+
+---
+
+**Graphite** (crystalline carbon C)
+
+*Formation mechanism 1 — Metamorphism of organic-rich sediment:* The most common source. When carbon-rich sedimentary rock (coal, organic-rich shale, carbonaceous limestone) is heated and compressed by regional metamorphism, the organic carbon recrystallizes into ordered graphite. The higher the metamorphic grade, the more perfect the graphite crystal structure. Graphite schist and marble (metamorphosed limestone with original organic matter) are the primary host rocks. Sri Lanka, Mozambique, and Canada are major producers — all in ancient high-grade metamorphic terrains.
+
+*Formation mechanism 2 — Contact metamorphism of coal:* When an igneous intrusion bakes an adjacent coal seam, the coal is converted to graphite. These are smaller but often very high-purity deposits.
+
+*Formation mechanism 3 — Magmatic graphite in carbonatites:* Rare. Some carbon-rich magmas crystallize graphite directly.
+
+*Game search signal:* High-grade metamorphic terrain (gneiss, schist, marble). Dark, platy mineral with greasy feel and dark grey streak on rock. Metamorphic terrains that once contained organic sediment.
+
+---
+
+**Diamond** (C — cubic crystal structure)
+
+*Formation mechanism 1 — Kimberlite pipes:* Diamonds form under extreme pressure and temperature (>45 kbar, >900°C) in the mantle, at depths of 150–200 km, within the ancient, cold keels of cratons (stable continental cores). They are brought to the surface by kimberlite eruptions — rare, violent volcanic intrusions that ascend so rapidly (several hours) that diamonds have no time to convert back to graphite. Kimberlites are funnel-shaped pipes of dark, altered volcanic rock found exclusively on ancient cratons (Africa, Siberia, Canada, Australia). Not all kimberlites are diamond-bearing; only those from depths below the continental lithosphere.
+
+*Formation mechanism 2 — Alluvial/marine placer diamonds:* Diamonds eroded from kimberlites accumulate in river and coastal deposits. Many of the world's gem diamonds (Namibia, Sierra Leone, Botswana coast) were mined from alluvial gravels downstream of ancient kimberlites. Diamonds are dense and inert — they survive transport intact.
+
+*Game search signal:* Ancient craton interiors — the oldest, most stable continental cores. Dark, fine-grained volcanic pipes cutting through old metamorphic terrain (kimberlites look like dark grey to bluish-green intrusives). Extremely rare — one kimberlite per several thousand square kilometers; most are not diamond-bearing.
+
+---
+
+#### 3.4.3 Evaporite and Sedimentary Resources
+
+These are addressed with their minerals above (salt, gypsum, potash). See entries above.
+
+---
+
+#### 3.4.4 Carbon-Bearing Materials
+
+**Coal** (peat → lignite → sub-bituminous → bituminous → anthracite)
+
+*Formation mechanism — Compression of swamp biomass:* Coal forms in swamp forests where dead plant material accumulates faster than it decomposes. Without oxygen (waterlogged conditions), organic matter does not rot — it accumulates as peat. Burial by later sediment subjects the peat to heat and pressure over millions of years, driving off water and volatile compounds in stages: peat (50% carbon) → lignite (60–70%) → sub-bituminous (70–76%) → bituminous (76–90%) → anthracite (90–98%). Each stage requires progressively more burial and time. The Carboniferous period (359–299 Ma) produced most of the world's coal because newly evolved lignin (wood) had no organisms that could decompose it — dead trees piled up for tens of millions of years.
+
+*Rank distribution:* Low-rank coal (lignite) is near the surface in young basins with little burial. High-rank coal (anthracite) is in deeply buried or tectonically deformed basins where heat and pressure were intense. Bituminous coal is the most abundant and most useful for metallurgical coke. Coking coal requires specific rank (medium-volatile bituminous) — not all coal makes metallurgical coke.
+
+*Game search signal:* Flat sedimentary basins away from active tectonics. Black, layered, organic-smelling rock. Often exposed in river valleys cutting through sedimentary sequences. Abundant in Carboniferous and Permian-age terrain.
+
+---
+
+**Peat** (partially decomposed organic matter, >50% water)
+
+*Formation mechanism — Waterlogged organic accumulation:* Peat is the youngest, wettest precursor to coal. It forms in bogs, fens, mires, and waterlogged forests wherever organic matter accumulates under anoxic conditions. Tropical peat domes (Southeast Asia) can be 10+ meters thick. Northern hemisphere sphagnum moss bogs (Ireland, Scotland, Scandinavia, Siberia) are also thick. Peat has ~20% of coal's energy density by weight when wet; it must be dried before burning.
+
+*Game search signal:* Flat, wet, poorly-drained terrain. Brown-black spongy ground. Bog terrain. Accessible from the surface everywhere bogs exist — no mining needed.
+
+---
+
+**Oil seeps and tar pits** (bitumen, asphaltum, petroleum)
+
+*Formation mechanism — Source rock maturation and migration:* Petroleum forms when organic-rich marine sediment (source rock) is buried to depths where heat cracks organic molecules into oil and gas. The oil migrates upward through permeable rock until it reaches a structural trap (anticline, fault seal, salt dome flank). Where the trap is breached by erosion or fracturing, oil and gas seep to the surface. Asphalt forms when light fractions evaporate from a surface seep, leaving behind thick viscous bitumen. The La Brea tar pits, the Trinidad Pitch Lake, and the Athabasca oil sands are all surface seeps or near-surface accumulations.
+
+*Game search signal:* Black viscous liquid seeping from rock faces or pooling in low ground. Petroleum smell (light hydrocarbon volatiles). Often associated with anticlines (arched rock layers) and fault zones in sedimentary basins. Animals trapped in tar pits are a visual signal.
+
+---
+
+#### 3.4.5 Radioactive Materials
+
+**Uranium** (uraninite/pitchblende UO₂, carnotite K₂(UO₂)₂(VO₄)₂, coffinite USiO₄)
+
+*Formation mechanism 1 — Unconformity-type deposits:* The world's highest-grade uranium deposits form at the unconformity (erosional boundary) between ancient Precambrian basement rocks and overlying sandstone. Uranium-bearing oxidized groundwater flows down through porous sandstone, reaches the unconformity, and meets reducing fluids rising from the basement. The chemical contrast (oxidizing vs. reducing) causes uranium to precipitate as pitchblende. The Athabasca Basin (Saskatchewan, Canada) and Kombolgie Basin (Northern Territory, Australia) contain deposits grading over 20% uranium — compared to 0.1% for typical deposits. These are in ancient cratons.
+
+*Formation mechanism 2 — Sandstone roll-front deposits:* Uranium in solution is carried by oxygenated groundwater through permeable sandstone. Where the oxidizing front meets reducing conditions (organic matter, iron sulfides in the sandstone), uranium precipitates in a crescent-shaped "roll front." These are lower-grade (0.05–0.3%) but widespread in sedimentary basins. The Colorado Plateau (USA) and Wyoming Basins contain many roll-front deposits.
+
+*Formation mechanism 3 — Vein-type and granite-hosted:* Uranium concentrates in granitic magmas (incompatible element) and precipitates in late-stage hydrothermal veins in and around granite intrusions. Pitchblende (massive uraninite) fills fractures and veins. The classic Joachimsthal mines (Bohemia), where Marie Curie obtained radium, were granite-hosted vein deposits.
+
+*Additional note:* Uranium ore has no surface expression — it cannot be detected by color or texture. Detection requires a Geiger counter or equivalent instrument. A civilization must develop radiation detection technology before uranium deposits can be located deliberately.
+
+*Game search signal:* Precambrian cratons near unconformity boundaries. Granite intrusions in ancient terrain. Sedimentary basins in arid continental interiors. No visual signal without instrumentation. Radioactive decay produces heat — anomalous warm ground in very concentrated deposits.
+
+---
+
+#### 3.4.6 Biogenic and Organic Resources
+
+**Wood**
+
+*Formation mechanism — Forest biomass:* Wood is not a geological resource, but it is the most critical raw material for pre-industrial civilization. Its availability is entirely a function of biome: tropical rainforest produces the most biomass density but the hardest, most resin-rich wood; temperate deciduous forest produces moderate volumes of excellent hardwoods (oak, ash, hickory); boreal forest produces soft conifers good for construction but poor for smelting charcoal; tundra and desert are wood-absent. Wood availability directly limits early smelting — a bloomery needs charcoal, and charcoal is made from wood. A civilization in a forest biome advances faster through the smelting stages than one on a treeless steppe.
+
+*Game search signal:* Forest biomes — tropical, temperate, boreal. River valleys in otherwise arid zones (riparian woodland). Islands may have limited woodland that is rapidly exhausted.
+
+---
+
+**Plant fibers** (flax Linum usitatissimum, hemp Cannabis sativa, nettle, jute, cotton)
+
+*Formation mechanism — Agricultural and wild plant production:* These are biological resources tied to specific climate zones. Flax grows in cool, moist temperate climates (origin: Fertile Crescent and Egypt, now Canada and Russia). Hemp is more tolerant, growing in a broad range of temperate zones. Cotton requires hot summers and adequate moisture (subtropical to tropical). Nettle fiber (ramie) is subtropical to tropical. The availability of plant fibers determines what textile options exist: no flax in the tropics, no cotton in the north. Civilizations in different biomes develop different textile traditions.
+
+*Game search signal:* Biome-specific. Flax and hemp in temperate grassland and mixed woodland edges. Cotton in subtropical grassland and savanna. Wild forms occur naturally; cultivated forms require NPC farming settlements.
+
+---
+
+**Animal products** (hide, bone, sinew, wool, beeswax, tallow, horn)
+
+*Formation mechanism — Fauna distribution by biome:* Animal products are byproducts of hunting and herding. Cattle, sheep, and goats produce hide, tallow, bone, and wool. Wild deer and elk provide sinew. Horses provide hide and bone. The fauna present in a biome determines what animal products are accessible. A tundra biome has reindeer (hide, sinew, bone) but no cattle. A grassland has large herds of ungulates. A forest has deer. An island may have no large land mammals. Beeswax requires bee colonies — temperate, subtropical, and tropical biomes all support bees but at different population densities.
+
+*Game search signal:* Fauna spawn points by biome. Grassland and savanna have the greatest diversity and density of large ungulates. Tracking animals and hunting — no geological context. Animal products cannot be found in rock.
+
+---
+
+**Clay (for ceramics)** — see section 6.4.2 above.
+
+---
+
+#### 3.4.7 Rare and Strategic Materials
+
+**Platinum group metals** (platinum Pt, palladium Pd, rhodium Rh, iridium Ir, osmium Os, ruthenium Ru)
+
+*Formation mechanism 1 — Magmatic sulfide in layered intrusions:* PGMs concentrate in the same sulfide liquid as nickel and copper in large mafic intrusions. The Bushveld Complex (South Africa) contains the Merensky Reef — a 30–90 cm thick layer of platiniferous pyroxenite that extends for hundreds of kilometers. The Bushveld supplies ~70% of world platinum and rhodium. Other layered intrusions (Stillwater Complex, Montana; Great Dyke, Zimbabwe) similarly host PGM reefs.
+
+*Formation mechanism 2 — Alluvial placer:* Like gold, PGMs are dense and chemically resistant. They occur in river placer deposits downstream of PGM-bearing intrusions. Russia's Ural Mountains placer deposits were the world's primary platinum source in the early 19th century.
+
+*Game search signal:* Extremely rare. Large, ancient layered igneous complexes (dark, banded mafic rock). Associated with nickel-copper sulfide zones. Not accessible until industrial metallurgy.
+
+---
+
+**Lithium** (spodumene LiAlSi₂O₆, lepidolite, lithium brines in salars)
+
+*Formation mechanism 1 — Pegmatite spodumene:* Lithium concentrates in granitic pegmatites alongside tin and tantalum. Spodumene forms large prismatic crystals (up to several meters long) in pegmatite dikes. Australia (Pilbara pegmatites) is the world's largest hard-rock lithium producer.
+
+*Formation mechanism 2 — Continental salar brines:* In the Andean altiplano (Bolivia, Chile, Argentina), ancient lakes evaporated in high-altitude endorheic basins and left behind lithium-rich brines trapped in the porous sediment beneath salt flats. The Salar de Atacama contains brine at 0.15% lithium — pumped up and evaporated in solar ponds. Continental salar brines hold ~60% of world lithium resources.
+
+*Game search signal:* Granitic pegmatite terrain (see Tin). High-altitude dry plateau basins with salt flats — pump the brine from below the salt crust.
+
+---
+
+#### 3.4.8 How the Game Uses This Information
+
+All resource node placement derives from these formation rules. The game runs a geological simulation at world generation time:
+
+1. **Tectonic plate generation** — 12 plates via Voronoi sphere partitioning. Each plate has a type (oceanic or continental), age, velocity vector, and density.
+2. **Boundary classification** — each plate boundary segment is classified: convergent (subduction or collision), divergent (rift), or transform (strike-slip).
+3. **Terrain assignment** — boundary type and plate type determine terrain: convergent oceanic→continental = volcanic arc + mountains; divergent continental = rift valley + flood basalt; collision = mountain belt + fold-thrust belt; stable interior = craton + sedimentary basin.
+4. **Resource seeding** — each terrain type seeds resource nodes probabilistically according to the formation rules above:
+  - Volcanic arc terrain → copper (porphyry probability), gold (epithermal probability), silver, lead, zinc, sulfur
+  - Craton terrain → BIF iron, diamonds, nickel-copper (magmatic), graphite, uranium (unconformity)
+  - Sedimentary basin → coal, salt, gypsum, potash, limestone, clay, oil seeps
+  - Granitic highland → tin, tungsten, lithium pegmatites
+  - Tropical terrain → bauxite, lateritic nickel, phosphorite
+  - Metamorphic terrain → graphite, talc, asbestos
+  - Flood basalt province → native copper
+  - River valleys → placer gold, placer tin, placer diamonds (downstream of hard-rock deposits)
+5. **Player exploration signal** — each resource node has visible surface expression matching its real-world signal: green malachite staining, rusty gossan, white salt crust, black coal seam in cliff, volcanic fumarole with yellow sulfur ring. A player who has read this section can locate resources systematically.
+
+Settlement specialties are assigned by querying what resource nodes fall within 200 meters of the settlement seed point. The most abundant or highest-value node determines the specialty. A settlement seeded near a copper porphyry becomes a copper mining town. A settlement seeded in a sedimentary basin near limestone and clay becomes a pottery and masonry town. A settlement near a forest biome boundary with good clay soil becomes a farming and charcoal settlement. No designer places these — the geology places them.
+
+
+## 5. Civilization
+
+### 5.1 Settlements
+
+#### The Principle
+
+A settlement does not have a "civilization level." In reality, no village wakes up one morning and says "we are now Level 3." What happens is: NPCs gather materials, build structures, discover processes, accumulate tools, and trade with neighbors. An observer looking at what they've built and what they know could describe the settlement's state — but that description is **derived from behavior**, not assigned as a stat.
+
+The settlement's sophistication is an **emergent property** of what its NPCs have actually done, not a number that ticks up.
+
+#### Settlement State — What Is Actually Tracked
+
+```
+Settlement {
+  id: number
+  name: string                               // generated from seed
+  position: Vec3                             // center point on planet surface
+  territory: number                          // radius in meters (starts at 100, grows with population)
+
+  // ── Population ────────────────────────────────────────────────────────────
+  npcs: NPC[]                                // actual NPC entities in this settlement
+  population: number                         // npcs.length — not a stat, a count of living NPCs
+  // Population grows when: food surplus sustains births (1 birth per X days if food > threshold)
+  // Population shrinks when: starvation, disease, predator attacks, players killing NPCs
+
+  // ── Physical Resources (what the settlement actually has) ─────────────────
+  storage: Map<MaterialPacket, number>       // stockpiled materials with real compositions
+  // Not "100 units of copper" — actual MaterialPackets with specific purity and mass
+  // e.g., "34kg of Cu₀.₈₅Fe₀.₁₀S₀.₀₅ (impure copper)" and "12kg of charcoal"
+
+  // ── Built Infrastructure (what NPCs have physically constructed) ──────────
+  structures: WorldObject[]                  // every building, wall, path, workstation that exists
+  // A settlement with 3 huts and a campfire is different from one with stone walls and a bloomery
+  // These are actual world objects — players can see and interact with them
+
+  // ── Workstations (what machines the settlement has built) ─────────────────
+  workstations: Workstation[]                // campfire, grinding stone, bloomery, kiln, forge, etc.
+  // NPCs build workstations when they have the materials and knowledge
+  // A settlement can only smelt copper IF it has built a bloomery
+  // A settlement cannot "unlock" smelting — it must physically construct the machine
+
+  // ── Knowledge (what processes NPCs have discovered through practice) ──────
+  knownProcesses: Set<string>                // 'fire_starting', 'copper_smelting', 'pottery', etc.
+  // Knowledge grows when: an NPC successfully performs a new interaction (same discovery system as players)
+  // Knowledge spreads via trade (§8.7): when settlements trade, there's a chance of knowledge transfer
+  // Knowledge is NEVER assigned — it is earned through NPC practice
+
+  // ── Trade Connections ─────────────────────────────────────────────────────
+  tradePartners: Set<number>                 // IDs of other settlements this one trades with
+  tradeOffers: TradeOffer[]                  // current public offers based on surplus vs need
+  // Trade routes emerge from geography: settlements within walkable distance can trade
+  // Settlements separated by mountains, oceans, or hostile territory cannot (until roads/boats exist)
+
+  // ── NPC Memory ────────────────────────────────────────────────────────────
+  collectiveMemory: {
+    playerTrust: Map<string, number>         // per-player: -1.0 (hostile) to +1.0 (trusted)
+    // Trust changes from player actions: helping = +, stealing/killing = -
+    // All NPCs in the settlement share memory (word spreads within a community)
+    threats: Set<string>                     // predator species, hostile player IDs
+  }
+}
+```
+
+#### Observed Sophistication (Derived, Never Stored)
+
+Instead of a `civLevel` integer, the settlement's development is **observable from its state**. For UI display, companion status site, or analytics, a sophistication assessment can be computed:
+
+```
+function assessSettlement(s: Settlement): SettlementAssessment {
+  // Assess based on what actually exists — like an anthropologist visiting a village
+
+  const hasFireMaking    = s.knownProcesses.has('fire_starting')
+  const hasPottery       = s.knownProcesses.has('pottery')
+  const hasMetalSmelting = [...s.knownProcesses].some(p => p.includes('smelting'))
+  const hasForge         = s.workstations.some(w => w.type === 'forge')
+  const hasBlastFurnace  = s.workstations.some(w => w.type === 'blast_furnace')
+  const stoneBuildings   = s.structures.filter(st => st.material.hardness > 4).length
+  const hasWalls         = s.structures.some(st => st.subtype === 'wall' && st.material.hardness > 3)
+  const tradeRoutes      = s.tradePartners.size
+  const populationSize   = s.population
+
+  // Descriptive labels (for display only — NPCs don't know or care about these):
+  if (populationSize < 5)
+    return { label: 'Camp', description: 'A handful of people around a fire' }
+  if (!hasMetalSmelting && populationSize < 20)
+    return { label: 'Hamlet', description: 'Small group with basic tools and shelter' }
+  if (hasMetalSmelting && !hasForge && populationSize < 50)
+    return { label: 'Village', description: 'Settled community with early metalwork' }
+  if (hasForge && stoneBuildings > 5 && populationSize < 150)
+    return { label: 'Town', description: 'Established settlement with smithing and stone construction' }
+  if (hasBlastFurnace && hasWalls && tradeRoutes > 2 && populationSize >= 150)
+    return { label: 'City', description: 'Fortified center with advanced industry and trade networks' }
+
+  // ... and so on. These are OBSERVATIONS, not levels.
+  // A "city" that loses its population to famine becomes a "town" or "hamlet" —
+  // not because a counter decremented, but because the conditions no longer match.
+}
+```
+
+This means:
+- A settlement doesn't "level up" — it **builds things** and **learns things**
+- A settlement can regress — if a plague kills half the population, or a player destroys the bloomery, the settlement's observable sophistication drops because the physical reality changed
+- Two settlements with the same "assessment" might look completely different — one might be a farming village with great pottery, the other a mining camp with crude shelters but excellent metalwork
+- The label is for the player's benefit (and the companion site display), not for game logic
+
+#### Geology-Based Specialty
+
+Specialty is not assigned — it emerges from what resources are nearby.
+
+```
+SettlementSpecialty {
+  // When a settlement is founded (from world generation), NPCs begin gathering
+  // whatever materials are within their territory.
+  // A settlement near a copper vein gathers copper ore.
+  // A settlement near a river gathers clay and fish.
+  // A settlement on fertile plains gathers grain.
+
+  // Over time, the settlement accumulates MORE of what's nearby.
+  // NPCs practice processing those materials → they get better at it.
+  // The settlement naturally specializes because it has the most practice
+  // with its local resources.
+
+  // There is no specialty: 'copper_mining' field in the database.
+  // The specialty is observable: "this settlement has 200kg of copper ore in storage,
+  // a bloomery, and NPCs who have performed 500 successful smelting operations."
+  // An observer would call this a copper mining settlement.
+
+  // If the copper vein is depleted, the settlement doesn't magically keep its specialty.
+  // NPCs start gathering whatever else is available. The settlement adapts or declines.
+}
+```
+
+#### Trade Economy
+
+Supply and demand adjust prices based on settlement stockpile levels. This follows David Ricardo's principle of comparative advantage (1817): settlements trade not because one is "better" than another, but because specialization + exchange produces more total value than self-sufficiency. A settlement near copper that trades ore for grain produces more copper and more food than if both settlements tried to do everything themselves. This emerges naturally from the geology — no designer assigns what gets traded. Surplus drives trade offers.
+
+```
+TradeOffer {
+  // Generated automatically when a settlement has surplus of one material and deficit of another
+  gives: MaterialPacket                      // what they're offering (actual material with composition)
+  givesAmount: number                        // kg
+  wants: string                              // category of what they need: 'food', 'fuel', 'ore', 'tools'
+  wantsMinAmount: number                     // minimum kg they'll accept
+
+  // Price is not fixed — it's determined by scarcity:
+  // High stockpile of copper + low stockpile of food → copper is cheap, food is expensive
+  // The exchange rate shifts dynamically as stockpiles change
+  // No currency exists. All trade is barter — material for material.
+}
+```
+
+Diamond's *Guns, Germs, and Steel* adds a further insight: the east-west axis of a continent matters because settlements at similar latitudes share climate and can exchange crops and livestock. On a spherical planet with a tilted axis, equatorial settlements share growing seasons. This will eventually influence which settlements grow into trading networks and which remain isolated.
+
+
+### 5.2 NPC Brain — Three-Tier Hybrid AI
+
+#### The Principle
+
+NPCs are not scripts. They are simulated humans with curiosity, needs, emotions, memory, and the ability to learn. An NPC doesn't follow a behavior tree — it *thinks* about what to do based on its internal state and surroundings. This requires a hybrid AI architecture: cheap fast decisions for routine moments, and deeper reasoning for novel situations.
+
+#### Three-Tier Decision Architecture
+
+**Tier 1 — Survival Reflex (every tick, no AI):** Am I on fire? Drowning? Being attacked? Pure reactive math, no thinking required. Like human reflexes.
+
+**Tier 2 — Custom Small Language Model (every 10-30 game-seconds):** A purpose-trained small model (~1-4B parameters) that reasons about NPC decisions. Input: needs, emotions, personality, environment, memories. Output: next action with reasoning. Runs on the server at ~10ms per decision. Handles ~90% of all NPC behavior.
+
+**Tier 3 — Full LLM (rare, important moments):** For genuinely novel situations the custom model wasn't trained on. Settlement-level strategic decisions, complex social conflicts, first encounters with unprecedented events. ~1-5 calls per settlement per hour.
+
+#### Personality — Every NPC Is Different
+
+Based on the Big Five personality model (Costa & McCrae 1992). Each NPC has permanent traits generated at birth:
+
+- **Openness** (0-1): curiosity, willingness to explore and experiment. High = wanders far, tries new things. Low = sticks to routine.
+- **Conscientiousness** (0-1): work ethic, organization. High = finishes tasks, maintains structures. Low = unreliable but sometimes creative.
+- **Extraversion** (0-1): sociability. High = seeks company, talks to players, teaches. Low = works alone, productive in isolation.
+- **Agreeableness** (0-1): cooperativeness. High = shares, helps, avoids conflict. Low = competitive, hoards resources, better at defending.
+- **Neuroticism** (0-1): emotional reactivity. High = panics easily, avoids risk. Low = calm under pressure, handles crises.
+
+Same scenario + different personality = different NPC decision.
+
+#### Curiosity — How NPCs Discover
+
+Curiosity is the engine of NPC progress. Boredom from repetition increases curiosity. Seeing something novel increases curiosity. When curiosity is high, the NPC explores, experiments, tries new material combinations at workstations. Discoveries happen through the same physics-based crafting system as players — the NPC puts materials in a furnace and the reaction engine computes the result. If it's new, the NPC remembers it and can teach others.
+
+#### Memory — What NPCs Remember
+
+Each NPC stores ~200 episodic memories ranked by emotional significance. Traumatic and joyful memories persist longest. Neutral memories fade first. During sleep, similar memories consolidate into general knowledge ("fishing usually works 2/3 of the time"). Social memory tracks trust and relationships with specific entities (players, other NPCs, predators).
+
+#### Daily Life
+
+NPCs live on a daily cycle driven by needs, not scripts. They wake at dawn, eat, work during peak energy hours, socialize at midday, continue working in the afternoon, gather around fire at dusk, and sleep at night. Every aspect varies by personality — a high-openness NPC explores instead of working, a high-neuroticism NPC goes to bed early.
+
+#### Social Behavior
+
+NPCs form relationships (+0.05 per shared task, +0.15 for sharing food, -0.3 for theft). High relationships lead to pair bonds, shared shelters, and eventually children. Leadership emerges from reputation — NPCs whose decisions led to good outcomes are consulted more often. Conflicts between low-agreeableness NPCs can escalate to physical confrontation (same combat physics as players).
+
+#### Settlement Expansion
+
+NPCs build structures through the same system as players. The AI decides what's needed ("We have 25 NPCs but only 6 shelters — I should build one"). When a settlement becomes overcrowded, adventurous NPCs leave to found new settlements elsewhere. Dead settlements leave ruins that can be re-settled.
+
+#### Self-Improving System
+
+Every time the full LLM (Tier 3) handles a novel situation, the response becomes a training pair for the custom model. Periodic retraining means the NPC AI gets smarter over time. Month 1: ~80% handled by custom model. Year 1: ~97%. The game's NPCs literally become more intelligent the longer the game runs.
+
+
+### 5.3 NPC Language & Knowledge Transfer
+
+#### The Language System
+
+NPCs do not speak English, Mandarin, or any existing human language. Each settlement develops its own **constructed language** — a system of vocalizations, gestures, and symbols that evolved within that settlement's history.
+
+#### Language Generation (Per Settlement)
+
+Each settlement's language is **deterministically generated from the world seed + settlement ID**, ensuring all players hear the same language from the same NPCs.
+
+```
+SettlementLanguage {
+  settlementId: number
+  seed: number                               // worldSeed × settlementId — deterministic
+
+  // ── Phoneme Inventory ─────────────────────────────────────────────────────
+  // Each settlement selects a subset of human-possible phonemes
+  // Real human languages use 11-141 phonemes (Hawaiian: 13, !Xóõ: 141)
+  // Game settlements use 15-40 phonemes per language
+
+  consonants: Phoneme[]                      // selected from universal phoneme set
+  vowels: Phoneme[]                          // 3-7 vowels (5 is most common cross-linguistically)
+  tones: number                              // 0 (no tonal), 2, 3, or 4 tone levels
+
+  // The phoneme selection is biased by settlement environment:
+  // Coastal settlements: more fricatives (s, sh, f) — mimics wave/wind sounds
+  // Mountain settlements: more stops (k, t, p) — sharp, carries over distance
+  // Forest settlements: more nasals (m, n, ng) — resonates between trees
+  // This is speculative but creates flavor differences players will notice.
+
+  // ── Syllable Structure ────────────────────────────────────────────────────
+  // Determines what combinations of phonemes are allowed
+  syllableTemplate: string                   // e.g., '(C)V(C)' — optional consonant, vowel, optional consonant
+  maxSyllablesPerWord: number                // 1-4 (shorter words for more "advanced" settlements)
+
+  // ── Vocabulary ────────────────────────────────────────────────────────────
+  // Words are generated for ~200 core concepts:
+  // - Objects: fire, water, stone, copper, food, shelter, tool
+  // - Actions: give, take, make, break, go, come, look, eat, hit
+  // - Qualities: hot, cold, big, small, good, bad, fast, slow
+  // - Numbers: 1-10 (base system: 5 or 10 depending on settlement)
+  // - Social: yes, no, friend, stranger, danger, help
+
+  vocabulary: Map<ConceptId, Word>           // concept → word mapping
+
+  // Word generation: chain syllables using Markov chain seeded by settlementSeed
+  // This ensures words sound internally consistent (a settlement's words share phonetic patterns)
+  // Different settlements produce noticeably different-sounding languages
+
+  // ── Grammar ───────────────────────────────────────────────────────────────
+  wordOrder: 'SOV' | 'SVO' | 'VSO'          // subject-object-verb order (SOV is most common worldwide)
+  // Grammar is minimal — NPCs communicate mostly through context + action + gesture
+  // Full grammar is not needed because players don't understand the words anyway.
+  // The language exists for ATMOSPHERE, not for information transfer.
+}
+```
+
+#### What Players Actually Hear
+
+When an NPC speaks, the player hears procedurally generated speech:
+
+```
+NPCSpeech {
+  // 1. NPC's intent (server-side): the NPC wants to communicate something
+  intent: 'greeting' | 'warning' | 'offer_trade' | 'request_help' | 'show_process' | 'farewell'
+
+  // 2. Word selection: intent maps to concept sequence
+  //    'greeting' → [social:friend, action:come, quality:good]
+  //    'warning' → [social:danger, action:go, quality:bad]
+  //    'offer_trade' → [object:copper, action:give, object:food, action:take]
+
+  // 3. Vocalization: words are synthesized or selected from phoneme-based audio
+  //    Option A (cheaper): pre-record ~40 syllable sounds, concatenate per the settlement's phoneme rules
+  //    Option B (richer): use Web Speech API with custom phoneme mapping, pitch-shifted per NPC voice
+  //    The result sounds like speech in an unfamiliar language — recognizable as language, not understandable
+
+  // 4. Gesture overlay: the NPC simultaneously performs a gesture
+  //    'greeting': raises open hand
+  //    'warning': points away + shakes head
+  //    'offer_trade': extends one hand with item, other hand open (receiving)
+  //    'show_process': turns toward workstation and begins working
+  //    Gestures are the REAL communication channel. The spoken words are atmosphere.
+}
+```
+
+#### Knowledge Transfer Through Demonstration
+
+This is the core system. NPCs do not tell players what to do. They **do things**, and the player watches.
+
+```
+DemonstrationSystem {
+  // Each NPC in a settlement runs their goal loop (§8.1):
+  // idle → gather → carry → process → deliver → idle
+
+  // During the 'process' step, the NPC performs a visible crafting action:
+
+  ProcessDemonstration {
+    npcId: string
+    workstationId: string
+    inputMaterials: MaterialPacket[]         // what the NPC puts into the workstation
+    action: string                           // 'smelt' | 'grind' | 'shape' | 'fire' | 'weave'
+    outputMaterial: MaterialPacket           // what comes out
+    duration: number                         // seconds the process takes (visible to the watching player)
+
+    // ── What the player sees ──────────────────────────────────────────────
+    // 1. NPC walks to a pile of raw material (e.g., copper ore)
+    // 2. NPC picks up ore (visible in NPC's hands)
+    // 3. NPC walks to the bloomery
+    // 4. NPC places ore into the bloomery opening (hand animation → item disappears into furnace)
+    // 5. NPC adds charcoal (same sequence — NPC fetches charcoal, places it)
+    // 6. NPC operates bellows (arm pumping animation, fire brightens, temperature rises)
+    // 7. Time passes (NPC stands watching, occasionally pumping bellows)
+    // 8. NPC reaches into bloomery and pulls out a copper blob (new item appears in hand)
+    // 9. NPC carries copper to storage area
+
+    // EVERY STEP IS VISIBLE AND PHYSICAL.
+    // The player sees the inputs, the machine, the process, and the output.
+    // They can infer what happened: "that rock went into the furnace with black stuff,
+    // and something shiny came out."
+  }
+
+  // ── What the player does NOT get ────────────────────────────────────────
+  // - No tooltip: "The NPC is smelting copper ore using a bloomery with charcoal as fuel"
+  // - No recipe unlock: "You learned: Copper Smelting!"
+  // - No dialogue option: "[Ask about smelting]"
+  // - No journal entry: "I watched an NPC smelt copper. I should try this."
+
+  // The player must:
+  // 1. Notice what the NPC is doing (attention)
+  // 2. Figure out what materials they used (observation)
+  // 3. Find those materials themselves (exploration)
+  // 4. Try the same process at a workstation (experimentation)
+  // 5. Fail a few times and adjust (learning)
+  // 6. Succeed (discovery — recorded in their discoveries set)
+
+  // This mirrors exactly how ancient humans learned technology from each other:
+  // A traveler visits a foreign village, watches their metalworkers,
+  // goes home, and tries to replicate what they saw.
+
+  // ── Companion System (Future) ───────────────────────────────────────────
+  // A companion NPC that follows the player can provide HINTS, not answers:
+  // - If the player fails to start a fire: companion gestures toward dry wood (not wet wood)
+  // - If the player uses wrong ore in a bloomery: companion shakes head, picks up correct ore, shows it
+  // - The companion learned from their OWN settlement — they only know what their settlement knows
+  // - A companion from a copper settlement can't help with iron smelting
+  // - This creates value in traveling to different settlements: new companions = new knowledge
+}
+```
+
+#### Cultural Divergence
+
+Different settlements know different things, creating a reason to explore:
+
+```
+SettlementKnowledge {
+  // Each settlement has a knowledge set — the processes it has "discovered"
+  // This is determined by settlement specialty + age + trade connections
+
+  // A young copper mining settlement knows:
+  knownProcesses: [
+    'fire_starting',          // everyone knows this
+    'clay_pottery',           // basic ceramics
+    'copper_smelting',        // their specialty
+    'copper_tool_making',     // hammering copper into tools
+  ]
+
+  // An old coastal fishing settlement knows:
+  knownProcesses: [
+    'fire_starting',
+    'salt_extraction',        // evaporating seawater
+    'fish_preservation',      // salt + fish = preserved food
+    'rope_making',            // plant fiber twisting
+    'net_weaving',            // rope into nets
+    'boat_building',          // wood + rope + tar
+  ]
+
+  // A settlement that trades with both might know elements of each.
+  // Knowledge spreads between settlements via trade routes (server simulation):
+  // When two settlements trade, there's a small chance per tick that
+  // the receiving settlement "learns" one of the sender's processes.
+  // knowledgeSpreadRate = tradeVolume × 0.001 per server tick
+
+  // This means the game world's total knowledge grows over time,
+  // even without player intervention. Players arriving in a mature world
+  // find settlements that know more processes. Players in a fresh world
+  // find primitive settlements and must discover more on their own.
+}
+```
+
+#### Why This Works
+
+The knowledge transfer system works because of the synergy between three other systems:
+
+1. **Physics-based crafting (§3)** — there are no recipes to "teach." The knowledge IS the physical process. Seeing it done IS learning it.
+2. **Emergent materials (§3.3)** — the output isn't a named item. It's whatever physics produces. The NPC doesn't make "copper" — they make "the orange metal that comes from heating green rock." The player figures out the name (or doesn't — names don't matter, properties do).
+3. **Workstation system (§8.1)** — the machine is a physical place. The NPC goes there. The player goes there. They're in the same space doing the same thing. No abstract menu bridges them.
+
+The language barrier is intentional. It forces players to rely on **observation** rather than **instruction**. This is harder, slower, and more frustrating than a tutorial — and that's the point. The satisfaction of figuring out copper smelting by watching an NPC is incomparably greater than reading "combine copper ore + charcoal in bloomery."
+
+
+## 6. Crafting & Production
+
+### 6.1 Material Taxonomy
 
 The material system operates in three tiers. **Elements** are the base layer — single-substance building blocks from the periodic table. **Minerals** are natural multi-element compounds found in the ground. **Processed materials** are what humans make by combining and transforming the first two tiers. The game's crafting arc is the process of moving up through these tiers.
 
@@ -1578,7 +4113,8 @@ Mark Miodownik's *Stuff Matters* (2013) describes the experiential reality behin
 **Design grounding — no recipe list:**
 The decision to derive all interactions from properties rather than a lookup table follows directly from how *Dwarf Fortress* handles material simulation. In that game, fire spreads based on each material's ignition temperature and combustion energy — not because a designer wrote "wood catches fire." The same principle applies here: gunpowder is not a recipe. It is what happens when three materials — each with high reactivity, sufficient combustion energy, and a low ignition threshold — are combined and struck.
 
-### 3.3.2 Complete Production System — How Every Material Is Made
+
+### 6.2 Complete Production System — How Every Material Is Made
 
 The game has no recipe database. Instead it has **transformation rules** — physical and chemical laws that govern what happens when materials are combined under specific conditions. Every Tier 3 material is produced by one or more of five transformation types.
 
@@ -2614,1613 +5150,13 @@ The game has no recipe database. Instead it has **transformation rules** — phy
 
 ---
 
-### 3.3.3 Emergent Material System — Nothing Is Pre-Defined
 
-#### The Principle
+### 6.3 Physics-Based Crafting & Workstations
 
-The universe does not have a recipe list. Helium was not "designed" — it emerged when hydrogen atoms were forced together under extreme temperature and pressure inside a star. Bronze was not "invented" — it is what happens when copper and tin atoms mix above 950°C and cool together. Glass was not "planned" — it is what happens when silicon dioxide melts at 1700°C and cools too quickly to crystallize.
-
-The game should work the same way. **No material is pre-defined. Every material is the result of rules applied to simpler materials under specific conditions.** The system doesn't know what "bronze" is. It knows what happens when a packet of mostly-copper meets a packet of mostly-tin at high temperature. The result has properties calculated from the inputs — and those properties happen to match what humans call bronze.
-
-This means:
-- The developer never writes `{ name: "bronze", hardness: 3.5, meltingPoint: 950 }` as a static entry
-- Instead, the system computes: "a Cu₀.₈₈Sn₀.₁₂ alloy at 25°C has Mohs hardness ≈ 3.5, melting point ≈ 950°C" from the component properties and known alloy rules
-- A player who mixes copper and zinc instead gets a different result — brass — without anyone coding brass
-- A player who mixes copper, tin, AND a small amount of phosphorus gets phosphor bronze — harder, more elastic — also without anyone coding it
-
-The game builds its material universe the same way the real universe did: from the bottom up.
-
-#### What Is a Material Packet
-
-The fundamental unit is not an atom (too expensive) or a named material (too rigid). It is a **material packet** — a chunk of matter with a composition, mass, temperature, and phase.
-
-```
-MaterialPacket {
-  // --- Identity: what is this made of? ---
-  composition: Map<Element, number>    // element → mass fraction (sums to 1.0)
-                                        // e.g., { Cu: 0.88, Sn: 0.12 }
-
-  // --- Physical state ---
-  mass: number                          // kg
-  temperature: number                   // °C
-  phase: 'solid' | 'liquid' | 'gas' | 'plasma'
-  pressure: number                      // Pa (default: 101325 = 1 atm)
-
-  // --- Derived (computed from composition + state, never stored manually) ---
-  meltingPoint: number                  // °C — weighted from components + alloy corrections
-  boilingPoint: number                  // °C
-  density: number                       // kg/m³
-  hardness: number                      // Mohs scale
-  thermalConductivity: number           // W/(m·K)
-  electricalConductivity: number        // S/m
-  tensileStrength: number               // MPa
-  color: [number, number, number]       // RGB derived from composition
-  crystalStructure: string              // FCC, BCC, HCP, amorphous...
-}
-```
-
-Every derived property is **calculated**, not looked up. The calculation uses real material science:
-
-| Property | How it's computed | Source |
-|----------|------------------|--------|
-| Melting point | Weighted average of component melting points + eutectic corrections from binary phase diagrams | CALPHAD method (simplified) |
-| Density | Rule of mixtures: `ρ = Σ(xᵢ · ρᵢ)` with packing corrections for crystal structure | Vegard's law for alloys |
-| Hardness | Hall-Petch relationship for grain size + solid solution strengthening from solute atoms | Metallurgy fundamentals |
-| Electrical conductivity | Matthiessen's rule: `1/σ = 1/σ_base + Σ(cᵢ · Δρᵢ)` — impurities increase resistivity | Resistivity tables |
-| Color | Drude model for metals (free electron plasma frequency → reflectance spectrum), absorption spectrum for non-metals | Optical properties of solids |
-| Crystal structure | Hume-Rothery rules: atomic size ratio, electronegativity difference, valence electron count → FCC/BCC/HCP prediction | Hume-Rothery (1934) |
-
-#### How Materials Combine: The Reaction Engine
-
-When two packets meet under conditions, the **reaction engine** determines what happens. It does not look up recipes. It checks thermodynamics.
-
-**Step 1 — Can a reaction happen?**
-Check Gibbs free energy: `ΔG = ΔH - TΔS`
-- If `ΔG < 0`: reaction is spontaneous (it wants to happen)
-- If `ΔG > 0`: reaction needs energy input
-- If `ΔG ≈ 0`: equilibrium (both forms coexist)
-
-The enthalpy (ΔH) and entropy (ΔS) values come from the elements' standard formation energies — tabulated from real chemistry, stored per element.
-
-**Step 2 — Is there enough energy?**
-- Temperature must be above activation energy threshold (Arrhenius: `k = A·e^(-Ea/RT)`)
-- Some reactions need a catalyst to lower Ea (e.g., iron catalyst for ammonia synthesis)
-- Some need specific atmosphere (reducing = carbon/CO present, oxidizing = oxygen present)
-
-**Step 3 — What comes out?**
-The output packet's composition is computed from stoichiometry:
-- Conservation of mass: total mass in = total mass out
-- Conservation of elements: every atom that goes in comes out (just rearranged)
-- Energy balance: exothermic reactions heat the output, endothermic reactions cool it
-
-**Step 4 — What are the output's properties?**
-All properties are recalculated from the new composition using the formulas above. The system doesn't know it made "bronze" — it made a Cu-Sn solid solution with computed properties.
-
-#### Example: A Player Discovers Bronze
-
-```
-1. Player has: packet A (composition: {Cu: 1.0}, mass: 1.0kg, temp: 25°C, phase: solid)
-              packet B (composition: {Sn: 1.0}, mass: 0.12kg, temp: 25°C, phase: solid)
-
-2. Player puts both in a bloomery and heats to 1100°C
-
-3. Reaction engine:
-   - Cu melting point: 1085°C → packet A transitions to liquid
-   - Sn melting point: 232°C → packet B already liquid
-   - Two liquids in contact → check miscibility: Cu-Sn are fully miscible in liquid phase
-   - Packets merge: new packet {Cu: 0.89, Sn: 0.11}, mass: 1.12kg, temp: 1100°C, phase: liquid
-
-4. Player removes from heat, packet cools below solidus (~950°C for this composition)
-   - Phase → solid
-   - Crystal structure: FCC (Hume-Rothery: Sn atoms substitute into Cu lattice, size ratio 0.93 ≈ OK)
-   - Hardness: higher than pure Cu (solid solution strengthening)
-   - Color: slightly more golden than pure copper
-
-5. The game has created "bronze" without ever defining bronze.
-```
-
-#### Example: Stellar Nucleosynthesis (The Universe Creates Elements)
-
-The same system works at cosmic scale. During world generation, the simulation can model how the planet's elements formed:
-
-```
-1. Primordial hydrogen cloud collapses under gravity
-2. Core temperature reaches 15,000,000°C, pressure reaches 250 billion atm
-3. Reaction engine: H + H → check ΔG at these conditions → fusion is spontaneous
-4. Output: He packet + energy (E = Δm·c²)
-5. As He accumulates, triple-alpha process: He + He + He → C at 100,000,000°C
-6. C + He → O, then Ne, Mg, Si... up to Fe (where fusion becomes endergonic)
-7. Supernova: extreme conditions create everything heavier than iron via neutron capture
-```
-
-This isn't simulated in real-time during gameplay — it runs once during world generation to establish the planet's elemental abundances. But it uses the same reaction engine. The planet's composition is DERIVED, not hardcoded.
-
-#### The Compounding Rule: 1 + 1 = 2
-
-Materials don't just react — they aggregate. Two dirt packets combine into one larger dirt packet. This is simple mass addition with composition averaging:
-
-```
-packet A: {Si: 0.33, O: 0.47, Al: 0.08, Fe: 0.05, ...}, mass: 0.5kg
-packet B: {Si: 0.30, O: 0.50, Al: 0.10, Fe: 0.04, ...}, mass: 0.3kg
-
-Result: weighted composition average, mass: 0.8kg
-  Si: (0.33×0.5 + 0.30×0.3) / 0.8 = 0.319
-  O:  (0.47×0.5 + 0.50×0.3) / 0.8 = 0.481
-  ... etc.
-```
-
-This means:
-- Inventory stacking is just packet merging (compositions average out)
-- Splitting a packet divides mass but keeps the same composition
-- Impurities naturally accumulate or dilute through mixing
-- Ore quality varies by location (different packets have different trace elements)
-- Purification is the process of separating a mixed packet into purer sub-packets
-
-#### What This Replaces
-
-The current `MaterialRegistry.ts` with 118 pre-defined materials becomes:
-1. **Element table** — 118 entries with REAL measured properties (atomic mass, melting point, density, electronegativity, standard formation enthalpy). This is the only static data. It comes from the periodic table — nature's constants.
-2. **Reaction engine** — thermodynamic rules that compute what happens when packets interact
-3. **Property calculator** — derives all material properties from composition using material science formulas
-4. **Packet store** — every object in the world is a packet (or a collection of packets)
-
-The Tier 2 (minerals) and Tier 3 (processed materials) lists in §3.3.1–6.3.2 are no longer definitions — they become **expected emergent results**. They describe what SHOULD emerge when the rules are correct. If the reaction engine, given real Cu and Sn properties, doesn't produce something with bronze-like properties at the right temperature, the rules have a bug — not a missing recipe.
-
-#### Computational Cost
-
-This is feasible on current hardware because:
-- Packets are coarse-grained (not individual atoms — a packet might represent 1 gram to 1 ton of material)
-- Property calculations are simple arithmetic (weighted averages, polynomial fits) — microseconds each
-- Reactions only fire when packets are brought together by a player or NPC action — not continuously
-- The element table (118 entries × ~20 properties) fits in < 10 KB
-- Phase diagram lookups can use pre-computed binary tables for common pairs (Cu-Sn, Fe-C, etc.) — ~500 pairs covers 95% of cases
-- Rare or novel combinations fall back to ideal solution approximations (less accurate but always produces a result)
-
-**Estimated per-reaction cost:** < 0.1ms on a single CPU core. A player performing 10 crafting actions per minute costs essentially nothing.
-
-**Where it gets expensive:** fluid simulation (§3.3.4), where millions of packets move and interact continuously. That is a separate problem addressed in the next section.
+116 materials with 11 physics properties each. Five physics interactions: bow-drill fire, flint-and-iron fire, stone knapping, clay pottery, copper/iron smelting. Success rates computed from material properties. Hidden practice tracking. Discovery system for first successes.
 
 ---
 
-### 3.3.4 Fluid Simulation — How Liquids Work
-
-#### Why Liquid Is the Hardest Problem
-
-Solids are easy. A solid material packet sits where you put it. It has a position, a shape, and it doesn't move unless something pushes it. The game only needs to track one object.
-
-Liquids are fundamentally different. A liquid has no fixed shape — it takes the shape of whatever contains it. It flows downhill. It pools in valleys. It splashes when it hits something. It mixes with other liquids. It evaporates when heated, condenses when cooled. Every drop interacts with every nearby drop, the terrain, gravity, temperature, and wind — simultaneously, continuously, at every moment.
-
-The reason liquid is hard is not that the physics is complicated (the equations are well understood). It is that liquid requires simulating **many small pieces moving independently**. A solid copper ingot is one object. Molten copper is thousands of tiny pieces flowing, colliding, merging, and separating. That transition — from one thing to many things — is the core computational challenge.
-
-#### The Physical Truth: What Melting Actually Is
-
-At the atomic level, melting is the breakdown of structure:
-
-- **Solid**: atoms are locked in a crystal lattice. Each atom vibrates around a fixed position but cannot leave. The lattice gives the material its rigid shape. This is why solids hold their form.
-- **Liquid**: atoms have enough kinetic energy to break free from the lattice. They can slide past each other, but intermolecular forces (van der Waals, hydrogen bonds, metallic bonds) keep them close together. This is why liquids flow but don't fly apart.
-- **Gas**: atoms have enough energy to overcome all intermolecular forces. They fly freely in all directions, filling any container. This is why gas expands to fill a room.
-
-The game simulates this by **fragmenting a material packet into sub-packets when it crosses its melting point**. The sub-packets are the "freed atoms" — they inherit the parent's composition and temperature, but now they can move independently. When they cool below the melting point, they lock back together into a solid.
-
-This is not a metaphor. This is literally what melting is, at a coarser grain size.
-
-#### The Simulation Model: Smoothed Particle Hydrodynamics (SPH)
-
-SPH is a method for simulating fluids using particles instead of a grid. Each particle represents a small volume of liquid. The particles interact with their neighbors to produce realistic fluid behavior: flow, pressure, viscosity, surface tension, and splashing.
-
-**Why SPH and not a grid?** Grid-based methods (like the existing `fluid.worker.ts`) divide space into fixed cells. They work well for large, slow-moving bodies of water (oceans, lakes). But they cannot handle:
-- Pouring liquid from one container to another
-- A waterfall breaking into droplets
-- Molten metal being cast into a mold
-- Rain hitting the ground and splashing
-- Two different liquids mixing at their boundary
-
-SPH handles all of these because the particles move with the fluid — they go wherever the liquid goes, naturally adapting to any shape or motion.
-
-**Each SPH particle stores:**
-
-```
-SPHParticle {
-  // --- From the material packet system (§3.3.3) ---
-  composition: Map<Element, number>    // what this droplet is made of
-  mass: number                          // kg (fixed at creation)
-  temperature: number                   // °C (changes from environment + neighbors)
-
-  // --- SPH physics state ---
-  x, y, z: number                      // position on the sphere surface (world space)
-  vx, vy, vz: number                   // velocity (m/s)
-  density: number                       // kg/m³ (computed from neighbors each tick)
-  pressure: number                      // Pa (computed from density)
-
-  // --- Derived from composition (computed once, updated on temperature change) ---
-  viscosity: number                     // Pa·s — how thick/resistant to flow
-  surfaceTension: number                // N/m — how strongly the surface pulls inward
-  restDensity: number                   // kg/m³ — density at atmospheric pressure
-}
-```
-
-**The five forces on every particle, every tick:**
-
-**1. Pressure force** — particles in high-density regions push outward toward low-density regions. This prevents liquid from compressing into a single point and makes it spread out to fill containers.
-
-Formula: `F_pressure = -∇P / ρ`
-
-Pressure is computed from density using the Tait equation of state:
-`P = B · ((ρ/ρ₀)^γ - 1)` where B is a stiffness constant, ρ₀ is rest density, γ ≈ 7 for water.
-
-This is the same equation used in real computational fluid dynamics. It produces the correct behavior: water is nearly incompressible (high B), so even small density increases create large pressure forces that push particles apart.
-
-**2. Viscosity force** — particles drag on their neighbors, resisting relative motion. High viscosity = honey, lava. Low viscosity = water, alcohol. Zero viscosity = superfluid helium (unreachable in-game).
-
-Formula: `F_viscosity = μ · ∇²v` (Laplacian of velocity field, scaled by dynamic viscosity μ)
-
-**The viscosity comes from the material's composition**, not from a hardcoded value per liquid type:
-- Water (H₂O): μ ≈ 0.001 Pa·s at 20°C — hydrogen bonds are weak
-- Molten copper: μ ≈ 0.004 Pa·s at 1100°C — metallic bonds broken by heat
-- Molten glass (SiO₂): μ ≈ 10⁶ Pa·s at 1000°C — silicon-oxygen network barely broken
-- Honey (sugar solution): μ ≈ 2–10 Pa·s — long sugar molecules tangle
-- Lava (basaltic): μ ≈ 10–100 Pa·s — silicate networks partially intact
-
-Temperature reduces viscosity for all materials (Arrhenius model: `μ = A · e^(Ea/RT)`). Hotter liquid flows faster. This is why lava near the vent flows quickly but slows to a crawl as it cools.
-
-**3. Gravity** — particles fall toward the planet's center. On the sphere surface, this means flowing "downhill" — toward lower terrain elevation.
-
-Formula: `F_gravity = m · g · down_direction`
-
-On a sphere, the "down" direction is toward the planet center: `down = -normalize(position)`. The component of gravity along the terrain surface drives horizontal flow. The component into the terrain is balanced by the terrain's normal force (the ground pushes back).
-
-**4. Surface tension** — particles at the liquid's surface are pulled inward by their neighbors, minimizing surface area. This is what makes water droplets spherical and allows insects to walk on water.
-
-Formula: `F_surface = σ · κ · n̂` where σ is surface tension coefficient, κ is surface curvature, n̂ is surface normal.
-
-Surface tension is computed from composition:
-- Water: σ ≈ 0.073 N/m (hydrogen bonds pull surface inward)
-- Molten iron: σ ≈ 1.8 N/m (strong metallic bonds)
-- Mercury: σ ≈ 0.5 N/m (why mercury forms perfect spherical droplets)
-- Ethanol: σ ≈ 0.022 N/m (weak intermolecular forces)
-
-When two different liquids meet, the difference in surface tension drives **Marangoni flow** — liquid flows from low surface tension to high. This is why soap breaks water tension (soap has lower σ, water flows away from it, creating the spreading pattern).
-
-**5. Terrain collision** — particles cannot pass through the ground. When a particle's position would be below the terrain surface, it is pushed to the surface and its velocity component into the terrain is zeroed (with friction applied to the tangential component).
-
-This is what makes liquid pool in valleys, flow along riverbeds, and fill containers. The terrain acts as a rigid boundary that shapes the flow.
-
-#### The SPH Algorithm (per tick)
-
-```
-for each particle i:
-  1. Find neighbors within kernel radius h (~2× particle spacing)
-     — use spatial hash grid for O(1) neighbor lookup
-
-  2. Compute density:  ρᵢ = Σⱼ mⱼ · W(rᵢⱼ, h)
-     where W is a smoothing kernel (cubic spline) and rᵢⱼ = |posᵢ - posⱼ|
-
-  3. Compute pressure: Pᵢ = B · ((ρᵢ/ρ₀)^γ - 1)
-
-  4. Compute forces:
-     F_pressure  = -Σⱼ mⱼ · (Pᵢ/ρᵢ² + Pⱼ/ρⱼ²) · ∇W(rᵢⱼ, h)
-     F_viscosity = μ · Σⱼ mⱼ · (vⱼ - vᵢ) / ρⱼ · ∇²W(rᵢⱼ, h)
-     F_gravity   = m · g · (-normalize(posᵢ))
-     F_surface   = σ · curvature · surface_normal  (only for surface particles)
-
-  5. Integrate:
-     vᵢ += dt · (F_pressure + F_viscosity + F_gravity + F_surface) / mᵢ
-     posᵢ += dt · vᵢ
-
-  6. Terrain collision:
-     if (length(posᵢ) < PLANET_RADIUS + terrainHeight(posᵢ)):
-       push particle to surface, apply friction
-
-  7. Temperature exchange:
-     — particles exchange heat with neighbors (Fourier's law: Q = k·A·ΔT/d)
-     — particles exchange heat with terrain and air
-     — if temperature crosses melting point → phase transition (see below)
-```
-
-**The kernel function W** is the mathematical smoothing function that defines "how much influence does a neighbor have." Closer neighbors have more influence. The standard choice is the cubic spline kernel, which is smooth, compact (zero outside radius h), and computationally cheap.
-
-#### Phase Transitions: Solid ↔ Liquid ↔ Gas
-
-Phase transitions connect the fluid simulation to the material packet system (§3.3.3). They are the bridge between the static world of solids and the dynamic world of fluids.
-
-**Melting (solid → liquid):**
-```
-When a solid material packet reaches temperature ≥ meltingPoint(composition):
-  1. The solid packet is removed from the world
-  2. N SPH particles are spawned at its position
-     — N = mass / particleMass (particleMass is a resolution parameter, e.g., 0.01 kg)
-     — Each particle inherits: composition, temperature, mass/N
-     — Particles are placed in a tight cluster matching the solid's shape
-     — Particles get zero initial velocity (they start motionless, then flow under gravity)
-  3. The SPH simulation takes over — particles flow, pool, splash
-```
-
-**Freezing (liquid → solid):**
-```
-When a cluster of SPH particles cools below meltingPoint(composition):
-  1. Identify connected clusters of cold particles (particles within kernel radius of each other)
-  2. Each cluster merges into a single solid packet:
-     — mass = sum of particle masses
-     — composition = mass-weighted average of particle compositions
-     — position = center of mass of the cluster
-     — shape = convex hull of particle positions (or simplified bounding shape)
-  3. The solid packet is placed in the world; particles are removed
-```
-
-**Boiling (liquid → gas):**
-```
-When a particle reaches temperature ≥ boilingPoint(composition):
-  1. Particle expands: kernel radius increases, restDensity drops dramatically
-  2. Upward buoyancy force added (hot gas rises)
-  3. If particle rises above terrain + threshold → convert to gas system
-     — Gas particles have much larger spacing, lower interaction frequency
-     — Eventually fade out at high altitude (absorbed into atmosphere model)
-```
-
-**Condensation (gas → liquid):**
-```
-When gas-phase particles cool below boilingPoint:
-  1. Particles contract: kernel radius shrinks, restDensity increases
-  2. Surface tension kicks in → droplets form
-  3. Droplets fall under gravity → rain
-```
-
-**Sublimation and deposition** (solid ↔ gas, skipping liquid) also emerge naturally. Dry ice (solid CO₂) sublimates because its phase diagram has no liquid phase at 1 atm. The simulation checks: at current pressure, does a liquid phase exist between solid and gas? If not, the solid transitions directly to gas particles.
-
-#### Multi-Scale Fluid System
-
-One simulation method cannot efficiently handle all scales of liquid in the game. A raindrop and an ocean are both water, but simulating an ocean with SPH particles would require billions of particles. Instead, the game uses different methods at different scales, with smooth transitions between them.
-
-**Scale 1 — Crafting (SPH particles, 100–2,000 particles)**
-
-This is the most interactive scale. The player directly manipulates liquid:
-- Melting ore in a bloomery → molten metal flows into a channel
-- Pouring molten copper into a stone mold → casting
-- Mixing two chemicals in a clay pot → the liquids swirl together
-- Boiling water → steam rises, water level drops
-- Quenching hot steel → dramatic sizzle, steam cloud
-
-SPH runs at 60 Hz in a Web Worker. 2,000 particles × 50 neighbors × 5 forces = 500,000 operations per tick. At ~10 FLOPs each = 5 MFLOP per tick. A single CPU core does 1–5 GFLOP/s. Cost: < 1% of one core.
-
-**Scale 2 — Local environment (SPH particles, 2,000–20,000 particles)**
-
-Environmental liquid near the player:
-- Rain hitting the ground and forming puddles
-- A small waterfall or creek
-- Blood pooling from a killed animal
-- Spilled liquid from a broken container
-- A hot spring with steam
-
-SPH runs at 30 Hz in a dedicated Web Worker (separate from crafting). 20,000 particles at 30 Hz is ~30 MFLOP per tick — still cheap on a modern CPU. On a GPU compute shader (WebGPU), this could reach 200,000+ particles.
-
-**Scale 3 — Regional (grid-based, Eulerian)**
-
-Rivers, lakes, and large water bodies. Too many particles for SPH — switch to a grid where each cell tracks water volume and flow direction.
-
-```
-GridCell {
-  waterVolume: number     // m³ of water in this cell
-  flowX, flowZ: number    // velocity of water flow (m/s)
-  temperature: number     // °C
-  composition: Map<Element, number>   // dissolved minerals, pollutants
-  depth: number           // computed: waterVolume / cellArea
-}
-```
-
-Rules per tick (0.5–1 Hz — slow, large scale):
-- Water flows from high cells to low cells (terrain height + water depth)
-- Flow rate depends on slope (Manning's equation: `v = (1/n) · R^(2/3) · S^(1/2)` where n is roughness, R is hydraulic radius, S is slope)
-- Evaporation removes water based on temperature and humidity
-- Rain adds water based on weather system (§3.6)
-- Rivers defined by RiverSystem.ts are permanent flow paths with base flow rates
-
-This extends the existing `fluid.worker.ts` and `RiverSystem.ts`. The grid is the same 3D grid already initialized in the worker — it just needs water-specific logic added.
-
-**Scale 4 — Global (mathematical model, no particles or grid)**
-
-Ocean currents, tides, deep water temperature. These are too large and slow for real-time simulation. Instead, they are modeled as:
-- Ocean surface: Gerstner wave shader (already built — `OceanShader.ts`)
-- Currents: pre-computed flow field based on continent positions and Coriolis effect
-- Tides: sinusoidal sea level variation driven by moon position (simple formula)
-- Deep ocean temperature: latitude-based gradient (cold at poles, warm at equator)
-
-No per-frame simulation cost. Just math evaluated when needed.
-
-#### Scale Transitions
-
-The critical engineering challenge is smooth transitions between scales. A raindrop (SPH) must be able to join a puddle (SPH), which grows into a stream (grid), which feeds a river (grid), which reaches the ocean (shader). Going backward must also work: a player scoops water from a river (grid → SPH packet).
-
-**SPH → Grid (particle absorption):**
-```
-When an SPH particle enters a grid cell that already contains water:
-  1. Add particle's mass to cell's waterVolume
-  2. Add particle's momentum to cell's flow velocity (momentum-conserving)
-  3. Mix particle's composition into cell's composition (mass-weighted average)
-  4. Mix particle's temperature into cell's temperature
-  5. Remove the SPH particle
-```
-
-Trigger condition: particle velocity < threshold AND particle is in a cell with waterVolume > threshold. This means fast-moving water (waterfalls, splashes) stays as particles. Slow, settled water becomes grid cells.
-
-**Grid → SPH (particle emission):**
-```
-When a player interacts with a grid cell (scoop, dig channel, break dam):
-  1. Remove requested mass from cell's waterVolume
-  2. Spawn N SPH particles with that mass, inheriting cell's composition and temperature
-  3. Particles get initial velocity matching the cell's flow direction
-```
-
-Also triggered when water flows over a cliff edge (waterfall): grid cells at the edge emit SPH particles that fall freely until they hit water below (absorbed back into grid) or terrain (splash → pool → eventually grid again).
-
-**Grid → Shader (ocean boundary):**
-```
-Grid cells at the ocean boundary do not store water — they connect to the ocean.
-River grid cells that reach sea level feed their flow volume into the ocean's
-total water budget (affecting sea level over very long timescales).
-The ocean shader reads sea level from the simulation state.
-```
-
-#### Mixing and Reactions in Liquid
-
-When two SPH particles of different composition are neighbors, they can mix and react — using the same reaction engine from §3.3.3.
-
-**Diffusion (passive mixing):**
-Each tick, neighboring particles exchange a small fraction of their composition proportional to their contact area and the diffusion coefficient. Over time, two adjacent liquids homogenize. Stirring (player action or turbulent flow) increases the mixing rate by bringing distant particles into contact.
-
-```
-mixRate = D · dt · W(rᵢⱼ, h) / distance
-particle_i.composition += mixRate · (particle_j.composition - particle_i.composition)
-particle_j.composition += mixRate · (particle_i.composition - particle_j.composition)
-```
-
-where D is the diffusion coefficient (depends on temperature and the materials involved).
-
-**Reactions in liquid phase:**
-When two particles' mixed composition satisfies a reaction condition (§3.3.3 reaction engine — Gibbs free energy check), the reaction fires:
-- Acid dissolves metal: HCl particles + Fe particles → FeCl₂ solution + H₂ gas bubbles
-- Salt dissolves in water: NaCl solid particles near H₂O particles → Na⁺ and Cl⁻ dissolve into water composition
-- Oil and water refuse to mix: if immiscible (ΔG of mixing > 0), particles repel at the interface instead of diffusing
-
-**Density-driven layering:**
-Denser liquid sinks, lighter liquid floats. Oil floats on water. Molten slag floats on molten iron (this is how real smelting separates metal from waste). The SPH pressure force naturally produces this layering because denser particles create higher pressure at the bottom.
-
-#### What the Player Sees
-
-The visual representation of fluid adapts to scale:
-
-**SPH particles (crafting and local):**
-- Each particle renders as a small sphere (metaball rendering for smooth appearance)
-- Color derived from composition: water = blue-clear, molten copper = orange-red glow, blood = dark red, oil = dark brown
-- Temperature → emissive glow: particles above 500°C glow red, above 1000°C glow orange-white
-- Surface particles have specular highlights (Fresnel reflection, same as OceanShader.ts)
-- Metaball blobbing: nearby particles visually merge into a smooth surface (marching cubes or screen-space fluid rendering)
-
-**Grid cells (regional):**
-- Water surface mesh generated from grid cells with waterVolume > 0
-- Surface height = terrain height + water depth
-- Uses the existing OceanShader.ts material (Gerstner waves scaled down for rivers/lakes)
-- River foam where flow speed is high (reuse the foam noise from OceanShader.ts)
-
-**Ocean (global):**
-- Unchanged from current implementation: sphere mesh + Gerstner wave vertex displacement + Fresnel + caustics
-
-#### Terrain Interaction: The Container Problem
-
-Liquid needs surfaces to contain it. The terrain height field on the sphere is the primary container. But natural terrain has features that matter for fluid:
-
-**Concavities (valleys, bowls, craters):**
-Water pools wherever the terrain forms a local minimum — a point lower than all its neighbors. The grid-based simulation finds these automatically: water flows into the cell and has nowhere lower to go, so it accumulates. Water depth rises until it reaches the lowest outflow point (the rim of the bowl), then spills over and continues flowing.
-
-**Player-made containers:**
-When a player digs (removes terrain) or builds (adds terrain), they modify the height field. A trench becomes a channel. A ring of piled dirt becomes a dam. A clay pot (crafted object with concave interior) becomes a vessel. The fluid system treats all of these the same way: particles cannot penetrate solid surfaces, so they pool inside whatever shape the surface creates.
-
-**Porosity:**
-Not all terrain is waterproof. Sand absorbs water (high porosity). Clay blocks water (low porosity). Rock is somewhere in between. The grid simulation can model this:
-```
-absorption = porosity · waterVolume · dt
-waterVolume -= absorption
-groundwaterLevel += absorption  // water table rises
-```
-
-This produces springs (groundwater pressure pushes water to the surface where terrain is lower than the water table) and explains why clay-lined channels hold water better than dirt channels.
-
-#### The Complete Water Cycle
-
-When all scales work together, the full hydrological cycle emerges:
-
-```
-EVAPORATION: Ocean + lakes + rivers lose water (temperature + surface area + wind)
-  ↓ water vapor enters atmosphere
-CLOUD FORMATION: Vapor rises, cools below dew point, condenses
-  ↓ water droplets aggregate into clouds (weather system §3.6)
-PRECIPITATION: Clouds release water as rain (liquid) or snow (solid)
-  ↓ SPH particles fall from sky (Scale 1-2)
-SURFACE FLOW: Rain hits terrain, flows downhill
-  ↓ SPH particles merge into grid cells (Scale 2 → Scale 3)
-RIVERS: Grid cells with persistent flow form rivers
-  ↓ matches RiverSystem.ts flow paths
-LAKES: Water accumulates in terrain concavities
-  ↓ grid cells fill up, overflow feeds downstream rivers
-OCEAN: Rivers discharge into the ocean (Scale 3 → Scale 4)
-  ↓ ocean level adjusts over long timescales
-GROUNDWATER: Some rain absorbs into porous terrain
-  ↓ feeds springs, wells, and maintains river base flow in dry season
-```
-
-No part of this cycle is scripted. It all follows from the physics: gravity pulls water down, heat drives evaporation, cooling drives condensation, terrain shape determines where water collects and flows. The weather system (§3.6) provides precipitation. The fluid simulation handles everything after the raindrop forms.
-
-#### Lava: Liquid Rock
-
-Volcanic eruptions produce lava — molten rock flowing on the surface. In this system, lava is not a special case. It is a material packet (composition: silicate minerals) that has been heated above its melting point (~700–1200°C depending on composition).
-
-```
-MAGMA CHAMBER: high-temperature material packets deep underground (world generation)
-  ↓ volcanic event (triggered by tectonic simulation or random with geological probability)
-ERUPTION: packets surface → temperature > melting point → fragment into SPH particles
-  ↓ particles flow downhill (very high viscosity — basaltic: μ ≈ 100 Pa·s, rhyolitic: μ ≈ 10⁶ Pa·s)
-COOLING: particles lose heat to air and terrain → temperature drops
-  ↓ viscosity increases exponentially as temperature drops (Arrhenius)
-SOLIDIFICATION: temperature crosses solidus → particles freeze into solid terrain
-  ↓ new rock with composition determined by the original magma
-```
-
-Basaltic lava (low silica) flows fast and far — like Hawaiian eruptions. Rhyolitic lava (high silica) barely moves — it piles up into domes. The difference is entirely from composition → viscosity. The simulation handles both with the same code.
-
-Lava flowing over water produces instant steam (boiling) + rapid cooling of the lava surface → obsidian (amorphous glass, because cooling was too fast for crystals to form). This emergent behavior falls out naturally from the phase transition and heat exchange rules.
-
-#### Performance Budget
-
-| Scale | Method | Particle/cell count | Tick rate | CPU cost per tick | Worker |
-|-------|--------|-------------------|-----------|-------------------|--------|
-| Crafting | SPH | 100–2,000 | 60 Hz | < 1 ms | Shared with game loop or dedicated |
-| Local env | SPH | 2,000–20,000 | 30 Hz | 2–5 ms | Dedicated Web Worker |
-| Regional | Grid | 10,000–50,000 cells | 1 Hz | 5–10 ms | Existing fluid.worker.ts |
-| Global | Math | 0 | On demand | < 0.1 ms | Main thread |
-| **Total** | | | | **< 15 ms** at peak | **3 workers max** |
-
-On a GPU (WebGPU compute shaders, when available): SPH particle count can increase 10–100× for the same cost. 200,000 local environment particles at 30 Hz is feasible on a mid-range GPU.
-
-The server (for shared world state) only needs to run Scale 3 (grid) and Scale 4 (math). Crafting-scale and local-scale SPH run on the client only — they are visual and player-local. The server broadcasts grid cell water levels in the WORLD_SNAPSHOT, and clients generate local SPH particles for visual detail.
-
-#### Critical Optimizations
-
-The SPH algorithm is simple. Making it run at 60 Hz in a browser is the engineering challenge. These optimizations are not optional improvements — they are the architectural foundation without which the system cannot function at interactive frame rates.
-
-**1. Spatial Hash Grid — O(n²) → O(n)**
-
-The most important single optimization. SPH requires every particle to find its neighbors within kernel radius h. Naive approach: check every particle against every other particle. With 5,000 particles, that's 25,000,000 distance checks per tick — impossible at 60 Hz.
-
-Spatial hash grid: divide the world into cells of size h. Each particle hashes its position to a cell index. To find neighbors, only check the particle's own cell and the 26 adjacent cells (3×3×3 neighborhood). Average neighbor check drops from n to ~50 particles.
-
-```
-// Hash function: position → cell index
-function hashCell(x, y, z, cellSize) {
-  const ix = Math.floor(x / cellSize)
-  const iy = Math.floor(y / cellSize)
-  const iz = Math.floor(z / cellSize)
-  return (ix * 73856093) ^ (iy * 19349663) ^ (iz * 83492791)
-}
-
-// Each tick:
-// 1. Clear hash table
-// 2. Insert all particles by position hash
-// 3. For each particle, query only 27 neighboring cells
-```
-
-Cost reduction: 5,000 particles goes from 25M distance checks → ~250K. That's a 100× speedup. This is the difference between "impossible" and "trivial."
-
-**2. Sleep/Wake System — Skip Settled Particles**
-
-A particle that hasn't moved significantly for N consecutive ticks is "sleeping." Skip all force calculations for sleeping particles. They cost zero CPU until disturbed.
-
-```
-if (particle.velocity < SLEEP_THRESHOLD for 30 consecutive ticks):
-  particle.sleeping = true
-  // skip all SPH calculations for this particle
-
-if (any neighbor of sleeping particle moves significantly):
-  particle.sleeping = false  // wake up
-```
-
-In practice, 80–95% of fluid particles are sleeping at any moment. A puddle that settled 10 seconds ago has zero ongoing cost. Only the actively flowing portion of a liquid body costs CPU.
-
-**3. Flat Typed Arrays — Avoid JavaScript Object Overhead**
-
-Do NOT store particles as JavaScript objects (`{ x, y, z, vx, vy, vz, ... }`). Object access in JS involves property lookup, hidden class checks, and potential garbage collection pauses.
-
-Instead: store all particle data in flat `Float32Array` buffers. One contiguous array for positions, one for velocities, one for densities.
-
-```
-// Bad — JS objects, GC pressure, cache misses
-particles = [{ x: 1, y: 2, z: 3, vx: 0, ... }, ...]
-
-// Good — flat typed arrays, SIMD-friendly, zero GC
-const STRIDE = 3
-posX = new Float32Array(MAX_PARTICLES)  // or interleaved: pos = new Float32Array(MAX * 3)
-posY = new Float32Array(MAX_PARTICLES)
-posZ = new Float32Array(MAX_PARTICLES)
-velX = new Float32Array(MAX_PARTICLES)
-velY = new Float32Array(MAX_PARTICLES)
-velZ = new Float32Array(MAX_PARTICLES)
-```
-
-Benefits:
-- CPU cache-friendly (sequential memory access)
-- Enables SIMD auto-vectorization (V8 can process 4 floats at once)
-- Zero garbage collection (no object allocation per tick)
-- Direct transfer to GPU via SharedArrayBuffer (zero-copy)
-- ~3–5× faster than object-based approach in V8
-
-**4. Web Workers + SharedArrayBuffer — Off Main Thread, Zero Copy**
-
-The fluid simulation must NEVER run on the main thread. It runs in a dedicated Web Worker. The renderer (main thread) reads particle positions to draw them.
-
-With `SharedArrayBuffer`, the worker writes particle positions directly into shared memory. The main thread reads from the same memory to render. No copying, no message passing, no serialization.
-
-```
-// Main thread: create shared buffer
-const sharedBuf = new SharedArrayBuffer(MAX_PARTICLES * 3 * 4)  // xyz, float32
-const positions = new Float32Array(sharedBuf)
-
-// Send to worker once at startup
-worker.postMessage({ type: 'init', buffer: sharedBuf })
-
-// Worker: write positions every tick (no postMessage needed)
-positions[i * 3 + 0] = particleX
-positions[i * 3 + 1] = particleY
-positions[i * 3 + 2] = particleZ
-
-// Renderer: read positions every frame (same memory, zero copy)
-geometry.attributes.position.array = positions
-geometry.attributes.position.needsUpdate = true
-```
-
-Cost: effectively zero for data transfer. The only synchronization needed is an `Atomics.store/load` on a tick counter so the renderer knows when new data is ready.
-
-**5. Physics LOD — Distance-Based Quality Reduction**
-
-Particles far from the player don't need full-accuracy physics:
-
-| Distance from player | Tick rate | Neighbor search | Notes |
-|---|---|---|---|
-| 0–20 m | 60 Hz | Full (27 cells) | Player is watching closely |
-| 20–50 m | 15 Hz | Reduced (7 cells — face neighbors only) | Visible but not scrutinized |
-| 50–100 m | 2 Hz | Minimal (own cell only) | Background movement |
-| > 100 m | Convert to grid | No SPH | Too far to see individual particles |
-
-This reduces the effective particle count by ~60% in typical gameplay (most fluid is not right next to the player).
-
-**6. Hybrid Rendering: Real Physics + Visual Tricks**
-
-The most important optimization is knowing **when NOT to simulate**. Real SPH physics only runs during active interaction moments. Everything else uses cheap visual approximations:
-
-| Situation | Physics method | Visual method |
-|---|---|---|
-| Player melting/pouring metal | Real SPH (200-500 particles) | Screen-space fluid smoothing on SPH particles |
-| Player mixing chemicals | Real SPH + diffusion | Color blending shader on SPH particles |
-| Rain falling | None | GPU billboard particle system (thousands of quads, no physics) |
-| Rain puddles forming | Heightfield (add volume to grid cell) | Puddle decal texture + animated ripple shader |
-| River | Grid flow (volume + direction) | River mesh + scaled-down Gerstner waves from OceanShader |
-| Waterfall | None | Particle trail effect + splash particles + foam texture at base |
-| Lake | Grid cell (single water volume number) | Flat mesh at water height + wave shader + edge foam |
-| Ocean | None | Pure Gerstner wave shader (already built in OceanShader.ts) |
-| Lava (active flow front) | Real SPH (2,000-5,000 particles) | Emissive shader + heat distortion + cooled parts become terrain texture |
-| Lava (cooled) | None | Terrain with volcanic rock texture |
-| Blood | None | Decal projected onto terrain surface |
-| Water carried in pot | Just a number (mass + composition) | Sloshing animation shader on the pot model |
-
-The SPH system activates only when needed (phase transition triggers it) and deactivates when particles settle (sleep system) or cool into solids (merge back into material packets). During a typical gameplay session, SPH is actively running for maybe 10% of the time — during smelting, pouring, or weather events. The other 90% costs zero.
-
-**Screen-space fluid rendering** (for the moments when SPH is active):
-1. Render each SPH particle as a point sprite into a depth-only buffer
-2. Bilateral Gaussian blur on the depth buffer — this smooths overlapping spheres into a continuous surface
-3. Reconstruct normals from the smoothed depth
-4. Apply water/metal/lava shading (Fresnel, refraction, emissive glow) as a full-screen pass
-5. Composite over the scene
-
-This technique is used by Unreal Engine 5, Unity HDRP, and most modern games with fluid effects. The blur cost is per-pixel (fixed cost regardless of particle count), making it extremely efficient. 5,000 particles render at the same cost as 500.
-
-#### Implementation Phases
-
-**Phase 1 — Crafting-scale SPH (connect to material packets)**
-- Implement SPH solver in a Web Worker (pressure, viscosity, gravity, terrain collision)
-- Hook into material packet phase transitions: solid → liquid spawns particles, cooling merges them back
-- Visual: simple sphere rendering per particle with composition-based color
-- Test: melt copper ore in bloomery → molten copper flows into a channel → cools into solid
-
-**Phase 2 — Local environment SPH**
-- Dedicated worker for environmental particles (rain, puddles, small streams)
-- Add surface tension for realistic droplet behavior
-- Metaball rendering for smooth liquid surfaces
-- Connect to weather system: rain events spawn falling particles
-
-**Phase 3 — Grid-based regional water**
-- Extend fluid.worker.ts with water volume tracking, Manning's equation flow
-- SPH ↔ grid transitions (particle absorption / emission)
-- Lakes form in terrain concavities, overflow creates rivers
-- Server syncs grid state in WORLD_SNAPSHOT
-
-**Phase 4 — Full water cycle**
-- Evaporation from water surfaces → feeds weather system humidity
-- Groundwater absorption and springs
-- Seasonal variation (freeze/thaw cycle)
-- Connect ocean shader to grid system at coastlines
-
-**Phase 5 — Lava and exotic fluids**
-- Volcanic events spawn high-temperature SPH particles
-- Lava cooling → terrain modification (new rock forms)
-- Molten metal in industrial processes (blast furnace, casting)
-- Acid, oil, alcohol — all derived from composition, no special cases
-
----
-
-### 3.4 Geology and Resource Distribution
-
-Resource distribution builds on the planetary formation and tectonic structure defined in §3.1. Resource nodes are concentrated according to real geological processes. Settlement specialties assigned by server-side geology query (matching the client algorithm exactly).
-
-**Scientific grounding — why geology determines civilization:**
-Jared Diamond's *Guns, Germs, and Steel* (1997) argues that geography is the primary driver of civilizational development — not intelligence, culture, or luck. Societies that happened to sit on land with domesticable crops, workable metals, and navigable rivers developed faster and outcompeted those that did not. The same logic applies here. A player who starts near a copper-rich volcanic zone has access to metal tools earlier than one who starts in a sedimentary basin with only flint. This is not unfair — it is how reality works. The world rewards exploration and trade precisely because different regions have different resources.
-
-Every resource in the game has one or more real geological formation mechanisms. A player who understands these can search intelligently instead of wandering randomly. The entries below cover every resource in the game's material taxonomy — how it forms, under what conditions, and what terrain signals its presence.
-
----
-
-#### 3.4.1 Metals and Ores
-
-**Copper** (native copper, malachite, azurite, chalcopyrite)
-
-*Formation mechanism 1 — Porphyry copper deposits:* The most common copper source. When a magma body cools beneath a subduction zone, hot saline fluids circulate through the cooling rock and precipitate copper sulfides (chalcopyrite, bornite) in a disseminated halo around the intrusion. These deposits are enormous but low-grade — billions of tonnes of rock at 0.3–1.5% copper. They form exclusively at convergent plate boundaries where oceanic crust subducts under continental crust.
-
-*Formation mechanism 2 — Hydrothermal vein deposits:* Hotter, more concentrated mineralizing fluids travel along fault systems and fracture zones. As they cool, copper minerals drop out of solution and fill the fracture walls. These deposits are smaller but much richer (2–10% copper). The veins often follow fault scarps visible at the surface. Associated with volcanic arcs.
-
-*Formation mechanism 3 — Native copper in basalt:* In places where basaltic lava flows over groundwater-saturated terrain, copper-bearing hydrothermal solutions percolate upward through gas vesicles (amygdules) in the cooling basalt and deposit native metallic copper — the purest natural copper, requiring no smelting, only hammering. The Michigan Upper Peninsula produced native copper this way for thousands of years of pre-contact indigenous metalwork. Found in flood basalt provinces.
-
-*Formation mechanism 4 — Secondary enrichment (gossans):* When a sulfide ore body is exposed to weathering, rainwater dissolves the copper and carries it downward. Below the water table, this dissolved copper re-precipitates in a supergene zone — much higher grade than the original ore. The gossanous (rusted-orange) surface cap above the water table is a visible exploration signal. Malachite (green) and azurite (blue) oxidation minerals appear at surface outcrops.
-
-*Game search signal:* Volcanic terrain at plate boundaries. Bright green (malachite) or blue (azurite) rock patches at surface. Rusted orange gossan caps.
-
----
-
-**Tin** (cassiterite — SnO₂)
-
-*Formation mechanism 1 — Granitic pegmatite veins:* Tin concentrates in the last fraction of magma to solidify when a granite intrusion cools. This late-stage fluid is enriched in volatile elements (fluorine, boron, water) and rare metals including tin, tungsten, and lithium. It intrudes into the surrounding country rock as coarse-crystalline pegmatite veins. Cassiterite (tin oxide) forms large, well-crystallized black crystals within these veins. The veins cut through or occur within granite plutons.
-
-*Formation mechanism 2 — Alluvial/placer deposits:* Cassiterite is dense (6.9 g/cm³) and chemically inert — it survives weathering intact. When pegmatite veins erode, the cassiterite washes downstream and settles in river bends and gravel bars, exactly like gold. The great tin fields of Southeast Asia (Malaysia, Indonesia, Thailand) are almost entirely alluvial placer deposits worked by hydraulic dredging. Tin can often be found by panning river sediments near granite highlands.
-
-*Game search signal:* Granitic highlands, coarse-grained pale rock (granite outcrops). River gravels and alluvial plains downstream of granite terrain. Heavy black mineral grains in river sediment.
-
----
-
-**Lead** (galena — PbS)
-
-*Formation mechanism 1 — Mississippi Valley-type (MVT) deposits:* Lead and zinc sulfides (galena and sphalerite) precipitate when warm saline brines expelled from deep sedimentary basins migrate upward and encounter carbonate rocks (limestone, dolomite). The brines carry dissolved lead and zinc; when they cool or mix with sulfur-rich fluids, galena and sphalerite precipitate in open pores and cavities of the limestone. These deposits form far from volcanoes — in stable sedimentary platforms, often hundreds of kilometers from any plate boundary. The name comes from the major Pb-Zn districts of Missouri, Kansas, and Oklahoma.
-
-*Formation mechanism 2 — Hydrothermal veins:* As with copper, lead also precipitates in fault-controlled hydrothermal veins. Galena typically co-occurs with silver (argentite is often intergrown within galena crystals), which is why lead smelting historically yielded silver as a byproduct. These deposits are associated with volcanic arcs.
-
-*Formation mechanism 3 — Sediment-hosted stratiform deposits:* Some lead deposits formed as seafloor hydrothermal vents discharged metal-rich brines onto the ocean bottom. The galena precipitated in flat layers interbedded with normal marine sediment — called sediment-hosted massive sulfide (SHMS) deposits. These appear as flat, tabular ore bodies within sedimentary sequences.
-
-*Game search signal:* Limestone terrain (grey, layered rock) in sedimentary platforms. River valleys cutting through carbonate rock sequences. Bright silver-grey metallic mineral (galena is highly reflective, cube-shaped).
-
----
-
-**Iron** (hematite Fe₂O₃, magnetite Fe₃O₄, limonite FeOOH, siderite FeCO₃)
-
-*Formation mechanism 1 — Banded Iron Formations (BIF):* The world's largest iron deposits. Between 2.5 and 1.8 billion years ago, the early ocean was rich in dissolved ferrous iron (Fe²⁺) because the atmosphere had no free oxygen. When photosynthetic cyanobacteria began producing oxygen, it oxidized the dissolved iron to insoluble ferric iron (Fe³⁺), which precipitated as hematite and magnetite in alternating red and grey bands on the seafloor. These ancient ocean deposits are now exposed as thick, layered rock formations in ancient continental cratons — the Precambrian shield rocks of Australia, Brazil, Canada, Ukraine, India, and West Africa. They are flat-lying, laterally extensive (hundreds of kilometers), and contain billions of tonnes of iron ore.
-
-*Formation mechanism 2 — Lateritic iron (limonite):* In tropical climates with intense chemical weathering, iron in ordinary rock is oxidized and concentrated near the surface as laterite — a reddish, iron-rich soil horizon. Any silica and alumina dissolve away; iron hydroxides (limonite, goethite) remain. Laterite is low-grade but widespread and accessible. Historical bog iron — extracted from limonite-rich swamp sediments — powered the early Iron Age in Europe and Asia. Found in tropical biomes and ancient weathered landscapes.
-
-*Formation mechanism 3 — Magmatic iron (magnetite in igneous rock):* Some granitic and basaltic intrusions contain enough iron and titanium that magnetite crystallizes as a discrete mineral phase and can form exploitable concentrations. These deposits are smaller than BIFs but occur near volcanic arcs. Magnetite is strongly magnetic — a lodestone placed near the ore will deflect visibly.
-
-*Game search signal:* Ancient stable continental interiors (cratons), flat layered red-and-grey striped rock. Tropical terrain with red soils. Swamp edges (bog iron). Magnetic compass deflection near magnetite deposits.
-
----
-
-**Gold** (native gold, electrum, gold tellurides)
-
-*Formation mechanism 1 — Lode gold (orogenic/mesothermal veins):* The most important gold source historically. During mountain-building events, large volumes of hot fluid are expelled from deeply buried metamorphic rocks and migrate upward through fault zones. These fluids carry dissolved gold (as gold-bisulfide complexes) and deposit it as native gold in quartz veins when the fluids cool and depressurize. The gold occurs as fine disseminations and visible specks within white quartz. Found along ancient suture zones and fold belts — the roots of ancient mountain ranges, now eroded down to metamorphic basement rocks.
-
-*Formation mechanism 2 — Epithermal gold (volcanic systems):* In active volcanic arcs, shallow hydrothermal circulation deposits gold near the surface (within 1 km depth). Hot acidic fluids move through volcanic rock and precipitate gold and silver where they boil or cool abruptly. Two subtypes: high-sulfidation (acidic, near volcanic vents, associated with sulfur and arsenic minerals) and low-sulfidation (neutral pH, white quartz veins, associated with calcite and adularia). Both are found in young volcanic terrains at convergent boundaries.
-
-*Formation mechanism 3 — Placer gold:* Gold is dense (19.3 g/cm³) and chemically inert. When lode deposits erode, gold travels downstream and concentrates in river bedload. It settles wherever water velocity drops — the inside of meander bends, below waterfalls, behind large boulders, at bedrock irregularities on the riverbed. Fine gold panning from river sediments (alluvial placer) was the entry point for gold discovery in nearly every historical gold rush. Ancient, deeply weathered placer deposits (paleoplacers) may be buried under younger sediment.
-
-*Game search signal:* White quartz veins in metamorphic terrain. Volcanic arc terrain (fresh or ancient). Gold panned from river gravel — follow rivers upstream toward gold-bearing highlands. Very rare; small deposit size.
-
----
-
-**Silver** (native silver, argentite Ag₂S, electrum, horn silver AgCl)
-
-*Formation mechanism 1 — Hydrothermal veins with lead:* Silver is the most common precious metal in hydrothermal vein systems. Argentite (silver sulfide) intergrows with galena (lead sulfide) so intimately that smelting lead ore almost always yields silver. The great silver deposits of history — Laurion (Greece), Potosí (Bolivia), Zacatecas (Mexico), Comstock Lode (Nevada) — are all hydrothermal vein systems. Silver occurs in the same fault-controlled veins as lead and zinc, associated with volcanic arcs.
-
-*Formation mechanism 2 — Epithermal silver:* At shallower depths and lower temperatures than gold-bearing systems, silver precipitates in large amounts in low-sulfidation epithermal veins. The silver minerals are different: argentite, pyrargyrite (ruby silver), proustite. These vein systems can have spectacular high-grade "bonanza" zones where the veins widen and silver content rises sharply.
-
-*Formation mechanism 3 — Secondary supergene silver:* When a silver sulfide ore body weathers, rainwater oxidizes and mobilizes the silver, which re-deposits as horn silver (AgCl, cerargyrite) — a pale grey waxy mineral — or as native silver whiskers and wire-like crystal habits near the surface. Secondary native silver can form large masses just below the oxidized zone.
-
-*Game search signal:* Same terrain as lead and gold. Galena (silver-grey cubic) is a reliable indicator — lead smelting reveals silver. Light-grey waxy mineral near surface (horn silver). Associated with volcanic arcs and fold belts.
-
----
-
-**Aluminum** (bauxite — gibbsite Al(OH)₃, boehmite AlOOH, diaspore AlOOH)
-
-*Formation mechanism — Tropical lateritic weathering:* Aluminum cannot be found as a concentrated ore in igneous or sedimentary rocks — it is the third most abundant element in the crust, but it is locked in aluminosilicate minerals (feldspars, micas) and cannot be separated by simple chemistry. Bauxite forms only through extreme tropical weathering. In hot, wet equatorial climates, millions of years of rainfall dissolve and remove all silica, iron, calcium, and sodium from rock, leaving behind a concentrated residue of aluminum hydroxide — bauxite. This is a surficial deposit, formed in place above the parent rock. No bauxite exists in cold or arid climates. The thicker the soil profile and the older the land surface, the higher the bauxite grade.
-
-*Additional note:* Aluminum smelting (Hall-Héroult process) requires electricity — a civilization must reach the Electrical Age before aluminum becomes accessible. Even if bauxite is found, it cannot be processed without electrolytic reduction.
-
-*Game search signal:* Old, deeply weathered tropical terrain. Red-brown soil with white nodules. No mountain building needed — flat, ancient land surface.
-
----
-
-**Tungsten** (wolframite (Fe,Mn)WO₄, scheelite CaWO₄)
-
-*Formation mechanism — Contact metamorphic skarns and greisens:* Tungsten concentrates in the same late-stage granitic fluids as tin — the last fractions of cooling magma enriched in volatiles. Wolframite forms in greisen veins (fluorine-rich alteration zones) within and around granite intrusions. Scheelite forms in contact metamorphic skarns — zones where granite magma baked adjacent limestone and injected calcium-tungstate into the carbonate. Both deposit types occur within or immediately adjacent to granite plutons, often in the same district as tin.
-
-*Game search signal:* Granite terrain. Dense, dark-brown to black heavy crystals (wolframite) in veins. Often co-located with tin mining areas. Scheelite fluoresces bright blue-white under UV light.
-
----
-
-**Chromium** (chromite FeCr₂O₄)
-
-*Formation mechanism 1 — Stratiform chromite in layered intrusions:* When large volumes of basaltic magma cool slowly in a magma chamber, minerals crystallize in sequence by density. Chromite, being dense and early-crystallizing, settles to the floor of the magma chamber and accumulates in discrete layers — sometimes meters thick and laterally continuous for kilometers. The Bushveld Complex (South Africa) contains over 70% of world chromite reserves this way.
-
-*Formation mechanism 2 — Podiform chromite in ophiolites:* Ophiolites are fragments of ancient oceanic crust and upper mantle thrust onto continents during tectonic collisions. The mantle portion (peridotite/dunite) contains irregular, lens-shaped pods of chromite formed in the mantle wedge above a subduction zone. These podiform bodies are smaller and more scattered than stratiform deposits.
-
-*Game search signal:* Ancient cratons with large, flat layered igneous complexes (dark, banded mafic rock). Mountain belts containing ophiolite sequences (dark green peridotite/serpentinite).
-
----
-
-**Nickel** (pentlandite (Fe,Ni)₉S₈, lateritic nickel in garnierite)
-
-*Formation mechanism 1 — Magmatic sulfide deposits:* When large volumes of nickel-rich basaltic or komatiitic magma intrude into the crust, sulfur from the surrounding rocks can be incorporated into the melt. The sulfur separates as an immiscible sulfide liquid that scavenges nickel, copper, and platinum from the silicate melt and sinks to the bottom of the intrusion. Pentlandite crystallizes from this sulfide liquid. Classic deposits: Sudbury (Canada — formed by a meteorite impact melting the crust), Norilsk (Russia), Thompson (Canada).
-
-*Formation mechanism 2 — Lateritic nickel (garnierite):* In tropical climates, weathering of nickel-bearing peridotite/serpentinite concentrates nickel as green garnierite in the weathering profile. Lateritic nickel makes up ~60% of world nickel resources. Less rich per tonne than sulfide deposits but much more widespread in tropical terrain over ultramafic rocks.
-
-*Game search signal:* Large mafic-ultramafic intrusions (dark, heavy rock). Meteorite impact craters (circular lakes, shocked rock). Tropical terrain over dark green serpentinite.
-
----
-
-**Zinc** (sphalerite ZnS)
-
-*Formation mechanism — Mississippi Valley-type and volcanogenic massive sulfide:* Zinc always co-occurs with lead in MVT deposits (see Lead above) and in volcanic-hosted massive sulfide (VMS) deposits — ancient seafloor hot spring mounds now incorporated into mountain belts. In VMS deposits, metal-rich fluids vented onto the seafloor and precipitated zinc and copper sulfides as massive mounds, later metamorphosed and deformed by tectonic activity. Zinc is so closely associated with lead that the two are almost always mined together.
-
-*Game search signal:* Same terrain as lead. Yellow-brown to black heavy mineral (sphalerite).
-
----
-
-**Manganese** (pyrolusite MnO₂, rhodonite MnSiO₃, rhodochrosite MnCO₃)
-
-*Formation mechanism 1 — Sedimentary manganese nodules:* On the deep ocean floor, manganese precipitates slowly from cold seawater, forming fist-sized nodules rich in manganese, cobalt, nickel, and copper. These are not accessible early game — deep-sea mining requires industrial infrastructure.
-
-*Formation mechanism 2 — Shallow marine sedimentary beds:* Ancient shallow-sea sediments can contain manganese carbonate and oxide beds deposited by bacterial activity in anoxic conditions. Found in ancient sedimentary sequences, often associated with BIF iron formations.
-
-*Formation mechanism 3 — Supergene concentration:* Near-surface weathering of manganiferous rock produces soft, black pyrolusite coatings and dendrites on rock fractures. This is the most accessible surface deposit — a shiny black dendritic mineral on rock faces.
-
-*Game search signal:* Black dendritic mineral on fractured rock. Ancient sedimentary terrain. Associated with iron-bearing formations.
-
----
-
-#### 3.4.2 Non-Metallic Rock and Mineral Resources
-
-**Limestone and chalk** (calcite CaCO₃, aragonite CaCO₃)
-
-*Formation mechanism 1 — Biogenic marine carbonate:* Limestone is almost entirely biological in origin. Marine organisms — coral, mollusks, foraminifera, coccolithophores — build their shells and skeletons from calcium carbonate extracted from seawater. When they die, their shells accumulate on the seafloor and compact into limestone over millions of years. A 10-meter limestone bed represents tens of millions of years of marine sedimentation. Chalk is a particularly pure, fine-grained variety of limestone formed from microscopic coccolithophore shells, deposited in shallow warm epicontinental seas (Cretaceous chalk beds of England, France, and Kansas formed in exactly this way — the white cliffs of Dover were ocean floor 70 million years ago).
-
-*Formation mechanism 2 — Chemical precipitation:* In warm, shallow, supersaturated marine water, carbonate can precipitate directly from solution as ooids (small rounded grains) or as carbonate mud — producing limestone without biological input. Travertine forms this way around hot springs (carbonate-rich thermal water deposits calcium carbonate as it degasses CO₂).
-
-*Formation mechanism 3 — Reef buildup:* Coral reefs accumulate massive volumes of biogenic carbonate in place, creating thick, porous reef limestone — excellent for groundwater storage and cave formation.
-
-*Game search signal:* Flat, layered grey-white rock in sedimentary terrain away from plate boundaries. Often contains visible shell fragments, coral fossils. Karst topography (sinkholes, caves, disappearing rivers).
-
----
-
-**Clay** (kaolinite Al₂Si₂O₅(OH)₄, illite, smectite/montmorillonite, halloysite)
-
-*Formation mechanism 1 — Weathering of feldspar-bearing rock:* Clay is the decomposition product of feldspar. All granite, most sandstone, and most metamorphic rock contain feldspar. When rainwater (slightly acidic from dissolved CO₂) attacks feldspar over thousands of years, it strips out sodium, potassium, and calcium, leaving behind a clay mineral lattice of aluminum and silicon. The type of clay depends on the parent rock and drainage conditions: kaolinite forms under intense leaching (tropical, well-drained); illite under moderate leaching; smectite under poor drainage with magnesium-rich water.
-
-*Formation mechanism 2 — Hydrothermal alteration:* Near volcanic vents and hot springs, acidic hydrothermal fluids aggressively alter igneous rock to kaolin and alunite. This produces high-purity kaolin deposits (china clay) associated with granite intrusions and volcanic systems. Cornwall (England) and Limoges (France) china clay deposits formed this way.
-
-*Formation mechanism 3 — Sedimentary clay beds:* Eroded clay particles transported by rivers settle in lakes, river deltas, and ocean floors as thick, soft clay layers. River floodplains always have surface clay — the fine-grained fraction of flood sediment.
-
-*Game search signal:* Everywhere there is standing water and fine-grained sediment — river valleys, lake beds, deltas, floodplains. Tropical terrain produces the purest kaolin. Clay is never rare. Identified by its plastic behavior when wet: it sticks to the finger, holds a shape, dries white or buff.
-
----
-
-**Sand and quartz** (SiO₂ — quartz, quartzite, quartz sand)
-
-*Formation mechanism 1 — Weathering of quartz-bearing rock:* Quartz is the most chemically resistant common mineral. When granite, sandstone, or metamorphic rock weathers, feldspar dissolves into clay, dark minerals oxidize, but quartz grains survive intact. Rivers carry these grains downstream; wind transports them further. Sand is weathered quartz. A desert dune is a concentration of quartz grains stripped from rock over millions of years of erosion.
-
-*Formation mechanism 2 — Coastal and aeolian concentration:* Waves wash lighter and more soluble minerals away, concentrating heavy, resistant quartz grains as beach sand. Wind winnows fine silt away from deflation surfaces, leaving a quartz-sand lag.
-
-*Formation mechanism 3 — Hydrothermal quartz veins:* Pure silica precipitates from hydrothermal fluids as white quartz veins that cut through virtually every rock type. These veins are not useful as bulk silica (too hard to process in bulk), but they signal hydrothermal activity and often contain the gold and silver that precipitated alongside the quartz.
-
-*Game search signal:* River bars, beaches, dunes — quartz sand is ubiquitous. Pure white quartzite outcrops in metamorphic terrain. White quartz veins everywhere. Silica is effectively inexhaustible.
-
----
-
-**Flint and chert** (cryptocrystalline SiO₂)
-
-*Formation mechanism — Biogenic silica in marine sediment:* Flint and chert are dense, fine-grained forms of silica that form when silica from dissolved marine organisms (radiolarians, diatoms, siliceous sponges) recrystallizes in nodules within carbonate mud during burial. The silica precipitates as irregular nodules and lenses within limestone beds. Flint is a type of chert found specifically within chalk — it formed in Cretaceous chalk seas and is the material that made Stone Age Europe possible. Without chalk terrain, there is no flint.
-
-*Game search signal:* Inside limestone and chalk outcrops — look for dark grey to black nodular masses within white or grey limestone layers. Cliff faces exposing limestone beds. Flint is identifiable by its conchoidal (shell-shaped) fracture when struck.
-
----
-
-**Gypsum** (CaSO₄·2H₂O) and **Anhydrite** (CaSO₄)
-
-*Formation mechanism — Evaporite basin:* Gypsum forms when a landlocked sea or a marine basin becomes isolated and begins evaporating. As the water becomes increasingly saline, calcium sulfate reaches saturation first and precipitates as gypsum (at lower temperatures) or anhydrite (at higher temperatures or deeper burial). Gypsum always underlies halite (salt) in an evaporite sequence — it precipitates at higher water activity. Ancient evaporite sequences are found in intracratonic basins (the interior of continents, where ancient seas once existed). The Michigan Basin, Permian Basin (Texas), Zechstein Basin (North Sea region), and Keuper beds (Central Europe) are all gypsum-salt sequences from ancient evaporated seas.
-
-*Game search signal:* Same terrain as salt — sedimentary basins with ancient marine history. Soft, white-to-grey rock that scratches easily with a fingernail. Often interbedded with halite in outcrop. Alabaster is a fine-grained variety.
-
----
-
-**Salt** (halite — NaCl)
-
-*Formation mechanism 1 — Evaporite basin (marine evaporation):* When an arm of the sea becomes isolated — by tectonic closure, a sand bar, or a change in sea level — and the climate is arid enough that evaporation exceeds inflow, the water concentrates. Calcium carbonate precipitates first (limestone), then gypsum, then halite (common salt), then the more soluble potassium and magnesium salts (sylvite, carnallite, bischofite). A complete evaporite sequence records the entire drying history of an ancient sea. The Mediterranean Sea almost completely evaporated 5–6 million years ago (Messinian Salinity Crisis), leaving up to 3 km of salt beneath the present seafloor. In the game: large sedimentary basins in arid zones contain salt domes and bedded halite.
-
-*Formation mechanism 2 — Salt diapirs (underground domes):* Salt is less dense than most rock and flows plastically under pressure. Over millions of years, thick salt beds become gravitationally unstable and pierce upward through overlying sediment as rising salt diapirs — underground salt pillars and domes. These can reach the surface as salt plugs or salt glaciers (Iran has surface salt glaciers today). A player walking over a salt dome may find salt outcrops far from any basin or ancient sea.
-
-*Formation mechanism 3 — Playa lake evaporation (surface salt flats):* In desert basins with no drainage outlet (endorheic basins), seasonal rain dissolves salts from surrounding terrain and carries them into a central lake. When the lake dries, salt is left behind as a hard white crust. The Bonneville Salt Flats (Utah), Salar de Uyuni (Bolivia), Chott el Djerid (Tunisia), and Sambhar Lake (India) all formed this way. Surface salt flats are immediately visible and collectable without mining.
-
-*Formation mechanism 4 — Sea spray and coastal salt pans:* In coastal zones with tidal flats and strong sun, seawater trapped in shallow pools evaporates and deposits thin salt crusts. Traditional salt production in the Mediterranean, Bay of Biscay, and East Asia relied entirely on solar evaporation in artificial coastal salt pans (salinas). No underground mining required.
-
-*Game search signal:* White surface crust in dry, flat basin terrain (salt flat — immediately visible and collectable). Arid coastal tidal flats (sea salt pans). Underground salt domes detectable only by drilling or mining near dome margins. Evaporite sequences in sedimentary basins interbedded with gypsum. Taste-test: salt has an unmistakable cubic crystal habit and solubility in water.
-
----
-
-**Potash** (sylvite KCl, carnallite KMgCl₃·6H₂O, polyhalite K₂Ca₂Mg(SO₄)₄·2H₂O)
-
-*Formation mechanism — Late-stage evaporite precipitation:* Potassium salts are more soluble than halite and precipitate only in the final stages of brine evaporation — requiring ~90% water loss. This means potash deposits form only in the deepest, most isolated parts of evaporite basins where brine became maximally concentrated. Potash layers sit above gypsum and halite in the evaporite stratigraphy and are therefore deeper. The Permian evaporites of New Mexico (Carlsbad Potash District) and Saskatchewan (the world's largest potash reserves) formed in closed marine basins during particularly arid periods.
-
-*Game search signal:* Deep below salt deposits in sedimentary basins. Never exposed at surface in humid climates (too soluble — it would have dissolved). Only accessible in arid regions or by mining below the salt layer.
-
----
-
-**Saltpeter** (potassium nitrate KNO₃, also calcium nitrate Ca(NO₃)₂ and sodium nitrate NaNO₃)
-
-*Formation mechanism 1 — Cave bat guano nitrification:* Bats roost in caves in vast colonies and deposit thick layers of guano. Bacteria in the guano decompose organic nitrogen compounds (uric acid, proteins) to ammonium, then nitrifying bacteria (Nitrosomonas, Nitrobacter) oxidize ammonium to nitrite and then nitrate. The nitrate migrates into cave wall soil and crystallizes on cool cave surfaces as saltpeter efflorescence — the white powdery crust that cave miners scraped for gunpowder. Medieval European and Asian gunpowder industries depended on cave-floor soil collection and leaching.
-
-*Formation mechanism 2 — Soil nitrification in animal enclosures:* Urine and manure from livestock decompose and nitrify in stable floors and compost heaps. The nitrate crystallizes on stable walls and under hay as white efflorescence. Pre-industrial "nitre plantations" deliberately composted animal manure to grow saltpeter. The French government maintained royal nitre plantations; Gustavus Adolphus of Sweden ran military nitre farms. Not a geological deposit — a biological one.
-
-*Formation mechanism 3 — Atacama Desert caliche:* The Atacama Desert of Chile is the driest place on Earth. Over millions of years, aerosol deposition from the ocean (fog, sea spray) and decomposition of biological material accumulated nitrate salts in the soil with no rain to dissolve them. The Atacama caliche beds — thick horizontal layers of calcium and sodium nitrate mixed with sand — were the world's primary nitrate source before the Haber-Bosch process (1913). Found only in hyper-arid terrain.
-
-*Game search signal:* White crystalline efflorescence on cave walls and floors (especially near bat roosting zones). Stable floors, barn walls, and composting areas. Hyper-arid desert terrain with no modern drainage.
-
----
-
-**Phosphate** (apatite Ca₅(PO₄)₃(OH,F,Cl), phosphorite, guano)
-
-*Formation mechanism 1 — Marine phosphorite:* Phosphorus concentrates in ocean water where cold, nutrient-rich deep water upwells onto shallow continental shelves. Biological productivity is extremely high; dead organisms rain down and decompose, releasing phosphorus that reprecipitates as nodular or bedded phosphorite on the seafloor. Found along ancient upwelling zones and passive continental margins. Morocco, Florida, and North Africa have major phosphorite deposits of this type.
-
-*Formation mechanism 2 — Guano accumulation:* Seabird colonies on islands, rocky coasts, and isolated cliffs deposit guano rich in phosphate. In arid climates, guano preserves and concentrates. The Chincha Islands (Peru) had guano deposits 50 meters thick from centuries of seabird accumulation. Bat guano in caves similarly concentrates phosphate.
-
-*Formation mechanism 3 — Igneous apatite:* Apatite crystallizes from most magmas as an accessory mineral, concentrated in some carbonatite intrusions. Not the primary source for bulk phosphate, but accessible as individual crystals.
-
-*Game search signal:* Ancient continental margins, flat-lying grey nodular rock in marine sedimentary sequences. Seabird island rookeries. Cave systems with large bat populations.
-
----
-
-**Sulfur** (native S, pyrite FeS₂, sulfate minerals)
-
-*Formation mechanism 1 — Volcanic sublimation (fumarolic sulfur):* At active volcanic vents (fumaroles), sulfur dioxide and hydrogen sulfide gas emerge from the magma below. As these gases meet cooler air, native sulfur sublimates directly onto rock surfaces as bright yellow crystalline deposits. These fumarolic sulfur deposits are found at volcanoes worldwide — the sulfur mines of Sicily (exploited since antiquity) formed this way from Neogene volcanic activity.
-
-*Formation mechanism 2 — Caprock sulfur (biogenic reduction of anhydrite):* Bacteria can reduce calcium sulfate (anhydrite or gypsum) back to hydrogen sulfide, which then oxidizes to native sulfur. This process occurs at the top of salt domes where sulfate-bearing water meets hydrocarbon seeps. The resulting caprock sulfur deposits (as at the Texas Gulf Coast domes) were the primary US sulfur source before the mid-20th century (Frasch process).
-
-*Formation mechanism 3 — Sulfide ores (pyrite):* Pyrite (FeS₂ — fool's gold) is the most abundant sulfide mineral in the crust. It forms in almost any hydrothermal deposit, in sedimentary black shales (framboidal pyrite from bacterial sulfate reduction), and in metamorphic rocks. Pyrite is not itself the target — it is a source of sulfur for acid production (roasting pyrite yields SO₂ → H₂SO₄). Pyrite occurs everywhere that reducing conditions existed.
-
-*Game search signal:* Yellow crystalline crust on volcanic rocks (fumarolic). Bright brass-yellow cubic crystals (pyrite) — identifiable by extreme hardness (unlike gold, which is soft) and greenish-black streak. Black shale units.
-
----
-
-**Graphite** (crystalline carbon C)
-
-*Formation mechanism 1 — Metamorphism of organic-rich sediment:* The most common source. When carbon-rich sedimentary rock (coal, organic-rich shale, carbonaceous limestone) is heated and compressed by regional metamorphism, the organic carbon recrystallizes into ordered graphite. The higher the metamorphic grade, the more perfect the graphite crystal structure. Graphite schist and marble (metamorphosed limestone with original organic matter) are the primary host rocks. Sri Lanka, Mozambique, and Canada are major producers — all in ancient high-grade metamorphic terrains.
-
-*Formation mechanism 2 — Contact metamorphism of coal:* When an igneous intrusion bakes an adjacent coal seam, the coal is converted to graphite. These are smaller but often very high-purity deposits.
-
-*Formation mechanism 3 — Magmatic graphite in carbonatites:* Rare. Some carbon-rich magmas crystallize graphite directly.
-
-*Game search signal:* High-grade metamorphic terrain (gneiss, schist, marble). Dark, platy mineral with greasy feel and dark grey streak on rock. Metamorphic terrains that once contained organic sediment.
-
----
-
-**Diamond** (C — cubic crystal structure)
-
-*Formation mechanism 1 — Kimberlite pipes:* Diamonds form under extreme pressure and temperature (>45 kbar, >900°C) in the mantle, at depths of 150–200 km, within the ancient, cold keels of cratons (stable continental cores). They are brought to the surface by kimberlite eruptions — rare, violent volcanic intrusions that ascend so rapidly (several hours) that diamonds have no time to convert back to graphite. Kimberlites are funnel-shaped pipes of dark, altered volcanic rock found exclusively on ancient cratons (Africa, Siberia, Canada, Australia). Not all kimberlites are diamond-bearing; only those from depths below the continental lithosphere.
-
-*Formation mechanism 2 — Alluvial/marine placer diamonds:* Diamonds eroded from kimberlites accumulate in river and coastal deposits. Many of the world's gem diamonds (Namibia, Sierra Leone, Botswana coast) were mined from alluvial gravels downstream of ancient kimberlites. Diamonds are dense and inert — they survive transport intact.
-
-*Game search signal:* Ancient craton interiors — the oldest, most stable continental cores. Dark, fine-grained volcanic pipes cutting through old metamorphic terrain (kimberlites look like dark grey to bluish-green intrusives). Extremely rare — one kimberlite per several thousand square kilometers; most are not diamond-bearing.
-
----
-
-#### 3.4.3 Evaporite and Sedimentary Resources
-
-These are addressed with their minerals above (salt, gypsum, potash). See entries above.
-
----
-
-#### 3.4.4 Carbon-Bearing Materials
-
-**Coal** (peat → lignite → sub-bituminous → bituminous → anthracite)
-
-*Formation mechanism — Compression of swamp biomass:* Coal forms in swamp forests where dead plant material accumulates faster than it decomposes. Without oxygen (waterlogged conditions), organic matter does not rot — it accumulates as peat. Burial by later sediment subjects the peat to heat and pressure over millions of years, driving off water and volatile compounds in stages: peat (50% carbon) → lignite (60–70%) → sub-bituminous (70–76%) → bituminous (76–90%) → anthracite (90–98%). Each stage requires progressively more burial and time. The Carboniferous period (359–299 Ma) produced most of the world's coal because newly evolved lignin (wood) had no organisms that could decompose it — dead trees piled up for tens of millions of years.
-
-*Rank distribution:* Low-rank coal (lignite) is near the surface in young basins with little burial. High-rank coal (anthracite) is in deeply buried or tectonically deformed basins where heat and pressure were intense. Bituminous coal is the most abundant and most useful for metallurgical coke. Coking coal requires specific rank (medium-volatile bituminous) — not all coal makes metallurgical coke.
-
-*Game search signal:* Flat sedimentary basins away from active tectonics. Black, layered, organic-smelling rock. Often exposed in river valleys cutting through sedimentary sequences. Abundant in Carboniferous and Permian-age terrain.
-
----
-
-**Peat** (partially decomposed organic matter, >50% water)
-
-*Formation mechanism — Waterlogged organic accumulation:* Peat is the youngest, wettest precursor to coal. It forms in bogs, fens, mires, and waterlogged forests wherever organic matter accumulates under anoxic conditions. Tropical peat domes (Southeast Asia) can be 10+ meters thick. Northern hemisphere sphagnum moss bogs (Ireland, Scotland, Scandinavia, Siberia) are also thick. Peat has ~20% of coal's energy density by weight when wet; it must be dried before burning.
-
-*Game search signal:* Flat, wet, poorly-drained terrain. Brown-black spongy ground. Bog terrain. Accessible from the surface everywhere bogs exist — no mining needed.
-
----
-
-**Oil seeps and tar pits** (bitumen, asphaltum, petroleum)
-
-*Formation mechanism — Source rock maturation and migration:* Petroleum forms when organic-rich marine sediment (source rock) is buried to depths where heat cracks organic molecules into oil and gas. The oil migrates upward through permeable rock until it reaches a structural trap (anticline, fault seal, salt dome flank). Where the trap is breached by erosion or fracturing, oil and gas seep to the surface. Asphalt forms when light fractions evaporate from a surface seep, leaving behind thick viscous bitumen. The La Brea tar pits, the Trinidad Pitch Lake, and the Athabasca oil sands are all surface seeps or near-surface accumulations.
-
-*Game search signal:* Black viscous liquid seeping from rock faces or pooling in low ground. Petroleum smell (light hydrocarbon volatiles). Often associated with anticlines (arched rock layers) and fault zones in sedimentary basins. Animals trapped in tar pits are a visual signal.
-
----
-
-#### 3.4.5 Radioactive Materials
-
-**Uranium** (uraninite/pitchblende UO₂, carnotite K₂(UO₂)₂(VO₄)₂, coffinite USiO₄)
-
-*Formation mechanism 1 — Unconformity-type deposits:* The world's highest-grade uranium deposits form at the unconformity (erosional boundary) between ancient Precambrian basement rocks and overlying sandstone. Uranium-bearing oxidized groundwater flows down through porous sandstone, reaches the unconformity, and meets reducing fluids rising from the basement. The chemical contrast (oxidizing vs. reducing) causes uranium to precipitate as pitchblende. The Athabasca Basin (Saskatchewan, Canada) and Kombolgie Basin (Northern Territory, Australia) contain deposits grading over 20% uranium — compared to 0.1% for typical deposits. These are in ancient cratons.
-
-*Formation mechanism 2 — Sandstone roll-front deposits:* Uranium in solution is carried by oxygenated groundwater through permeable sandstone. Where the oxidizing front meets reducing conditions (organic matter, iron sulfides in the sandstone), uranium precipitates in a crescent-shaped "roll front." These are lower-grade (0.05–0.3%) but widespread in sedimentary basins. The Colorado Plateau (USA) and Wyoming Basins contain many roll-front deposits.
-
-*Formation mechanism 3 — Vein-type and granite-hosted:* Uranium concentrates in granitic magmas (incompatible element) and precipitates in late-stage hydrothermal veins in and around granite intrusions. Pitchblende (massive uraninite) fills fractures and veins. The classic Joachimsthal mines (Bohemia), where Marie Curie obtained radium, were granite-hosted vein deposits.
-
-*Additional note:* Uranium ore has no surface expression — it cannot be detected by color or texture. Detection requires a Geiger counter or equivalent instrument. A civilization must develop radiation detection technology before uranium deposits can be located deliberately.
-
-*Game search signal:* Precambrian cratons near unconformity boundaries. Granite intrusions in ancient terrain. Sedimentary basins in arid continental interiors. No visual signal without instrumentation. Radioactive decay produces heat — anomalous warm ground in very concentrated deposits.
-
----
-
-#### 3.4.6 Biogenic and Organic Resources
-
-**Wood**
-
-*Formation mechanism — Forest biomass:* Wood is not a geological resource, but it is the most critical raw material for pre-industrial civilization. Its availability is entirely a function of biome: tropical rainforest produces the most biomass density but the hardest, most resin-rich wood; temperate deciduous forest produces moderate volumes of excellent hardwoods (oak, ash, hickory); boreal forest produces soft conifers good for construction but poor for smelting charcoal; tundra and desert are wood-absent. Wood availability directly limits early smelting — a bloomery needs charcoal, and charcoal is made from wood. A civilization in a forest biome advances faster through the smelting stages than one on a treeless steppe.
-
-*Game search signal:* Forest biomes — tropical, temperate, boreal. River valleys in otherwise arid zones (riparian woodland). Islands may have limited woodland that is rapidly exhausted.
-
----
-
-**Plant fibers** (flax Linum usitatissimum, hemp Cannabis sativa, nettle, jute, cotton)
-
-*Formation mechanism — Agricultural and wild plant production:* These are biological resources tied to specific climate zones. Flax grows in cool, moist temperate climates (origin: Fertile Crescent and Egypt, now Canada and Russia). Hemp is more tolerant, growing in a broad range of temperate zones. Cotton requires hot summers and adequate moisture (subtropical to tropical). Nettle fiber (ramie) is subtropical to tropical. The availability of plant fibers determines what textile options exist: no flax in the tropics, no cotton in the north. Civilizations in different biomes develop different textile traditions.
-
-*Game search signal:* Biome-specific. Flax and hemp in temperate grassland and mixed woodland edges. Cotton in subtropical grassland and savanna. Wild forms occur naturally; cultivated forms require NPC farming settlements.
-
----
-
-**Animal products** (hide, bone, sinew, wool, beeswax, tallow, horn)
-
-*Formation mechanism — Fauna distribution by biome:* Animal products are byproducts of hunting and herding. Cattle, sheep, and goats produce hide, tallow, bone, and wool. Wild deer and elk provide sinew. Horses provide hide and bone. The fauna present in a biome determines what animal products are accessible. A tundra biome has reindeer (hide, sinew, bone) but no cattle. A grassland has large herds of ungulates. A forest has deer. An island may have no large land mammals. Beeswax requires bee colonies — temperate, subtropical, and tropical biomes all support bees but at different population densities.
-
-*Game search signal:* Fauna spawn points by biome. Grassland and savanna have the greatest diversity and density of large ungulates. Tracking animals and hunting — no geological context. Animal products cannot be found in rock.
-
----
-
-**Clay (for ceramics)** — see section 6.4.2 above.
-
----
-
-#### 3.4.7 Rare and Strategic Materials
-
-**Platinum group metals** (platinum Pt, palladium Pd, rhodium Rh, iridium Ir, osmium Os, ruthenium Ru)
-
-*Formation mechanism 1 — Magmatic sulfide in layered intrusions:* PGMs concentrate in the same sulfide liquid as nickel and copper in large mafic intrusions. The Bushveld Complex (South Africa) contains the Merensky Reef — a 30–90 cm thick layer of platiniferous pyroxenite that extends for hundreds of kilometers. The Bushveld supplies ~70% of world platinum and rhodium. Other layered intrusions (Stillwater Complex, Montana; Great Dyke, Zimbabwe) similarly host PGM reefs.
-
-*Formation mechanism 2 — Alluvial placer:* Like gold, PGMs are dense and chemically resistant. They occur in river placer deposits downstream of PGM-bearing intrusions. Russia's Ural Mountains placer deposits were the world's primary platinum source in the early 19th century.
-
-*Game search signal:* Extremely rare. Large, ancient layered igneous complexes (dark, banded mafic rock). Associated with nickel-copper sulfide zones. Not accessible until industrial metallurgy.
-
----
-
-**Lithium** (spodumene LiAlSi₂O₆, lepidolite, lithium brines in salars)
-
-*Formation mechanism 1 — Pegmatite spodumene:* Lithium concentrates in granitic pegmatites alongside tin and tantalum. Spodumene forms large prismatic crystals (up to several meters long) in pegmatite dikes. Australia (Pilbara pegmatites) is the world's largest hard-rock lithium producer.
-
-*Formation mechanism 2 — Continental salar brines:* In the Andean altiplano (Bolivia, Chile, Argentina), ancient lakes evaporated in high-altitude endorheic basins and left behind lithium-rich brines trapped in the porous sediment beneath salt flats. The Salar de Atacama contains brine at 0.15% lithium — pumped up and evaporated in solar ponds. Continental salar brines hold ~60% of world lithium resources.
-
-*Game search signal:* Granitic pegmatite terrain (see Tin). High-altitude dry plateau basins with salt flats — pump the brine from below the salt crust.
-
----
-
-#### 3.4.8 How the Game Uses This Information
-
-All resource node placement derives from these formation rules. The game runs a geological simulation at world generation time:
-
-1. **Tectonic plate generation** — 12 plates via Voronoi sphere partitioning. Each plate has a type (oceanic or continental), age, velocity vector, and density.
-2. **Boundary classification** — each plate boundary segment is classified: convergent (subduction or collision), divergent (rift), or transform (strike-slip).
-3. **Terrain assignment** — boundary type and plate type determine terrain: convergent oceanic→continental = volcanic arc + mountains; divergent continental = rift valley + flood basalt; collision = mountain belt + fold-thrust belt; stable interior = craton + sedimentary basin.
-4. **Resource seeding** — each terrain type seeds resource nodes probabilistically according to the formation rules above:
-  - Volcanic arc terrain → copper (porphyry probability), gold (epithermal probability), silver, lead, zinc, sulfur
-  - Craton terrain → BIF iron, diamonds, nickel-copper (magmatic), graphite, uranium (unconformity)
-  - Sedimentary basin → coal, salt, gypsum, potash, limestone, clay, oil seeps
-  - Granitic highland → tin, tungsten, lithium pegmatites
-  - Tropical terrain → bauxite, lateritic nickel, phosphorite
-  - Metamorphic terrain → graphite, talc, asbestos
-  - Flood basalt province → native copper
-  - River valleys → placer gold, placer tin, placer diamonds (downstream of hard-rock deposits)
-5. **Player exploration signal** — each resource node has visible surface expression matching its real-world signal: green malachite staining, rusty gossan, white salt crust, black coal seam in cliff, volcanic fumarole with yellow sulfur ring. A player who has read this section can locate resources systematically.
-
-Settlement specialties are assigned by querying what resource nodes fall within 200 meters of the settlement seed point. The most abundant or highest-value node determines the specialty. A settlement seeded near a copper porphyry becomes a copper mining town. A settlement seeded in a sedimentary basin near limestone and clay becomes a pottery and masonry town. A settlement near a forest biome boundary with good clay soil becomes a farming and charcoal settlement. No designer places these — the geology places them.
-
-### 3.5 Settlements and Civilization
-
-#### The Principle
-
-A settlement does not have a "civilization level." In reality, no village wakes up one morning and says "we are now Level 3." What happens is: NPCs gather materials, build structures, discover processes, accumulate tools, and trade with neighbors. An observer looking at what they've built and what they know could describe the settlement's state — but that description is **derived from behavior**, not assigned as a stat.
-
-The settlement's sophistication is an **emergent property** of what its NPCs have actually done, not a number that ticks up.
-
-#### Settlement State — What Is Actually Tracked
-
-```
-Settlement {
-  id: number
-  name: string                               // generated from seed
-  position: Vec3                             // center point on planet surface
-  territory: number                          // radius in meters (starts at 100, grows with population)
-
-  // ── Population ────────────────────────────────────────────────────────────
-  npcs: NPC[]                                // actual NPC entities in this settlement
-  population: number                         // npcs.length — not a stat, a count of living NPCs
-  // Population grows when: food surplus sustains births (1 birth per X days if food > threshold)
-  // Population shrinks when: starvation, disease, predator attacks, players killing NPCs
-
-  // ── Physical Resources (what the settlement actually has) ─────────────────
-  storage: Map<MaterialPacket, number>       // stockpiled materials with real compositions
-  // Not "100 units of copper" — actual MaterialPackets with specific purity and mass
-  // e.g., "34kg of Cu₀.₈₅Fe₀.₁₀S₀.₀₅ (impure copper)" and "12kg of charcoal"
-
-  // ── Built Infrastructure (what NPCs have physically constructed) ──────────
-  structures: WorldObject[]                  // every building, wall, path, workstation that exists
-  // A settlement with 3 huts and a campfire is different from one with stone walls and a bloomery
-  // These are actual world objects — players can see and interact with them
-
-  // ── Workstations (what machines the settlement has built) ─────────────────
-  workstations: Workstation[]                // campfire, grinding stone, bloomery, kiln, forge, etc.
-  // NPCs build workstations when they have the materials and knowledge
-  // A settlement can only smelt copper IF it has built a bloomery
-  // A settlement cannot "unlock" smelting — it must physically construct the machine
-
-  // ── Knowledge (what processes NPCs have discovered through practice) ──────
-  knownProcesses: Set<string>                // 'fire_starting', 'copper_smelting', 'pottery', etc.
-  // Knowledge grows when: an NPC successfully performs a new interaction (same discovery system as players)
-  // Knowledge spreads via trade (§3.8.7): when settlements trade, there's a chance of knowledge transfer
-  // Knowledge is NEVER assigned — it is earned through NPC practice
-
-  // ── Trade Connections ─────────────────────────────────────────────────────
-  tradePartners: Set<number>                 // IDs of other settlements this one trades with
-  tradeOffers: TradeOffer[]                  // current public offers based on surplus vs need
-  // Trade routes emerge from geography: settlements within walkable distance can trade
-  // Settlements separated by mountains, oceans, or hostile territory cannot (until roads/boats exist)
-
-  // ── NPC Memory ────────────────────────────────────────────────────────────
-  collectiveMemory: {
-    playerTrust: Map<string, number>         // per-player: -1.0 (hostile) to +1.0 (trusted)
-    // Trust changes from player actions: helping = +, stealing/killing = -
-    // All NPCs in the settlement share memory (word spreads within a community)
-    threats: Set<string>                     // predator species, hostile player IDs
-  }
-}
-```
-
-#### Observed Sophistication (Derived, Never Stored)
-
-Instead of a `civLevel` integer, the settlement's development is **observable from its state**. For UI display, companion status site, or analytics, a sophistication assessment can be computed:
-
-```
-function assessSettlement(s: Settlement): SettlementAssessment {
-  // Assess based on what actually exists — like an anthropologist visiting a village
-
-  const hasFireMaking    = s.knownProcesses.has('fire_starting')
-  const hasPottery       = s.knownProcesses.has('pottery')
-  const hasMetalSmelting = [...s.knownProcesses].some(p => p.includes('smelting'))
-  const hasForge         = s.workstations.some(w => w.type === 'forge')
-  const hasBlastFurnace  = s.workstations.some(w => w.type === 'blast_furnace')
-  const stoneBuildings   = s.structures.filter(st => st.material.hardness > 4).length
-  const hasWalls         = s.structures.some(st => st.subtype === 'wall' && st.material.hardness > 3)
-  const tradeRoutes      = s.tradePartners.size
-  const populationSize   = s.population
-
-  // Descriptive labels (for display only — NPCs don't know or care about these):
-  if (populationSize < 5)
-    return { label: 'Camp', description: 'A handful of people around a fire' }
-  if (!hasMetalSmelting && populationSize < 20)
-    return { label: 'Hamlet', description: 'Small group with basic tools and shelter' }
-  if (hasMetalSmelting && !hasForge && populationSize < 50)
-    return { label: 'Village', description: 'Settled community with early metalwork' }
-  if (hasForge && stoneBuildings > 5 && populationSize < 150)
-    return { label: 'Town', description: 'Established settlement with smithing and stone construction' }
-  if (hasBlastFurnace && hasWalls && tradeRoutes > 2 && populationSize >= 150)
-    return { label: 'City', description: 'Fortified center with advanced industry and trade networks' }
-
-  // ... and so on. These are OBSERVATIONS, not levels.
-  // A "city" that loses its population to famine becomes a "town" or "hamlet" —
-  // not because a counter decremented, but because the conditions no longer match.
-}
-```
-
-This means:
-- A settlement doesn't "level up" — it **builds things** and **learns things**
-- A settlement can regress — if a plague kills half the population, or a player destroys the bloomery, the settlement's observable sophistication drops because the physical reality changed
-- Two settlements with the same "assessment" might look completely different — one might be a farming village with great pottery, the other a mining camp with crude shelters but excellent metalwork
-- The label is for the player's benefit (and the companion site display), not for game logic
-
-#### Geology-Based Specialty
-
-Specialty is not assigned — it emerges from what resources are nearby.
-
-```
-SettlementSpecialty {
-  // When a settlement is founded (from world generation), NPCs begin gathering
-  // whatever materials are within their territory.
-  // A settlement near a copper vein gathers copper ore.
-  // A settlement near a river gathers clay and fish.
-  // A settlement on fertile plains gathers grain.
-
-  // Over time, the settlement accumulates MORE of what's nearby.
-  // NPCs practice processing those materials → they get better at it.
-  // The settlement naturally specializes because it has the most practice
-  // with its local resources.
-
-  // There is no specialty: 'copper_mining' field in the database.
-  // The specialty is observable: "this settlement has 200kg of copper ore in storage,
-  // a bloomery, and NPCs who have performed 500 successful smelting operations."
-  // An observer would call this a copper mining settlement.
-
-  // If the copper vein is depleted, the settlement doesn't magically keep its specialty.
-  // NPCs start gathering whatever else is available. The settlement adapts or declines.
-}
-```
-
-#### Trade Economy
-
-Supply and demand adjust prices based on settlement stockpile levels. This follows David Ricardo's principle of comparative advantage (1817): settlements trade not because one is "better" than another, but because specialization + exchange produces more total value than self-sufficiency. A settlement near copper that trades ore for grain produces more copper and more food than if both settlements tried to do everything themselves. This emerges naturally from the geology — no designer assigns what gets traded. Surplus drives trade offers.
-
-```
-TradeOffer {
-  // Generated automatically when a settlement has surplus of one material and deficit of another
-  gives: MaterialPacket                      // what they're offering (actual material with composition)
-  givesAmount: number                        // kg
-  wants: string                              // category of what they need: 'food', 'fuel', 'ore', 'tools'
-  wantsMinAmount: number                     // minimum kg they'll accept
-
-  // Price is not fixed — it's determined by scarcity:
-  // High stockpile of copper + low stockpile of food → copper is cheap, food is expensive
-  // The exchange rate shifts dynamically as stockpiles change
-  // No currency exists. All trade is barter — material for material.
-}
-```
-
-Diamond's *Guns, Germs, and Steel* adds a further insight: the east-west axis of a continent matters because settlements at similar latitudes share climate and can exchange crops and livestock. On a spherical planet with a tilted axis, equatorial settlements share growing seasons. This will eventually influence which settlements grow into trading networks and which remain isolated.
-
-### 3.5.1 NPC Brain — Three-Tier Hybrid AI
-
-#### The Principle
-
-NPCs are not scripts. They are simulated humans with curiosity, needs, emotions, memory, and the ability to learn. An NPC doesn't follow a behavior tree — it *thinks* about what to do based on its internal state and surroundings. This requires a hybrid AI architecture: cheap fast decisions for routine moments, and deeper reasoning for novel situations.
-
-#### Three-Tier Decision Architecture
-
-**Tier 1 — Survival Reflex (every tick, no AI):** Am I on fire? Drowning? Being attacked? Pure reactive math, no thinking required. Like human reflexes.
-
-**Tier 2 — Custom Small Language Model (every 10-30 game-seconds):** A purpose-trained small model (~1-4B parameters) that reasons about NPC decisions. Input: needs, emotions, personality, environment, memories. Output: next action with reasoning. Runs on the server at ~10ms per decision. Handles ~90% of all NPC behavior.
-
-**Tier 3 — Full LLM (rare, important moments):** For genuinely novel situations the custom model wasn't trained on. Settlement-level strategic decisions, complex social conflicts, first encounters with unprecedented events. ~1-5 calls per settlement per hour.
-
-#### Personality — Every NPC Is Different
-
-Based on the Big Five personality model (Costa & McCrae 1992). Each NPC has permanent traits generated at birth:
-
-- **Openness** (0-1): curiosity, willingness to explore and experiment. High = wanders far, tries new things. Low = sticks to routine.
-- **Conscientiousness** (0-1): work ethic, organization. High = finishes tasks, maintains structures. Low = unreliable but sometimes creative.
-- **Extraversion** (0-1): sociability. High = seeks company, talks to players, teaches. Low = works alone, productive in isolation.
-- **Agreeableness** (0-1): cooperativeness. High = shares, helps, avoids conflict. Low = competitive, hoards resources, better at defending.
-- **Neuroticism** (0-1): emotional reactivity. High = panics easily, avoids risk. Low = calm under pressure, handles crises.
-
-Same scenario + different personality = different NPC decision.
-
-#### Curiosity — How NPCs Discover
-
-Curiosity is the engine of NPC progress. Boredom from repetition increases curiosity. Seeing something novel increases curiosity. When curiosity is high, the NPC explores, experiments, tries new material combinations at workstations. Discoveries happen through the same physics-based crafting system as players — the NPC puts materials in a furnace and the reaction engine computes the result. If it's new, the NPC remembers it and can teach others.
-
-#### Memory — What NPCs Remember
-
-Each NPC stores ~200 episodic memories ranked by emotional significance. Traumatic and joyful memories persist longest. Neutral memories fade first. During sleep, similar memories consolidate into general knowledge ("fishing usually works 2/3 of the time"). Social memory tracks trust and relationships with specific entities (players, other NPCs, predators).
-
-#### Daily Life
-
-NPCs live on a daily cycle driven by needs, not scripts. They wake at dawn, eat, work during peak energy hours, socialize at midday, continue working in the afternoon, gather around fire at dusk, and sleep at night. Every aspect varies by personality — a high-openness NPC explores instead of working, a high-neuroticism NPC goes to bed early.
-
-#### Social Behavior
-
-NPCs form relationships (+0.05 per shared task, +0.15 for sharing food, -0.3 for theft). High relationships lead to pair bonds, shared shelters, and eventually children. Leadership emerges from reputation — NPCs whose decisions led to good outcomes are consulted more often. Conflicts between low-agreeableness NPCs can escalate to physical confrontation (same combat physics as players).
-
-#### Settlement Expansion
-
-NPCs build structures through the same system as players. The AI decides what's needed ("We have 25 NPCs but only 6 shelters — I should build one"). When a settlement becomes overcrowded, adventurous NPCs leave to found new settlements elsewhere. Dead settlements leave ruins that can be re-settled.
-
-#### Self-Improving System
-
-Every time the full LLM (Tier 3) handles a novel situation, the response becomes a training pair for the custom model. Periodic retraining means the NPC AI gets smarter over time. Month 1: ~80% handled by custom model. Year 1: ~97%. The game's NPCs literally become more intelligent the longer the game runs.
-
-### 3.6 Weather System — Full Atmospheric Simulation
-
-#### The Principle
-
-Weather in reality is not random — it is the result of thermodynamics applied to a rotating sphere with uneven heating. The sun heats the equator more than the poles. Hot air rises, cold air sinks. Moisture evaporates from oceans, condenses when it cools, and falls as rain. Mountains force air upward, creating rain on the windward side and dry conditions on the leeward side (rain shadow). All of this is computable from terrain + solar angle + ocean position.
-
-#### Atmospheric Model (Server-Side, 1 Hz Tick)
-
-The server divides the planet into an **atmospheric grid** — one cell per terrain chunk (~64m resolution). Each cell tracks physical quantities that drive weather.
-
-```
-AtmosphereCell {
-  // ── Thermodynamics ────────────────────────────────────────────────────────
-  airTemperature: number             // °C — the temperature a player feels at this location
-  surfaceTemperature: number         // °C — ground/water surface temp (drives convection)
-  humidity: number                   // 0.0–1.0 — mass ratio of water vapor to dry air
-  pressure: number                   // Pa — barometric pressure
-
-  // ── Wind ──────────────────────────────────────────────────────────────────
-  windVelocity: Vec2                 // m/s — horizontal wind vector (drives clouds, affects player)
-  verticalAirSpeed: number           // m/s — updraft (+) or downdraft (-) (drives cloud formation)
-
-  // ── Cloud and Precipitation ───────────────────────────────────────────────
-  cloudCover: number                 // 0.0–1.0 — fraction of sky covered
-  cloudWaterContent: number          // kg/m³ — liquid water in clouds (when > threshold → rain)
-  precipitationType: 'none' | 'rain' | 'snow' | 'hail' | 'sleet'
-  precipitationRate: number          // mm/hour
-  snowDepth: number                  // meters of accumulated snow on ground
-
-  // ── Derived (computed per tick) ───────────────────────────────────────────
-  visibility: number                 // meters — reduced by fog, rain, snow, dust
-  uvIndex: number                    // 0–11+ — affects sunburn, vitamin D, material degradation
-}
-```
-
-#### Temperature Calculation
-
-Temperature at any point is computed from first principles, not from a lookup table:
-
-```
-T_air(position) = T_base(latitude, season)
-                  + ΔT_altitude(elevation)
-                  + ΔT_ocean(distanceToOcean)
-                  + ΔT_time(hourOfDay)
-                  + ΔT_cloud(cloudCover)
-                  + ΔT_wind(windChill)
-
-Where:
-  T_base(lat, season):
-    // Solar angle determines base temperature
-    // At equator, noon sun is nearly vertical → max heating
-    // At poles, sun is always low → minimal heating
-    // Season shifts the solar declination angle
-    solarAngle = 90° - |latitude - solarDeclination|
-    T_base = -20 + 50 × sin(solarAngle × π/180)    // -20°C at poles to +30°C at equator
-
-  ΔT_altitude(elevation):
-    // Lapse rate: temperature drops ~6.5°C per 1000m altitude
-    // This is the International Standard Atmosphere lapse rate
-    ΔT = -6.5 × (elevation / 1000)
-
-  ΔT_ocean(distance):
-    // Ocean moderates temperature (maritime vs continental climate)
-    // Near ocean: smaller temperature swings. Inland: larger swings.
-    maritimeFactor = 1.0 / (1.0 + distance / 500)    // 500m halflife
-    ΔT = maritimeFactor × (oceanSurfaceTemp - T_base) × 0.3
-
-  ΔT_time(hour):
-    // Diurnal cycle: coldest at dawn (06:00), warmest in afternoon (14:00)
-    // Amplitude depends on cloud cover (clouds insulate → smaller swing)
-    diurnalAmplitude = 8 × (1 - cloudCover × 0.5)    // ±8°C clear, ±4°C overcast
-    ΔT = diurnalAmplitude × sin((hour - 6) × π / 12)
-
-  ΔT_cloud(cloudCover):
-    // Clouds trap heat at night, block sun during day
-    if (isDaytime) ΔT = -cloudCover × 5              // cooler during day
-    else           ΔT = +cloudCover × 3              // warmer at night
-
-  ΔT_wind(windSpeed):
-    // Wind chill: effective temperature drop from wind
-    // Uses the NWS wind chill formula (simplified):
-    if (T_air < 10 && windSpeed > 1.3)
-      ΔT = 13.12 + 0.6215 × T_air - 11.37 × windSpeed^0.16 + 0.3965 × T_air × windSpeed^0.16 - T_air
-    else ΔT = 0
-```
-
-#### Pressure and Wind
-
-```
-Pressure at altitude:
-  // Barometric formula: P = P₀ × exp(-Mgh/RT)
-  P(h) = 101325 × exp(-0.0289644 × 9.81 × h / (8.314 × (T + 273.15)))
-
-Wind generation:
-  // Wind flows from high pressure to low pressure (pressure gradient force)
-  // Modified by Coriolis effect (planet rotation)
-  pressureGradient = (P_neighbor - P_cell) / cellDistance
-  coriolisForce = 2 × ω × sin(latitude) × windSpeed    // ω = planet angular velocity
-
-  // Mountains block and redirect wind:
-  if (terrainHeight > airLayerHeight)
-    windVelocity = deflect(windVelocity, terrainNormal)
-    // Windward side: forced uplift → condensation → rain
-    verticalAirSpeed += windSpeed × sin(terrainSlope)
-```
-
-#### Cloud Formation and Precipitation
-
-```
-Cloud formation process:
-  1. Air rises (updraft from heating, terrain uplift, or pressure convergence)
-  2. Rising air cools at the adiabatic lapse rate (9.8°C/km dry, 6.5°C/km wet)
-  3. When air cools below dew point → water vapor condenses → cloud forms
-     dewPoint = T - (100 - humidity × 100) / 5    // simplified Magnus formula
-     if (T_air < dewPoint) → cloudCover increases, cloudWaterContent increases
-
-  4. When cloudWaterContent exceeds threshold → precipitation begins
-     precipThreshold = 0.3    // g/m³ — typical for real clouds
-     if (cloudWaterContent > precipThreshold)
-       precipitationRate = (cloudWaterContent - precipThreshold) × 10    // mm/hour
-
-  5. Precipitation type depends on air temperature at ground level:
-     if (T_ground > 2°C)   → rain
-     if (T_ground ∈ [-2, 2]) → sleet (mixed)
-     if (T_ground < -2°C)  → snow
-     if (updraft > 10 m/s && T_cloud < -20°C) → hail (strong thunderstorm)
-```
-
-#### Rain Shadow Effect
-
-Mountains create wet windward sides and dry leeward sides:
-
-```
-When wind hits a mountain:
-  1. Air forced upward on windward side → cools → condenses → rain on windward slope
-  2. Air crosses the ridge → descends on leeward side → warms (adiabatic) → humidity drops
-  3. Leeward side receives much less precipitation → dry biome (desert, steppe)
-
-  // This is why the eastern side of the Cascade Range in Washington is dry
-  // while the western side gets 2000mm+ of rain per year.
-  // The game replicates this from terrain + wind direction alone — no biome painting needed.
-```
-
-#### Effects on Game Systems
-
-| Weather State | Effect on Player | Effect on Materials | Effect on NPCs | Effect on Sound |
-|---------------|-----------------|--------------------|-----------------|-----------------|
-| Rain | Visibility reduced to 200-500m. Body temperature drops faster. Clothing gets wet (weight increase). | Wood moisture increases (+0.01/minute exposed). Flammability drops. Metal surfaces oxidize faster. Clay becomes workable. | NPCs seek shelter. Gathering pauses. | Rain ambient noise. Footstep sounds become wet/splashy. |
-| Snow | Visibility 100-300m. Hypothermia risk. Movement speed -30% in deep snow. | All moisture increases. Snow accumulates on surfaces. Melts above 0°C → water. | NPCs stay indoors. Population stress increases. | Muffled ambient. Crunching footsteps. |
-| Storm | Visibility <100m. Lightning strikes random tall objects (trees, structures). Wind pushes player movement. | Unsecured items blow. Fire extinguished. Trees can break (wind > 25 m/s). | NPCs shelter. Settlement damage possible. | Loud wind, thunder (distance = sound delay). |
-| Fog | Visibility 20-80m. No temperature effect. | Moisture condenses on surfaces. | NPCs navigate slowly. | All sounds muffled, close-range enhanced. |
-| Clear | Full visibility. Sun exposure → sunburn if prolonged. | Materials dry (moisture -0.005/minute). Optimal for fire-making. | Full activity cycle. | Dry acoustics, bird calls. |
-| Hot/dry | Heat stroke risk above 40°C. Thirst drain ×2. | Wood dries fast (fire risk). Mud cracks. Clay unusable (too dry). | NPCs rest midday. Water-seeking behavior. | Dry wind, heat shimmer visual. |
-
-#### Material Moisture Model
-
-Rain and weather directly change material properties in the world:
-
-```
-MaterialMoistureUpdate (per tick, exposed materials only) {
-  if (raining && materialIsExposed) {
-    material.moisture += precipitationRate × 0.001 × dt   // absorbs rain
-    material.moisture = min(material.moisture, material.maxAbsorption)
-    // maxAbsorption depends on material porosity:
-    // wood: 0.8, cloth: 0.9, stone: 0.05, metal: 0.0, soil: 0.6
-  }
-
-  if (!raining && sunExposed) {
-    // Evaporation: rate depends on temperature, wind, humidity
-    evapRate = (1 - humidity) × (T_air / 50) × (1 + windSpeed × 0.1)
-    material.moisture -= evapRate × 0.001 × dt
-    material.moisture = max(material.moisture, 0)
-  }
-
-  // Wet wood can't burn:
-  if (material.moisture > 0.4) material.flammability = 0
-  // Partially wet wood is hard to ignite:
-  else if (material.moisture > 0.1)
-    material.flammability *= (1 - material.moisture × 2)
-}
-```
-
-### 3.7 Season System — Orbital Mechanics
-
-#### The Calendar
-
-The planet orbits its star with a tilted axis (23.4° — same as Earth). This tilt causes seasons.
-
-```
-SeasonSystem {
-  // ── Time scale: 4× real life ──────────────────────────────────────────────
-  // 1 real hour = 4 game hours
-  // 6 real hours = 1 game day (24 game hours)
-  // 1 real day = 4 game days
-  // ~91 real days (3 real months) = 1 game year (365 game days)
-  // 1 real year ≈ 4 game years
-  //
-  // This means:
-  //   A 2-hour play session spans 8 game hours — enough to see dawn to afternoon
-  //   A 6-hour session is a full game day — experience day, night, and next dawn
-  //   Seasons change every ~23 real days (~3 weeks)
-  //   A player experiences all 4 seasons in ~3 real months
-  //
-  // Exception: world CREATION (planet formation, organism generation) runs on
-  // a faster timelapse at server startup. Only an admin can change the timescale.
-
-  timeScale: 4                               // game hours per real hour
-  yearLength: 365                            // game days per year
-  dayLength: 21600                           // real seconds per game day (6 real hours)
-  axialTilt: 23.4                            // degrees — determines season intensity
-
-  // Current season determined by day of year:
-  // Day 0-91:    Spring (northern hemisphere) / Autumn (southern)
-  // Day 91-182:  Summer / Winter
-  // Day 182-273: Autumn / Spring
-  // Day 273-365: Winter / Summer
-
-  // Solar declination angle (determines which hemisphere gets more sun):
-  solarDeclination = axialTilt × sin(2π × dayOfYear / yearLength)
-  // +23.4° at summer solstice (day ~172), -23.4° at winter solstice (day ~355)
-}
-```
-
-#### Season Effects
-
-| Season | Temperature Modifier | Daylight Hours | Weather Bias | Gameplay Impact |
-|--------|---------------------|----------------|-------------|-----------------|
-| Spring | +0 to +5°C gradual warming | 12→14 hours | More rain, fog lifting | Snow melts → rivers flood. Plants grow. Animals breed. Soil workable. |
-| Summer | +8 to +12°C | 14→16 hours | Clear/hot dominant, afternoon storms | Peak farming. Fire risk (dry materials). Long work days. Heat stroke risk. |
-| Autumn | -2 to -5°C cooling | 12→10 hours | Increasing rain, wind | Harvest season. Leaves change. Animals fatten. Days shorten. |
-| Winter | -10 to -15°C | 8→10 hours | Snow, ice, fog | Hypothermia danger. Rivers freeze (walkable). Food scarce. Short days → limited activity. |
-
-```
-Season effects on systems:
-  // Organism energy budgets (§3.2):
-  autotroph.photosynthesisRate *= daylightHours / 12    // more light = more energy
-  heterotroph.metabolicRate *= 1 + (30 - T_air) × 0.01  // cold = higher metabolism to stay warm
-
-  // Farming:
-  cropGrowthRate = baseRate × seasonGrowthMultiplier × soilQuality × waterAvailability
-  // Spring: ×0.5 (starting), Summer: ×1.0 (peak), Autumn: ×0.3 (slowing), Winter: ×0.0 (dormant)
-
-  // Water state:
-  if (T_air < 0) {
-    // Rivers freeze: surface becomes walkable solid (ice hardness ~1.5 Mohs)
-    // Lakes freeze: fishing through ice holes possible
-    // Ocean edges freeze: extends walkable coastline
-    // Snow accumulates: 1cm per hour of snowfall, compacts over time
-    // Ice thickens: ~2cm per day below 0°C (Stefan's law of ice growth)
-  }
-
-  // Day/night cycle:
-  sunriseHour = 6 - (daylightHours - 12) / 2
-  sunsetHour = 18 + (daylightHours - 12) / 2
-  // In summer: sunrise at 5:00, sunset at 21:00 (16h daylight)
-  // In winter: sunrise at 8:00, sunset at 16:00 (8h daylight)
-```
-
-### 3.8 Player Systems
-
-- WASD movement + mouse look, switchable between first-person and third-person camera
-- Five survival stats: health, hunger, thirst, energy, stamina
-- Shelter registered in database; respawn at shelter on death (current)
-- Default shelter assigned deterministically on first login (worldSeed + userId hash)
-- Discovery tracking: first success at each physics interaction is recorded
-
-### 3.8.1 Workstation System — Crafting at Physical Machines
 
 Crafting happens **at a location**, not in a menu. The player walks to a machine, stands next to it, and works with it. The machine is a physical object with a 3D position in the world.
 
@@ -4299,303 +5235,99 @@ Players can walk into any settlement and use their workstations too. The bloomer
 - `src/crafting/InteractionEngine.ts` — `CraftEnvironment` gains two new optional fields: `nearbyWorkstation` (controls temperature ceiling and available actions) and `heldTool` (affects success rate)
 - `universe-server/src/SettlementManager.js` — settlements generate workstations deterministically from seed + specialty; NPCs get a state machine (idle → gather → carry → process → deliver → deposit → idle) ticking at 0.5 Hz
 
-### 3.8.2 Death, Respawn, and Loot
 
-#### What Happens Physically When a Player Dies
+### 6.4 Precision Crafting Mode — Zoom-In Interaction
 
-Death is not an abstract game state — it is a physical event. The player's body collapses, items scatter, and the world continues without them.
+#### The Principle
 
-#### The Death Sequence (Server-Authoritative)
-
-The entire death sequence is controlled by the server. The client receives events and renders them, but cannot fabricate or skip any step.
+Some crafting actions require fine motor control — shaping clay on a wheel, knapping a stone tool's edge, carving wood, drawing on a surface. For these, the camera zooms in and the player's mouse directly controls hand movements.
 
 ```
-DeathEvent {
-  // Server generates this when player health reaches 0
-  playerId: string
-  causeOfDeath: DeathCause           // 'starvation' | 'hypothermia' | 'drowning' | 'fall' | 'burn' | 'infection' | 'attack' | 'poison'
-  deathPosition: Vec3                // world-space position where the player died
-  deathTimestamp: number             // server monotonic clock (ms)
-  droppedItems: DroppedItem[]        // what fell out of inventory (server-determined)
-  corpseId: string                   // unique ID for the corpse entity
-}
+PrecisionCraftMode {
+  // ── Activation ────────────────────────────────────────────────────────────
+  // Triggered when a player interacts with a workstation or material that requires precision:
+  //   - Clay on a pottery wheel
+  //   - Stone held for knapping (flint knapping)
+  //   - Wood held for carving
+  //   - Metal on anvil for detailed shaping
+  //   - Drawing/marking on surfaces (charcoal on rock, etc.)
 
-DroppedItem {
-  itemId: string                     // references the MaterialPacket or tool
-  worldPosition: Vec3                // where it lands (deathPosition + random scatter offset)
-  velocity: Vec3                     // initial physics velocity (items tumble outward from body)
-  despawnTimestamp: number            // server clock + 300,000ms (5 minutes)
-}
-```
+  // ── Camera behavior ───────────────────────────────────────────────────────
+  // Camera smoothly zooms in to focus on the work piece
+  // FOV narrows from 90° to ~40°
+  // Camera orbit: player can orbit around the object with right-click drag
+  // Depth of field: background blurs (the player is "focusing")
+  // The rest of the world continues — NPCs walk by, weather changes, time passes
+  // Other players see this player hunched over their work
 
-**Step 1 — Item Drop Calculation (server-side)**
+  // ── Controls in precision mode ────────────────────────────────────────────
+  // Mouse position → cursor on the work surface
+  // Left click: primary tool action (strike, push, pull, mark)
+  // Right click + drag: rotate camera around object
+  // Mouse wheel: zoom in/out within precision range
+  // Keyboard:
+  //   Q/E: rotate the work piece on its axis
+  //   R: switch between tools (if multiple equipped — chisel, hammer, knife)
+  //   Shift + click: fine/gentle action (lighter touch)
+  //   ESC: exit precision mode
 
-The server determines what drops using a seeded random from the server clock + playerId hash. The drop rules:
+  // ── Physics of precision actions ──────────────────────────────────────────
+  // Each click applies a force at the cursor position on the material
+  // The material deforms based on its properties:
 
-- **Drop count:** `floor(inventorySize × dropRate)` where `dropRate` is a random value between **0.05 and 0.20** (5%–20% of inventory slots). A player with 30 items drops 1–6 items.
-- **Selection:** Random without replacement. Each slot has equal probability. Tools the player is currently holding have **2× weight** (you drop what's in your hands when you die — real-world physics).
-- **Scatter physics:** Each dropped item spawns at `deathPosition + randomUnitVector × radius` where `radius ∈ [0.5m, 2.0m]`. Initial velocity: `randomDirection × 1.5 m/s + upward 2.0 m/s` (items tumble outward and fall). After spawning, items are standard physics entities — they roll downhill, settle in crevices, can fall into water.
-- **What NEVER drops:** The player's discovery knowledge (stored in DB, not inventory). Their shelter registration. Their practice counters. Only physical items drop.
-
-```
-// Server-side drop calculation
-function calculateDrops(player: Player, serverRng: SeededRandom): DroppedItem[] {
-  const dropRate = 0.05 + serverRng.next() * 0.15          // 5-20%
-  const dropCount = Math.max(1, Math.floor(player.inventory.length * dropRate))
-
-  // Build weighted pool: held items get 2× weight
-  const pool: WeightedSlot[] = player.inventory.map((item, i) => ({
-    item, weight: (i === player.equippedSlot) ? 2.0 : 1.0
-  }))
-
-  const drops: DroppedItem[] = []
-  for (let i = 0; i < dropCount; i++) {
-    const selected = weightedRandomRemove(pool, serverRng)
-    const angle = serverRng.next() * Math.PI * 2
-    const dist = 0.5 + serverRng.next() * 1.5
-    drops.push({
-      itemId: selected.item.id,
-      worldPosition: vec3Add(player.position, [Math.cos(angle) * dist, 0.3, Math.sin(angle) * dist]),
-      velocity: [Math.cos(angle) * 1.5, 2.0, Math.sin(angle) * 1.5],
-      despawnTimestamp: Date.now() + 300_000   // 5 minutes
-    })
+  ClayCrafting {
+    // Clay is soft and plastic when wet (moisture > 0.3)
+    // Mouse movement pushes/pulls clay surface
+    // Push: indent inward (making a bowl shape)
+    // Pull: raise outward (making a rim)
+    // Smooth: drag along surface to even it out
+    // If pottery wheel is spinning: centrifugal force shapes symmetrically
+    // Result: the shape the player creates IS the final object
+    //   No pre-defined "pot" or "bowl" shape — it's whatever they sculpt
+    //   Properties (volume, wall thickness, symmetry) determine function
+    //   A lopsided pot holds less water. A thin-walled pot breaks easily.
   }
-  return drops
+
+  FlintKnapping {
+    // Player holds a flint core and strikes with a hammerstone
+    // Each click removes a flake from the flint at the cursor position
+    // Flake size depends on: angle of strike, force (shift = lighter), proximity to edge
+    // Strike too hard near the center → core shatters (broken, start over)
+    // Strike correctly along the edge → sharp flake detaches
+    //   The flake is a new item (can be used as a cutting edge)
+    //   The core becomes smaller and changes shape with each removal
+    //   A skilled player creates a symmetrical hand axe
+    //   An unskilled player creates jagged fragments (still usable, just worse)
+    // Hidden practice count improves the consistency of flake removal
+  }
+
+  WoodCarving {
+    // Held wood piece + chisel/knife tool
+    // Mouse drags remove thin shavings from the surface
+    // Drag direction determines grain interaction:
+    //   With the grain: smooth cut, clean shaving
+    //   Against the grain: rough cut, risk of splitting
+    // Player can carve: handles, bowls, pegs, figurines, structural joints
+    // The carved shape determines function (a smooth handle grips better)
+  }
+
+  MetalShaping {
+    // Hot metal on anvil + hammer
+    // Each click is a hammer blow at the cursor position
+    // Metal deforms based on temperature:
+    //   Hot (>800°C): deforms easily (large displacement per hit)
+    //   Warm (400-800°C): moderate resistance
+    //   Cold (<400°C): very hard to deform (tiny displacement, tool can break)
+    // The player hammers the metal into shape: blade, tool head, nail, bracket
+    // Quenching (dipping in water): freezes the shape, hardens the metal
+  }
 }
 ```
 
-**Step 2 — Corpse Entity**
 
-The corpse is a server-managed entity with a fixed lifetime:
+## 7. Player Systems
 
-```
-CorpseEntity {
-  corpseId: string
-  playerId: string                   // whose corpse this is
-  position: Vec3                     // death location
-  rotation: Quaternion               // body orientation (falls in direction of last movement)
-  poseState: 'collapsed'             // ragdoll at death, then settles
-  spawnTimestamp: number
-  despawnTimestamp: number            // spawnTimestamp + 60,000ms (1 minute)
-  skeletalPose: Float32Array         // final bone positions from ragdoll settling
-}
-```
-
-- **Duration:** 60 seconds after death, the corpse fades out over 3 seconds and is removed from the server entity list.
-- **Duplicate prevention:** If the same `playerId` dies again while a previous corpse exists, the old corpse is **immediately removed** (server deletes the old CorpseEntity before creating the new one). This prevents a player dying repeatedly in the same spot from filling the server with corpse entities.
-- **Rendering:** The client renders corpses as the full player body model (same skeleton rig as §3.8.4) in a collapsed ragdoll pose. The pose is calculated once on the server when death occurs (simple ragdoll settle: body falls, limbs sprawl based on terrain slope) and sent as a static skeletal pose. No ongoing ragdoll physics — just a frozen body.
-
-**Step 3 — Dropped Item World Entities**
-
-Dropped items become standard world entities visible to all players within render distance:
-
-- **Physics:** After initial scatter velocity, items are simulated as rigid bodies. They bounce off terrain, roll downhill, can fall into water (where they sink or float depending on density — a wooden tool floats, a stone axe sinks).
-- **Pickup:** Any player can pick up any dropped item by walking within **1.5m** and pressing the interact key. Server validates proximity and item existence before granting the item. First valid pickup request wins.
-- **Despawn:** Each item has an independent 5-minute timer from spawn. When the timer expires, the server removes the entity and broadcasts removal. Items do NOT persist across server restarts.
-- **Stacking:** If items land on the same spot, they pile up visually. No special stacking logic — just physics objects resting on each other.
-
-**Step 4 — Respawn**
-
-```
-RespawnSequence {
-  deathTimestamp: number
-  respawnDelay: 10_000               // 10 seconds, constant
-  respawnPosition: Vec3              // player's registered shelter position (from database)
-  adSlotWindow: [2_000, 8_000]      // milliseconds 2-8 after death: available for ad display (future)
-}
-```
-
-- **What the player sees:** Screen fades to black over 1 second. For the next 10 seconds, the player sees a minimal UI: death cause text ("You froze to death"), a countdown timer, and (future) an ad slot in the center.
-- **Respawn location:** The player's registered shelter (stored in the database).
-- **State on respawn:** Full health, full hunger/thirst/energy (you "rested" while dead), same discovery knowledge, same practice counters, inventory minus whatever dropped. The player is not punished twice — the item loss IS the punishment.
-
-#### Causes of Death — Physical Triggers
-
-Each death cause maps to a real physical condition crossing a lethal threshold:
-
-| Cause | Trigger | Physics |
-|-------|---------|---------|
-| Starvation | `hunger ≤ 0` for 120 continuous seconds | Glycogen depleted → organ failure |
-| Dehydration | `thirst ≤ 0` for 90 continuous seconds | Blood volume drops → cardiac arrest |
-| Hypothermia | `bodyTemperature < 28°C` | Core temp below threshold → heart arrhythmia. Body temp follows Newton's law of cooling: `dT/dt = -k(T_body - T_env)` where k depends on clothing insulation |
-| Hyperthermia | `bodyTemperature > 42°C` | Protein denaturation → organ failure |
-| Drowning | `oxygenLevel ≤ 0` while submerged | Breath-hold timer (90s base) depletes, then health drops at 20 HP/s |
-| Fall damage | `impactVelocity > 8 m/s` | Damage = `mass × (v - 8)² / 2` (kinetic energy above safe threshold). Lethal above ~15 m/s (~11m fall) |
-| Burn | `skinTemperature > 60°C` for sustained contact | Tissue damage rate = `k × (T - 45)²` per second. Third-degree at >70°C |
-| Infection | `bacterialLoad > 10⁹` (logistic growth model) | Untreated wound → bacterial population doubles every ~4 hours at 37°C, slower when cold. Lethal when load overwhelms immune response |
-| Attack | `health ≤ 0` from physical damage | Impact force from another entity (animal, player, falling object) exceeds body's structural tolerance |
-| Poison | `toxinLevel > lethalDose` | LD50 per toxin type. Dose-response curve: `mortality_probability = 1 / (1 + e^(-k(dose - LD50)))` |
-
-### 3.8.3 Persistence Model — What Survives a Server Restart
-
-#### The Two-Tier Architecture
-
-The world has two categories of state, determined by a single principle: **did a player intentionally create this, or is it physics running on its own?** Player-created changes are sacred and permanent. Physics-in-progress is ephemeral and can be recomputed or reset.
-
-#### Tier 1 — Permanent State (database)
-
-These tables survive server restarts, crashes, and migrations. They are the canonical truth of the world.
-
-```
-// ── Terrain Modifications ─────────────────────────────────────────────────────
-terrain_modifications {
-  id:           UUID PRIMARY KEY
-  world_seed:   BIGINT NOT NULL               // which world this belongs to
-  chunk_x:      INT NOT NULL                  // terrain chunk coordinates
-  chunk_z:      INT NOT NULL
-  modification: JSONB NOT NULL                // { type: 'dig'|'fill'|'flatten', vertices: [...], depth: number }
-  created_by:   TEXT NOT NULL                 // player userId who made the change
-  created_at:   TIMESTAMP DEFAULT NOW()
-  INDEX (world_seed, chunk_x, chunk_z)        // spatial lookup for chunk loading
-}
-
-// When a client loads a terrain chunk, the server sends: base procedural terrain (from seed) + all modifications for that chunk.
-// The client applies modifications on top of procedural terrain. This means terrain generation is still deterministic from seed — modifications are a diff layer.
-
-// ── Placed Objects ────────────────────────────────────────────────────────────
-world_objects {
-  id:           UUID PRIMARY KEY
-  world_seed:   BIGINT NOT NULL
-  object_type:  TEXT NOT NULL                 // 'container'|'workstation'|'shelter'|'wall'|'door'|'torch'|...
-  subtype:      TEXT                          // 'bloomery'|'kiln'|'clay_pot'|'stone_wall'|...
-  position:     FLOAT[3] NOT NULL            // world-space [x, y, z]
-  rotation:     FLOAT[4] NOT NULL            // quaternion [x, y, z, w]
-  placed_by:    TEXT NOT NULL                 // player userId
-  placed_at:    TIMESTAMP DEFAULT NOW()
-  state:        JSONB DEFAULT '{}'            // object-specific state (container contents, fuel level, etc.)
-  durability:   FLOAT DEFAULT 1.0            // 0.0 = destroyed, 1.0 = pristine
-  INDEX (world_seed, position)               // spatial queries via cube distance
-}
-
-// ── Resource Node Depletion (already exists) ──────────────────────────────────
-resource_nodes {
-  node_id:      TEXT PRIMARY KEY              // deterministic from seed + position
-  world_seed:   BIGINT NOT NULL
-  depleted:     BOOLEAN DEFAULT FALSE
-  remaining:    FLOAT DEFAULT 1.0            // fraction remaining (1.0 = full, 0.0 = empty)
-  last_mined:   TIMESTAMP
-}
-
-// ── Settlement State ──────────────────────────────────────────────────────────
-settlements {
-  id:           SERIAL PRIMARY KEY
-  world_seed:   BIGINT NOT NULL
-  name:         TEXT NOT NULL
-  position:     FLOAT[3] NOT NULL
-  specialty:    TEXT NOT NULL                 // 'copper_mining'|'iron_mining'|'farming'|...
-  population:   INT DEFAULT 20
-  // No civ_level — sophistication is derived from what NPCs have built and learned (§3.5)
-  known_processes: TEXT[] DEFAULT '{}'       // processes NPCs have discovered: 'fire_starting', 'copper_smelting', ...
-  storage:      JSONB DEFAULT '{}'           // MaterialPacket array with real compositions and masses
-  trade_offers: JSONB DEFAULT '[]'           // current public trade offers
-  updated_at:   TIMESTAMP DEFAULT NOW()
-}
-
-// ── Player State ──────────────────────────────────────────────────────────────
-players {
-  user_id:      TEXT PRIMARY KEY
-  world_seed:   BIGINT NOT NULL
-  inventory:    JSONB NOT NULL               // array of MaterialPacket serializations
-  discoveries:  TEXT[] DEFAULT '{}'           // discovery IDs
-  practice:     JSONB DEFAULT '{}'           // { "fire_friction": 47, "copper_smelt": 12, ... }
-  stats:        JSONB NOT NULL               // { health, hunger, thirst, energy, stamina, bodyTemp }
-  position:     FLOAT[3]                     // last known position (for offline reference)
-  updated_at:   TIMESTAMP DEFAULT NOW()
-}
-
-shelters {
-  id:           SERIAL PRIMARY KEY
-  user_id:      TEXT NOT NULL
-  world_seed:   BIGINT NOT NULL
-  position:     FLOAT[3] NOT NULL
-  registered_at: TIMESTAMP DEFAULT NOW()
-  INDEX (user_id, world_seed)
-}
-```
-
-**Write frequency:** Player state saves every **30 seconds** during active play and immediately on disconnect. Terrain modifications and placed objects save **immediately** on creation (these are rare, high-value events — a player digs maybe once per minute, not 60 times per second). Settlement state saves every **60 seconds**.
-
-**Chunk loading protocol:** The client never generates terrain. The server is the sole authority on what the world looks like. The client receives fully computed terrain data and renders it.
-
-When a player enters a new terrain chunk:
-1. Client sends `CHUNK_REQUEST { chunkX, chunkZ }` to the server
-2. Server generates the terrain for that chunk (base from seed + all modifications applied)
-3. Server sends `CHUNK_DATA` back — a compressed terrain payload:
-
-```
-CHUNK_DATA {
-  chunkX: number
-  chunkZ: number
-  // Heightmap: 64×64 grid of terrain heights (Float16 = 2 bytes each → 8 KB)
-  heightmap: Float16Array[4096]
-  // Material IDs per vertex: what the surface is made of (Uint8 → 4 KB)
-  materialMap: Uint8Array[4096]
-  // Normal map: compressed vertex normals for lighting (optional, can be computed client-side from heightmap)
-  // Color tint: per-vertex color variation (Uint8×3 → 12 KB)
-  colorMap: Uint8Array[12288]
-  // Total per chunk: ~24 KB compressed (gzip: ~8-12 KB on wire)
-}
-```
-
-4. Client builds a Three.js mesh from the received data and adds it to the scene
-5. Chunks are cached on the client — no re-request until the server notifies of a modification
-6. When terrain is modified (dig, build), server pushes `CHUNK_UPDATE` for affected chunks
-
-**Bandwidth cost:**
-- A player moving through the world loads ~9 chunks at a time (3×3 grid around them)
-- Initial load: 9 × ~10 KB = ~90 KB (one-time on login or entering new area)
-- Steady state: 0 KB/s (chunks are cached, only updates when modifications happen)
-- Terrain modification: ~10 KB per updated chunk (rare events)
-
-**Why this approach:**
-- The client is truly "eyes only" — it renders what the server shows it, nothing more
-- No game logic runs on the client — no terrain generation code to reverse-engineer or exploit
-- The server can change terrain generation algorithms without updating clients
-- Terrain modifications are seamlessly integrated — the client never sees "base + diff," it just sees terrain
-
-#### Tier 2 — Ephemeral State (Server RAM Only)
-
-These exist only while the server is running. On restart, they vanish.
-
-```
-// ── Active Physics Simulations ────────────────────────────────────────────────
-EphemeralState {
-  // SPH particles: all active liquid/gas simulations in the world
-  sphParticles: Map<ParticleId, SPHParticle>     // see §3.3.4 for SPHParticle structure
-  // typically 0–20,000 active at any time; 0 when no one is melting/pouring
-
-  // Temperature field: materials in the world that are not at ambient temperature
-  heatedObjects: Map<ObjectId, { temperature: number, coolingRate: number }>
-  // a campfire heats nearby objects; when fire dies, they cool back to ambient
-
-  // Active crafting: smelting in progress, pottery firing, etc.
-  activeCrafts: Map<CraftId, { workstationId: string, startTime: number, materials: MaterialPacket[], progress: number }>
-
-  // Dropped loot: items on the ground from player death or intentional drop
-  groundItems: Map<ItemId, { packet: MaterialPacket, position: Vec3, velocity: Vec3, despawnAt: number }>
-
-  // Weather particles: rain drops, snow flakes, dust (visual only, no persistence needed)
-  // NPC pathfinding state: current waypoint, walk progress (NPCs restart their goal loop from idle on server restart)
-}
-```
-
-**What happens on server restart:**
-- All SPH particles vanish. Any liquid that was mid-flow is gone. Rivers and ocean return to their static/shader state. This is acceptable because liquid simulations are short-lived events (a pour takes 5 seconds, lava flow takes 30 seconds).
-- All heated objects snap to ambient temperature. A forge that was at 1200°C goes cold. The player must relight it. This matches reality — if you leave a forge overnight, it's cold in the morning.
-- All active crafts are lost. If a player was mid-smelt, the materials are gone (consumed but product not produced). This is the penalty for being online during a restart. Restarts should be rare and announced.
-- All ground items vanish. Dropped loot from recent deaths is gone. This is acceptable — 5-minute despawn means most loot is already gone anyway.
-- NPCs restart from `idle` state. They don't remember they were carrying ore to the bloomery. They start a new goal loop iteration.
-
-#### The Boundary: When Ephemeral Becomes Permanent
-
-Some ephemeral processes produce permanent results:
-
-- **Smelting completes** → the output MaterialPacket is added to the player's inventory (permanent)
-- **Lava cools and solidifies** → new terrain is created (terrain modification → permanent). The SPH particles that made up the lava flow are deleted, but the solidified rock they became is a permanent terrain modification.
-- **Player digs a hole** → terrain modification record created (permanent). The dirt particles that flew out are ephemeral visual effects.
-- **Container filled with liquid** → the container is permanent (world_objects table), but the liquid inside it is ephemeral. On restart, containers are empty. If this becomes a problem (players complain about losing stored water), we can promote container contents to permanent state later by storing composition in the container's `state` JSONB field.
-
-### 3.8.4 Player Body and View
+### 7.1 Character Creation, Body & Animation
 
 #### Camera System
 
@@ -4791,7 +5523,7 @@ InjurySystem {
   // Healing: injuries heal at baseHealRate × (nutrition_factor) × (rest_factor) × (temperature_factor)
   // baseHealRate: 0.5 HP/minute (a bad cut takes ~2 real hours to heal fully at rest with food)
   // Bandaging (cloth + pressure): stops bleedRate, doubles healRate for that region
-  // Infection risk: open wound (bleedRate > 0) in dirty environment → bacterial growth (see §3.8.2 death causes)
+  // Infection risk: open wound (bleedRate > 0) in dirty environment → bacterial growth (see §8.2 death causes)
 }
 ```
 
@@ -4935,7 +5667,7 @@ BodyCustomization {
   //   High muscle + high fat  = powerlifter build  (low speed, very high strength, high insulation)
 
   // ── Stat Effects from Body Type ───────────────────────────────────────────
-  // These modify the BASE values of the fitness stats in §3.8.11:
+  // These modify the BASE values of the fitness stats in §8.11:
   //
   // Strength baseline:     0.4 + muscularity × 0.3 + bodyFat × 0.05
   //   thin build: 0.4, muscular: 0.7, powerlifter: 0.75
@@ -4991,7 +5723,7 @@ CharacterAppearance {
   //   - Aging system (wrinkleDepth increases over time)
   //   - Plastic surgery (late-game: another player with medical tools can modify face_params)
   //   - Hair growth (hairLength slowly increases, player must cut it — or not)
-  //   - Fitness changes (muscularity/bodyFat morph slightly with §3.8.11 training over long periods)
+  //   - Fitness changes (muscularity/bodyFat morph slightly with §8.11 training over long periods)
 
   // When a player's character is rendered by another client:
   //   1. Client receives face_params + body_params in the player's first WORLD_SNAPSHOT appearance
@@ -5003,7 +5735,7 @@ CharacterAppearance {
 
 #### Clothing Appearance and Equipment Screen
 
-Clothing is not just inventory (§3.8.9) — it is visible on the character model. Every piece of clothing the player wears changes how they look to other players. **Clothing is also a primary monetization channel — cosmetic clothing skins/patterns can be sold.**
+Clothing is not just inventory (§8.9) — it is visible on the character model. Every piece of clothing the player wears changes how they look to other players. **Clothing is also a primary monetization channel — cosmetic clothing skins/patterns can be sold.**
 
 **Equipment Screen Layout:**
 
@@ -5055,7 +5787,7 @@ EquipmentScreenUI {
   }
   // Total: 13 visible equipment slots
 
-  // Each slot accepts a ClothingItem (defined in §3.8.9)
+  // Each slot accepts a ClothingItem (defined in §8.9)
   // Drag from inventory pocket/backpack to an equipment slot to equip
   // Drag from equipment slot back to inventory to unequip
   // If no free inventory slot: can't unequip (must drop something first)
@@ -5128,7 +5860,7 @@ The player character ages in real-time — very slowly, because the world runs i
 
 ```
 AgingSystem {
-  // ── Time scale: 4× real life (from §3.7) ──────────────────────────────────
+  // ── Time scale: 4× real life (from §7) ──────────────────────────────────
   // 1 real hour = 4 game hours
   // 1 real year ≈ 4 game years
   //
@@ -5164,7 +5896,7 @@ AgingSystem {
   // Age 95+: death from old age becomes possible (daily survival check)
 
   // ── Stat effects of aging ─────────────────────────────────────────────────
-  // These modify the FITNESS CAPS from §3.8.11:
+  // These modify the FITNESS CAPS from §8.11:
   //
   // Age 18-35:  all caps at 1.0 (peak human)
   // Age 35-50:  speed cap = 1.0 - (age - 35) × 0.005       // loses 0.5% per year
@@ -5195,7 +5927,7 @@ AgingSystem {
   // knowledge, discoveries, and world modifications become legacy.
   //
   // When death from old age occurs:
-  //   - Same death mechanics as §3.8.2 (item drop, corpse, respawn)
+  //   - Same death mechanics as §8.2 (item drop, corpse, respawn)
   //   - BUT: the character is reborn as a NEW character (back to age 18)
   //   - They KEEP: discoveries, shelter, placed objects, friend list
   //   - They LOSE: physical appearance (must re-customize face), fitness progress,
@@ -5428,7 +6160,7 @@ AnimationStateMachine {
   }
 
   // ── Layer 2: Injury Modifiers (additive) ──────────────────────────────────
-  // These modify the base animations based on injury state (§3.8.4 injury system).
+  // These modify the base animations based on injury state (§8.4 injury system).
   // They are ALWAYS active but with weight = 0 when healthy.
 
   injuryModifiers: {
@@ -5520,987 +6252,216 @@ AnimationStateMachine {
 
 These clips can be authored in Blender using the same 67-bone skeleton rig, exported as GLB, and loaded by Three.js's GLTFLoader. The same clips work for all characters regardless of face/body customization because blend shapes and skeletal animation are independent systems.
 
-### 3.8.5 Multiplayer Conflict Resolution — Physics as Arbiter
 
-There is no conflict resolution "system." There is physics. Two players interacting with the same object are two physical entities in the same space, and the simulation resolves their actions the same way it resolves any other physics interaction.
-
-#### Resource Extraction (Mining, Gathering, Harvesting)
-
-```
-MiningInteraction {
-  // A resource node is a physical object with:
-  nodeHealth: number                         // starts at node's total extractable mass (e.g., 50kg copper ore)
-  fragmentMass: number                       // mass per extraction hit (e.g., 0.5kg per swing)
-
-  // When a player swings a tool at the node:
-  // 1. Server validates: is the player within 2m? Is the tool appropriate? Is the swing animation complete?
-  // 2. Server deducts fragmentMass from nodeHealth
-  // 3. Server spawns a DroppedItem (ore fragment) at the node's surface position
-  //    - The fragment has initial velocity: outward from the impact point + downward gravity
-  //    - It is a standard physics entity — it falls, bounces, rolls, settles
-  // 4. Server broadcasts the spawn to all nearby clients
-
-  // Two players mining the same node simultaneously:
-  // - Both hit the node. Both produce fragments. Fragments scatter in different directions.
-  // - Each player must physically walk to and pick up the fragments they want.
-  // - If player A's fragment rolls toward player B, player B can grab it. No ownership tag.
-  // - When nodeHealth reaches 0, the node is depleted. No more fragments.
-  // - Server processes mining hits in order of arrival (monotonic timestamp).
-  //   If two hits arrive in the same server tick (16ms), both are processed — the node loses 2× fragmentMass.
-}
-```
-
-#### Item Pickup
-
-```
-PickupProtocol {
-  // Items on the ground have no owner. Anyone can pick them up.
-
-  // Client sends: PICKUP_REQUEST { itemId, playerPosition, timestamp }
-  // Server checks:
-  //   1. Does the item still exist? (another player might have grabbed it already)
-  //   2. Is the player within 1.5m of the item's current position?
-  //   3. Is the player's inventory not full?
-
-  // If all checks pass:
-  //   - Item is removed from world entities
-  //   - Item is added to the requesting player's inventory
-  //   - Server broadcasts ITEM_REMOVED { itemId } to all clients
-  //   - Server sends INVENTORY_UPDATE to the picking player
-
-  // If the item no longer exists (race condition):
-  //   - Server sends PICKUP_FAILED { reason: 'gone' } to the requesting player
-  //   - Client shows brief feedback: the item vanishes from their screen
-  //   - No retry. The item is gone. Someone else got it.
-
-  // No locking. No reservation. No "I saw it first" system.
-  // Server timestamp order determines the winner. Network latency means
-  // the closer player (lower ping) has a slight advantage — same as real life
-  // where the closer person reaches the object first.
-}
-```
-
-#### Liquid Containers
-
-```
-ContainerPhysics {
-  // A container (clay pot, bucket, trough) has:
-  capacity: number                           // volume in liters
-  currentVolume: number                      // how full it is
-  contents: MaterialPacket                   // the liquid inside (composition, temperature)
-
-  // Pouring liquid in:
-  // 1. Player holds a container with liquid and presses "pour" while aiming at the target container
-  // 2. Server creates a pour stream (SPH particles or visual) from source to target
-  // 3. Target container's contents update: mass-weighted composition merge (§3.3.3 compounding rule)
-  //    newComposition[element] = (existingMass × existingFraction[element] + addedMass × addedFraction[element]) / totalMass
-  //    newTemperature = (existingMass × existingTemp + addedMass × addedTemp) / totalMass
-  // 4. If two players pour simultaneously:
-  //    - Both pour streams execute. The container receives both.
-  //    - The three-way merge is just two sequential two-way merges (order doesn't matter — addition is commutative).
-  //    - If total volume exceeds capacity, excess overflows as SPH particles that spill and flow.
-}
-```
-
-#### Workstation Access
-
-```
-WorkstationAccess {
-  // A workstation has a single operator slot.
-  state: 'vacant' | 'occupied'
-  operatorId: string | null                  // userId of current operator
-
-  // Player presses F within 5m:
-  //   If vacant: server sets operatorId = playerId, state = 'occupied'
-  //              client opens WorkstationPanel
-  //   If occupied: client shows "[Workstation in use by another player]"
-  //               player must wait or find another workstation
-
-  // Operator leaves (walks away >5m, presses Esc, disconnects):
-  //   Server sets state = 'vacant', operatorId = null
-  //   Any in-progress craft continues if it doesn't require active input
-  //   (a smelt that's already started keeps going — the furnace doesn't need a babysitter)
-  //   But a craft requiring active input (hammering on anvil) pauses.
-
-  // No queue system. No reservation. You walk up, if it's free you use it.
-  // Two players approaching at the same time: first WORKSTATION_USE request to reach the server wins.
-}
-```
-
-### 3.8.6 Sound System — Physics-Driven Audio
+### 7.2 Human Body Simulation — Survival Stats
 
 #### The Principle
 
-Every sound in the real world is produced by a physical event: two objects collide and their surfaces vibrate, a fluid turbulates as it flows past an obstacle, air rushes through a narrow opening. The frequency, timbre, and volume of the resulting sound are determined by the physical properties of the objects and the medium.
+The player character is a human body. It needs food, water, sleep, and air. It gets tired, cold, hot, injured, and sick. Every stat is modeled after real human physiology with real numbers. The game does not use abstract "hunger points" — it uses caloric deficit, glycogen reserves, and basal metabolic rate.
 
-The game follows the same principle. There is no `sounds/` folder with `campfire_loop.wav` or `footstep_dirt_03.mp3` mapped to game events. Instead, the **audio engine computes what you should hear** from the physics of what is happening.
-
-#### The Audio Pipeline
+#### The Five Stats (Internal Model)
 
 ```
-PhysicsEvent → SoundDescriptor → SampleSelector → AudioProcessor → WebAudio → Speakers
+HumanBodyState {
+  // ── Energy (Calories) ─────────────────────────────────────────────────────
+  // The human body burns calories continuously. This is the master resource.
+  calories: number                   // current caloric reserve (kcal)
+  // Well-fed human: ~2000 kcal reserve (glycogen in liver + muscles)
+  // Starvation threshold: 0 kcal → body begins consuming muscle/fat
+  // Lethal: sustained 0 kcal for 4 game-days (~24 real hours — compressed from real 3-4 day limit)
 
-Step 1: PhysicsEvent
-  Any physics interaction generates an event:
-  { type: 'impact'|'scrape'|'flow'|'break'|'combustion'|'pressure_release',
-    materialA: MaterialPacket,        // first material involved
-    materialB: MaterialPacket | null, // second material (null for single-material events like cracking)
-    energy: number,                   // joules of the interaction
-    contactPoint: Vec3,               // world position where it happened
-    contactNormal: Vec3,              // surface normal at contact
-    relativeVelocity: Vec3 }          // approach speed and direction
+  basalMetabolicRate: number         // kcal/hour at rest
+  // Average human: ~75 kcal/hour (1800 kcal/day)
+  // Affected by: body mass, ambient temperature, fitness level
 
-Step 2: SoundDescriptor
-  Computed from the physics event + material properties:
-  {
-    // ── Timbre Selection ────────────────────────────────────────────────────
-    // Based on material classification + hardness
-    timbreClass: computeTimbreClass(materialA, materialB)
-    // Classes: 'metallic', 'lithic' (stone/ceramic), 'organic' (wood/bone/leather),
-    //          'granular' (sand/gravel/soil), 'liquid', 'gas' (wind/steam/explosion)
+  // Calorie drain rates by activity:
+  //   Sleeping:     0.8 × BMR
+  //   Standing:     1.0 × BMR
+  //   Walking:      1.5 × BMR
+  //   Running:      3.0 × BMR
+  //   Mining:       4.0 × BMR
+  //   Swimming:     5.0 × BMR
+  //   Fighting:     4.5 × BMR
+  //   Crafting:     1.2 × BMR
+  //   In cold (<10°C): BMR × (1 + (10 - T_ambient) × 0.03)  // shivering burns calories
 
-    // ── Pitch ───────────────────────────────────────────────────────────────
-    // Fundamental frequency from object size and material stiffness
-    // f₀ = (1/2L) × √(E/ρ)  where:
-    //   L = characteristic length of the vibrating object (m)
-    //   E = Young's modulus (Pa) — derived from material hardness and crystal structure
-    //   ρ = density (kg/m³) — from MaterialPacket
-    fundamentalFreq: computeF0(materialA)     // Hz
-    // A small stone chip: L=0.03m, E=70GPa, ρ=2700 → f₀ ≈ 2700 Hz (high ping)
-    // A large iron anvil: L=0.5m, E=200GPa, ρ=7800 → f₀ ≈ 320 Hz (deep ring)
-    // A wooden log: L=1.0m, E=12GPa, ρ=600 → f₀ ≈ 70 Hz (low thud)
+  // ── Hydration (Water) ─────────────────────────────────────────────────────
+  hydration: number                  // liters of body water
+  // Normal: ~2.5 liters (above minimum)
+  // Dehydration begins: < 1.5 liters
+  // Lethal: < 0.5 liters (sustained for 2-3 game-days — ~12-18 real hours)
 
-    // ── Volume ──────────────────────────────────────────────────────────────
-    // Sound power from impact energy
-    // P_sound = η × E_impact / t_contact  where:
-    //   η = acoustic efficiency (metal: 0.01, stone: 0.005, wood: 0.002, sand: 0.0001)
-    //   E_impact = ½mv² (kinetic energy of impact)
-    //   t_contact = contact duration (harder materials = shorter = louder)
-    soundPower: computePower(energy, materialA, materialB)   // watts
+  waterLossRate: number              // liters/hour
+  // Base: 0.1 L/hour (breathing, sweating at rest)
+  // Hot weather (>30°C): 0.3 L/hour (heavy sweating)
+  // Running: 0.4 L/hour
+  // Running in heat: 0.8 L/hour (can be lethal in <3 hours without water)
 
-    // ── Decay ───────────────────────────────────────────────────────────────
-    // How quickly the sound dies out
-    // Metal: long decay (ringing), τ = 2-5 seconds
-    // Stone: medium decay, τ = 0.1-0.5 seconds
-    // Wood: short decay, τ = 0.05-0.2 seconds
-    // Soft materials: nearly instant, τ < 0.05 seconds
-    decayTime: computeDecay(materialA)   // seconds (time to -60dB)
-  }
+  // Restoration:
+  // Drinking water: +volume consumed (up to 0.5L per drink action)
+  // Eating juicy fruit: +0.1-0.3L per fruit (watermelon, berries, etc.)
+  // Rain: can collect in containers, or drink from streams/rivers
 
-Step 3: SampleSelector
-  The engine has a library of ~50 base audio samples organized by timbre class:
+  // ── Stamina ───────────────────────────────────────────────────────────────
+  stamina: number                    // 0-100 (percentage of maximum)
+  maxStamina: number                 // depends on fitness level (see training below)
+  // Stamina = short-burst energy (anaerobic capacity)
+  // Real-world analogy: how long you can sprint before gasping
 
-  metallic_impact[]: 5 samples (light tap to heavy strike)
-  metallic_scrape[]: 3 samples (slow to fast)
-  metallic_ring[]:   3 samples (small to large resonator)
-  lithic_impact[]:   5 samples
-  lithic_crack[]:    3 samples
-  lithic_grind[]:    3 samples
-  organic_impact[]:  5 samples (wood knock to bone crack)
-  organic_creak[]:   3 samples
-  granular_step[]:   5 samples (packed to loose)
-  granular_pour[]:   3 samples
-  liquid_splash[]:   5 samples (drip to pour)
-  liquid_flow[]:     3 samples (trickle to rush)
-  liquid_bubble[]:   3 samples
-  gas_rush[]:        3 samples (breeze to blast)
-  gas_hiss[]:        3 samples
-  combustion[]:      5 samples (spark to roar)
+  // Drain rates:
+  //   Running: -10/second (can sprint ~10 seconds when full)
+  //   Jumping: -15 per jump
+  //   Mining (each swing): -5 per swing
+  //   Swimming (each stroke): -3 per stroke
+  //   Climbing: -8/second
+  //   Holding heavy object: -2/second
 
-  Selection: timbreClass + energy level → pick the closest base sample
-  Total: ~55 samples. Compared to typical games that ship 500-2000 samples,
-  this is 10× smaller because the variation comes from processing, not recording.
+  // Recovery:
+  //   Standing still: +5/second
+  //   Walking: +2/second (slow recovery while moving)
+  //   Sitting/resting: +8/second
+  //   At 0 stamina: player cannot run, jump, or swing tools until stamina > 20
+  //   Recovery blocked if: calories = 0 OR hydration < 1.0 OR bodyTemperature < 30°C
 
-Step 4: AudioProcessor
-  The selected sample is transformed in real-time by the WebAudio API:
+  // ── Body Temperature ──────────────────────────────────────────────────────
+  bodyTemperature: number            // °C (normal: 37°C)
+  // Regulated by the body + clothing + environment
 
-  // Pitch shift to match computed fundamental frequency
-  playbackRate = fundamentalFreq / sampleBaseFreq
+  // Heat gain:
+  //   Metabolism: proportional to activity level (running generates heat)
+  //   External heat: fire, hot environment, hot objects
+  //   Clothing insulation: traps body heat
 
-  // Volume from sound power + distance attenuation
-  // Inverse square law: I = P / (4π r²) where r = distance from source to listener
-  gain = soundPower / (4 * Math.PI * distance² + 1)   // +1 prevents division by zero at contact
-  // Clamp to [0, 1] for output
+  // Heat loss:
+  //   Convection: wind carries heat away (wind chill from §6)
+  //   Radiation: body radiates heat to cold surroundings
+  //   Evaporation: sweating (only works if humidity < 0.9)
+  //   Conduction: touching cold surfaces (standing in snow, swimming in cold water)
 
-  // Decay envelope: exponential falloff
-  // gain(t) = gain₀ × e^(-t/τ) where τ = decayTime
+  // dT_body/dt = (heatGeneration - heatLoss) / bodyThermalMass
+  // bodyThermalMass ≈ 3.5 kJ/(kg·°C) × bodyMass
+  // Clothing adds insulation: reduces heatLoss by warmth factor
 
-  // Environment filtering:
-  if (underwater) {
-    // Low-pass filter at 800 Hz (water absorbs high frequencies)
-    // Speed of sound: 1500 m/s (vs 343 m/s in air) — affects spatial delay
-    lowpassCutoff = 800
-    speedOfSound = 1500
-  } else if (inCave) {
-    // Convolution reverb with cave impulse response
-    // Reverb time: proportional to cave volume (estimated from nearest walls raycast)
-    reverbTime = estimateCaveVolume(listenerPosition) * 0.001  // seconds
-    reverbWetMix = 0.6
-  } else if (inForest) {
-    // Scattered reflections: short multi-tap delay (tree trunks)
-    // High-frequency absorption from foliage
-    lowpassCutoff = 4000
-    scatterDelay = [20, 35, 55, 80]  // ms, from nearby tree reflections
-    scatterGain = [0.3, 0.2, 0.15, 0.1]
-  } else {
-    // Open field: dry sound, no reverb
-    reverbWetMix = 0.0
-  }
-```
+  // Danger zones:
+  //   > 40°C: heat exhaustion (vision blur, stamina drain ×3)
+  //   > 42°C: lethal (heat stroke, organ failure — see §8.2)
+  //   < 35°C: hypothermia (shivering, stamina drain ×2, movement slow)
+  //   < 28°C: lethal (cardiac arrhythmia — see §8.2)
 
-#### Continuous Sounds (Not Impacts)
+  // ── Sleep / Fatigue ───────────────────────────────────────────────────────
+  fatigue: number                    // 0-100 (0 = fully rested, 100 = exhausted)
+  // Fatigue accumulates at ~6.25/game-hour of wakefulness (100 in ~16 game-hours = ~4 real hours)
+  // Real human: can stay awake ~16 hours comfortably — at 4× time, that's 4 real hours
+  // The player must sleep their character every ~4 real hours of play
 
-Some sounds are ongoing processes, not single events:
+  // Effects of high fatigue:
+  //   50-70: stamina recovery rate halved, crafting success rate -10%
+  //   70-85: vision darkening at edges, movement speed -15%, reaction time +50%
+  //   85-95: hallucinations possible (visual glitches), random stumbling
+  //   95-100: forced sleep (player collapses where they are — vulnerable to everything)
 
-```
-ContinuousSoundSources {
-  // ── Fire ──────────────────────────────────────────────────────────────────
-  // Fire sound = turbulent gas flow + crackling (moisture in wood popping)
-  // Volume: proportional to fire intensity (fuel burn rate × oxygen supply)
-  // Pitch: base rumble at 80-200 Hz (turbulence), crackle overlays at 1-4 kHz
-  // The crackle rate depends on wood moisture content:
-  //   dryWood (moisture < 0.1): rare crackles, clean burn sound
-  //   wetWood (moisture > 0.4): frequent loud pops, hissing steam overlay
-  fire: {
-    baseFreq: 80 + fuelBurnRate * 120,       // Hz
-    crackleRate: woodMoisture * 10,           // pops per second
-    hissOverlay: woodMoisture > 0.3,          // steam hiss from wet wood
-    volume: fuelBurnRate * 0.5                // normalized
-  }
+  // Sleep:
+  //   Player must find a safe place and use "sleep" action
+  //   Sleep duration: minimum 6 game-hours for full rest (~1.5 real hours)
+  //   Fatigue recovery: -12/game-hour while sleeping (full rest in ~8 game-hours = 2 real hours)
+  //   The player can skip the wait: "Sleep" action fast-forwards the character's sleep
+  //   while the world continues. Player sees a dark screen with time passing indicator.
+  //   They can wake early (partial rest) or be woken by events (damage, loud sounds).
+  //   Fast-forward compresses 8 game-hours into ~30 real seconds of black screen + time display.
+  //   Interrupted sleep: player can be woken by damage, loud sounds, NPC interaction
+  //   Sleeping outdoors: vulnerable to weather, predators, other players
+  //   Sleeping in shelter: protected, faster recovery (+15/game-hour)
 
-  // ── Flowing Water ─────────────────────────────────────────────────────────
-  // Sound of water = turbulence at obstacles
-  // Volume: proportional to flow speed × cross-section area
-  // Pitch: small stream = high (2-4 kHz babble), large river = low (100-400 Hz rumble)
-  // River sound uses the queryNearestRiver() data from RiverSystem.ts:
-  water: {
-    baseFreq: 4000 / (riverWidth + 1),        // narrower = higher pitch
-    turbulenceNoise: brownNoise,               // base waveform
-    volume: flowSpeed * crossSection * 0.01,
-    splashOverlay: flowSpeed > 2.0             // rapids add white noise bursts
-  }
-
-  // ── Wind ──────────────────────────────────────────────────────────────────
-  // Wind sound = air flowing past the listener's ears and nearby objects
-  // Pitch: proportional to wind speed (Aeolian tone: f = 0.2 × v / d, where d = object diameter)
-  // Volume: proportional to v² (kinetic energy of air)
-  // Variation: gusts modulate volume sinusoidally (period 3-8 seconds)
-  wind: {
-    baseFreq: 0.2 * windSpeed / 0.02,         // ear diameter ~2cm → Aeolian frequency
-    volume: windSpeed * windSpeed * 0.001,
-    gustModulation: sin(time * gustFreq) * 0.3 + 0.7,   // 70-100% volume oscillation
-    objectWhistle: nearbyThinObjects.map(obj =>  // fence posts, branches whistle
-      ({ freq: 0.2 * windSpeed / obj.diameter, volume: windSpeed * 0.01 }))
-  }
-
-  // ── Footsteps ─────────────────────────────────────────────────────────────
-  // Generated per step from the walk cycle animation (foot contact event)
-  footstep: {
-    // Terrain material at foot contact point determines timbre class:
-    terrainMaterial: getTerrainMaterialAt(footPosition)
-    // stone/rock → lithic_impact, hard tap
-    // sand → granular_step, soft crunch (pitch varies with grain size)
-    // mud → liquid + granular mix, squelch (moisture content determines wet/dry balance)
-    // grass → organic + granular, soft swish
-    // wood (floor/dock) → organic_impact, hollow knock (pitch from plank thickness)
-    // snow → granular, high-pitched crunch (compacting ice crystals)
-    // metal (grating) → metallic_impact, sharp ring
-
-    // Volume from player mass × step force
-    // Running = 2× walking volume
-    // Sneaking = 0.3× walking volume (also slower step frequency)
-    volume: playerMass * stepForce * terrainLoudness[terrainType]
-  }
+  // ── Health / Hit Points ───────────────────────────────────────────────────
+  health: number                     // 0-100
+  // This is NOT an abstract HP bar. It represents overall body integrity.
+  // Damage comes from: physical injury (§8.4 injury system), disease, poison, starvation
+  // Health regeneration: 0.5 HP/hour when well-fed, hydrated, rested, warm
+  // At 0 health: death (§8.2)
 }
 ```
 
-#### Spatial Audio (3D Positioning)
+#### Food and Nutrition
 
 ```
-SpatialAudio {
-  // All sounds are positioned in 3D using WebAudio's PannerNode
-  panningModel: 'HRTF'                      // Head-Related Transfer Function
-                                              // Simulates how sound arrives at each ear differently
-                                              // based on direction — enables "I hear it to my left"
+FoodSystem {
+  // Food is a MaterialPacket with nutritional properties derived from composition.
+  // There are no "food items" — there are materials that happen to be edible.
 
-  // Distance attenuation: inverse square law with rolloff
-  distanceModel: 'inverse'
-  refDistance: 1.0                            // full volume at 1 meter
-  maxDistance: 200.0                          // silent beyond 200 meters
-  rolloffFactor: 1.0                         // standard inverse-square (realistic)
+  // Edibility is a material property:
+  //   Organic materials (plant matter, meat, fish) → edible
+  //   Minerals, metals, wood → not edible (eating them causes damage or nothing)
 
-  // Sound travels at finite speed (optional, for immersion):
-  // delay = distance / speedOfSound
-  // At 100m: delay = 100/343 = 0.29 seconds
-  // Player sees lightning, then hears thunder 0.3s later per 100m distance
-  // This is subtle but adds enormous realism for distant events (explosions, mining, thunder)
-  propagationDelay: distance / (underwater ? 1500 : 343)   // seconds
+  // Caloric content (kcal per kg) — derived from material composition:
+  //   Raw meat: ~1500 kcal/kg
+  //   Cooked meat: ~2500 kcal/kg (cooking breaks down proteins → more digestible)
+  //   Raw fish: ~1000 kcal/kg
+  //   Berries: ~500 kcal/kg
+  //   Grain: ~3500 kcal/kg (very calorie-dense when processed)
+  //   Nuts: ~6000 kcal/kg (highest calorie density)
+  //   Root vegetables: ~800 kcal/kg
+
+  // Cooking effect:
+  //   Heating food above 70°C for sufficient time:
+  //   - Increases digestibility (caloric content ×1.5-2.0)
+  //   - Kills bacteria (eliminates food poisoning risk)
+  //   - Changes material properties (texture, color, moisture)
+  //   Overcooking (>200°C): burns food → reduces calories, produces carcinogens
+  //   Charred food: ~100 kcal/kg (mostly carbon)
+
+  // Food poisoning:
+  //   Raw meat has a bacterial load that grows over time (see §8.2 infection model)
+  //   Fresh raw meat (just killed): low risk
+  //   Meat left in warm environment for hours: high risk
+  //   Preserved meat (salted, smoked, dried): low risk indefinitely
+  //   Spoilage rate: bacterialGrowth = initialLoad × e^(growthRate × time × temperatureFactor)
+  //     temperatureFactor = 0 below 4°C (refrigeration), 1.0 at 37°C, 0.5 above 60°C
+
+  // Water content in food:
+  //   Fruits: 0.8-0.95 (eating fruit provides hydration)
+  //   Meat: 0.6-0.75
+  //   Grain: 0.10-0.15
+  //   Dried meat: 0.05-0.10 (preserved but provides no hydration)
 }
 ```
 
-#### Performance Budget
-
-The audio system must stay within strict CPU limits:
-
-| Component | Budget | How |
-|-----------|--------|-----|
-| SoundDescriptor computation | <0.1ms per event | Simple arithmetic on material properties — no iteration, no lookup tables |
-| Sample selection | <0.05ms per event | Direct array index from timbre class + energy bucket |
-| WebAudio processing | ~2-3ms total | Handled by browser's audio thread (not main thread). Typically 8-16 concurrent voices max. |
-| Environment estimation | ~0.5ms per frame | Raycast cache for cave/forest/open classification. Recompute only when player moves >5m. |
-| Total audio CPU | <1ms main thread | Most work happens on the browser's audio thread. Main thread only computes SoundDescriptors and sends them to WebAudio. |
-
-**Voice limiting:** Maximum 16 simultaneous sounds. When a new sound would exceed the limit, the quietest (lowest gain after distance attenuation) sound is dropped. Continuous sounds (fire, river, wind) have reserved slots (max 4) and compete separately from transient sounds (impacts, footsteps).
-
-### 3.8.7 NPC Language and Knowledge Transfer
-
-#### The Language System
-
-NPCs do not speak English, Mandarin, or any existing human language. Each settlement develops its own **constructed language** — a system of vocalizations, gestures, and symbols that evolved within that settlement's history.
-
-#### Language Generation (Per Settlement)
-
-Each settlement's language is **deterministically generated from the world seed + settlement ID**, ensuring all players hear the same language from the same NPCs.
+#### Physical Strength and Training
 
 ```
-SettlementLanguage {
-  settlementId: number
-  seed: number                               // worldSeed × settlementId — deterministic
+CharacterFitness {
+  // The character has physical attributes that improve with use — like real muscles.
+  // These are HIDDEN stats (the player never sees numbers).
 
-  // ── Phoneme Inventory ─────────────────────────────────────────────────────
-  // Each settlement selects a subset of human-possible phonemes
-  // Real human languages use 11-141 phonemes (Hawaiian: 13, !Xóõ: 141)
-  // Game settlements use 15-40 phonemes per language
+  strength: number                   // 0.5–1.0 (affects dig rate, carry capacity, melee force)
+  endurance: number                  // 0.5–1.0 (affects max stamina, stamina recovery rate)
+  speed: number                      // 0.5–1.0 (affects walk/run/swim speed)
 
-  consonants: Phoneme[]                      // selected from universal phoneme set
-  vowels: Phoneme[]                          // 3-7 vowels (5 is most common cross-linguistically)
-  tones: number                              // 0 (no tonal), 2, 3, or 4 tone levels
+  // Starting values: all 0.5 (untrained human)
+  // Maximum: 1.0 (peak human fitness — Olympic athlete level)
+  // Training rate: extremely slow, like real life
+  //   Each relevant action adds a tiny amount:
+  //   Mining, carrying heavy loads → strength += 0.0001 per action
+  //   Running, swimming → endurance += 0.0001 per sustained minute
+  //   Sprinting → speed += 0.0001 per sprint burst
+  //   At this rate: reaching 0.7 from 0.5 takes ~2000 actions (~hours of gameplay)
+  //   Reaching 1.0 takes ~5000 actions (~days of gameplay)
 
-  // The phoneme selection is biased by settlement environment:
-  // Coastal settlements: more fricatives (s, sh, f) — mimics wave/wind sounds
-  // Mountain settlements: more stops (k, t, p) — sharp, carries over distance
-  // Forest settlements: more nasals (m, n, ng) — resonates between trees
-  // This is speculative but creates flavor differences players will notice.
+  // Decay: fitness decays if not used
+  //   -0.00005 per game-day for unused attributes (very slow)
+  //   A player who stops running for many game-days slowly loses speed
+  //   Minimum: never drops below 0.5 (baseline human capability)
 
-  // ── Syllable Structure ────────────────────────────────────────────────────
-  // Determines what combinations of phonemes are allowed
-  syllableTemplate: string                   // e.g., '(C)V(C)' — optional consonant, vowel, optional consonant
-  maxSyllablesPerWord: number                // 1-4 (shorter words for more "advanced" settlements)
-
-  // ── Vocabulary ────────────────────────────────────────────────────────────
-  // Words are generated for ~200 core concepts:
-  // - Objects: fire, water, stone, copper, food, shelter, tool
-  // - Actions: give, take, make, break, go, come, look, eat, hit
-  // - Qualities: hot, cold, big, small, good, bad, fast, slow
-  // - Numbers: 1-10 (base system: 5 or 10 depending on settlement)
-  // - Social: yes, no, friend, stranger, danger, help
-
-  vocabulary: Map<ConceptId, Word>           // concept → word mapping
-
-  // Word generation: chain syllables using Markov chain seeded by settlementSeed
-  // This ensures words sound internally consistent (a settlement's words share phonetic patterns)
-  // Different settlements produce noticeably different-sounding languages
-
-  // ── Grammar ───────────────────────────────────────────────────────────────
-  wordOrder: 'SOV' | 'SVO' | 'VSO'          // subject-object-verb order (SOV is most common worldwide)
-  // Grammar is minimal — NPCs communicate mostly through context + action + gesture
-  // Full grammar is not needed because players don't understand the words anyway.
-  // The language exists for ATMOSPHERE, not for information transfer.
+  // Real-world limits: the maximum (1.0) represents what a real human body can achieve
+  //   Max carry: ~60 kg comfortably (short distances more, but stamina drains fast)
+  //   Max sprint speed: ~10 m/s (Usain Bolt: 12.4 m/s — 1.0 speed gets close)
+  //   Max sustained run: ~4 m/s for hours (marathon pace)
+  //   Max breath hold: ~90 seconds (trained ~120s)
+  //   These caps are hard limits — no training exceeds peak human performance
 }
 ```
 
-#### What Players Actually Hear
 
-When an NPC speaks, the player hears procedurally generated speech:
-
-```
-NPCSpeech {
-  // 1. NPC's intent (server-side): the NPC wants to communicate something
-  intent: 'greeting' | 'warning' | 'offer_trade' | 'request_help' | 'show_process' | 'farewell'
-
-  // 2. Word selection: intent maps to concept sequence
-  //    'greeting' → [social:friend, action:come, quality:good]
-  //    'warning' → [social:danger, action:go, quality:bad]
-  //    'offer_trade' → [object:copper, action:give, object:food, action:take]
-
-  // 3. Vocalization: words are synthesized or selected from phoneme-based audio
-  //    Option A (cheaper): pre-record ~40 syllable sounds, concatenate per the settlement's phoneme rules
-  //    Option B (richer): use Web Speech API with custom phoneme mapping, pitch-shifted per NPC voice
-  //    The result sounds like speech in an unfamiliar language — recognizable as language, not understandable
-
-  // 4. Gesture overlay: the NPC simultaneously performs a gesture
-  //    'greeting': raises open hand
-  //    'warning': points away + shakes head
-  //    'offer_trade': extends one hand with item, other hand open (receiving)
-  //    'show_process': turns toward workstation and begins working
-  //    Gestures are the REAL communication channel. The spoken words are atmosphere.
-}
-```
-
-#### Knowledge Transfer Through Demonstration
-
-This is the core system. NPCs do not tell players what to do. They **do things**, and the player watches.
-
-```
-DemonstrationSystem {
-  // Each NPC in a settlement runs their goal loop (§3.8.1):
-  // idle → gather → carry → process → deliver → idle
-
-  // During the 'process' step, the NPC performs a visible crafting action:
-
-  ProcessDemonstration {
-    npcId: string
-    workstationId: string
-    inputMaterials: MaterialPacket[]         // what the NPC puts into the workstation
-    action: string                           // 'smelt' | 'grind' | 'shape' | 'fire' | 'weave'
-    outputMaterial: MaterialPacket           // what comes out
-    duration: number                         // seconds the process takes (visible to the watching player)
-
-    // ── What the player sees ──────────────────────────────────────────────
-    // 1. NPC walks to a pile of raw material (e.g., copper ore)
-    // 2. NPC picks up ore (visible in NPC's hands)
-    // 3. NPC walks to the bloomery
-    // 4. NPC places ore into the bloomery opening (hand animation → item disappears into furnace)
-    // 5. NPC adds charcoal (same sequence — NPC fetches charcoal, places it)
-    // 6. NPC operates bellows (arm pumping animation, fire brightens, temperature rises)
-    // 7. Time passes (NPC stands watching, occasionally pumping bellows)
-    // 8. NPC reaches into bloomery and pulls out a copper blob (new item appears in hand)
-    // 9. NPC carries copper to storage area
-
-    // EVERY STEP IS VISIBLE AND PHYSICAL.
-    // The player sees the inputs, the machine, the process, and the output.
-    // They can infer what happened: "that rock went into the furnace with black stuff,
-    // and something shiny came out."
-  }
-
-  // ── What the player does NOT get ────────────────────────────────────────
-  // - No tooltip: "The NPC is smelting copper ore using a bloomery with charcoal as fuel"
-  // - No recipe unlock: "You learned: Copper Smelting!"
-  // - No dialogue option: "[Ask about smelting]"
-  // - No journal entry: "I watched an NPC smelt copper. I should try this."
-
-  // The player must:
-  // 1. Notice what the NPC is doing (attention)
-  // 2. Figure out what materials they used (observation)
-  // 3. Find those materials themselves (exploration)
-  // 4. Try the same process at a workstation (experimentation)
-  // 5. Fail a few times and adjust (learning)
-  // 6. Succeed (discovery — recorded in their discoveries set)
-
-  // This mirrors exactly how ancient humans learned technology from each other:
-  // A traveler visits a foreign village, watches their metalworkers,
-  // goes home, and tries to replicate what they saw.
-
-  // ── Companion System (Future) ───────────────────────────────────────────
-  // A companion NPC that follows the player can provide HINTS, not answers:
-  // - If the player fails to start a fire: companion gestures toward dry wood (not wet wood)
-  // - If the player uses wrong ore in a bloomery: companion shakes head, picks up correct ore, shows it
-  // - The companion learned from their OWN settlement — they only know what their settlement knows
-  // - A companion from a copper settlement can't help with iron smelting
-  // - This creates value in traveling to different settlements: new companions = new knowledge
-}
-```
-
-#### Cultural Divergence
-
-Different settlements know different things, creating a reason to explore:
-
-```
-SettlementKnowledge {
-  // Each settlement has a knowledge set — the processes it has "discovered"
-  // This is determined by settlement specialty + age + trade connections
-
-  // A young copper mining settlement knows:
-  knownProcesses: [
-    'fire_starting',          // everyone knows this
-    'clay_pottery',           // basic ceramics
-    'copper_smelting',        // their specialty
-    'copper_tool_making',     // hammering copper into tools
-  ]
-
-  // An old coastal fishing settlement knows:
-  knownProcesses: [
-    'fire_starting',
-    'salt_extraction',        // evaporating seawater
-    'fish_preservation',      // salt + fish = preserved food
-    'rope_making',            // plant fiber twisting
-    'net_weaving',            // rope into nets
-    'boat_building',          // wood + rope + tar
-  ]
-
-  // A settlement that trades with both might know elements of each.
-  // Knowledge spreads between settlements via trade routes (server simulation):
-  // When two settlements trade, there's a small chance per tick that
-  // the receiving settlement "learns" one of the sender's processes.
-  // knowledgeSpreadRate = tradeVolume × 0.001 per server tick
-
-  // This means the game world's total knowledge grows over time,
-  // even without player intervention. Players arriving in a mature world
-  // find settlements that know more processes. Players in a fresh world
-  // find primitive settlements and must discover more on their own.
-}
-```
-
-#### Why This Works
-
-The knowledge transfer system works because of the synergy between three other systems:
-
-1. **Physics-based crafting (§3.3)** — there are no recipes to "teach." The knowledge IS the physical process. Seeing it done IS learning it.
-2. **Emergent materials (§3.3.3)** — the output isn't a named item. It's whatever physics produces. The NPC doesn't make "copper" — they make "the orange metal that comes from heating green rock." The player figures out the name (or doesn't — names don't matter, properties do).
-3. **Workstation system (§3.8.1)** — the machine is a physical place. The NPC goes there. The player goes there. They're in the same space doing the same thing. No abstract menu bridges them.
-
-The language barrier is intentional. It forces players to rely on **observation** rather than **instruction**. This is harder, slower, and more frustrating than a tutorial — and that's the point. The satisfaction of figuring out copper smelting by watching an NPC is incomparably greater than reading "combine copper ore + charcoal in bloomery."
-
-### 3.8.8 Client-Server Physics Authority — Who Runs What
-
-#### The Principle
-
-This is a real-world online simulation. The server is the world. The client is a window into that world — eyes and ears only. If the server doesn't know about it, it didn't happen. This prevents cheating and ensures all players experience the same reality.
-
-#### Authority Model
-
-```
-┌──────────────────────────────────────────────────────────────────────────────┐
-│                         SERVER (Node.js)                             │
-│                                                                              │
-│  AUTHORITATIVE (server computes, broadcasts results):                        │
-│  ├── All physics simulations                                                 │
-│  │   ├── SPH fluid particles (melting, pouring, lava, water flow)           │
-│  │   ├── Material packet reactions (Gibbs free energy, stoichiometry)        │
-│  │   ├── Temperature propagation (heat transfer between objects)             │
-│  │   ├── Rigid body physics (dropped items, thrown objects, digging debris)  │
-│  │   └── Terrain collision and modification                                  │
-│  ├── All entity state                                                        │
-│  │   ├── Player positions (server validates movement)                        │
-│  │   ├── Player stats (health, hunger, thirst, energy, stamina, temperature)│
-│  │   ├── Player inventory (server controls all add/remove)                   │
-│  │   ├── NPC state machines (goal loops, positions, carried items)           │
-│  │   ├── Organism simulation (births, deaths, movement, feeding)            │
-│  │   └── Dropped item positions and despawn timers                           │
-│  ├── Weather and atmosphere (§3.6)                                           │
-│  ├── Settlement economy (trade, population, resource stockpiles)             │
-│  ├── Crafting validation (interaction engine runs server-side)               │
-│  └── Death, loot drops, respawn timing                                       │
-│                                                                              │
-│  BROADCAST TO CLIENTS:                                                       │
-│  ├── WORLD_SNAPSHOT (6 Hz): player positions, NPC positions, organism       │
-│  │   positions, weather state, settlement state                              │
-│  ├── PHYSICS_EVENT (as needed): SPH particle spawns/updates, material        │
-│  │   reactions, temperature changes, terrain modifications                   │
-│  ├── SOUND_EVENT (as needed): physics event descriptors for audio            │
-│  │   { type, materialA, materialB, energy, position, contactNormal }        │
-│  └── ENTITY_UPDATE (as needed): inventory changes, stat changes, deaths     │
-│                                                                              │
-└──────────────────────────────────────────────────────────────────────────────┘
-
-┌──────────────────────────────────────────────────────────────────────────────┐
-│                         CLIENT (Browser, Three.js)                           │
-│                                                                              │
-│  RECEIVES AND RENDERS (never computes authoritative state):                  │
-│  ├── Visual rendering                                                        │
-│  │   ├── Terrain mesh from server-sent CHUNK_DATA (no local generation)      │
-│  │   ├── Player/NPC body meshes at server-provided positions                 │
-│  │   ├── SPH particle rendering (metaballs) from server particle positions   │
-│  │   ├── Weather visuals (rain particles, snow, fog, clouds, lightning)      │
-│  │   ├── Lighting (sun position from season/time, torches, campfires)        │
-│  │   ├── Ocean shader (Gerstner waves — visual only, no physics)            │
-│  │   └── UI panels (inventory, workstation, map)                             │
-│  ├── Sound generation (§3.8.6)                                               │
-│  │   ├── Receives SOUND_EVENT from server                                    │
-│  │   ├── Computes audio parameters locally (pitch, volume, timbre)           │
-│  │   ├── Spatial audio positioning from server-provided source position      │
-│  │   └── Environment filtering (cave/forest/underwater) from local geometry  │
-│  ├── Input capture                                                           │
-│  │   ├── WASD + mouse → sends MOVE_INPUT to server                          │
-│  │   ├── Click/interact → sends ACTION_REQUEST to server                     │
-│  │   ├── Tool swing → sends TOOL_USE { target, position } to server         │
-│  │   └── Drop/pour/place → sends corresponding request to server            │
-│  └── Client-side prediction (for responsiveness)                             │
-│      ├── Player movement is predicted locally, corrected by server          │
-│      ├── Tool swing animation plays immediately, result comes from server   │
-│      └── Camera and first-person arms are client-only (no server involved)  │
-│                                                                              │
-└──────────────────────────────────────────────────────────────────────────────┘
-```
-
-#### Why Server-Authoritative Physics
-
-- **Anti-cheat:** If the client computed reactions, a modified client could claim "I smelted gold from dirt." The server runs the reaction engine — the client only sees the result.
-- **Consistency:** Two players watching the same smelting see the same outcome because the server computed it once.
-- **Sound from physics:** Sound events are a byproduct of server physics. When an impact happens server-side, the server emits a `SOUND_EVENT` with the physics descriptor. The client's audio engine (§3.8.6) converts that into actual audio. The client hears what the server says happened — not what the client thinks happened.
-
-#### Latency Mitigation
-
-Server-authoritative physics adds latency. A player swings a pickaxe → request goes to server → server computes → result comes back. At 50ms round-trip, this is barely noticeable. At 200ms, it feels sluggish. Mitigations:
-
-```
-Client-Side Prediction {
-  // Movement: client immediately moves the player mesh, server corrects if wrong
-  // If server position diverges > 0.5m from client prediction → snap correction
-
-  // Tool animations: client plays the swing animation immediately
-  // The physical result (rock fragment, sparks, sound) waits for server confirmation
-  // Typical delay: 30-80ms — fast enough that animation covers the gap
-
-  // Crafting: client shows "processing..." immediately when player starts a craft
-  // Server validates and returns result. If invalid, client shows failure feedback.
-
-  // Pouring liquid: client shows a visual pour stream immediately
-  // Actual SPH particles are spawned by server and streamed to client
-  // Visual stream hides the 50ms gap before real particles appear
-}
-```
-
-#### Bandwidth Budget
-
-```
-Per player, per second (steady state — not moving to new chunks):
-  WORLD_SNAPSHOT (6 Hz):    ~2 KB × 6 = 12 KB/s     (positions, compressed)
-  PHYSICS_EVENT (variable): ~0.5 KB average           (only during active physics)
-  SOUND_EVENT (variable):   ~0.1 KB average           (compact descriptors)
-  ENTITY_UPDATE (variable): ~0.2 KB average           (stat changes, inventory)
-  Player input (upstream):  ~0.5 KB/s                 (movement + actions)
-
-  Total per player (steady): ~13 KB/s downstream, ~0.5 KB/s upstream
-  50 concurrent players: ~650 KB/s total server bandwidth
-
-Per player, burst (entering new area):
-  CHUNK_DATA (9 chunks):    ~90 KB burst              (one-time, cached after)
-  This is a brief spike when the player moves into unexplored terrain.
-  Chunks are cached on the client — subsequent visits to the same area cost nothing.
-
-Per player, terrain modification:
-  CHUNK_UPDATE:             ~10 KB per modified chunk  (rare — only when digging/building)
-
-Per player, video stream mode (when active):
-  H.264 hardware encoder (720p):      ~750 KB/s (~6 Mbit/s)    (replaces all other visual data)
-  JPEG fallback:            ~2-3 MB/s                 (if MSE not supported)
-  Sound data still sent separately as SOUND_EVENTs
-```
-
-#### Hybrid Rendering — Local 3D + Server Video Stream
-
-##### The Problem
-
-The client needs to show the world. Two extremes exist:
-
-1. **Send state data, client renders 3D** — cheap bandwidth (~13 KB/s), but the client must reconstruct complex physics visuals (SPH particles, fire, debris, deforming materials) from abstract position data. This is hard. Thousands of SPH particles flowing in a crucible can't be faithfully rendered from just position arrays — the client would need the full physics context (material properties, surface tension, light interaction with molten metal) to make it look right. The result would either look wrong or require the client to run its own physics (which defeats server authority).
-
-2. **Server renders everything, streams video** — pixel-perfect visuals, but costs ~750 KB/s per player and requires a GPU server. Works for complex scenes but wasteful for a player standing in a field looking at terrain.
-
-Neither extreme is ideal. The hybrid approach uses each where it's strongest.
-
-##### Two Rendering Modes
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                                                                             │
-│  MODE 1: State + Shader Rendering (default, ~90% of play time)             │
-│                                                                             │
-│  Used when: exploring, walking, standing on a beach, watching weather,     │
-│             looking at a campfire, rain falling, rivers flowing, ocean      │
-│             waves, wind blowing through trees — the full living world      │
-│                                                                             │
-│  Server sends: WORLD_SNAPSHOT + CHUNK_DATA + ENTITY_UPDATE                 │
-│                + ENVIRONMENT_STATE (wind, rain, fire positions, flow       │
-│                  vectors, temperature field)                                │
-│  Client does:  Full 3D rendering with GPU shaders that make the world     │
-│                look REAL:                                                   │
-│                                                                             │
-│    TERRAIN:     Meshes with PBR materials, normal maps                     │
-│    OCEAN:       Gerstner wave shader — realistic waves responding to wind  │
-│                 Foam, Fresnel reflections, depth transparency, shore wash  │
-│    RIVERS:      Flow shader driven by server flow vectors, foam at rocks   │
-│    RAIN:        GPU particle system — 10,000+ raindrops, splash on contact│
-│    SNOW:        Particle system, accumulation shader on terrain            │
-│    FIRE:        Billboard particles, emissive glow, point light, smoke    │
-│    WIND:        Vertex displacement on grass and trees from server wind    │
-│    FOG:         Exponential distance fog from server weather               │
-│    CLOUDS:      Scrolling noise layers, density from server                │
-│    CHARACTERS:  Animated skeletal meshes at server positions               │
-│    LIGHTING:    Sun, dynamic shadows, point lights from fires/torches     │
-│    DAY/NIGHT:   Atmospheric scattering sky shader, stars at night         │
-│                                                                             │
-│  The world looks FULLY REAL in Mode 1. A player on a beach sees waves     │
-│  crashing, foam washing up, rain falling, wind bending grass, firelight   │
-│  flickering. This is the normal, full-quality game experience.             │
-│                                                                             │
-│  What the client CANNOT do in Mode 1 (only interactive physics):           │
-│    - SPH fluid the player is actively pouring or mixing                    │
-│    - Molten metal flowing into a mold (shape depends on simulation)        │
-│    - Material deforming under hammer blows (precision craft)               │
-│    - Clay being shaped on a wheel (player-driven deformation)              │
-│                                                                             │
-│  Bandwidth: ~15 KB/s steady + ~90 KB burst for new chunks                  │
-│  Client needs: GPU (any modern integrated GPU handles these shaders)       │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
-
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                                                                             │
-│  MODE 2: Video Stream (only for interactive physics, ~10% of play time)    │
-│                                                                             │
-│  Used ONLY when the player is directly interacting with physics:            │
-│    - Precision crafting: shaping clay, knapping flint, forging metal       │
-│    - Pouring liquid from one container to another                           │
-│    - Smelting: watching ore melt and metal separate from slag               │
-│    - Active lava flow deforming terrain in front of the player              │
-│                                                                             │
-│  NOT used for: ocean waves, campfire, rain, walking through forest —       │
-│                all of these look great in Mode 1 with GPU shaders.          │
-│                                                                             │
-│  Server does: renders the scene on its GPU                                 │
-│               encodes H.264 via hardware encoder                            │
-│               streams frames over WebSocket                                 │
-│  Client does: decodes video and displays it                                │
-│               still captures and forwards player input                      │
-│               still plays sound from SOUND_EVENTs                           │
-│                                                                             │
-│  Bandwidth: ~750 KB/s (H.264) or ~2-3 MB/s (JPEG fallback)               │
-│  Server needs: GPU with hardware encoder                                   │
-│  Client needs: just a browser (no GPU required)                            │
-│                                                                             │
-│  Why video is needed here: the player is CREATING the visual result.       │
-│  When you pour copper into a mold, the shape depends on SPH simulation.    │
-│  A shader can't fake that — it must be computed and shown.                  │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-##### When and How the Switch Happens
-
-The switch between modes is triggered by **the player's actions**, not by scene complexity analysis. This makes it predictable and clean.
-
-```
-Mode Switch Triggers {
-  // ── State → Video (player enters a physics-heavy context) ─────────────────
-
-  trigger_1: "Player presses F at a workstation"
-    // Camera zooms into the workstation (§3.8.14 precision craft mode)
-    // During the zoom animation (0.5s), the server:
-    //   1. Starts rendering this player's view on the GPU
-    //   2. Begins encoding H.264 frames
-    //   3. Sends MODE_SWITCH { mode: 'video' } to client
-    // Client:
-    //   1. Receives MODE_SWITCH
-    //   2. Creates/shows <video> element (or JPEG canvas)
-    //   3. Fades out the 3D canvas, fades in the video
-    //   4. The zoom blur hides any visual discontinuity during the transition
-    //   5. From this point, client displays video frames from server
-    //   6. Client still sends input (mouse position for precision craft, keyboard)
-
-  trigger_2: "Active SPH particles > 200 within 10m of player"
-    // A lava flow reaches the player, or someone pours a large amount of liquid nearby
-    // Server detects the threshold and initiates video mode
-    // Transition: 0.3s crossfade from 3D to video
-
-  trigger_3: "Player enters precision craft mode manually"
-    // Player holds an item and presses the precision key
-    // Same as trigger_1 — zoom in, switch to video
-
-  // ── Video → State (physics event ends) ────────────────────────────────────
-
-  trigger_4: "Player exits workstation (ESC or walks away)"
-    // Camera zooms out
-    // During zoom out (0.5s), server:
-    //   1. Sends final state update (what changed: new items, terrain mods)
-    //   2. Sends MODE_SWITCH { mode: 'state' }
-    //   3. Stops encoding video for this player
-    // Client:
-    //   1. Receives MODE_SWITCH
-    //   2. Fades out video, fades in 3D canvas
-    //   3. 3D scene is already up-to-date from state data received during video mode
-    //      (WORLD_SNAPSHOT continues during video mode — client updates 3D scene in background)
-
-  trigger_5: "Active SPH particles drop below 50 near player"
-    // The liquid solidified, the lava cooled, the pour is done
-    // Server sends final state, switches back to state mode
-    // 0.3s crossfade back to 3D
-}
-```
-
-##### Implementation — How It Actually Works
-
-The hybrid system works as follows:
-
-```
-Server Side (Node.js + server-side renderer + hardware encoder):
-
-  // The server already has:
-  //   - server-side renderer creating a WebGL context
-  //   - Three.js rendering scenes
-  //   - video encoder hardware_h264 encoding frames at ~3-8ms per frame
-  //   - WebSocket transport for binary frame data
-  //   - Per-player camera management
-
-  // What's new for hybrid mode:
-  //   - The server does NOT render video for all players all the time
-  //   - Video rendering is ON-DEMAND, per player, only during physics moments
-  //   - Each player has a videoMode: boolean flag
-
-  class PlayerSession {
-    videoMode: boolean = false           // starts in state mode
-    camera: THREE.PerspectiveCamera      // player's view (always maintained)
-    ffmpegProcess: ChildProcess | null   // spawned only when videoMode = true
-
-    enterVideoMode() {
-      this.videoMode = true
-      // Spawn video encoder hardware encoder encoder for this player
-      this.ffmpegProcess = spawn('ffmpeg', [
-        '-f', 'rawvideo', '-pix_fmt', 'rgba',
-        '-s', '1280x720', '-r', '30',       // 720p at 30fps
-        '-i', 'pipe:0',                       // raw frames from stdin
-        '-c:v', 'hardware_h264',                 // NVIDIA hardware encoder
-        '-preset', 'p4',                      // balanced quality/speed
-        '-tune', 'ull',                       // ultra-low-latency
-        '-b:v', '4M',                         // 4 Mbit/s bitrate
-        '-f', 'mp4',
-        '-movflags', 'frag_keyframe+empty_moov',
-        'pipe:1'                              // fragmented MP4 to stdout
-      ])
-      // video encoder stdout → WebSocket binary frames to client
-      this.ffmpegProcess.stdout.on('data', chunk => {
-        this.ws.send(chunk)                   // binary frame to browser
-      })
-      // Send mode switch message
-      this.ws.send(JSON.stringify({ t: 'mode', mode: 'video' }))
-    }
-
-    exitVideoMode() {
-      this.videoMode = false
-      if (this.ffmpegProcess) {
-        this.ffmpegProcess.stdin.end()        // graceful shutdown
-        this.ffmpegProcess = null
-      }
-      this.ws.send(JSON.stringify({ t: 'mode', mode: 'state' }))
-    }
-  }
-
-  // Render loop (runs at 30 Hz for video-mode players only):
-  function renderVideoFrames() {
-    for (const session of activeSessions) {
-      if (!session.videoMode) continue        // skip state-mode players — no rendering needed
-
-      // Position camera at player's view
-      renderer.render(scene, session.camera)
-
-      // Read pixels from GPU
-      const pixels = new Uint8Array(1280 * 720 * 4)
-      gl.readPixels(0, 0, 1280, 720, gl.RGBA, gl.UNSIGNED_BYTE, pixels)
-
-      // Feed to this player's video encoder process
-      session.ffmpegProcess.stdin.write(Buffer.from(pixels))
-    }
-  }
-
-  // Server cost: rendering ONLY happens for players in video mode
-  // If 50 players are online but only 3 are at workstations, only 3 get rendered
-  // dedicated GPU can handle ~8-10 simultaneous 720p renders at 30fps
-```
-
-```
-Client Side (Browser):
-
-  class GameClient {
-    mode: 'state' | 'video' = 'state'
-    threeCanvas: HTMLCanvasElement           // 3D rendering (always exists)
-    videoElement: HTMLVideoElement           // MSE video playback
-    mediaSource: MediaSource                 // for H.264 decoding
-    sourceBuffer: SourceBuffer | null
-
-    // 3D scene is ALWAYS maintained, even during video mode
-    // This means switching back to state mode is instant — no loading
-    threeScene: THREE.Scene
-    threeRenderer: THREE.WebGLRenderer
-
-    onMessage(data) {
-      if (typeof data === 'string') {
-        const msg = JSON.parse(data)
-
-        if (msg.t === 'mode') {
-          this.switchMode(msg.mode)
-          return
-        }
-
-        // State data — always processed, even during video mode
-        if (msg.t === 'snapshot') this.updateSceneFromSnapshot(msg)
-        if (msg.t === 'chunk')    this.loadChunkData(msg)
-        if (msg.t === 'sound')    this.playSound(msg)
-        if (msg.t === 'entity')   this.updateEntity(msg)
-      } else {
-        // Binary data = video frame (only arrives during video mode)
-        if (this.sourceBuffer && !this.sourceBuffer.updating) {
-          this.sourceBuffer.appendBuffer(data)
-        }
-      }
-    }
-
-    switchMode(newMode: 'state' | 'video') {
-      if (newMode === this.mode) return
-
-      if (newMode === 'video') {
-        // Crossfade: 3D canvas fades out, video fades in
-        this.threeCanvas.style.transition = 'opacity 0.4s'
-        this.threeCanvas.style.opacity = '0'
-        this.videoElement.style.transition = 'opacity 0.4s'
-        this.videoElement.style.opacity = '1'
-        this.videoElement.style.display = 'block'
-        // Start MSE pipeline
-        this.initMSE()
-      } else {
-        // Crossfade: video fades out, 3D canvas fades in
-        this.videoElement.style.opacity = '0'
-        this.threeCanvas.style.opacity = '1'
-        // 3D scene is already up-to-date (state data kept flowing during video mode)
-        setTimeout(() => {
-          this.videoElement.style.display = 'none'
-          this.cleanupMSE()
-        }, 400)
-      }
-
-      this.mode = newMode
-    }
-
-    // Input is ALWAYS captured and sent to server, regardless of mode
-    // In state mode: server uses input to update player position
-    // In video mode: server uses input for precision craft (mouse on work surface)
-  }
-```
-
-##### Why This Works
-
-| Concern | Answer |
-|---------|--------|
-| "How does the client show SPH particles?" | It doesn't. When physics is active, the server renders it and streams video. The client sees pixel-perfect fluid. |
-| "Doesn't video streaming need an expensive GPU server?" | Only for the ~10% of time when players are at workstations or near active physics. The dedicated GPU you already have handles ~8-10 concurrent video streams. |
-| "What about latency in video mode?" | hardware encoder encoding: ~3-8ms. Network: ~20-50ms. MSE decode: ~5ms. Total: ~30-60ms. For precision crafting (slow, deliberate actions), this is imperceptible. |
-| "What if 50 players all use workstations at once?" | The server queues rendering. At 30fps each, 10 players max at 720p on a single GPU. Beyond that: lower resolution, lower framerate, or add a second GPU. In practice, most players are walking around (state mode = zero GPU cost). |
-| "What does the transition look like?" | Player presses F at bloomery → camera zooms in → 0.4s blur/fade → video appears. The zoom motion and blur hide the switch. Looks intentional, not glitchy. |
-| "Can the 3D scene get out of sync during video mode?" | No — state data (WORLD_SNAPSHOT, CHUNK_UPDATE, ENTITY_UPDATE) continues flowing during video mode. The 3D scene updates silently in the background. When switching back, it's already current. |
-| "What if the player has no GPU at all?" | They can stay in video mode permanently — the server renders everything. This is the full cloud gaming fallback. Bandwidth cost: ~750 KB/s constant. Playable on a Chromebook. |
-
-##### Server Hardware Requirements
-
-```
-For state mode only (no video):
-  Node.js server (no GPU needed)
-  Handles 50+ players at ~650 KB/s total
-
-For hybrid mode (state + video):
-  GPU server with NVIDIA card + hardware encoder
-  Requires dedicated GPU server
-  Capacity per GPU:
-    720p @ 30fps: ~8-10 concurrent video streams
-    480p @ 30fps: ~15-20 concurrent video streams
-    720p @ 15fps: ~15-20 concurrent video streams (lower framerate for less intense moments)
-
-  Scaling:
-    50 players, 5 at workstations → 5 video streams → 1 GPU handles it easily
-    50 players, 15 at workstations → need 2 GPUs or lower resolution
-    100 players → additional dedicated GPU server
-```
-
-### 3.8.9 Inventory System — Clothing Determines Capacity
+### 7.3 Inventory — Clothing Determines Capacity
 
 #### The Principle
 
@@ -6546,7 +6507,7 @@ ItemSlot {
   maxWeight: number                    // kg — determined by clothing's slotCapacity
   // Pocket slots: maxWeight = 0.5 kg (small items only)
   // Backpack slots: maxWeight = 5.0 kg per slot
-  // Hand slots: maxWeight = player's carry strength (see §3.8.11 character body)
+  // Hand slots: maxWeight = player's carry strength (see §8.11 character body)
   // Belt slots: maxWeight = 2.0 kg (tool weight)
 }
 ```
@@ -6563,7 +6524,7 @@ The first priority for a new player is making better clothing and a carrying con
 
 #### Material Packets in Inventory
 
-Every item in inventory IS a MaterialPacket (§3.3.3). It has composition, mass, temperature, and phase.
+Every item in inventory IS a MaterialPacket (§3.3). It has composition, mass, temperature, and phase.
 
 ```
 Inventory rules for MaterialPackets:
@@ -6609,7 +6570,7 @@ LiquidInInventory {
   // - Jumping: spills if > 50% full
   // - Inverting (looking down): spills everything
 
-  // Container contents are ephemeral (see §3.8.3):
+  // Container contents are ephemeral (see §8.3):
   // On server restart, containers are empty. The container itself persists.
 }
 ```
@@ -6670,7 +6631,8 @@ InventoryUI {
 }
 ```
 
-### 3.8.10 Terrain Interaction — Digging, Building, and Physical Modification
+
+### 7.4 Terrain Interaction — Digging & Building
 
 #### The Principle
 
@@ -6694,7 +6656,7 @@ DigSystem {
   //     iron pickaxe on rock: 0.4
   //     iron shovel on dirt: 1.0
   //
-  //   playerStrength: 0.5–1.0 based on character fitness (see §3.8.11)
+  //   playerStrength: 0.5–1.0 based on character fitness (see §8.11)
   //     newPlayer: 0.5, trained player: 0.8, maximum human: 1.0
   //
   //   swingEnergy: kinetic energy of the tool swing (joules)
@@ -6804,428 +6766,365 @@ BuildSystem {
 }
 ```
 
-### 3.8.11 Human Body Simulation — Survival Stats and Physical Limits
+
+### 7.5 Combat — Physics-Based Damage
 
 #### The Principle
 
-The player character is a human body. It needs food, water, sleep, and air. It gets tired, cold, hot, injured, and sick. Every stat is modeled after real human physiology with real numbers. The game does not use abstract "hunger points" — it uses caloric deficit, glycogen reserves, and basal metabolic rate.
+Combat is not a separate system. It is what happens when a moving object contacts a body. A pickaxe swing that hits a wolf deals damage because of kinetic energy, not because there's a "weapon damage" stat. The same pickaxe hitting terrain digs rock. The same pickaxe hitting a player deals the same physics-based damage. There are no "weapons" — there are tools that happen to be dangerous when swung at a living thing.
 
-#### The Five Stats (Internal Model)
+#### Damage Calculation
 
 ```
-HumanBodyState {
-  // ── Energy (Calories) ─────────────────────────────────────────────────────
-  // The human body burns calories continuously. This is the master resource.
-  calories: number                   // current caloric reserve (kcal)
-  // Well-fed human: ~2000 kcal reserve (glycogen in liver + muscles)
-  // Starvation threshold: 0 kcal → body begins consuming muscle/fat
-  // Lethal: sustained 0 kcal for 4 game-days (~24 real hours — compressed from real 3-4 day limit)
+PhysicsDamage {
+  // Any rigid body collision with a character (player or NPC or animal) computes damage:
 
-  basalMetabolicRate: number         // kcal/hour at rest
-  // Average human: ~75 kcal/hour (1800 kcal/day)
-  // Affected by: body mass, ambient temperature, fitness level
+  // Kinetic energy of impact:
+  // KE = ½ × m × v²
+  // where m = mass of the striking object (kg), v = velocity at contact (m/s)
 
-  // Calorie drain rates by activity:
-  //   Sleeping:     0.8 × BMR
-  //   Standing:     1.0 × BMR
-  //   Walking:      1.5 × BMR
-  //   Running:      3.0 × BMR
-  //   Mining:       4.0 × BMR
-  //   Swimming:     5.0 × BMR
-  //   Fighting:     4.5 × BMR
-  //   Crafting:     1.2 × BMR
-  //   In cold (<10°C): BMR × (1 + (10 - T_ambient) × 0.03)  // shivering burns calories
+  // Damage to the hit region:
+  // baseDamage = KE / damageThreshold
+  // damageThreshold = how much energy the body region can absorb before injury
+  //   Head: 15 J (very vulnerable — a 1kg rock at 5.5 m/s is lethal)
+  //   Torso: 50 J (ribcage protects organs)
+  //   Arms: 30 J
+  //   Legs: 40 J
 
-  // ── Hydration (Water) ─────────────────────────────────────────────────────
-  hydration: number                  // liters of body water
-  // Normal: ~2.5 liters (above minimum)
-  // Dehydration begins: < 1.5 liters
-  // Lethal: < 0.5 liters (sustained for 2-3 game-days — ~12-18 real hours)
+  // Armor/clothing reduces damage:
+  // effectiveDamage = baseDamage × (1 - armorAbsorption)
+  //   Bare skin: absorption = 0.0
+  //   Cloth: absorption = 0.05 (almost nothing)
+  //   Leather: absorption = 0.2
+  //   Hardened leather: absorption = 0.35
+  //   Copper armor: absorption = 0.5
+  //   Iron armor: absorption = 0.7
+  //   Steel armor: absorption = 0.85
 
-  waterLossRate: number              // liters/hour
-  // Base: 0.1 L/hour (breathing, sweating at rest)
-  // Hot weather (>30°C): 0.3 L/hour (heavy sweating)
-  // Running: 0.4 L/hour
-  // Running in heat: 0.8 L/hour (can be lethal in <3 hours without water)
+  // Hit region determined by collision point:
+  // Raycast from tool/projectile → character mesh → which body region (§8.4 injury system)
+  // Head hits deal more damage (lower threshold) AND have additional effects (daze, vision blur)
 
-  // Restoration:
-  // Drinking water: +volume consumed (up to 0.5L per drink action)
-  // Eating juicy fruit: +0.1-0.3L per fruit (watermelon, berries, etc.)
-  // Rain: can collect in containers, or drink from streams/rivers
+  // Tool sharpness matters:
+  //   A sharp flint edge concentrates force into a small area → higher pressure → more tissue damage
+  //   sharpnessFactor = 1.0 + (toolSharpness × 0.5)  // dull tool: ×1.0, razor sharp: ×1.5
+  //   Sharpness degrades with use (blade dulls after N impacts)
 
-  // ── Stamina ───────────────────────────────────────────────────────────────
-  stamina: number                    // 0-100 (percentage of maximum)
-  maxStamina: number                 // depends on fitness level (see training below)
-  // Stamina = short-burst energy (anaerobic capacity)
-  // Real-world analogy: how long you can sprint before gasping
-
-  // Drain rates:
-  //   Running: -10/second (can sprint ~10 seconds when full)
-  //   Jumping: -15 per jump
-  //   Mining (each swing): -5 per swing
-  //   Swimming (each stroke): -3 per stroke
-  //   Climbing: -8/second
-  //   Holding heavy object: -2/second
-
-  // Recovery:
-  //   Standing still: +5/second
-  //   Walking: +2/second (slow recovery while moving)
-  //   Sitting/resting: +8/second
-  //   At 0 stamina: player cannot run, jump, or swing tools until stamina > 20
-  //   Recovery blocked if: calories = 0 OR hydration < 1.0 OR bodyTemperature < 30°C
-
-  // ── Body Temperature ──────────────────────────────────────────────────────
-  bodyTemperature: number            // °C (normal: 37°C)
-  // Regulated by the body + clothing + environment
-
-  // Heat gain:
-  //   Metabolism: proportional to activity level (running generates heat)
-  //   External heat: fire, hot environment, hot objects
-  //   Clothing insulation: traps body heat
-
-  // Heat loss:
-  //   Convection: wind carries heat away (wind chill from §3.6)
-  //   Radiation: body radiates heat to cold surroundings
-  //   Evaporation: sweating (only works if humidity < 0.9)
-  //   Conduction: touching cold surfaces (standing in snow, swimming in cold water)
-
-  // dT_body/dt = (heatGeneration - heatLoss) / bodyThermalMass
-  // bodyThermalMass ≈ 3.5 kJ/(kg·°C) × bodyMass
-  // Clothing adds insulation: reduces heatLoss by warmth factor
-
-  // Danger zones:
-  //   > 40°C: heat exhaustion (vision blur, stamina drain ×3)
-  //   > 42°C: lethal (heat stroke, organ failure — see §3.8.2)
-  //   < 35°C: hypothermia (shivering, stamina drain ×2, movement slow)
-  //   < 28°C: lethal (cardiac arrhythmia — see §3.8.2)
-
-  // ── Sleep / Fatigue ───────────────────────────────────────────────────────
-  fatigue: number                    // 0-100 (0 = fully rested, 100 = exhausted)
-  // Fatigue accumulates at ~6.25/game-hour of wakefulness (100 in ~16 game-hours = ~4 real hours)
-  // Real human: can stay awake ~16 hours comfortably — at 4× time, that's 4 real hours
-  // The player must sleep their character every ~4 real hours of play
-
-  // Effects of high fatigue:
-  //   50-70: stamina recovery rate halved, crafting success rate -10%
-  //   70-85: vision darkening at edges, movement speed -15%, reaction time +50%
-  //   85-95: hallucinations possible (visual glitches), random stumbling
-  //   95-100: forced sleep (player collapses where they are — vulnerable to everything)
-
-  // Sleep:
-  //   Player must find a safe place and use "sleep" action
-  //   Sleep duration: minimum 6 game-hours for full rest (~1.5 real hours)
-  //   Fatigue recovery: -12/game-hour while sleeping (full rest in ~8 game-hours = 2 real hours)
-  //   The player can skip the wait: "Sleep" action fast-forwards the character's sleep
-  //   while the world continues. Player sees a dark screen with time passing indicator.
-  //   They can wake early (partial rest) or be woken by events (damage, loud sounds).
-  //   Fast-forward compresses 8 game-hours into ~30 real seconds of black screen + time display.
-  //   Interrupted sleep: player can be woken by damage, loud sounds, NPC interaction
-  //   Sleeping outdoors: vulnerable to weather, predators, other players
-  //   Sleeping in shelter: protected, faster recovery (+15/game-hour)
-
-  // ── Health / Hit Points ───────────────────────────────────────────────────
-  health: number                     // 0-100
-  // This is NOT an abstract HP bar. It represents overall body integrity.
-  // Damage comes from: physical injury (§3.8.4 injury system), disease, poison, starvation
-  // Health regeneration: 0.5 HP/hour when well-fed, hydrated, rested, warm
-  // At 0 health: death (§3.8.2)
+  // Examples:
+  //   Stone axe (2kg) swung at 4 m/s at an unarmored torso:
+  //     KE = 0.5 × 2 × 16 = 16 J, baseDamage = 16/50 = 0.32 (32% of torso health)
+  //   Iron sword (1.5kg) swung at 6 m/s at a leather-armored arm:
+  //     KE = 0.5 × 1.5 × 36 = 27 J, base = 27/30 = 0.9, ×(1-0.2) = 0.72 (72% arm health)
+  //   Thrown rock (0.5kg) at 8 m/s hitting unarmored head:
+  //     KE = 0.5 × 0.5 × 64 = 16 J, base = 16/15 = 1.07 (instant lethal to head)
+  //   Fist punch (~0.7kg fist at 5 m/s) to unarmored torso:
+  //     KE = 0.5 × 0.7 × 25 = 8.75 J, base = 8.75/50 = 0.175 (17.5% — hurts but not lethal)
 }
 ```
 
-#### Food and Nutrition
+#### PvP Toggle
 
 ```
-FoodSystem {
-  // Food is a MaterialPacket with nutritional properties derived from composition.
-  // There are no "food items" — there are materials that happen to be edible.
+PvPSystem {
+  // Each player has a PvP toggle: ON or OFF
+  // Default: OFF (new players are protected)
 
-  // Edibility is a material property:
-  //   Organic materials (plant matter, meat, fish) → edible
-  //   Minerals, metals, wood → not edible (eating them causes damage or nothing)
+  // PvP OFF:
+  //   Other players' attacks pass through you (no collision for damage purposes)
+  //   You cannot deal damage to other players either
+  //   You CAN still be damaged by: animals, falls, environment, starvation, etc.
+  //   You CANNOT be robbed (dropped items during trade are still physics objects though)
+  //   Your shelter territory is always protected regardless of PvP state
 
-  // Caloric content (kcal per kg) — derived from material composition:
-  //   Raw meat: ~1500 kcal/kg
-  //   Cooked meat: ~2500 kcal/kg (cooking breaks down proteins → more digestible)
-  //   Raw fish: ~1000 kcal/kg
-  //   Berries: ~500 kcal/kg
-  //   Grain: ~3500 kcal/kg (very calorie-dense when processed)
-  //   Nuts: ~6000 kcal/kg (highest calorie density)
-  //   Root vegetables: ~800 kcal/kg
+  // PvP ON:
+  //   Full physics damage from other PvP-ON players
+  //   You can attack and be attacked
+  //   Dropped items on death are lootable by anyone
+  //   Risk/reward: PvP-ON players can fight for resources, defend territory, raid
 
-  // Cooking effect:
-  //   Heating food above 70°C for sufficient time:
-  //   - Increases digestibility (caloric content ×1.5-2.0)
-  //   - Kills bacteria (eliminates food poisoning risk)
-  //   - Changes material properties (texture, color, moisture)
-  //   Overcooking (>200°C): burns food → reduces calories, produces carcinogens
-  //   Charred food: ~100 kcal/kg (mostly carbon)
+  // Toggle cooldown: switching PvP state takes 30 game-seconds (7.5 real seconds)
+  //   This prevents exploits: can't toggle OFF mid-fight to avoid a killing blow
+  //   Visual indicator: PvP-ON players have a subtle red glow on their character border
+  //   (visible to other players, so you know who can hurt you)
 
-  // Food poisoning:
-  //   Raw meat has a bacterial load that grows over time (see §3.8.2 infection model)
-  //   Fresh raw meat (just killed): low risk
-  //   Meat left in warm environment for hours: high risk
-  //   Preserved meat (salted, smoked, dried): low risk indefinitely
-  //   Spoilage rate: bacterialGrowth = initialLoad × e^(growthRate × time × temperatureFactor)
-  //     temperatureFactor = 0 below 4°C (refrigeration), 1.0 at 37°C, 0.5 above 60°C
-
-  // Water content in food:
-  //   Fruits: 0.8-0.95 (eating fruit provides hydration)
-  //   Meat: 0.6-0.75
-  //   Grain: 0.10-0.15
-  //   Dried meat: 0.05-0.10 (preserved but provides no hydration)
+  // Settlement territory: always safe. PvP damage is disabled within any settlement's territory.
+  // Shelter territory: always safe. PvP damage is disabled within the shelter owner's territory.
 }
 ```
 
-#### Physical Strength and Training
+#### Tool Grip — Player-Defined Hold Points
 
 ```
-CharacterFitness {
-  // The character has physical attributes that improve with use — like real muscles.
-  // These are HIDDEN stats (the player never sees numbers).
+ToolGripSystem {
+  // When a player crafts a tool (§8.14 precision craft mode), they don't just
+  // create a tool — they also define HOW to hold it.
 
-  strength: number                   // 0.5–1.0 (affects dig rate, carry capacity, melee force)
-  endurance: number                  // 0.5–1.0 (affects max stamina, stamina recovery rate)
-  speed: number                      // 0.5–1.0 (affects walk/run/swim speed)
+  // After crafting, the player enters "grip setup":
+  //   The tool floats in front of them (precision mode view)
+  //   Player clicks to place grip points:
+  //     Click 1: primary hand position (where the dominant hand grabs)
+  //     Click 2: secondary hand position (for two-handed tools — optional)
+  //   Player can also set the "business end" (which end is the blade/head):
+  //     Click 3: strike point (the part that hits things)
 
-  // Starting values: all 0.5 (untrained human)
-  // Maximum: 1.0 (peak human fitness — Olympic athlete level)
-  // Training rate: extremely slow, like real life
-  //   Each relevant action adds a tiny amount:
-  //   Mining, carrying heavy loads → strength += 0.0001 per action
-  //   Running, swimming → endurance += 0.0001 per sustained minute
-  //   Sprinting → speed += 0.0001 per sprint burst
-  //   At this rate: reaching 0.7 from 0.5 takes ~2000 actions (~hours of gameplay)
-  //   Reaching 1.0 takes ~5000 actions (~days of gameplay)
+  // This means:
+  //   A player who makes a stone axe decides where the handle is gripped
+  //   and which end is the cutting edge
+  //   Two players making axes from the same materials might hold them differently
+  //   The grip position affects swing arc, leverage, and effective force
 
-  // Decay: fitness decays if not used
-  //   -0.00005 per game-day for unused attributes (very slow)
-  //   A player who stops running for many game-days slowly loses speed
-  //   Minimum: never drops below 0.5 (baseline human capability)
-
-  // Real-world limits: the maximum (1.0) represents what a real human body can achieve
-  //   Max carry: ~60 kg comfortably (short distances more, but stamina drains fast)
-  //   Max sprint speed: ~10 m/s (Usain Bolt: 12.4 m/s — 1.0 speed gets close)
-  //   Max sustained run: ~4 m/s for hours (marathon pace)
-  //   Max breath hold: ~90 seconds (trained ~120s)
-  //   These caps are hard limits — no training exceeds peak human performance
-}
-```
-
-### 3.8.12 Lighting System
-
-#### The Principle
-
-Light in reality comes from the sun, fire, and (later in the technology arc) artificial sources. Darkness is real — without a light source, you cannot see. The game does not have a minimum brightness. Night is dark. Caves are pitch black. Fire is survival.
-
-```
-LightingSystem {
-  // ── Sun ───────────────────────────────────────────────────────────────────
-  // Sun position is computed from: time of day + season (§3.7)
-  sunAzimuth = (hourOfDay / 24) × 360 - 180          // degrees (east to west)
-  sunElevation = maxElevation × sin(hourFraction × π)  // arc across sky
-  // maxElevation depends on latitude + season (higher in summer, lower in winter)
-
-  sunColor:
-    dawn/dusk (elevation < 10°): warm orange [1.0, 0.5, 0.2] (Rayleigh scattering)
-    midday (elevation > 40°):    white-yellow [1.0, 0.95, 0.85]
-    overcast:                    dim grey [0.4, 0.42, 0.45] × cloudCover reduction
-
-  sunIntensity:
-    clear noon:    1.0 (full brightness)
-    cloudy:        0.2–0.5 (diffused through clouds)
-    dawn/dusk:     0.1–0.3 (low angle)
-    night:         0.0 (no sun)
-    moonlight:     0.02–0.05 (reflected sunlight — enough to see outlines)
-
-  // ── Fire light ────────────────────────────────────────────────────────────
-  // Every burning object is a point light source
-  // Intensity proportional to fuel burn rate × combustion energy
-  // Color: 1800K (candlelike warm orange) for small fires, 3000K for large fires
-  // Flicker: random intensity modulation at 5-15 Hz (simulates turbulent combustion)
-
-  fireLightRadius:
-    torch:       5m radius (handheld, carried)
-    campfire:    12m radius (stationary, needs fuel)
-    furnace:     8m radius (contained, directional glow from opening)
-    forest fire: 50m+ (out of control)
-
-  // Light falloff: inverse square law
-  // intensity_at_distance = intensity_source / (distance² + 1)
-
-  // Shadows: fire casts dynamic shadows (Three.js shadow maps)
-  // A player carrying a torch casts moving shadows on cave walls
-
-  // ── Darkness ──────────────────────────────────────────────────────────────
-  // There is no ambient minimum light. At night without a moon, without fire:
-  //   outdoors: visibility ~5m (starlight only, barely anything)
-  //   in a cave: visibility 0m (absolute blackness — screen is literally black)
-  //   underwater at depth: visibility 0m
-
-  // This makes fire-making the first essential survival skill.
-  // A player who cannot make fire cannot explore caves, cannot see at night,
-  // cannot cook food, cannot stay warm. Fire is life.
-
-  // ── Future: artificial light sources ───────────────────────────────────────
-  // Oil lamp (medieval): 8m radius, steady, needs oil fuel
-  // Candle: 3m radius, very long-lasting
-  // Gas lamp: 10m radius, brighter, needs refined fuel
-  // Electric light (industrial era): 15m radius, no flicker, needs power
-  // Each follows the same inverse-square falloff with different intensity and color temperature
-}
-```
-
-### 3.8.13 Swimming and Underwater Mechanics
-
-```
-SwimmingSystem {
-  // ── Entering water ────────────────────────────────────────────────────────
-  // Transition is physical, not instant:
-  // Player walks toward water → at ankle depth: footstep sounds become splashy
-  // At knee depth: movement speed -20%
-  // At waist depth: movement speed -40%, player starts bobbing
-  // At chest depth: movement switches from walking to treading water
-  // At head depth: swimming animation begins
-
-  // ── Swimming mechanics ────────────────────────────────────────────────────
-  swimSpeed: baseSpeed × speed × 0.4        // swimming is ~40% of running speed
-  // Arm strokes propel forward (player presses W to swim forward)
-  // Mouse aims swimming direction
-  // Dive: hold shift to angle downward
-  // Surface: release shift to float upward (buoyancy)
-
-  // Stamina drain:
-  //   Treading water (not moving): -2/second
-  //   Swimming forward: -3/second
-  //   Diving (active swim down): -5/second
-  //   Sprint swimming: -8/second
-
-  // At 0 stamina in water: player can no longer swim
-  //   → starts sinking
-  //   → if head goes underwater: drowning timer begins (90s base, reduced by low fitness)
-  //   → player can still slowly paddle to stay afloat for a few seconds
-  //   → if they reach shallow water: they can stand and recover
-
-  // ── Underwater ────────────────────────────────────────────────────────────
-  breathHold: 90                             // seconds at full stamina
-  // Breath hold shortened by: low stamina (-1s per 2 stamina below 50)
-  //                           exertion (-2× drain if swimming actively)
-  //                           training (endurance 1.0 → 120s max)
-
-  // When breath runs out:
-  //   Health drains at 20 HP/s (drowning — see §3.8.2)
-  //   Vision darkens from edges
-  //   Player must surface or die
-
-  // Underwater visibility: depends on water clarity
-  //   Clear ocean: 30m
-  //   River: 5-15m (sediment)
-  //   Murky/swamp: 1-3m
-  //   At depth > 20m: light dims (exponential absorption by water)
-
-  // Underwater sound: §3.8.6 applies — low-pass filter at 800 Hz, speed 1500 m/s
-
-  // ── Carried items while swimming ──────────────────────────────────────────
-  // All items are still in inventory. But:
-  //   Total carried weight affects buoyancy:
-  //   if (totalWeight > buoyancyThreshold) → player sinks faster, swims slower
-  //   Heavy tools (stone axe, iron ingot) can make swimming impossible
-  //   Player can drop items to become lighter (items sink to bottom — retrievable)
-  //   Wooden items float (can be recovered from surface)
-
-  // Skill improvement: swimming frequently increases speed attribute
-  // Maximum swim speed at speed=1.0: ~2.5 m/s (real competitive swimmer: ~2 m/s)
-}
-```
-
-### 3.8.14 Precision Crafting Mode — Zoom-In Interaction
-
-#### The Principle
-
-Some crafting actions require fine motor control — shaping clay on a wheel, knapping a stone tool's edge, carving wood, drawing on a surface. For these, the camera zooms in and the player's mouse directly controls hand movements.
-
-```
-PrecisionCraftMode {
-  // ── Activation ────────────────────────────────────────────────────────────
-  // Triggered when a player interacts with a workstation or material that requires precision:
-  //   - Clay on a pottery wheel
-  //   - Stone held for knapping (flint knapping)
-  //   - Wood held for carving
-  //   - Metal on anvil for detailed shaping
-  //   - Drawing/marking on surfaces (charcoal on rock, etc.)
-
-  // ── Camera behavior ───────────────────────────────────────────────────────
-  // Camera smoothly zooms in to focus on the work piece
-  // FOV narrows from 90° to ~40°
-  // Camera orbit: player can orbit around the object with right-click drag
-  // Depth of field: background blurs (the player is "focusing")
-  // The rest of the world continues — NPCs walk by, weather changes, time passes
-  // Other players see this player hunched over their work
-
-  // ── Controls in precision mode ────────────────────────────────────────────
-  // Mouse position → cursor on the work surface
-  // Left click: primary tool action (strike, push, pull, mark)
-  // Right click + drag: rotate camera around object
-  // Mouse wheel: zoom in/out within precision range
-  // Keyboard:
-  //   Q/E: rotate the work piece on its axis
-  //   R: switch between tools (if multiple equipped — chisel, hammer, knife)
-  //   Shift + click: fine/gentle action (lighter touch)
-  //   ESC: exit precision mode
-
-  // ── Physics of precision actions ──────────────────────────────────────────
-  // Each click applies a force at the cursor position on the material
-  // The material deforms based on its properties:
-
-  ClayCrafting {
-    // Clay is soft and plastic when wet (moisture > 0.3)
-    // Mouse movement pushes/pulls clay surface
-    // Push: indent inward (making a bowl shape)
-    // Pull: raise outward (making a rim)
-    // Smooth: drag along surface to even it out
-    // If pottery wheel is spinning: centrifugal force shapes symmetrically
-    // Result: the shape the player creates IS the final object
-    //   No pre-defined "pot" or "bowl" shape — it's whatever they sculpt
-    //   Properties (volume, wall thickness, symmetry) determine function
-    //   A lopsided pot holds less water. A thin-walled pot breaks easily.
+  // Grip stored with the tool:
+  ToolGrip {
+    primaryGrip: Vec3                  // local-space position on tool mesh where hand goes
+    secondaryGrip: Vec3 | null         // second hand (null for one-handed tools)
+    strikePoint: Vec3                  // which end hits things
+    handedness: 'right' | 'left'       // which hand holds it (player preference)
   }
 
-  FlintKnapping {
-    // Player holds a flint core and strikes with a hammerstone
-    // Each click removes a flake from the flint at the cursor position
-    // Flake size depends on: angle of strike, force (shift = lighter), proximity to edge
-    // Strike too hard near the center → core shatters (broken, start over)
-    // Strike correctly along the edge → sharp flake detaches
-    //   The flake is a new item (can be used as a cutting edge)
-    //   The core becomes smaller and changes shape with each removal
-    //   A skilled player creates a symmetrical hand axe
-    //   An unskilled player creates jagged fragments (still usable, just worse)
-    // Hidden practice count improves the consistency of flake removal
-  }
-
-  WoodCarving {
-    // Held wood piece + chisel/knife tool
-    // Mouse drags remove thin shavings from the surface
-    // Drag direction determines grain interaction:
-    //   With the grain: smooth cut, clean shaving
-    //   Against the grain: rough cut, risk of splitting
-    // Player can carve: handles, bowls, pegs, figurines, structural joints
-    // The carved shape determines function (a smooth handle grips better)
-  }
-
-  MetalShaping {
-    // Hot metal on anvil + hammer
-    // Each click is a hammer blow at the cursor position
-    // Metal deforms based on temperature:
-    //   Hot (>800°C): deforms easily (large displacement per hit)
-    //   Warm (400-800°C): moderate resistance
-    //   Cold (<400°C): very hard to deform (tiny displacement, tool can break)
-    // The player hammers the metal into shape: blade, tool head, nail, bracket
-    // Quenching (dipping in water): freezes the shape, hardens the metal
-  }
+  // During use: IK positions the player's hand bones to the grip points on the tool mesh
+  // The tool moves with the hand, and the hand moves with the animation
+  // Strike point determines where damage/dig is applied on impact
 }
 ```
 
-### 3.8.15 Player-to-Player Interaction
+
+### 7.6 Death, Respawn & Loot
+
+#### What Happens Physically When a Player Dies
+
+Death is not an abstract game state — it is a physical event. The player's body collapses, items scatter, and the world continues without them.
+
+#### The Death Sequence (Server-Authoritative)
+
+The entire death sequence is controlled by the server. The client receives events and renders them, but cannot fabricate or skip any step.
+
+```
+DeathEvent {
+  // Server generates this when player health reaches 0
+  playerId: string
+  causeOfDeath: DeathCause           // 'starvation' | 'hypothermia' | 'drowning' | 'fall' | 'burn' | 'infection' | 'attack' | 'poison'
+  deathPosition: Vec3                // world-space position where the player died
+  deathTimestamp: number             // server monotonic clock (ms)
+  droppedItems: DroppedItem[]        // what fell out of inventory (server-determined)
+  corpseId: string                   // unique ID for the corpse entity
+}
+
+DroppedItem {
+  itemId: string                     // references the MaterialPacket or tool
+  worldPosition: Vec3                // where it lands (deathPosition + random scatter offset)
+  velocity: Vec3                     // initial physics velocity (items tumble outward from body)
+  despawnTimestamp: number            // server clock + 300,000ms (5 minutes)
+}
+```
+
+**Step 1 — Item Drop Calculation (server-side)**
+
+The server determines what drops using a seeded random from the server clock + playerId hash. The drop rules:
+
+- **Drop count:** `floor(inventorySize × dropRate)` where `dropRate` is a random value between **0.05 and 0.20** (5%–20% of inventory slots). A player with 30 items drops 1–6 items.
+- **Selection:** Random without replacement. Each slot has equal probability. Tools the player is currently holding have **2× weight** (you drop what's in your hands when you die — real-world physics).
+- **Scatter physics:** Each dropped item spawns at `deathPosition + randomUnitVector × radius` where `radius ∈ [0.5m, 2.0m]`. Initial velocity: `randomDirection × 1.5 m/s + upward 2.0 m/s` (items tumble outward and fall). After spawning, items are standard physics entities — they roll downhill, settle in crevices, can fall into water.
+- **What NEVER drops:** The player's discovery knowledge (stored in DB, not inventory). Their shelter registration. Their practice counters. Only physical items drop.
+
+```
+// Server-side drop calculation
+function calculateDrops(player: Player, serverRng: SeededRandom): DroppedItem[] {
+  const dropRate = 0.05 + serverRng.next() * 0.15          // 5-20%
+  const dropCount = Math.max(1, Math.floor(player.inventory.length * dropRate))
+
+  // Build weighted pool: held items get 2× weight
+  const pool: WeightedSlot[] = player.inventory.map((item, i) => ({
+    item, weight: (i === player.equippedSlot) ? 2.0 : 1.0
+  }))
+
+  const drops: DroppedItem[] = []
+  for (let i = 0; i < dropCount; i++) {
+    const selected = weightedRandomRemove(pool, serverRng)
+    const angle = serverRng.next() * Math.PI * 2
+    const dist = 0.5 + serverRng.next() * 1.5
+    drops.push({
+      itemId: selected.item.id,
+      worldPosition: vec3Add(player.position, [Math.cos(angle) * dist, 0.3, Math.sin(angle) * dist]),
+      velocity: [Math.cos(angle) * 1.5, 2.0, Math.sin(angle) * 1.5],
+      despawnTimestamp: Date.now() + 300_000   // 5 minutes
+    })
+  }
+  return drops
+}
+```
+
+**Step 2 — Corpse Entity**
+
+The corpse is a server-managed entity with a fixed lifetime:
+
+```
+CorpseEntity {
+  corpseId: string
+  playerId: string                   // whose corpse this is
+  position: Vec3                     // death location
+  rotation: Quaternion               // body orientation (falls in direction of last movement)
+  poseState: 'collapsed'             // ragdoll at death, then settles
+  spawnTimestamp: number
+  despawnTimestamp: number            // spawnTimestamp + 60,000ms (1 minute)
+  skeletalPose: Float32Array         // final bone positions from ragdoll settling
+}
+```
+
+- **Duration:** 60 seconds after death, the corpse fades out over 3 seconds and is removed from the server entity list.
+- **Duplicate prevention:** If the same `playerId` dies again while a previous corpse exists, the old corpse is **immediately removed** (server deletes the old CorpseEntity before creating the new one). This prevents a player dying repeatedly in the same spot from filling the server with corpse entities.
+- **Rendering:** The client renders corpses as the full player body model (same skeleton rig as §8.4) in a collapsed ragdoll pose. The pose is calculated once on the server when death occurs (simple ragdoll settle: body falls, limbs sprawl based on terrain slope) and sent as a static skeletal pose. No ongoing ragdoll physics — just a frozen body.
+
+**Step 3 — Dropped Item World Entities**
+
+Dropped items become standard world entities visible to all players within render distance:
+
+- **Physics:** After initial scatter velocity, items are simulated as rigid bodies. They bounce off terrain, roll downhill, can fall into water (where they sink or float depending on density — a wooden tool floats, a stone axe sinks).
+- **Pickup:** Any player can pick up any dropped item by walking within **1.5m** and pressing the interact key. Server validates proximity and item existence before granting the item. First valid pickup request wins.
+- **Despawn:** Each item has an independent 5-minute timer from spawn. When the timer expires, the server removes the entity and broadcasts removal. Items do NOT persist across server restarts.
+- **Stacking:** If items land on the same spot, they pile up visually. No special stacking logic — just physics objects resting on each other.
+
+**Step 4 — Respawn**
+
+```
+RespawnSequence {
+  deathTimestamp: number
+  respawnDelay: 10_000               // 10 seconds, constant
+  respawnPosition: Vec3              // player's registered shelter position (from database)
+  adSlotWindow: [2_000, 8_000]      // milliseconds 2-8 after death: available for ad display (future)
+}
+```
+
+- **What the player sees:** Screen fades to black over 1 second. For the next 10 seconds, the player sees a minimal UI: death cause text ("You froze to death"), a countdown timer, and (future) an ad slot in the center.
+- **Respawn location:** The player's registered shelter (stored in the database).
+- **State on respawn:** Full health, full hunger/thirst/energy (you "rested" while dead), same discovery knowledge, same practice counters, inventory minus whatever dropped. The player is not punished twice — the item loss IS the punishment.
+
+#### Causes of Death — Physical Triggers
+
+Each death cause maps to a real physical condition crossing a lethal threshold:
+
+| Cause | Trigger | Physics |
+|-------|---------|---------|
+| Starvation | `hunger ≤ 0` for 120 continuous seconds | Glycogen depleted → organ failure |
+| Dehydration | `thirst ≤ 0` for 90 continuous seconds | Blood volume drops → cardiac arrest |
+| Hypothermia | `bodyTemperature < 28°C` | Core temp below threshold → heart arrhythmia. Body temp follows Newton's law of cooling: `dT/dt = -k(T_body - T_env)` where k depends on clothing insulation |
+| Hyperthermia | `bodyTemperature > 42°C` | Protein denaturation → organ failure |
+| Drowning | `oxygenLevel ≤ 0` while submerged | Breath-hold timer (90s base) depletes, then health drops at 20 HP/s |
+| Fall damage | `impactVelocity > 8 m/s` | Damage = `mass × (v - 8)² / 2` (kinetic energy above safe threshold). Lethal above ~15 m/s (~11m fall) |
+| Burn | `skinTemperature > 60°C` for sustained contact | Tissue damage rate = `k × (T - 45)²` per second. Third-degree at >70°C |
+| Infection | `bacterialLoad > 10⁹` (logistic growth model) | Untreated wound → bacterial population doubles every ~4 hours at 37°C, slower when cold. Lethal when load overwhelms immune response |
+| Attack | `health ≤ 0` from physical damage | Impact force from another entity (animal, player, falling object) exceeds body's structural tolerance |
+| Poison | `toxinLevel > lethalDose` | LD50 per toxin type. Dose-response curve: `mortality_probability = 1 / (1 + e^(-k(dose - LD50)))` |
+
+
+### 7.7 Multiplayer Conflict Resolution
+
+There is no conflict resolution "system." There is physics. Two players interacting with the same object are two physical entities in the same space, and the simulation resolves their actions the same way it resolves any other physics interaction.
+
+#### Resource Extraction (Mining, Gathering, Harvesting)
+
+```
+MiningInteraction {
+  // A resource node is a physical object with:
+  nodeHealth: number                         // starts at node's total extractable mass (e.g., 50kg copper ore)
+  fragmentMass: number                       // mass per extraction hit (e.g., 0.5kg per swing)
+
+  // When a player swings a tool at the node:
+  // 1. Server validates: is the player within 2m? Is the tool appropriate? Is the swing animation complete?
+  // 2. Server deducts fragmentMass from nodeHealth
+  // 3. Server spawns a DroppedItem (ore fragment) at the node's surface position
+  //    - The fragment has initial velocity: outward from the impact point + downward gravity
+  //    - It is a standard physics entity — it falls, bounces, rolls, settles
+  // 4. Server broadcasts the spawn to all nearby clients
+
+  // Two players mining the same node simultaneously:
+  // - Both hit the node. Both produce fragments. Fragments scatter in different directions.
+  // - Each player must physically walk to and pick up the fragments they want.
+  // - If player A's fragment rolls toward player B, player B can grab it. No ownership tag.
+  // - When nodeHealth reaches 0, the node is depleted. No more fragments.
+  // - Server processes mining hits in order of arrival (monotonic timestamp).
+  //   If two hits arrive in the same server tick (16ms), both are processed — the node loses 2× fragmentMass.
+}
+```
+
+#### Item Pickup
+
+```
+PickupProtocol {
+  // Items on the ground have no owner. Anyone can pick them up.
+
+  // Client sends: PICKUP_REQUEST { itemId, playerPosition, timestamp }
+  // Server checks:
+  //   1. Does the item still exist? (another player might have grabbed it already)
+  //   2. Is the player within 1.5m of the item's current position?
+  //   3. Is the player's inventory not full?
+
+  // If all checks pass:
+  //   - Item is removed from world entities
+  //   - Item is added to the requesting player's inventory
+  //   - Server broadcasts ITEM_REMOVED { itemId } to all clients
+  //   - Server sends INVENTORY_UPDATE to the picking player
+
+  // If the item no longer exists (race condition):
+  //   - Server sends PICKUP_FAILED { reason: 'gone' } to the requesting player
+  //   - Client shows brief feedback: the item vanishes from their screen
+  //   - No retry. The item is gone. Someone else got it.
+
+  // No locking. No reservation. No "I saw it first" system.
+  // Server timestamp order determines the winner. Network latency means
+  // the closer player (lower ping) has a slight advantage — same as real life
+  // where the closer person reaches the object first.
+}
+```
+
+#### Liquid Containers
+
+```
+ContainerPhysics {
+  // A container (clay pot, bucket, trough) has:
+  capacity: number                           // volume in liters
+  currentVolume: number                      // how full it is
+  contents: MaterialPacket                   // the liquid inside (composition, temperature)
+
+  // Pouring liquid in:
+  // 1. Player holds a container with liquid and presses "pour" while aiming at the target container
+  // 2. Server creates a pour stream (SPH particles or visual) from source to target
+  // 3. Target container's contents update: mass-weighted composition merge (§3.3 compounding rule)
+  //    newComposition[element] = (existingMass × existingFraction[element] + addedMass × addedFraction[element]) / totalMass
+  //    newTemperature = (existingMass × existingTemp + addedMass × addedTemp) / totalMass
+  // 4. If two players pour simultaneously:
+  //    - Both pour streams execute. The container receives both.
+  //    - The three-way merge is just two sequential two-way merges (order doesn't matter — addition is commutative).
+  //    - If total volume exceeds capacity, excess overflows as SPH particles that spill and flow.
+}
+```
+
+#### Workstation Access
+
+```
+WorkstationAccess {
+  // A workstation has a single operator slot.
+  state: 'vacant' | 'occupied'
+  operatorId: string | null                  // userId of current operator
+
+  // Player presses F within 5m:
+  //   If vacant: server sets operatorId = playerId, state = 'occupied'
+  //              client opens WorkstationPanel
+  //   If occupied: client shows "[Workstation in use by another player]"
+  //               player must wait or find another workstation
+
+  // Operator leaves (walks away >5m, presses Esc, disconnects):
+  //   Server sets state = 'vacant', operatorId = null
+  //   Any in-progress craft continues if it doesn't require active input
+  //   (a smelt that's already started keeps going — the furnace doesn't need a babysitter)
+  //   But a craft requiring active input (hammering on anvil) pauses.
+
+  // No queue system. No reservation. You walk up, if it's free you use it.
+  // Two players approaching at the same time: first WORKSTATION_USE request to reach the server wins.
+}
+```
+
+
+### 7.8 Player-to-Player Interaction
 
 #### Trade
 
@@ -7282,14 +7181,143 @@ ChatSystem {
   // Messenger pigeon (medieval): send a written note to a known location (slow, unreliable)
   // Signal fire/mirror: visible at 1-5km, binary messaging
   // Telegraph (industrial): electrical signal over wire between two connected stations
-  // Radio (§3.9 late-game): wireless text over any distance to anyone with a receiver
+  // Radio (§9 late-game): wireless text over any distance to anyone with a receiver
   // Phone: voice communication (future, requires advanced electronics)
 
   // Each advancement mirrors the real history of human communication technology.
 }
 ```
 
-### 3.8.16 Map and Navigation
+
+### 7.9 Swimming & Underwater
+
+```
+SwimmingSystem {
+  // ── Entering water ────────────────────────────────────────────────────────
+  // Transition is physical, not instant:
+  // Player walks toward water → at ankle depth: footstep sounds become splashy
+  // At knee depth: movement speed -20%
+  // At waist depth: movement speed -40%, player starts bobbing
+  // At chest depth: movement switches from walking to treading water
+  // At head depth: swimming animation begins
+
+  // ── Swimming mechanics ────────────────────────────────────────────────────
+  swimSpeed: baseSpeed × speed × 0.4        // swimming is ~40% of running speed
+  // Arm strokes propel forward (player presses W to swim forward)
+  // Mouse aims swimming direction
+  // Dive: hold shift to angle downward
+  // Surface: release shift to float upward (buoyancy)
+
+  // Stamina drain:
+  //   Treading water (not moving): -2/second
+  //   Swimming forward: -3/second
+  //   Diving (active swim down): -5/second
+  //   Sprint swimming: -8/second
+
+  // At 0 stamina in water: player can no longer swim
+  //   → starts sinking
+  //   → if head goes underwater: drowning timer begins (90s base, reduced by low fitness)
+  //   → player can still slowly paddle to stay afloat for a few seconds
+  //   → if they reach shallow water: they can stand and recover
+
+  // ── Underwater ────────────────────────────────────────────────────────────
+  breathHold: 90                             // seconds at full stamina
+  // Breath hold shortened by: low stamina (-1s per 2 stamina below 50)
+  //                           exertion (-2× drain if swimming actively)
+  //                           training (endurance 1.0 → 120s max)
+
+  // When breath runs out:
+  //   Health drains at 20 HP/s (drowning — see §8.2)
+  //   Vision darkens from edges
+  //   Player must surface or die
+
+  // Underwater visibility: depends on water clarity
+  //   Clear ocean: 30m
+  //   River: 5-15m (sediment)
+  //   Murky/swamp: 1-3m
+  //   At depth > 20m: light dims (exponential absorption by water)
+
+  // Underwater sound: §8.6 applies — low-pass filter at 800 Hz, speed 1500 m/s
+
+  // ── Carried items while swimming ──────────────────────────────────────────
+  // All items are still in inventory. But:
+  //   Total carried weight affects buoyancy:
+  //   if (totalWeight > buoyancyThreshold) → player sinks faster, swims slower
+  //   Heavy tools (stone axe, iron ingot) can make swimming impossible
+  //   Player can drop items to become lighter (items sink to bottom — retrievable)
+  //   Wooden items float (can be recovered from surface)
+
+  // Skill improvement: swimming frequently increases speed attribute
+  // Maximum swim speed at speed=1.0: ~2.5 m/s (real competitive swimmer: ~2 m/s)
+}
+```
+
+
+### 7.10 Lighting
+
+#### The Principle
+
+Light in reality comes from the sun, fire, and (later in the technology arc) artificial sources. Darkness is real — without a light source, you cannot see. The game does not have a minimum brightness. Night is dark. Caves are pitch black. Fire is survival.
+
+```
+LightingSystem {
+  // ── Sun ───────────────────────────────────────────────────────────────────
+  // Sun position is computed from: time of day + season (§7)
+  sunAzimuth = (hourOfDay / 24) × 360 - 180          // degrees (east to west)
+  sunElevation = maxElevation × sin(hourFraction × π)  // arc across sky
+  // maxElevation depends on latitude + season (higher in summer, lower in winter)
+
+  sunColor:
+    dawn/dusk (elevation < 10°): warm orange [1.0, 0.5, 0.2] (Rayleigh scattering)
+    midday (elevation > 40°):    white-yellow [1.0, 0.95, 0.85]
+    overcast:                    dim grey [0.4, 0.42, 0.45] × cloudCover reduction
+
+  sunIntensity:
+    clear noon:    1.0 (full brightness)
+    cloudy:        0.2–0.5 (diffused through clouds)
+    dawn/dusk:     0.1–0.3 (low angle)
+    night:         0.0 (no sun)
+    moonlight:     0.02–0.05 (reflected sunlight — enough to see outlines)
+
+  // ── Fire light ────────────────────────────────────────────────────────────
+  // Every burning object is a point light source
+  // Intensity proportional to fuel burn rate × combustion energy
+  // Color: 1800K (candlelike warm orange) for small fires, 3000K for large fires
+  // Flicker: random intensity modulation at 5-15 Hz (simulates turbulent combustion)
+
+  fireLightRadius:
+    torch:       5m radius (handheld, carried)
+    campfire:    12m radius (stationary, needs fuel)
+    furnace:     8m radius (contained, directional glow from opening)
+    forest fire: 50m+ (out of control)
+
+  // Light falloff: inverse square law
+  // intensity_at_distance = intensity_source / (distance² + 1)
+
+  // Shadows: fire casts dynamic shadows (Three.js shadow maps)
+  // A player carrying a torch casts moving shadows on cave walls
+
+  // ── Darkness ──────────────────────────────────────────────────────────────
+  // There is no ambient minimum light. At night without a moon, without fire:
+  //   outdoors: visibility ~5m (starlight only, barely anything)
+  //   in a cave: visibility 0m (absolute blackness — screen is literally black)
+  //   underwater at depth: visibility 0m
+
+  // This makes fire-making the first essential survival skill.
+  // A player who cannot make fire cannot explore caves, cannot see at night,
+  // cannot cook food, cannot stay warm. Fire is life.
+
+  // ── Future: artificial light sources ───────────────────────────────────────
+  // Oil lamp (medieval): 8m radius, steady, needs oil fuel
+  // Candle: 3m radius, very long-lasting
+  // Gas lamp: 10m radius, brighter, needs refined fuel
+  // Electric light (industrial era): 15m radius, no flicker, needs power
+  // Each follows the same inverse-square falloff with different intensity and color temperature
+}
+```
+
+
+### 7.11 Map & Navigation
 
 ```
 NavigationSystem {
@@ -7348,131 +7376,182 @@ NavigationSystem {
 }
 ```
 
-### 3.8.17 Combat System — Physics-Based Damage
 
-#### The Principle
+### 7.12 Persistence Model
 
-Combat is not a separate system. It is what happens when a moving object contacts a body. A pickaxe swing that hits a wolf deals damage because of kinetic energy, not because there's a "weapon damage" stat. The same pickaxe hitting terrain digs rock. The same pickaxe hitting a player deals the same physics-based damage. There are no "weapons" — there are tools that happen to be dangerous when swung at a living thing.
+#### The Two-Tier Architecture
 
-#### Damage Calculation
+The world has two categories of state, determined by a single principle: **did a player intentionally create this, or is it physics running on its own?** Player-created changes are sacred and permanent. Physics-in-progress is ephemeral and can be recomputed or reset.
+
+#### Tier 1 — Permanent State (database)
+
+These tables survive server restarts, crashes, and migrations. They are the canonical truth of the world.
 
 ```
-PhysicsDamage {
-  // Any rigid body collision with a character (player or NPC or animal) computes damage:
+// ── Terrain Modifications ─────────────────────────────────────────────────────
+terrain_modifications {
+  id:           UUID PRIMARY KEY
+  world_seed:   BIGINT NOT NULL               // which world this belongs to
+  chunk_x:      INT NOT NULL                  // terrain chunk coordinates
+  chunk_z:      INT NOT NULL
+  modification: JSONB NOT NULL                // { type: 'dig'|'fill'|'flatten', vertices: [...], depth: number }
+  created_by:   TEXT NOT NULL                 // player userId who made the change
+  created_at:   TIMESTAMP DEFAULT NOW()
+  INDEX (world_seed, chunk_x, chunk_z)        // spatial lookup for chunk loading
+}
 
-  // Kinetic energy of impact:
-  // KE = ½ × m × v²
-  // where m = mass of the striking object (kg), v = velocity at contact (m/s)
+// When a client loads a terrain chunk, the server sends: base procedural terrain (from seed) + all modifications for that chunk.
+// The client applies modifications on top of procedural terrain. This means terrain generation is still deterministic from seed — modifications are a diff layer.
 
-  // Damage to the hit region:
-  // baseDamage = KE / damageThreshold
-  // damageThreshold = how much energy the body region can absorb before injury
-  //   Head: 15 J (very vulnerable — a 1kg rock at 5.5 m/s is lethal)
-  //   Torso: 50 J (ribcage protects organs)
-  //   Arms: 30 J
-  //   Legs: 40 J
+// ── Placed Objects ────────────────────────────────────────────────────────────
+world_objects {
+  id:           UUID PRIMARY KEY
+  world_seed:   BIGINT NOT NULL
+  object_type:  TEXT NOT NULL                 // 'container'|'workstation'|'shelter'|'wall'|'door'|'torch'|...
+  subtype:      TEXT                          // 'bloomery'|'kiln'|'clay_pot'|'stone_wall'|...
+  position:     FLOAT[3] NOT NULL            // world-space [x, y, z]
+  rotation:     FLOAT[4] NOT NULL            // quaternion [x, y, z, w]
+  placed_by:    TEXT NOT NULL                 // player userId
+  placed_at:    TIMESTAMP DEFAULT NOW()
+  state:        JSONB DEFAULT '{}'            // object-specific state (container contents, fuel level, etc.)
+  durability:   FLOAT DEFAULT 1.0            // 0.0 = destroyed, 1.0 = pristine
+  INDEX (world_seed, position)               // spatial queries via cube distance
+}
 
-  // Armor/clothing reduces damage:
-  // effectiveDamage = baseDamage × (1 - armorAbsorption)
-  //   Bare skin: absorption = 0.0
-  //   Cloth: absorption = 0.05 (almost nothing)
-  //   Leather: absorption = 0.2
-  //   Hardened leather: absorption = 0.35
-  //   Copper armor: absorption = 0.5
-  //   Iron armor: absorption = 0.7
-  //   Steel armor: absorption = 0.85
+// ── Resource Node Depletion (already exists) ──────────────────────────────────
+resource_nodes {
+  node_id:      TEXT PRIMARY KEY              // deterministic from seed + position
+  world_seed:   BIGINT NOT NULL
+  depleted:     BOOLEAN DEFAULT FALSE
+  remaining:    FLOAT DEFAULT 1.0            // fraction remaining (1.0 = full, 0.0 = empty)
+  last_mined:   TIMESTAMP
+}
 
-  // Hit region determined by collision point:
-  // Raycast from tool/projectile → character mesh → which body region (§3.8.4 injury system)
-  // Head hits deal more damage (lower threshold) AND have additional effects (daze, vision blur)
+// ── Settlement State ──────────────────────────────────────────────────────────
+settlements {
+  id:           SERIAL PRIMARY KEY
+  world_seed:   BIGINT NOT NULL
+  name:         TEXT NOT NULL
+  position:     FLOAT[3] NOT NULL
+  specialty:    TEXT NOT NULL                 // 'copper_mining'|'iron_mining'|'farming'|...
+  population:   INT DEFAULT 20
+  // No civ_level — sophistication is derived from what NPCs have built and learned (§5)
+  known_processes: TEXT[] DEFAULT '{}'       // processes NPCs have discovered: 'fire_starting', 'copper_smelting', ...
+  storage:      JSONB DEFAULT '{}'           // MaterialPacket array with real compositions and masses
+  trade_offers: JSONB DEFAULT '[]'           // current public trade offers
+  updated_at:   TIMESTAMP DEFAULT NOW()
+}
 
-  // Tool sharpness matters:
-  //   A sharp flint edge concentrates force into a small area → higher pressure → more tissue damage
-  //   sharpnessFactor = 1.0 + (toolSharpness × 0.5)  // dull tool: ×1.0, razor sharp: ×1.5
-  //   Sharpness degrades with use (blade dulls after N impacts)
+// ── Player State ──────────────────────────────────────────────────────────────
+players {
+  user_id:      TEXT PRIMARY KEY
+  world_seed:   BIGINT NOT NULL
+  inventory:    JSONB NOT NULL               // array of MaterialPacket serializations
+  discoveries:  TEXT[] DEFAULT '{}'           // discovery IDs
+  practice:     JSONB DEFAULT '{}'           // { "fire_friction": 47, "copper_smelt": 12, ... }
+  stats:        JSONB NOT NULL               // { health, hunger, thirst, energy, stamina, bodyTemp }
+  position:     FLOAT[3]                     // last known position (for offline reference)
+  updated_at:   TIMESTAMP DEFAULT NOW()
+}
 
-  // Examples:
-  //   Stone axe (2kg) swung at 4 m/s at an unarmored torso:
-  //     KE = 0.5 × 2 × 16 = 16 J, baseDamage = 16/50 = 0.32 (32% of torso health)
-  //   Iron sword (1.5kg) swung at 6 m/s at a leather-armored arm:
-  //     KE = 0.5 × 1.5 × 36 = 27 J, base = 27/30 = 0.9, ×(1-0.2) = 0.72 (72% arm health)
-  //   Thrown rock (0.5kg) at 8 m/s hitting unarmored head:
-  //     KE = 0.5 × 0.5 × 64 = 16 J, base = 16/15 = 1.07 (instant lethal to head)
-  //   Fist punch (~0.7kg fist at 5 m/s) to unarmored torso:
-  //     KE = 0.5 × 0.7 × 25 = 8.75 J, base = 8.75/50 = 0.175 (17.5% — hurts but not lethal)
+shelters {
+  id:           SERIAL PRIMARY KEY
+  user_id:      TEXT NOT NULL
+  world_seed:   BIGINT NOT NULL
+  position:     FLOAT[3] NOT NULL
+  registered_at: TIMESTAMP DEFAULT NOW()
+  INDEX (user_id, world_seed)
 }
 ```
 
-#### PvP Toggle
+**Write frequency:** Player state saves every **30 seconds** during active play and immediately on disconnect. Terrain modifications and placed objects save **immediately** on creation (these are rare, high-value events — a player digs maybe once per minute, not 60 times per second). Settlement state saves every **60 seconds**.
+
+**Chunk loading protocol:** The client never generates terrain. The server is the sole authority on what the world looks like. The client receives fully computed terrain data and renders it.
+
+When a player enters a new terrain chunk:
+1. Client sends `CHUNK_REQUEST { chunkX, chunkZ }` to the server
+2. Server generates the terrain for that chunk (base from seed + all modifications applied)
+3. Server sends `CHUNK_DATA` back — a compressed terrain payload:
 
 ```
-PvPSystem {
-  // Each player has a PvP toggle: ON or OFF
-  // Default: OFF (new players are protected)
-
-  // PvP OFF:
-  //   Other players' attacks pass through you (no collision for damage purposes)
-  //   You cannot deal damage to other players either
-  //   You CAN still be damaged by: animals, falls, environment, starvation, etc.
-  //   You CANNOT be robbed (dropped items during trade are still physics objects though)
-  //   Your shelter territory is always protected regardless of PvP state
-
-  // PvP ON:
-  //   Full physics damage from other PvP-ON players
-  //   You can attack and be attacked
-  //   Dropped items on death are lootable by anyone
-  //   Risk/reward: PvP-ON players can fight for resources, defend territory, raid
-
-  // Toggle cooldown: switching PvP state takes 30 game-seconds (7.5 real seconds)
-  //   This prevents exploits: can't toggle OFF mid-fight to avoid a killing blow
-  //   Visual indicator: PvP-ON players have a subtle red glow on their character border
-  //   (visible to other players, so you know who can hurt you)
-
-  // Settlement territory: always safe. PvP damage is disabled within any settlement's territory.
-  // Shelter territory: always safe. PvP damage is disabled within the shelter owner's territory.
+CHUNK_DATA {
+  chunkX: number
+  chunkZ: number
+  // Heightmap: 64×64 grid of terrain heights (Float16 = 2 bytes each → 8 KB)
+  heightmap: Float16Array[4096]
+  // Material IDs per vertex: what the surface is made of (Uint8 → 4 KB)
+  materialMap: Uint8Array[4096]
+  // Normal map: compressed vertex normals for lighting (optional, can be computed client-side from heightmap)
+  // Color tint: per-vertex color variation (Uint8×3 → 12 KB)
+  colorMap: Uint8Array[12288]
+  // Total per chunk: ~24 KB compressed (gzip: ~8-12 KB on wire)
 }
 ```
 
-#### Tool Grip — Player-Defined Hold Points
+4. Client builds a Three.js mesh from the received data and adds it to the scene
+5. Chunks are cached on the client — no re-request until the server notifies of a modification
+6. When terrain is modified (dig, build), server pushes `CHUNK_UPDATE` for affected chunks
+
+**Bandwidth cost:**
+- A player moving through the world loads ~9 chunks at a time (3×3 grid around them)
+- Initial load: 9 × ~10 KB = ~90 KB (one-time on login or entering new area)
+- Steady state: 0 KB/s (chunks are cached, only updates when modifications happen)
+- Terrain modification: ~10 KB per updated chunk (rare events)
+
+**Why this approach:**
+- The client is truly "eyes only" — it renders what the server shows it, nothing more
+- No game logic runs on the client — no terrain generation code to reverse-engineer or exploit
+- The server can change terrain generation algorithms without updating clients
+- Terrain modifications are seamlessly integrated — the client never sees "base + diff," it just sees terrain
+
+#### Tier 2 — Ephemeral State (Server RAM Only)
+
+These exist only while the server is running. On restart, they vanish.
 
 ```
-ToolGripSystem {
-  // When a player crafts a tool (§3.8.14 precision craft mode), they don't just
-  // create a tool — they also define HOW to hold it.
+// ── Active Physics Simulations ────────────────────────────────────────────────
+EphemeralState {
+  // SPH particles: all active liquid/gas simulations in the world
+  sphParticles: Map<ParticleId, SPHParticle>     // see §3.4 for SPHParticle structure
+  // typically 0–20,000 active at any time; 0 when no one is melting/pouring
 
-  // After crafting, the player enters "grip setup":
-  //   The tool floats in front of them (precision mode view)
-  //   Player clicks to place grip points:
-  //     Click 1: primary hand position (where the dominant hand grabs)
-  //     Click 2: secondary hand position (for two-handed tools — optional)
-  //   Player can also set the "business end" (which end is the blade/head):
-  //     Click 3: strike point (the part that hits things)
+  // Temperature field: materials in the world that are not at ambient temperature
+  heatedObjects: Map<ObjectId, { temperature: number, coolingRate: number }>
+  // a campfire heats nearby objects; when fire dies, they cool back to ambient
 
-  // This means:
-  //   A player who makes a stone axe decides where the handle is gripped
-  //   and which end is the cutting edge
-  //   Two players making axes from the same materials might hold them differently
-  //   The grip position affects swing arc, leverage, and effective force
+  // Active crafting: smelting in progress, pottery firing, etc.
+  activeCrafts: Map<CraftId, { workstationId: string, startTime: number, materials: MaterialPacket[], progress: number }>
 
-  // Grip stored with the tool:
-  ToolGrip {
-    primaryGrip: Vec3                  // local-space position on tool mesh where hand goes
-    secondaryGrip: Vec3 | null         // second hand (null for one-handed tools)
-    strikePoint: Vec3                  // which end hits things
-    handedness: 'right' | 'left'       // which hand holds it (player preference)
-  }
+  // Dropped loot: items on the ground from player death or intentional drop
+  groundItems: Map<ItemId, { packet: MaterialPacket, position: Vec3, velocity: Vec3, despawnAt: number }>
 
-  // During use: IK positions the player's hand bones to the grip points on the tool mesh
-  // The tool moves with the hand, and the hand moves with the animation
-  // Strike point determines where damage/dig is applied on impact
+  // Weather particles: rain drops, snow flakes, dust (visual only, no persistence needed)
+  // NPC pathfinding state: current waypoint, walk progress (NPCs restart their goal loop from idle on server restart)
 }
 ```
 
-### 3.8.18 New Player Experience — First Spawn
+**What happens on server restart:**
+- All SPH particles vanish. Any liquid that was mid-flow is gone. Rivers and ocean return to their static/shader state. This is acceptable because liquid simulations are short-lived events (a pour takes 5 seconds, lava flow takes 30 seconds).
+- All heated objects snap to ambient temperature. A forge that was at 1200°C goes cold. The player must relight it. This matches reality — if you leave a forge overnight, it's cold in the morning.
+- All active crafts are lost. If a player was mid-smelt, the materials are gone (consumed but product not produced). This is the penalty for being online during a restart. Restarts should be rare and announced.
+- All ground items vanish. Dropped loot from recent deaths is gone. This is acceptable — 5-minute despawn means most loot is already gone anyway.
+- NPCs restart from `idle` state. They don't remember they were carrying ore to the bloomery. They start a new goal loop iteration.
+
+#### The Boundary: When Ephemeral Becomes Permanent
+
+Some ephemeral processes produce permanent results:
+
+- **Smelting completes** → the output MaterialPacket is added to the player's inventory (permanent)
+- **Lava cools and solidifies** → new terrain is created (terrain modification → permanent). The SPH particles that made up the lava flow are deleted, but the solidified rock they became is a permanent terrain modification.
+- **Player digs a hole** → terrain modification record created (permanent). The dirt particles that flew out are ephemeral visual effects.
+- **Container filled with liquid** → the container is permanent (world_objects table), but the liquid inside it is ephemeral. On restart, containers are empty. If this becomes a problem (players complain about losing stored water), we can promote container contents to permanent state later by storing composition in the container's `state` JSONB field.
+
+
+### 7.13 New Player Experience — First Spawn
 
 #### What the Player Sees on First Login
 
-After character creation (§3.8.4), the player spawns in the world for the first time. This moment must be intuitive without tutorials.
+After character creation (§8.4), the player spawns in the world for the first time. This moment must be intuitive without tutorials.
 
 ```
 FirstSpawnDesign {
@@ -7515,7 +7594,7 @@ FirstSpawnDesign {
   //   They get hungry after a few game-hours → they look for food
   //   They notice it getting dark → the campfire becomes essential
   //
-  // The companion system (§3.8.7) can provide subtle hints if the player
+  // The companion system (§8.7) can provide subtle hints if the player
   // seems stuck (no actions for several minutes), but never explicit instructions.
 
   // ── Nearby resources guaranteed at spawn ──────────────────────────────────
@@ -7533,7 +7612,10 @@ FirstSpawnDesign {
 
 ---
 
-## 4. All UI Panels and Hotkeys
+
+---
+
+## 8. All UI Panels and Hotkeys
 
 
 | Key | Panel            | Status                                                       |
@@ -7560,7 +7642,10 @@ FirstSpawnDesign {
 # PART VII — REFERENCES
 ---
 
-## 5. References
+
+---
+
+## 9. References
 
 These works directly inform the design and scientific grounding of Universe Sim. Each is cited in the relevant section above.
 

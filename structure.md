@@ -237,6 +237,2179 @@ Both methods use material properties from the MaterialPacket (viscosity, surface
 
 The sections below describe each stage's physics in detail.
 
+#### Cross-System Connections — The Complete Data Flow Between Every System
+
+Every system in the game sends data to other systems. This section specifies the exact data structures, trigger conditions, conversion formulas, algorithms, and edge cases for every connection. 31 connections total (15 critical + 16 moderate).
+
+If a connection between two systems isn't listed here, it doesn't exist.
+
+---
+
+##### Connection 1: Sound Event Generation
+
+Every sound originates from a physical event. The physics tick (Stage 7) converts physical events into `SoundEvent` messages.
+
+```
+SoundEvent {
+  id: number                         // unique monotonic counter
+  type: 'modal' | 'noise' | 'voice' // synthesis method for client
+  position: Vec3                     // world-space source position
+  timestamp: number                  // server tick
+
+  // For type 'modal' (struck/vibrating objects):
+  modal?: {
+    materialA: {
+      youngsModulus: number          // Pa — pitch: f = β²/2πL² × √(EI/ρA)
+      density: number               // kg/m³ — pitch denominator
+      acousticEfficiency: number     // volume scaling
+    }
+    materialB?: {                    // the striker (null if self-excited)
+      youngsModulus: number
+      density: number
+      hardness: number               // contact duration: harder = shorter = sharper
+    }
+    geometry: {
+      type: 'bar' | 'plate' | 'sphere' | 'irregular'
+      length: number                 // m — primary dimension
+      crossSection: number           // m²
+      thickness: number              // m — for plates
+    }
+    energy: number                   // J — ½mv² of impact
+    contactPoint: Vec3               // where on the object (affects mode amplitudes)
+  }
+
+  // For type 'noise' (continuous/turbulent):
+  noise?: {
+    subtype: 'rain' | 'fire' | 'wind' | 'flow' | 'grind' | 'splash' | 'bubble' | 'thunder'
+    parameters: object               // subtype-specific (detailed below)
+    duration: number | 'continuous'  // seconds, or ongoing until terminated
+  }
+
+  // For type 'voice' (NPC speech, animal calls):
+  voice?: {
+    species: string                  // 'human' | 'wolf' | 'cattle' | 'sheep' | 'bird' | ...
+    subtype: string                  // 'speech' | 'howl' | 'bark' | 'alarm' | 'contact' | ...
+    f0: number | number[]            // Hz fundamental, or array for sweep
+    duration: number                 // seconds
+    formants?: number[]              // [F1, F2, F3] Hz
+    phonemes?: string[]              // for NPC speech
+    repeat?: number                  // repetitions (bird chirps)
+  }
+}
+```
+
+**Modal triggers (impacts, breaks):**
+
+```
+ModalTriggers {
+  // IMPACT: any rigid body collision (Stage 6)
+  // Condition: impactEnergy > 0.01 J
+  //
+  // reducedMass = (massA × massB) / (massA + massB)
+  // energy = 0.5 × reducedMass × |relativeVelocity|²
+  //
+  // The lighter object is materialA (it vibrates more).
+  // The heavier object is materialB (the striker).
+  //
+  // Examples with real values:
+  //   Pickaxe (1.5kg iron) hits granite rock at 4 m/s:
+  //     reducedMass ≈ 1.5 (rock is effectively infinite mass)
+  //     energy = 0.5 × 1.5 × 16 = 12 J
+  //     materialA = granite (E=70GPa, ρ=2700) → modes at ~2700 Hz → sharp crack
+  //     materialB = iron (E=200GPa) → tool rings at ~320 Hz → metallic overtone
+  //     Both sounds play simultaneously (layered)
+  //
+  //   Clay pot (0.5kg) drops from 1m onto stone:
+  //     velocity = √(2×9.81×1) = 4.43 m/s
+  //     energy = 0.5 × 0.5 × 19.6 = 4.9 J
+  //     If energy/contactArea > pot.tensileStrength × wallThickness:
+  //       Pot breaks → additional modal events for each fragment
+  //       Fragments are smaller → higher pitch
+  //
+  //   Footstep (70kg player, 0.01m drop per step):
+  //     velocity = √(2×9.81×0.01) = 0.44 m/s
+  //     energy = 0.5 × 70 × 0.194 = 6.8 J (distributed over foot area)
+  //     materialA = terrain at foot position
+  //       Stone (E=70GPa): high modes, short decay → hard tap
+  //       Wood (E=12GPa): lower modes, very short decay → hollow knock
+  //       Sand (E=0.05GPa): near-zero modes, instant decay → soft crunch
+  //     Running: energy ×4 (higher step force) → louder
+  //     Sneaking: energy ×0.1 (gentle placement) → very quiet
+
+  // BREAKING: object fractures (Stage 5 structural or Stage 6 rigid body)
+  // storedEnergy = 0.5 × stress² × volume / youngsModulus
+  // One loud event for the break + separate events per falling fragment
+  //
+  // Structural collapse: 10-30 events over 0.5 seconds
+  //   t=0ms: wall breaks (stored elastic energy → loud crack)
+  //   t=50ms: first roof block falls 0.5m → impact
+  //   t=80-200ms: cascade of blocks → staggered impacts
+  //   t=300ms: debris settles → scraping sounds
+  //   Client hears: crack → rumble → cascading crashes → settling
+}
+```
+
+**Noise triggers (continuous sounds):**
+
+```
+NoiseTriggers {
+  // RAIN:
+  //   Trigger: precipitationRate > 0 in player's atmosphere cell
+  //   Sent: one continuous event per player, updated every 1 second
+  //   NOT individual drop impacts (too many events)
+  //
+  //   parameters: {
+  //     precipitationRate: number    // mm/hr from weather
+  //     dropSize: number             // m — from rate:
+  //       <2.5 mm/hr: 0.001m (light, high pitch)
+  //       2.5-7.5: 0.002m (moderate)
+  //       >7.5: 0.003m (heavy, low pitch)
+  //     dropFrequency: number        // Hz = 3.26 / dropSize (Minnaert)
+  //       Light: 3260 Hz. Heavy: 1087 Hz.
+  //     surfaceMaterial: MaterialPacket  // terrain at player → surface resonance
+  //     intensity: number            // precipRate × dropMass × dropVelocity² / 2
+  //       dropMass = (4/3)π × dropSize³ × 1000
+  //       dropVelocity ≈ 130 × √(dropSize × 2) m/s (terminal velocity)
+  //     sheltered: boolean           // from Connection 2 → muffled if true
+  //   }
+
+  // FIRE:
+  //   Trigger: MaterialPacket has temperature > ignitionTemperature AND flammability > 0
+  //            AND mass is decreasing (actively burning)
+  //   Sent: per burning object, updated every 0.5 seconds
+  //
+  //   parameters: {
+  //     burnRate: number             // kg/s — fuel consumption speed
+  //     combustionEnergy: number     // J/kg from packet
+  //     lowFreq: number              // Hz = 60 + burnRate × combustionEnergy × 0.000001
+  //       Range: 60-200 Hz (turbulent roar)
+  //     moisture: number             // waterAbsorption of burning material
+  //     cracklesPerSecond: number    // = moisture² × 40
+  //       Dry (0.05): 0.1/sec. Normal (0.2): 1.6/sec. Wet (0.5): 10/sec.
+  //       Each crackle: 2ms broadband burst at 1-4 kHz, ±20% timing variation
+  //     steamPresent: boolean        // moisture > 0.25
+  //       Adds: white noise 4-8 kHz, volume = (moisture - 0.25) × 2
+  //     oxygenSupply: number         // 0-1 (enclosed space reduces this)
+  //       Open air: 1.0. Small opening: 0.3-0.7. Sealed: 0 (fire dies).
+  //     fireSize: number             // m³ volume of fire
+  //       <0.01: gentle crackle only. 0.01-0.5: roar + crackle. >0.5: dominant roar.
+  //   }
+
+  // WIND:
+  //   Trigger: windSpeed > 0.5 m/s in ENVIRONMENT_STATE
+  //   Sent: once per second (continuous)
+  //
+  //   parameters: {
+  //     windSpeed: number            // m/s
+  //     baseVolume: number           // = windSpeed² × 0.001
+  //       2 m/s: 0.004 (whisper). 15 m/s: 0.225 (loud). 30 m/s: 0.9 (howling).
+  //     gustFrequency: number        // 0.1-0.3 Hz (3-10 sec period)
+  //     gustAmplitude: number        // 0-0.5 modulation depth
+  //     nearbyObstacles: [{          // within 20m of player, max 8, sorted by loudness
+  //       diameter: number           // m
+  //       distance: number           // m from player
+  //       aeolianFreq: number        // Hz = 0.2 × windSpeed / diameter
+  //         Branch (0.03m) at 10m/s: 67 Hz. Wire (0.003m): 667 Hz. Grass (0.005m) at 5m/s: 200 Hz.
+  //       volume: number             // ∝ 1/distance²
+  //     }]
+  //     foliageDensity: number       // 0-1 from biome + nearby trees
+  //       Forest: 0.8 → many tones → rushing. Field: 0.0 → pure broadband.
+  //   }
+
+  // WATER FLOW:
+  //   Trigger: fluid simulation has active flow near player
+  //   Sent: per flow region, updated per second
+  //
+  //   parameters: {
+  //     flowSpeed: number            // m/s average velocity
+  //     channelWidth: number         // m — count of adjacent water cells × 2m
+  //     crossSectionArea: number     // m² = width × depth
+  //     baseFrequency: number        // Hz = 4000 / (channelWidth + 1)
+  //       1m stream: 2000 Hz. 10m river: 364 Hz. 50m: 78 Hz.
+  //     turbulenceLevel: number      // = min(1.0, flowSpeed / 3.0)
+  //       <1 m/s: 0.33 (smooth). >3 m/s: 1.0 (rapids, white noise overlay).
+  //     splashRate: number           // = max(0, (flowSpeed - 2.0) × 5) events/sec
+  //     bubbleRate: number           // = flowSpeed × 10 bubbles/sec
+  //       Each bubble: f = 3.26 / radius. Radius ±30% random variation.
+  //   }
+
+  // GRINDING/SCRAPING:
+  //   Trigger: two surfaces sliding against each other
+  //   Sent: while scraping continues
+  //
+  //   parameters: {
+  //     relativeSpeed: number        // m/s between surfaces
+  //     normalForce: number          // N
+  //     roughnessA: number           // from hardness + porosity
+  //     roughnessB: number
+  //     stickSlipRate: number        // = relativeSpeed × (roughnessA + roughnessB) × 100
+  //       Smooth slow (0.1m/s): 3 Hz → individual scrapes
+  //       Rough fast (1.0m/s): 100 Hz → continuous grinding tone
+  //     frictionNoise: number        // volume = normalForce × relativeSpeed × 0.001
+  //   }
+
+  // THUNDER:
+  //   Trigger: lightning strike event from weather system
+  //   Sent: once per strike
+  //
+  //   parameters: {
+  //     strikePosition: Vec3
+  //     distanceToPlayer: number     // m
+  //     initialCrack: 5ms broadband impulse (30,000°C air expansion)
+  //     rollingRumble: 40-120 Hz noise, duration 1-5 seconds
+  //     propagationDelay: number     // = distance / 343 seconds
+  //       1km: 2.9s delay. 5km: 14.6s. 10km+: inaudible.
+  //     volume: number               // ∝ 1/distance²
+  //   }
+
+  // SPLASH:
+  //   Trigger: SPH particle hits terrain at v > 0.5 m/s, OR object enters water
+  //   Sent: per splash event
+  //
+  //   parameters: {
+  //     impactEnergy: number         // J = 0.5 × mass × v²
+  //     liquidMaterial: MaterialPacket
+  //     surfaceMaterial: MaterialPacket
+  //     sizzle: boolean              // liquid.temperature > 100 AND surface.waterAbsorption > 0.1
+  //     splashVolume: number         // liters displaced
+  //       Duration: 50ms (0.01L) to 500ms (10L)
+  //     bubbleCount: number          // = splashVolume × 100
+  //   }
+}
+```
+
+**Voice triggers (NPC and animal):**
+
+```
+VoiceTriggers {
+  // NPC SPEECH:
+  //   Trigger: NPC intent system (§5.3) activates for communication
+  //   SLM outputs 'talk_to:player' → intent maps to concept sequence
+  //   Language generator converts concepts → phonemes
+  //
+  //   f0 (pitch): 220 - (npc.height_cm × 0.7) Hz
+  //     150cm NPC: 115 Hz (high). 190cm: 87 Hz (deep).
+  //     Age > 60: add ±3 Hz tremor (random per syllable)
+  //   duration: phonemes.length × 0.15 seconds (~150ms per syllable)
+  //   formants: from language generator phoneme→formant table (§5.3)
+
+  // ANIMAL VOCALIZATIONS:
+  //   Trigger: behavioral state transition in animal brain (§4.3)
+  //   NOT random — tied to specific behavior changes.
+  //
+  // ┌──────────┬────────────────────┬──────────┬──────────────────────────────┐
+  // │ Species  │ Behavior trigger   │ Call type│ Parameters                    │
+  // ├──────────┼────────────────────┼──────────┼──────────────────────────────┤
+  // │ Cattle   │ idle (p=0.002/tick)│ moo      │ f0=80-120Hz, dur=1.5s        │
+  // │          │ distress           │ bellow   │ f0=120-150Hz, dur=2.0s, loud │
+  // │          │ mother separated   │ urgent   │ f0=150Hz, dur=1.0s, repeat 5s│
+  // │ Sheep    │ idle (p=0.003/tick)│ baa      │ f0=250-350Hz, dur=0.5s       │
+  // │          │ panic start        │ alarm    │ f0=400Hz, dur=0.3s, sharp    │
+  // │          │ lamb separated     │ call     │ f0=500Hz, dur=0.4s           │
+  // │ Wolf     │ hunt initiated     │ howl     │ f0=[150,250,400,350,200] 8s  │
+  // │          │ territory patrol   │ howl     │ f0=[200,380,300] 5s          │
+  // │          │ threat detected    │ bark     │ f0=500Hz, dur=0.08s, harsh   │
+  // │          │ pup seeking parent │ whine    │ f0=800Hz, dur=0.5s, soft     │
+  // │ Dog      │ alert (stranger)   │ bark     │ f0=400-600Hz, dur=0.1s, rpt  │
+  // │          │ friendly (owner)   │ whine    │ f0=600Hz, rising, dur=0.3s   │
+  // │          │ guarding           │ growl    │ f0=100Hz, continuous, low vol │
+  // │ Horse    │ startled           │ snort    │ nasal noise, 0.2s, 200-2kHz  │
+  // │          │ friendly greeting  │ nicker   │ f0=150Hz, dur=0.5s, soft     │
+  // │          │ distress           │ neigh    │ f0=300→500Hz, dur=1.5s       │
+  // │ Chicken  │ idle (p=0.01/tick) │ cluck    │ f0=300Hz, dur=0.05s          │
+  // │          │ alarm              │ squawk   │ f0=800Hz, dur=0.1s, harsh    │
+  // │          │ rooster at dawn    │ crow     │ f0=[500,800,600] 2s          │
+  // │ Pig      │ foraging (p=0.008) │ grunt    │ f0=80Hz, dur=0.1s, nasal    │
+  // │          │ distress           │ squeal   │ f0=1000+Hz, dur=0.5-2s, loud│
+  // │ Bird     │ dawn/dusk (p=0.05) │ song     │ f0=2-6kHz sweeps, 20-50ms×20│
+  // │          │ predator overhead  │ alarm    │ f0=8kHz, 10ms, hard to locate│
+  // │ Insect   │ always alive       │ buzz     │ f0=wingbeat (bee:200, mosquito:600) continuous │
+  // │ Frog     │ night+water(p=0.02)│ croak    │ f0=100-300Hz, dur=0.3s       │
+  // └──────────┴────────────────────┴──────────┴──────────────────────────────┘
+  //
+  // p = probability per server tick (6 Hz) when in that behavioral state
+  // "rpt" = repeats at indicated interval while condition persists
+  // f0 arrays = frequency sweep over the duration
+}
+```
+
+---
+
+##### Connection 2: Weather Shelter Detection
+
+```
+ShelterDetectionSystem {
+  // A 2D grid (same resolution as terrain: 2m × 2m) where each cell stores
+  // whether the sky is blocked above it.
+
+  shelterMap: Map<CellKey, ShelterState>
+
+  ShelterState {
+    exposed: boolean                 // true = open sky, false = covered
+    shelterHeight: number            // m above ground of the covering surface
+    shelterMaterial: MaterialPacket | null  // what the roof is made of
+    shelterOpacity: number           // 0-1 — how much light/rain it blocks
+    //   Solid stone/wood roof: 1.0 (blocks everything)
+    //   Thatch roof: 0.95 (blocks most rain, some light leaks through)
+    //   Tree canopy: 0.3-0.6 (partial — light rain gets through, heavy saturates)
+    //   Open weave/lattice: 0.5 (partial shade)
+    //   Glass (if crafted): 0.1 (blocks rain, passes most light)
+    lastUpdated: number              // tick when recalculated
+  }
+
+  // COMPUTATION:
+  //   function updateShelterCell(cellX, cellZ):
+  //     groundHeight = terrain.getHeight(cellX, cellZ)
+  //     rayOrigin = (cellX × 2 + 1, groundHeight + 0.1, cellZ × 2 + 1)
+  //     rayDirection = (0, 1, 0)  // straight up
+  //     hit = world.raycast(rayOrigin, rayDirection, maxDistance=50m)
+  //
+  //     if hit AND hit.object.isSolid:
+  //       return { exposed: false, shelterHeight: hit.distance,
+  //                shelterMaterial: hit.object.packet,
+  //                shelterOpacity: computeOpacity(hit.object) }
+  //     else:
+  //       return { exposed: true, shelterHeight: Infinity,
+  //                shelterMaterial: null, shelterOpacity: 0 }
+  //
+  //   computeOpacity(object):
+  //     if object is solid block (stone, wood, clay): return 1.0
+  //     if object is thatch: return 0.95
+  //     if object is tree canopy: return 0.3 + (leafDensity × 0.3) // seasonal: less in winter
+  //     if object is lattice/fence: return 0.5
+  //     default: return object.packet.opacity
+
+  // WHEN TO RECALCULATE:
+  //   Block placed → recalculate all cells within 5m below it
+  //   Block removed → recalculate cells below
+  //   Tree grows/cut → recalculate cells under canopy radius
+  //   Season change → recalculate tree canopy cells (leaf density changes)
+  //   Cost: 1 raycast per affected cell. Building a 3×3m roof: ~4 raycasts, <0.1ms.
+
+  // WHAT USES THE SHELTER MAP:
+  //   Rain → material moisture: if exposed → moisture increases. If sheltered → no change.
+  //   Snow accumulation: if exposed → snow. If sheltered → no snow (but wind > 10m/s can blow snow in).
+  //   Crop growth (§4.4): lightFactor *= (1 - shelterOpacity). Sheltered crops need irrigation.
+  //   Structural decay (§3.4): only exposed blocks take rain damage.
+  //   Player body temp (§7.2): sheltered → wind chill reduced 70%, no rain cooling.
+  //   Sound: sheltered player hears distant rain + roof resonance (modal from roof material).
+
+  // EDGE CASES:
+  //   Roof with holes: raycast passes through hole → cell is exposed. Correct.
+  //   Overhang/cliff: raycast hits natural terrain above → sheltered. Correct.
+  //   Multi-story: raycast hits FIRST solid surface. First floor sheltered by second floor. Correct.
+  //   Tree canopy in winter: leaf density drops → shelterOpacity decreases → more rain gets through.
+  //   Partial shelter during heavy rain: if canopy shelterOpacity < precipitationRate/20:
+  //     some rain penetrates. Moisture increase = precipRate × (1 - shelterOpacity) × absorption.
+}
+```
+
+---
+
+##### Connection 3: Organism/Animal Death → MaterialPacket Conversion
+
+```
+OrganismDeathSystem {
+  // Step 1: DEATH EVENT
+  // Organism health → 0. Causes: starvation, predation, player combat, old age, disease, environment.
+  // Server removes from active simulation. Spawns CorpseEntity:
+
+  CorpseEntity {
+    id: string
+    species: string
+    bodyMass: number                 // kg at death
+    position: Vec3
+    rotation: Quaternion             // fell in direction of last movement
+    deathTime: number
+    causeOfDeath: string
+    harvestable: boolean             // true until depleted or decomposed
+    remainingMass: number            // starts at bodyMass, decreases with harvest
+    decompositionProgress: number    // 0.0 → 1.0 over 7 game-days
+    temperature: number              // °C — cools after death:
+    //   T(t) = T_ambient + (37 - T_ambient) × e^(-0.05 × t_hours)
+    //   4 hours: near ambient. Relevant for meat spoilage (warm = faster).
+  }
+
+  // Step 2: PLAYER HARVESTING
+  // Interact within 1.5m. Duration depends on tool:
+  //   Bare hands: 45 game-seconds (rough, hide damaged)
+  //   Flint knife: 25 game-seconds
+  //   Copper knife: 18 game-seconds
+  //   Iron knife: 12 game-seconds
+  //   Modified by sharpness: harvestTime = baseTime × (1 + edgeRadius × 5)
+  //   Dull iron knife slower than sharp flint knife.
+  //
+  // Player is in kneeling animation, vulnerable, interruptible.
+  //
+  // Yield: yieldMultiplier = toolSharpness × (toolHardness / targetHardness)
+  //   Good tool: 0.9. Bad tool: 0.5. Bare hands: 0.3.
+
+  // Step 3: PRODUCTS — real MaterialPackets
+  //
+  // Universal product table (all animals):
+  // ┌────────────────┬──────────────┬──────────────────────────────────────────────────┐
+  // │ Product        │ % of bodyMass│ Composition                                      │
+  // ├────────────────┼──────────────┼──────────────────────────────────────────────────┤
+  // │ Meat (muscle)  │ 40%          │ { protein:0.22, fat:0.05, water:0.72, min:0.01 } │
+  // │ Hide/skin      │ 8%           │ { collagen:0.65, water:0.15, fat:0.10, min:0.10 }│
+  // │ Bone           │ 15%          │ { calcium_phosphate:0.70, collagen:0.20, water:0.10 } │
+  // │ Fat (tallow)   │ 10%          │ { fatty_acids:0.85, water:0.10, protein:0.05 }   │
+  // │ Sinew (tendon) │ 3%           │ { collagen:0.85, water:0.10, elastin:0.05 }      │
+  // │ Blood          │ 7%           │ { water:0.80, protein:0.18, iron:0.01, min:0.01 }│
+  // │ Organs         │ 7%           │ { protein:0.18, fat:0.08, water:0.70, min:0.04 } │
+  // │ Waste          │ 10%          │ (not harvestable — remains in corpse)             │
+  // └────────────────┴──────────────┴──────────────────────────────────────────────────┘
+  //
+  // Species-specific additions:
+  //   Deer: +antler (2%, { calcium_phosphate:0.55, collagen:0.35, water:0.10 })
+  //   Sheep: +wool (5%, { keratin:0.90, lanolin:0.05, water:0.05 })
+  //   Bird: +feathers (6%, { keratin:0.95, water:0.05 })
+  //   Fish: +scales (2%), +oil (15% for fatty species)
+  //   Bee colony: honey + beeswax + propolis (stored in hive, not body)
+  //
+  // Example: 80kg deer with iron knife (yield 0.9):
+  //   Meat: 80 × 0.40 × 0.9 = 28.8 kg
+  //   Hide: 80 × 0.08 × 0.9 = 5.76 kg (~2.5 m²)
+  //   Bone: 80 × 0.15 × 0.9 = 10.8 kg
+  //   Fat: 80 × 0.10 × 0.9 = 7.2 kg
+  //   Antler: 80 × 0.02 × 0.9 = 1.44 kg
+  //   Sinew: 80 × 0.03 × 0.9 = 2.16 kg
+  //   Total: ~56 kg harvested
+
+  // Step 4: DECOMPOSITION (if unharvested or partially harvested)
+  //   decompRate = baseRate × tempFactor × moistFactor × fungiFactor
+  //
+  //   baseRate: progress += 0.006 per game-hour (full in 7 game-days)
+  //   tempFactor: <0°C: 0.01 (frozen). 0-10: 0.2. 10-25: 1.0. 25-35: 2.0. >35: 3.0.
+  //   moistFactor: dry(<0.3): 0.5. normal: 1.0. wet(>0.7): 1.5.
+  //   fungiFactor: fungi present in soil: 1.5. absent: 1.0.
+  //
+  //   At progress = 1.0: corpse removed. Nutrients to soil:
+  //     soil.nitrogen += remainingMass × 0.003
+  //     soil.phosphorus += remainingMass × 0.001
+  //     soil.organicMatter += remainingMass × 0.0001
+  //
+  //   Visual stages: 0-0.2 fresh, 0.2-0.5 bloating, 0.5-0.8 deflated, 0.8-1.0 skeletal → removed.
+  //
+  //   Scavengers: wolves/birds harvest meat (yield 0.3 bare "hands") — reduces remainingMass.
+  //   A wolf pack at a deer corpse consumes most meat within 1 game-day.
+}
+```
+
+---
+
+##### Connection 4: Animal Manure Production
+
+```
+ManureSystem {
+  // Every animal that has eaten produces dung at species-specific intervals.
+
+  AnimalDigestion {
+    lastFed: number                  // tick of last food consumption
+    digestingMass: number            // kg being digested
+    digestionProgress: number        // 0.0 → 1.0
+
+    // Digestion time by species:
+    //   Chicken: 4 game-hours
+    //   Pig: 6 game-hours
+    //   Sheep/goat: 8 game-hours (ruminant — slow)
+    //   Horse: 8 game-hours
+    //   Cattle: 12 game-hours (ruminant — very slow)
+
+    // When progress = 1.0: spawn DungPacket, reset.
+  }
+
+  DungPacket {
+    // IS a MaterialPacket. Composition per species:
+    //
+    // ┌──────────┬────────┬──────────────────────────────────────────────────────────┐
+    // │ Species  │ Mass/  │ Composition                                              │
+    // │          │ deposit│                                                          │
+    // ├──────────┼────────┼──────────────────────────────────────────────────────────┤
+    // │ Cattle   │ 12.5kg │ { organic:0.40, water:0.45, N:0.006, P:0.003, K:0.004 } │
+    // │ Pig      │ 1.5kg  │ { organic:0.35, water:0.50, N:0.008, P:0.004, K:0.003 } │
+    // │ Chicken  │ 0.09kg │ { organic:0.30, water:0.40, N:0.015, P:0.010, K:0.005 } │
+    // │ Sheep    │ 0.6kg  │ { organic:0.45, water:0.40, N:0.007, P:0.003, K:0.003 } │
+    // │ Horse    │ 9.0kg  │ { organic:0.50, water:0.35, N:0.005, P:0.002, K:0.004 } │
+    // └──────────┴────────┴──────────────────────────────────────────────────────────┘
+    //
+    // Mass = bodyMass × fraction (cattle 0.025, pig 0.015, chicken 0.03, sheep 0.01, horse 0.02)
+    // Position: animal's feet + random offset ±0.5m
+    // Is a world entity — visible, pickable.
+
+    // WHAT HAPPENS TO DUNG:
+    //   A) Player picks up → inventory → drops on tilled soil → nutrients absorbed:
+    //      soil.nitrogen += dung.N × dung.mass
+    //      soil.phosphorus += dung.P × dung.mass
+    //      soil.potassium += dung.K × dung.mass
+    //      soil.organicMatter += dung.mass × 0.0005
+    //
+    //   B) NPC with farming knowledge collects and spreads (same as A but automated)
+    //
+    //   C) Uncollected: decomposes in 14 game-days → nutrients to local soil cell only
+    //
+    //   D) Dried as fuel: leave in sun 3 game-days → moisture < 0.1 → dried dung
+    //      combustionEnergy = 12 MJ/kg. Historically: primary cooking fuel across Asia/Africa.
+
+    // ENCLOSURE ACCUMULATION:
+    //   dungDensity = totalDungMass / enclosureArea (kg/m²)
+    //   >5.0 kg/m²: diseaseProbability = (density - 5.0) × 0.01 per game-day
+    //   >10.0 kg/m²: animal stress → reduced productivity (less milk, wool, slower growth)
+    //   Creates maintenance loop: animals → dung → clean pen → fertilize fields → grow food → feed animals
+  }
+}
+```
+
+---
+
+##### Connection 5: NPC Crafting API
+
+```
+NPCCraftingAPI {
+  // The crafting interaction is a SERVER-SIDE FUNCTION.
+  // The F-key UI is the player's INTERFACE to that function.
+  // NPCs call the same function directly.
+
+  // Server function:
+  //   function attemptCraft(
+  //     actorId: string,             // player userId OR npc ID
+  //     workstationId: string,       // which workstation
+  //     inputMaterials: MaterialPacket[],  // materials to process
+  //     action: string               // 'smelt' | 'grind' | 'fire' | 'shape' | 'weave'
+  //   ): CraftResult
+
+  CraftResult {
+    success: boolean
+    output: MaterialPacket | null    // the product (if successful)
+    byproducts: MaterialPacket[]     // slag, ash, steam, etc.
+    energyConsumed: number           // J — fuel consumed
+    timeRequired: number             // game-seconds the process takes
+    failureReason?: string           // 'temperature_too_low' | 'wrong_materials' | 'no_fuel' | ...
+  }
+
+  // PLAYER PATH:
+  //   1. Player walks within 5m of workstation → "Press F" appears
+  //   2. Client sends WORKSTATION_USE { playerId, workstationId }
+  //   3. Server sets workstation.state = 'occupied', workstation.operator = playerId
+  //   4. Client shows WorkstationPanel → player selects materials from inventory
+  //   5. Client sends CRAFT_REQUEST { playerId, workstationId, materials[], action }
+  //   6. Server calls attemptCraft(playerId, workstationId, materials, action)
+  //   7. Server runs reaction engine (§3.1) on inputs at workstation temperature
+  //   8. Server returns CraftResult to client
+  //   9. If success: output MaterialPacket added to player inventory
+  //   10. If failure: materials returned + failureReason shown as text feedback
+
+  // NPC PATH:
+  //   1. SLM outputs action: "use_workstation:bloomery" with materials from NPC inventory
+  //   2. NPC pathfinds to bloomery
+  //   3. NPC arrives → server checks: is workstation vacant?
+  //      If occupied: NPC waits nearby (SLM re-evaluates in 30 game-seconds)
+  //      If vacant: server sets workstation.operator = npcId
+  //   4. NPC's brain selects materials from what it's carrying:
+  //      Based on knownProcesses: if NPC knows 'copper_smelting', it selects copper ore + charcoal
+  //      If NPC is experimenting (curiosity-driven): selects novel combination
+  //   5. Server calls attemptCraft(npcId, workstationId, materials, action)
+  //   6. SAME reaction engine runs. SAME physics. SAME result.
+  //   7. If success: output goes to NPC's carried items
+  //      NPC stores discovery in memory: "malachite + charcoal at bloomery → copper"
+  //      NPC's settlement.knownProcesses updated if this is a new discovery
+  //   8. If failure: materials consumed or returned based on failure type
+  //      NPC stores memory: "malachite + charcoal at campfire → nothing (too cold)"
+  //      This memory prevents the NPC from repeating the exact same mistake
+  //      But a curious NPC might try the same materials at a DIFFERENT workstation
+
+  // KEY INSIGHT: the function is identical. The only difference is the caller.
+  // This means: every crafting discovery possible for a player is also possible for an NPC.
+  // An NPC that puts random materials in a furnace out of curiosity can discover steel.
+}
+```
+
+---
+
+##### Connection 6: NPC Building Placement
+
+```
+NPCBuildingPlacement {
+  // SLM decides WHAT to build. BuildingTemplate defines the shape.
+  // PlacementAlgorithm finds WHERE. NPC physically builds block by block.
+
+  BuildingTemplate {
+    type: string                     // 'shelter_hut' | 'storage_hut' | 'wall_segment' | ...
+    footprint: [number, number]      // meters (width × depth)
+    height: number                   // meters
+    wallCount: number                // number of walls (4 for hut, 1 for wall segment)
+    hasRoof: boolean
+    hasDoor: boolean
+    // Templates are minimal descriptions, not blueprints.
+    // The NPC adapts the template to available materials and terrain.
+
+    // Material requirements (approximate — NPC gathers until sufficient):
+    //   shelter_hut (3×3×2.5m): ~80 blocks of wall material + ~20 blocks roof + 1 door frame
+    //   storage_hut (2×2×2m): ~50 blocks wall + ~10 roof
+    //   wall_segment (3×0.3×2m): ~30 blocks
+    //   Block size: ~0.3×0.3×0.3m each (roughly a large stone or clay brick)
+    //   Material: whatever the NPC has access to. Mud brick for early settlements.
+    //   Stone if available. Wood logs for structures near forests.
+  }
+
+  PlacementAlgorithm {
+    // Input: building template, settlement center, existing structures
+    // Output: position (Vec3) and rotation (Quaternion) for the building
+    //
+    // function findBuildPosition(template, settlement):
+    //
+    //   Step 1: Generate candidate positions
+    //     Create a grid of potential positions within settlement territory
+    //     spacing = max(template.footprint) + 2m (gap between buildings)
+    //     candidates = all grid points within territory radius
+    //
+    //   Step 2: Filter invalid positions
+    //     For each candidate, check:
+    //       terrain slope < 15° across the footprint area
+    //         (measure: max height difference across footprint < tan(15°) × footprint width)
+    //       not overlapping any existing world_object (check bounding boxes + 1m margin)
+    //       not overlapping water (grid cells with waterVolume > 0)
+    //       not on a cliff edge (terrain drops > 2m within 3m of any footprint edge)
+    //       ground bearing capacity > estimated building weight / footprint area
+    //         (from §3.4 foundation system — mud can't support heavy stone buildings)
+    //
+    //   Step 3: Score remaining candidates
+    //     score = 0
+    //     + 10 × (1 - distance_to_settlement_center / territory_radius)
+    //       // closer to center is better (cluster, don't scatter)
+    //     + 5 × count_of_nearby_structures_within_10m
+    //       // near other buildings (community feel)
+    //     - 3 × count_of_nearby_structures_within_3m
+    //       // but not TOO close (fire safety, walkability)
+    //     + 2 if facing_nearest_path
+    //       // door faces toward the main walkway
+    //     + 3 if near_workstation
+    //       // storage near bloomery, shelter near campfire
+    //     - 5 if blocks_river_access
+    //       // don't build between settlement and water source
+    //
+    //   Step 4: Pick highest-scoring candidate
+    //     position = candidate.position
+    //     rotation = face door toward settlement center (or toward nearest path)
+    //
+    //   Return { position, rotation }
+
+    // NPC CONSTRUCTION PROCESS (over multiple game-hours):
+    //
+    //   1. NPC goes to material source (stone pile, clay deposit, forest)
+    //   2. NPC gathers materials: carry capacity limits → multiple trips
+    //      Per trip: NPC carries ~10-20kg of material (depends on strength)
+    //      A shelter hut needs ~2000kg of material → ~100-200 trips
+    //      At ~5 game-minutes per trip → ~8-16 game-hours of gathering
+    //
+    //   3. NPC places blocks using server-side placeObject():
+    //      Same function as player building (§7.4)
+    //      NPC places one block every ~5 game-seconds
+    //      Position: computed from template + current build progress
+    //      Walls first (bottom row → top row), then roof, then door frame
+    //
+    //   4. NPC bonds blocks with available mortar:
+    //      If settlement knows mud mortar: use mud (cheap but weak, rain-vulnerable)
+    //      If settlement knows lime mortar: use lime (strong, waterproof — requires kiln)
+    //      If no mortar knowledge: dry-stack only (fragile, topples in storms)
+    //
+    //   5. Construction takes breaks: NPC eats, sleeps, does other tasks
+    //      A shelter hut takes ~2-4 game-days of intermittent work
+    //      Multiple NPCs can work on the same building (each places blocks)
+    //
+    //   6. Completed structure is added to settlement.structures
+    //      Becomes a real world_object: persistent, shelters from weather, usable by all
+
+    // VARIATION: two NPCs building the same template produce different results.
+    // Different stone sizes (from different quarries), different mortar quality,
+    // different terrain adaptation (one building is level, another follows a slope).
+    // Buildings are not prefabs — they are assembled from individual MaterialPackets.
+  }
+}
+```
+
+---
+
+##### Connection 7: Fire Spread Between Structures
+
+```
+FireSpreadSystem {
+  // Fire is a HEAT TRANSFER problem (Stage 1 of the physics tick).
+  // A burning block radiates heat. Neighbors absorb heat. When hot enough → ignite.
+
+  // RADIATION HEAT TRANSFER from burning block to neighbor:
+  //   Q_radiation = emissivity × σ × A_facing × (T_fire⁴ - T_neighbor⁴) × dt
+  //   where:
+  //     emissivity = burningBlock.packet.emissivity (typically 0.8-0.95 for burning wood)
+  //     σ = 5.67 × 10⁻⁸ W/(m²·K⁴) (Stefan-Boltzmann constant)
+  //     A_facing = area of the face between the two blocks (m²)
+  //     T_fire = temperature of burning block (K) — typically 800-1200°C = 1073-1473 K
+  //     T_neighbor = current temperature of neighbor block (K)
+  //     dt = tick duration (seconds)
+  //
+  //   Example: burning wood wall (T=1000°C = 1273K) next to another wood wall (T=25°C = 298K):
+  //     A_facing = 0.3 × 0.3 = 0.09 m² (one block face)
+  //     Q = 0.9 × 5.67e-8 × 0.09 × (1273⁴ - 298⁴) × 0.0167
+  //       = 0.9 × 5.67e-8 × 0.09 × (2.62e12 - 7.89e9) × 0.0167
+  //       ≈ 0.9 × 5.67e-8 × 0.09 × 2.61e12 × 0.0167
+  //       ≈ 222 J per tick (at 60 Hz)
+  //     neighbor temperature rise per tick:
+  //       ΔT = Q / (mass × specificHeat) = 222 / (5.0 × 1700) ≈ 0.026°C per tick
+  //       Per second: 0.026 × 60 = 1.56°C/second
+  //     Time to reach ignition (300°C): (300 - 25) / 1.56 ≈ 176 seconds ≈ 3 minutes
+  //     REALISTIC: a wood wall 30cm from a fire catches in ~3 minutes. Correct.
+
+  // WIND EFFECT on heat transfer:
+  //   windMultiplier = 1.0 + cos(angleBetweenWindAndBlockDirection) × 1.0
+  //   Downwind neighbor: windMultiplier = 2.0 (wind pushes hot air toward it)
+  //   Upwind neighbor: windMultiplier ≈ 0.0 (wind pushes heat away)
+  //   Crosswind: windMultiplier ≈ 1.0 (no net effect)
+  //   Strong wind (>15 m/s): embers can travel further → ignition check for blocks within 5m
+  //     (not just adjacent blocks)
+
+  // IGNITION CONDITION:
+  //   if (block.temperature > block.packet.ignitionTemperature
+  //       AND block.packet.flammability > 0
+  //       AND block.packet.waterAbsorption × block.moisture < 0.4):
+  //     // Wet materials resist ignition (moisture must evaporate first)
+  //     block.burning = true
+  //     block.burnStartTime = currentTick
+  //
+  //   Materials that CAN burn (have ignitionTemperature and flammability > 0):
+  //     Wood: ignition 300°C, flammability 0.8
+  //     Thatch/straw: ignition 230°C, flammability 0.95 (very easy to catch)
+  //     Cloth/rope: ignition 250°C, flammability 0.7
+  //     Dried dung: ignition 350°C, flammability 0.5
+  //     Coal: ignition 450°C, flammability 0.6
+  //
+  //   Materials that CANNOT burn (flammability = 0):
+  //     Stone, clay brick, metal, dirt, water
+
+  // BURNING PROCESS:
+  //   Once burning:
+  //     burnRate = packet.flammability × oxygenSupply × (1 - moisture) × 0.001 kg/tick
+  //     packet.mass -= burnRate × dt
+  //     packet.temperature = max(packet.temperature, ignitionTemperature + 200)
+  //       // Burning maintains high temperature
+  //     Heat output = burnRate × packet.combustionEnergy per tick
+  //       // This heat goes to: neighbors (radiation), air (convection), self (maintains temp)
+  //
+  //   When mass < 10% of original:
+  //     Block structurally fails → Stage 5 cascade check
+  //     Block becomes ash: new MaterialPacket { potassium: 0.3, calcium: 0.2, carbon: 0.4, ... }
+  //     Ash falls to ground as loose material (can be collected for farming — potassium fertilizer)
+  //
+  //   Total burn time:
+  //     Small wood block (5kg, flammability 0.8): mass/burnRate ≈ 5 / 0.0008 = 6250 ticks ≈ 104 sec
+  //     Large log (50kg): ~17 minutes
+  //     Thatch roof section (2kg, flammability 0.95): ~35 seconds (FAST — thatch fires are devastating)
+
+  // FIRE SPREAD THROUGH A SETTLEMENT:
+  //   Thatch-roofed wooden huts packed closely:
+  //     Hut 1 catches fire (campfire accident, lightning)
+  //     Thatch roof ignites within 30 seconds (low ignition temp, high flammability)
+  //     Adjacent hut's thatch receives radiation → catches in ~2 minutes
+  //     Within 10 minutes: entire cluster of 5 huts on fire
+  //     This is historically accurate — medieval cities burned frequently for this reason
+  //     Prevention: stone/clay buildings, lime plaster coating, spacing between structures,
+  //       fire breaks (gaps in the building cluster), stone/tile roofs instead of thatch
+}
+```
+
+---
+
+##### Connection 8: Rain → Physical Water (Grid Volume)
+
+```
+RainToWaterSystem {
+  // Rain falling from the sky is VISUAL ONLY on the client (GPU particles).
+  // Physical water appears by the SERVER adding volume to grid cells.
+
+  // Per server tick (1 Hz for weather effects):
+  //   For each atmosphere cell where precipitationRate > 0:
+  //     For each terrain grid cell (2×2m) within this atmosphere cell:
+  //
+  //       if shelterMap[cell].exposed:
+  //         waterAdded = precipitationRate × cellArea × dt / 1000
+  //         // precipitationRate in mm/hr, cellArea in m², dt in hours
+  //         // Convert: mm/hr × m² × hr / 1000 = m³ of water added
+  //         //
+  //         // Example: moderate rain (5 mm/hr), one 2×2m cell, 1 game-hour tick:
+  //         //   waterAdded = 5 × 4 × 1 / 1000 = 0.02 m³ = 20 liters
+  //         //   That's 20 liters of water per cell per game-hour of rain.
+  //         //   Over 8 hours of rain: 160 liters per cell.
+  //
+  //         // Partition between surface water and soil absorption:
+  //         soilAbsorption = min(waterAdded, soil.porosity × (1 - soil.moisture) × cellArea × 0.01)
+  //         //   Porous dry soil absorbs most of the rain (no puddle forms)
+  //         //   Saturated clay soil absorbs nothing (puddle forms immediately)
+  //         surfaceWater = waterAdded - soilAbsorption
+  //
+  //         soil.moisture += soilAbsorption / (cellArea × soilDepth)
+  //         gridCell.waterVolume += surfaceWater
+  //
+  //         // Soil absorption feeds groundwater:
+  //         //   Absorbed water slowly percolates downward
+  //         //   Eventually feeds springs and maintains river base flow in dry season
+  //         //   groundwaterLevel += soilAbsorption × 0.5 (half reaches groundwater)
+
+  // SURFACE WATER FLOW (Manning's equation, Scale 3 grid solver):
+  //   Water in grid cells flows from high to low:
+  //     v = (1/n) × R^(2/3) × S^(1/2)
+  //     where: n = Manning's roughness (grass:0.03, rock:0.01, mud:0.02)
+  //            R = hydraulic radius ≈ waterDepth (for shallow flow)
+  //            S = terrain slope between adjacent cells
+  //     flowRate = v × crossSectionArea = v × waterDepth × cellWidth
+  //     Transfer volume per tick: flowVolume = flowRate × dt
+  //     Source cell loses flowVolume, downhill cell gains flowVolume
+
+  // PUDDLE FORMATION:
+  //   Grid cells in local terrain minima accumulate water (no downhill neighbor).
+  //   Puddle grows until:
+  //     a) Rain stops → evaporation slowly removes it
+  //     b) Water level reaches the lowest rim → overflows and continues flowing
+  //     c) Soil absorbs it (if soil isn't saturated)
+
+  // CONNECTION TO SPH (Scale 2 → Scale 3 transition):
+  //   If a player scoops water from a puddle (grid cell):
+  //     gridCell.waterVolume -= scoopedVolume
+  //     Server spawns SPH particles with that volume, composition, temperature
+  //     Player now has SPH water in a container → can pour, heat, mix
+
+  // CONNECTION TO EVAPORATION (→ Connection 9):
+  //   Grid cells with waterVolume > 0 lose water to evaporation
+  //   Rate depends on temperature, wind, humidity (see Connection 9)
+}
+```
+
+---
+
+##### Connection 9: Evaporation → Weather Humidity
+
+```
+EvaporationSystem {
+  // Water surfaces lose water to the atmosphere. This feeds humidity → clouds → rain.
+  // Closes the hydrological cycle.
+
+  // Per atmosphere cell (2×2m), per weather tick (1 Hz):
+  //
+  //   Step 1: Calculate total water surface area in this cell column
+  //     waterSurfaceArea = sum of grid cells below with waterVolume > 0
+  //     Also: ocean cells count as water surface if this cell is over ocean
+  //
+  //   Step 2: Calculate evaporation rate (simplified Penman equation)
+  //     evapRate = waterSurfaceArea
+  //              × (1 - atmosphereCell.humidity)       // drier air → faster evaporation
+  //              × (atmosphereCell.airTemperature / 100) // hotter → faster
+  //              × (1 + windSpeed × 0.1)                // wind carries moisture away
+  //              × 0.00001                              // scaling constant (kg/m²/s)
+  //
+  //     Example: 4m² of puddle, humidity 0.5, temperature 25°C, wind 5 m/s:
+  //       evapRate = 4 × 0.5 × 0.25 × 1.5 × 0.00001 = 0.0000075 kg/s
+  //       = 0.027 kg/hour = 27 mL/hour
+  //       A 20-liter puddle evaporates in ~740 hours ≈ 31 game-days
+  //       At 35°C, low humidity, strong wind: ~10 game-days
+  //       This is realistic for a small puddle.
+  //
+  //   Step 3: Remove water from source
+  //     For each grid cell with water in this column:
+  //       cell.waterVolume -= evapRate × cell.surfaceArea / totalWaterSurfaceArea × dt
+  //       // Proportional to each cell's share of the total surface
+  //
+  //   Step 4: Add moisture to atmosphere
+  //     evaporatedMass = evapRate × dt  // kg of water vapor
+  //     atmosphereCell.humidity += evaporatedMass / atmosphereCell.airMass
+  //     // airMass ≈ airDensity × cellVolume ≈ 1.2 × 4 × 100 = 480 kg (for 100m tall air column)
+  //     // Adding 0.027 kg/hour to 480 kg air: humidity increase = 0.000056 per hour
+  //     // Small — but millions of cells contribute simultaneously
+  //
+  //   Step 5: Humidity feeds cloud formation (§4.6 weather)
+  //     When humidity crosses the dew point → condensation → cloud cover increases
+  //     When cloud water content exceeds precipitation threshold → rain
+  //     Rain adds water back to grid cells (Connection 8)
+  //     CYCLE IS CLOSED.
+
+  // OCEAN EVAPORATION (the main driver):
+  //   Ocean covers a large fraction of the planet
+  //   Ocean surface temperature is relatively constant (~15-25°C depending on latitude)
+  //   Ocean provides the MAJORITY of atmospheric moisture
+  //   The ocean shader (visual) doesn't simulate evaporation — the weather system
+  //   simply receives a bulk evaporation rate based on ocean surface area × latitude-based temperature
+  //   oceanEvapRate = oceanCellCount × avgOceanTemp / 100 × (1 - avgHumidity) × 0.0001
+
+  // PLANT TRANSPIRATION:
+  //   Plants release water vapor through their leaves (transpiration)
+  //   A forest transpires more water than bare ground — contributing to local humidity
+  //   vegetationTranspiration = vegetationCover × soilMoisture × temperature × 0.00001
+  //   This is why deforestation reduces rainfall downwind — less transpiration → less humidity
+  //   The game simulates this naturally: cut down a forest → local humidity drops → less rain
+}
+```
+
+---
+
+##### Connection 10: Precision Craft → Functional Properties
+
+```
+PrecisionCraftMeasurement {
+  // After the player finishes shaping an object in precision craft mode (§6.4),
+  // the game measures the resulting shape to determine its functional properties.
+
+  // VOXELIZATION:
+  //   The deformed mesh is converted to a 3D voxel grid (16×16×16 = 4096 voxels).
+  //   Each voxel is either SOLID (part of the object) or EMPTY.
+  //
+  //   Algorithm:
+  //     1. Compute bounding box of the deformed mesh
+  //     2. Divide bounding box into 16×16×16 cells
+  //     3. For each cell center: cast 6 rays (±x, ±y, ±z) to determine if inside or outside mesh
+  //        If majority of rays hit an odd number of mesh faces: cell is INSIDE (solid)
+  //        This is a standard voxelization approach (ray-based parity test)
+  //     4. Cost: 4096 × 6 = 24,576 raycasts. At ~1μs each: ~25ms total. Runs once on craft completion.
+
+  // MEASUREMENTS from voxel grid:
+
+  MeasuredProperties {
+    volume: number
+    //   Count interior voxels (solid voxels that have at least one solid neighbor on all 6 sides)
+    //   Wait — for a container, interior means the EMPTY space INSIDE the walls.
+    //   Algorithm:
+    //     1. Find all EMPTY voxels
+    //     2. Flood-fill from the TOP face downward (these are "outside" — not contained)
+    //     3. Any EMPTY voxels NOT reached by the flood fill are INTERIOR (contained space)
+    //     4. volume = interiorVoxelCount × voxelSize³
+    //   Example: a bowl shape (16³ grid, voxelSize = 0.01m = 1cm):
+    //     Bowl diameter ~10 voxels (10cm), depth ~5 voxels (5cm)
+    //     Interior voxels ≈ π/4 × 10² × 5 × 0.5 ≈ 196 voxels
+    //     volume = 196 × 0.001³ = 0.000000196 m³ ≈ 0.2 mL
+    //     Wait, that's too small. The voxel size depends on the object size.
+    //     For a 20cm wide pot: voxelSize = 0.2/16 = 0.0125m
+    //     Interior ≈ 300 voxels → volume = 300 × 0.0125³ ≈ 0.00059 m³ ≈ 0.59 liters
+    //     That's a small cup. A larger pot (30cm wide): voxelSize = 0.3/16 ≈ 0.019m
+    //     Interior ≈ 500 voxels → volume ≈ 3.4 liters. Reasonable for a pot.
+
+    wallThickness: number
+    //   For each interior (contained) voxel, compute distance to nearest EXTERIOR surface:
+    //     distance = min distance to any empty voxel that IS reachable from outside
+    //   wallThickness = average of these distances across all interior voxels × voxelSize
+    //   Thin walls (< 2 voxels = ~2-4mm): fragile. Breaks easily when dropped.
+    //   Thick walls (> 5 voxels = ~6-10mm): strong but heavy, uses more clay.
+    //   Structural strength of container: wallThickness × packet.compressiveStrength
+
+    symmetry: number
+    //   Compare the left half of the voxel grid to a mirror of the right half:
+    //     matchCount = number of voxels that match between left and mirrored-right
+    //     totalVoxels = total solid voxels
+    //     symmetry = matchCount / totalVoxels
+    //   Also check front-back symmetry and average both:
+    //     symmetry = (leftRightSymmetry + frontBackSymmetry) / 2
+    //   Range: 0.0 (completely asymmetric) to 1.0 (perfect mirror symmetry)
+    //   A wheel-thrown pot: symmetry ≈ 0.85-0.95 (wheel enforces rotational symmetry)
+    //   A hand-shaped pot: symmetry ≈ 0.50-0.75
+    //   Effect: lopsided pots (symmetry < 0.6) hold less effective volume
+    //     effectiveVolume = volume × symmetry (liquid pools to one side)
+
+    openingSize: number
+    //   Count empty voxels on the top face of the grid that connect to the interior
+    //   openingSize = openTopVoxels × voxelSize² (area in m²)
+    //   Small opening: hard to fill/pour, but liquid stays in when tilted
+    //   Large opening: easy to fill, spills easily
+    //   A sealed container (opening = 0): nothing spills, but can't be filled without breaking seal
+  }
+
+  // These measurements become properties of the crafted object:
+  //   CraftedContainer {
+  //     packet: MaterialPacket,          // the clay/wood/metal it's made from
+  //     volume: number,                  // liters it can hold
+  //     wallThickness: number,           // determines structural durability
+  //     symmetry: number,                // affects effective volume
+  //     openingSize: number,             // affects fill/pour behavior
+  //     grip: ToolGrip                   // if it's a tool — where to hold it
+  //   }
+}
+```
+
+---
+
+##### Connection 11: Sharpness — Object Geometry Property
+
+```
+SharpnessSystem {
+  // Sharpness is NOT a material property. It is an OBJECT property.
+  // A lump of iron has no sharpness. A knife made from iron does.
+  // Sharpness comes from the edge GEOMETRY — how thin the cutting edge is.
+
+  // MEASUREMENT (during precision craft mode):
+  //   When the player finishes knapping/forging a tool:
+  //     The strike point region (set during tool grip setup) is analyzed
+  //     edgeRadius = minimum material thickness at the strike point zone
+  //       Measured from the voxel grid: find the thinnest solid cross-section
+  //       near the designated strike point
+  //
+  //   Real-world edge radii:
+  //     Obsidian blade (best possible): 0.003mm (3 micrometers — sharper than steel surgical scalpels)
+  //     Flint blade (well-knapped): 0.01-0.05mm
+  //     Copper blade: 0.1-0.5mm (copper is soft, can't hold a fine edge)
+  //     Iron blade (ground): 0.05-0.2mm
+  //     Steel blade (hardened + ground): 0.01-0.05mm
+  //     Stone axe (rough): 1-3mm (not sharp, works by weight and force)
+  //     Hammer: 10-20mm (not sharp at all — designed for blunt force)
+
+  // SHARPNESS VALUE:
+  //   sharpness = 1.0 / (1.0 + edgeRadius_mm × 10)
+  //     Obsidian (0.003mm): 0.97 (razor)
+  //     Flint (0.03mm): 0.77
+  //     Iron (0.1mm): 0.50
+  //     Stone axe (2mm): 0.048
+  //     Hammer (15mm): 0.0066
+
+  // DEGRADATION PER USE:
+  //   Every time the tool strikes a target:
+  //     edgeRadius += targetHardness / (toolHardness × 1000) mm
+  //
+  //   Examples:
+  //     Iron knife (hardness 4) cutting wood (hardness 2):
+  //       edgeRadius += 2 / 4000 = 0.0005mm per cut. Takes 200 cuts to go from 0.1mm to 0.2mm.
+  //     Iron knife cutting stone (hardness 6):
+  //       edgeRadius += 6 / 4000 = 0.0015mm per strike. Dulls 3× faster.
+  //     Flint knife (hardness 7) cutting leather (hardness 1):
+  //       edgeRadius += 1 / 7000 = 0.00014mm per cut. Very slow dulling.
+  //     Copper knife (hardness 3) cutting bone (hardness 3.5):
+  //       edgeRadius += 3.5 / 3000 = 0.0012mm per cut. Dulls fast — copper is soft.
+  //
+  //   CHIPPING: if target hardness > tool hardness × 1.5:
+  //     The tool may chip instead of just dulling
+  //     chipProbability = (targetHardness / toolHardness - 1.5) × 0.1 per strike
+  //     A chip increases edgeRadius by 0.5-2mm instantly (large damage)
+  //     Flint (7) hitting granite (7): chipProbability = 0 (equal hardness, no chip)
+  //     Flint hitting iron anvil (4): chipProbability... wait, flint is harder. No chip.
+  //     Copper (3) hitting granite (7): chipProbability = (7/3 - 1.5) × 0.1 = 0.083 per strike
+  //     8% chance of chipping per strike. Copper tools break easily on hard targets.
+
+  // RE-SHARPENING:
+  //   Player uses a grinding stone (workstation) in precision craft mode
+  //   The tool's strike point zone is displayed close-up
+  //   Player drags/grinds to reduce edge radius
+  //   edgeRadius decreases toward material's minimum achievable edge:
+  //     minEdge depends on material:
+  //       Obsidian: 0.003mm (fractures to atomic sharpness)
+  //       Flint: 0.01mm (conchoidal fracture creates fine edge)
+  //       Copper: 0.1mm (too soft for finer)
+  //       Iron: 0.05mm
+  //       Steel: 0.01mm (hardened steel holds finest edge of any metal)
+  //   Cannot sharpen below minEdge — material physics limits it.
+
+  // STORED PER TOOL:
+  //   ToolInstance {
+  //     packet: MaterialPacket,           // what the tool is made of
+  //     grip: ToolGrip,                   // where to hold it
+  //     edgeRadius: number,               // mm — current sharpness state
+  //     durability: number,               // 0-1 — overall structural integrity
+  //   }
+}
+```
+
+---
+
+##### Connection 12: Combat → Tool and Armor Durability
+
+```
+CombatDurabilitySystem {
+  // Every combat impact damages both the weapon AND the armor.
+
+  // TOOL DURABILITY:
+  //   impactStress = impactForce / toolCrossSectionArea
+  //   If impactStress > tool.packet.tensileStrength:
+  //     TOOL BREAKS. Shatters into 2-4 MaterialPacket fragments.
+  //     Each fragment has: composition = original, mass = original/fragmentCount
+  //     Fragments scatter from impact point (rigid body physics)
+  //     Example: stone axe (tensileStrength ~15 MPa) hits iron armor (very hard surface)
+  //       impactForce = energy / contactDistance ≈ 12J / 0.01m = 1200 N
+  //       crossSection ≈ 0.003 m² (axe head cross-section)
+  //       stress = 1200 / 0.003 = 400,000 Pa = 0.4 MPa << 15 MPa → does not break
+  //       Stone axe survives hitting iron armor. But:
+  //     Glass bottle hitting stone floor:
+  //       tensileStrength ~30 MPa, but very thin cross-section at impact
+  //       stress easily exceeds → shatters. Correct.
+
+  //   If tool survives: micro-damage accumulates
+  //     durabilityLoss = impactEnergy / (tool.packet.youngsModulus × toolVolume)
+  //     tool.durability -= durabilityLoss
+  //     When durability ≤ 0: tool breaks (same as above)
+  //
+  //     Example: iron sword (E=200GPa, volume=0.0003m³) with 20J impact:
+  //       durabilityLoss = 20 / (200e9 × 0.0003) = 0.00000033 per hit
+  //       ~3,000,000 hits to break from accumulated damage. Effectively lasts forever for combat.
+  //       But against HARD targets (mining rock): energy is higher, accumulates faster.
+  //     Stone axe (E=70GPa, volume=0.0005m³) with 12J impacts on rock:
+  //       durabilityLoss = 12 / (70e9 × 0.0005) = 0.00000034 per hit
+  //       Similar — the tool itself is durable. What degrades is the EDGE (Connection 11).
+
+  // ARMOR DURABILITY:
+  //   Each hit reduces armor durability proportional to absorbed energy:
+  //     energyAbsorbed = effectiveDamage × damageThreshold_of_hit_region
+  //     // This is the energy the armor prevented from reaching the body
+  //     armor.durability -= energyAbsorbed / (armor.packet.youngsModulus × armorVolume × 1000)
+  //
+  //   As durability drops, absorption decreases LINEARLY:
+  //     effectiveAbsorption = baseAbsorption × armor.durability
+  //     Fresh iron armor (durability 1.0): absorption = 0.7
+  //     Half-worn (0.5): absorption = 0.35
+  //     Broken (0.0): absorption = 0 (no protection — the armor has holes/cracks)
+  //
+  //   Visual: as durability drops, armor appearance changes
+  //     1.0-0.7: pristine appearance
+  //     0.7-0.4: visible dents, scratches (normal map overlay)
+  //     0.4-0.1: large cracks, missing sections (mesh deformation)
+  //     <0.1: barely functional — falling apart
+
+  // REPAIR:
+  //   Metal armor: heat at forge (above softening point) + hammer on anvil
+  //     Precision craft mode: player hammers out dents, fills cracks
+  //     durability restores proportional to repair quality
+  //     Requires: forge (temperature), hammer (tool), metal material (patch material)
+  //   Leather armor: patch with new leather + sewing (needle + sinew)
+  //     durability restores to max(0.8, current + 0.3) — patches never fully restore
+  //   Wood/bone armor: replace broken sections
+  //     Essentially craft a new piece and swap it
+}
+```
+
+---
+
+##### Connection 13: Combat → Bleed Rate
+
+```
+CombatBleedSystem {
+  // Sharp weapons cause bleeding (cutting tissue). Blunt weapons cause bruising (no bleeding).
+
+  // WHEN A HIT LANDS:
+  //   damage = computed per §7.5 (kinetic energy / region threshold × armor reduction)
+
+  //   IF tool.sharpness > 0.1 (sharp enough to cut skin):
+  //     bleedRate = damage × sharpness × 0.5  // HP per game-minute
+  //
+  //     Examples:
+  //       Sharp iron sword (sharpness 0.5) dealing 40% torso damage:
+  //         bleedRate = 0.4 × 0.5 × 0.5 = 0.1 HP/game-minute
+  //         Without treatment: loses 6 HP/game-hour → lethal in ~16 game-hours
+  //       Razor-sharp obsidian blade (sharpness 0.97) dealing 30% arm damage:
+  //         bleedRate = 0.3 × 0.97 × 0.5 = 0.146 HP/game-minute
+  //         Severe — needs immediate bandaging
+  //       Dull stone axe (sharpness 0.05) dealing 30% leg damage:
+  //         sharpness < 0.1 → bleedRate = 0. Bruise, no bleeding.
+  //       Hammer (sharpness 0.007):
+  //         bleedRate = 0. Pure blunt trauma. Breaks bones, doesn't cut.
+
+  //   IF tool.sharpness ≤ 0.1 (blunt):
+  //     bleedRate = 0
+  //     Instead: bone fracture chance = damage × (1 - sharpness) × 0.3
+  //       A 50% damage hammer hit: fracture chance = 0.5 × 0.993 × 0.3 = 14.9%
+  //       Fracture: movement speed halved for that limb, takes 30 game-days to heal
+  //       (realistic: real bone fractures take 6-8 weeks)
+
+  // BLEED RATE STACKING:
+  //   Multiple cuts on the same body region ADD their bleed rates
+  //   leftArm.bleedRate = sum of all active bleeds on that arm
+  //   Total blood loss = sum of all regions' bleedRates
+
+  // BLEED STOPS WHEN:
+  //   A) Player applies bandage: cloth MaterialPacket + interact on injured region
+  //      → bleedRate for that region = 0 immediately
+  //      → healing rate for that region × 2 (bandage bonus)
+  //   B) Natural clotting: bleedRate decreases by 0.01 HP/game-minute per game-minute
+  //      A small cut (bleedRate 0.05) clots naturally in 5 game-minutes
+  //      A deep cut (bleedRate 0.2) takes 20 game-minutes to clot — may be lethal without bandage
+  //   C) Player bleeds out: total bleedRate × time > remaining health → death
+
+  // BLOOD VISUAL:
+  //   Each active bleed spawns blood decals on the ground:
+  //     decalRate = bleedRate × 2 per game-minute (more bleeding = more blood on ground)
+  //     Blood decals fade over 10 game-minutes (dries and darkens)
+  //   Other players see the blood — visual communication of injury without HP bars
+}
+```
+
+---
+
+##### Connection 14: Barter Exchange Rate
+
+```
+BarterSystem {
+  // Each settlement values materials based on how much it needs them vs. how much it has.
+
+  // VALUE of a material to a settlement:
+  //   value = needWeight / (stockpile_kg + 1)
+  //
+  //   needWeight per category (how critical this resource is):
+  //     food:    10  (starvation kills — always critical)
+  //     fuel:     5  (needed for smelting, cooking, warmth)
+  //     tools:    8  (needed for everything)
+  //     ore:      3  (only important for metalworking settlements)
+  //     cloth:    2  (clothing, nice to have but not critical)
+  //     stone:    1  (building material, abundant in most locations)
+  //     wood:     3  (building, fuel, tools — versatile)
+  //     water:    7  (only critical in arid biomes)
+  //
+  //   Example settlement A (copper mining town):
+  //     stockpile: food=5kg, fuel=20kg, ore=200kg, tools=3
+  //     food_value = 10 / (5+1) = 1.67 (desperate for food)
+  //     ore_value = 3 / (200+1) = 0.015 (swimming in ore)
+  //     tools_value = 8 / (3+1) = 2.0 (needs tools)
+  //
+  //   Example settlement B (farming village):
+  //     stockpile: food=150kg, fuel=10kg, ore=0kg, tools=1
+  //     food_value = 10 / (150+1) = 0.066 (well-fed)
+  //     ore_value = 3 / (0+1) = 3.0 (desperately wants metal)
+
+  // EXCHANGE RATE between two settlements:
+  //   A wants food, offers copper ore.
+  //   B wants copper ore, offers food.
+  //
+  //   A's willingness to trade copper for food:
+  //     A_ratio = A.food_value / A.ore_value = 1.67 / 0.015 = 111.3
+  //     (A would give up to 111kg ore for 1kg food)
+  //
+  //   B's willingness to trade food for copper:
+  //     B_ratio = B.ore_value / B.food_value = 3.0 / 0.066 = 45.5
+  //     (B would give up to 45kg food for 1kg ore... wait, that's backward)
+  //     Actually: B_ratio = how much food per kg of ore = B.food_value / B.ore_value
+  //              = 0.066 / 3.0 = 0.022 (B would give 1kg food for 45kg ore)
+  //
+  //   Trade happens if both sides benefit:
+  //     A gives X kg ore, gets Y kg food
+  //     A is happy if: Y/X > A.ore_value / A.food_value = 0.015 / 1.67 = 0.009
+  //     B is happy if: X/Y > B.food_value / B.ore_value = 0.066 / 3.0 = 0.022
+  //
+  //   The actual exchange rate: geometric mean of both valuations
+  //     rate = sqrt(A_ratio × 1/B_ratio) = sqrt(111.3 × 45.5) ≈ 71
+  //     Result: A gives 71 kg copper ore, gets 1 kg food
+  //     Both sides feel they got a good deal relative to their own needs.
+
+  // TRADE OFFER GENERATION (automatic, per settlement, per game-day):
+  //   For each material category where stockpile > 2× daily consumption:
+  //     surplusMaterial = category with highest (stockpile - 2×dailyNeed)
+  //   For each material category where stockpile < 0.5× daily consumption:
+  //     deficitMaterial = category with lowest (stockpile / dailyNeed)
+  //   If surplus exists AND deficit exists:
+  //     Generate TradeOffer:
+  //       gives: surplusMaterial, amount: surplus × 0.5 (offer half of surplus)
+  //       wants: deficitMaterial, minAmount: computed from exchange rate
+  //     Offer is broadcast to settlements within trade distance (walkable within 1 game-day)
+}
+```
+
+---
+
+##### Connection 15: Player-NPC Trade Interface
+
+```
+PlayerNPCTradeSystem {
+  // No UI. No menu. Physical exchange in the world.
+
+  // METHOD A: Ground Drop (passive trade)
+  //
+  //   Step 1: Player drops items on ground within settlement territory
+  //     Server detects: DroppedItem event within settlement.territory
+  //     DroppedItem is a MaterialPacket world entity with position
+  //
+  //   Step 2: Nearby NPC notices (within 10m, line of sight)
+  //     NPC SLM evaluates next decision:
+  //       Input includes: "Player dropped [material] near storage area"
+  //       SLM considers: settlement needs, player trust, material value
+  //
+  //     IF trust > 0 AND material is needed (settlement has deficit):
+  //       SLM output: "take_offering_and_reciprocate"
+  //       NPC walks to dropped item, picks it up (item → NPC inventory)
+  //       NPC adds item to settlement storage
+  //       NPC calculates reciprocation amount:
+  //         recipAmount = droppedMass × exchangeRate (from Connection 14)
+  //         using settlement's internal valuation vs player offering
+  //       NPC walks to settlement storage
+  //       NPC retrieves recipAmount of the most-needed material the settlement has surplus of
+  //       NPC walks back to drop location
+  //       NPC drops reciprocal items on the ground near the player's original drop spot
+  //       NPC memory: "Player [name] traded [amount] [material]. Positive interaction."
+  //       trust += 0.05
+  //
+  //     IF trust > 0 BUT material is not needed:
+  //       SLM output: "ignore_offering" (or take it anyway if it has any value)
+  //       NPC may not reciprocate — or reciprocates with something low-value
+  //
+  //     IF trust < 0 (player has stolen/attacked before):
+  //       SLM output: "ignore" or "take_without_reciprocating"
+  //       NPC takes the item but gives nothing back
+  //       This IS theft — but trust was already negative, so the NPC doesn't care
+  //
+  //     IF trust < -0.5 (hostile):
+  //       SLM output: "warn_away" — NPC approaches player aggressively
+  //       NPC gestures: go away (warning intent from §5.3)
+  //       Does not interact with dropped items
+  //
+  //   Step 3: Player picks up reciprocal items
+  //     Normal pickup interaction (walk within 1.5m, interact key)
+  //
+  //   Risk: another player or animal could take the items first
+  //   Risk: NPC decides the offering isn't worth reciprocating
+  //   These risks mirror real ancient trade — trust and timing matter
+
+  // METHOD B: Face-to-Face (active trade)
+  //
+  //   Step 1: NPC has 'offer_trade' intent active
+  //     (SLM decided: "We have surplus copper. I'll approach a player to trade.")
+  //     NPC walks toward nearest player within settlement territory
+  //
+  //   Step 2: NPC extends item in hand (visible — the player sees what's offered)
+  //     NPC's voice synth: says a word in settlement language (trade-related concept)
+  //     NPC's gesture: one hand extended with item, other hand open (receiving posture)
+  //
+  //   Step 3: Player interaction
+  //     Player can:
+  //       a) Take the offered item (interact key on NPC's extended hand)
+  //          → NPC takes it as: "trade started, now give me something"
+  //          → NPC stands and waits for ~30 game-seconds
+  //          → Player should drop something of value in return
+  //          → NPC evaluates what player dropped (same logic as Method A)
+  //          → If acceptable: NPC picks it up, nods (satisfaction gesture), walks away
+  //          → If not acceptable: NPC drops the original item back, shakes head, walks away
+  //          → If player takes without giving: trust -= 0.3 (theft!)
+  //            NPC makes distress vocalization, all nearby NPCs update trust for this player
+  //
+  //       b) Drop their own item first (offering)
+  //          → NPC evaluates the offering
+  //          → If fair trade: NPC drops their item, picks up player's offering
+  //          → Simultaneous exchange, trust += 0.05
+  //
+  //       c) Walk away (decline)
+  //          → NPC lowers hand, walks away. No trust change. No penalty.
+
+  // TIME PER TRADE INTERACTION:
+  //   Method A: 30-60 game-seconds (NPC decision + walking + picking up + reciprocating)
+  //   Method B: 15-30 game-seconds (face-to-face is faster)
+  //   In real time (4× speed): 7.5-15 real seconds per trade
+
+  // LARGE TRADES:
+  //   For bulk trading (50kg of ore for 20kg of food):
+  //     Player drops multiple items, NPC makes multiple reciprocation trips
+  //     Or: player drops all at once, NPC evaluates total value, reciprocates in proportion
+  //     The exchange rate formula (Connection 14) handles any quantity
+}
+```
+
+---
+
+##### Connection 16: Wind → Structural Force (moderate)
+
+```
+WindToStructural {
+  // Weather system provides windSpeed and windDirection.
+  // Structural system needs force on each exposed wall.
+
+  // Per structural check (triggered when weather state changes to storm):
+  //   For each wall block on the exterior of a structure:
+  //     if shelterMap shows this face is windward (faces the wind):
+  //       windForce = 0.5 × airDensity × windSpeed² × blockFaceArea × dragCoeff × windMultiplier
+  //
+  //       airDensity = 1.225 kg/m³ (sea level)
+  //       blockFaceArea = block width × block height (m²)
+  //       dragCoeff = 1.2 (flat surface perpendicular to wind — standard for buildings)
+  //       windMultiplier = cos(angleBetweenWindAndWallNormal)
+  //         Perpendicular to wind: 1.0 (full force)
+  //         Parallel to wind: 0.0 (no force)
+  //         45°: 0.707
+  //
+  //     Apply this force as a lateral load in the structural integrity check (§3.4):
+  //       shearStress = windForce / blockContactArea
+  //       if shearStress > bondStrength: block slides or topples
+
+  // Example: 3m tall stone wall, 0.3m thick, unbonded (stacked), wind 20 m/s:
+  //   windForce per block (0.3×0.3m face): 0.5 × 1.225 × 400 × 0.09 × 1.2 = 26.5 N per block
+  //   Total on a 3m×2m wall section: ~26.5 × 67 blocks ≈ 1775 N
+  //   Overturning moment: 1775 × 1.5m (height of center of pressure) = 2663 N·m
+  //   Resisting moment: wall weight × wall thickness/2 = (67×10kg×9.81) × 0.15 = 987 N·m
+  //   2663 > 987 → WALL TOPPLES at 20 m/s wind. Unbonded walls can't handle storms.
+  //   Bonded wall (lime mortar): bondStrength adds resistance → survives up to ~40 m/s. Correct.
+}
+```
+
+---
+
+##### Connection 17: Weather → NPC Brain String (moderate)
+
+```
+WeatherToNPCBrain {
+  // The SLM receives weather as a string. But weather is continuous numbers.
+  // WHO converts numbers to string, and WHAT categories are used?
+
+  // The GAME SERVER converts AtmosphereCell data to a string BEFORE building the SLM input.
+
+  function weatherToString(cell: AtmosphereCell): string {
+    // Temperature classification:
+    let tempStr = ''
+    if (cell.airTemperature < -10) tempStr = 'freezing'
+    else if (cell.airTemperature < 0) tempStr = 'very_cold'
+    else if (cell.airTemperature < 10) tempStr = 'cold'
+    else if (cell.airTemperature < 20) tempStr = 'mild'
+    else if (cell.airTemperature < 30) tempStr = 'warm'
+    else if (cell.airTemperature < 40) tempStr = 'hot'
+    else tempStr = 'extreme_heat'
+
+    // Precipitation:
+    let precipStr = 'clear'
+    if (cell.precipitationRate > 0) {
+      if (cell.airTemperature < 0) precipStr = 'snow'
+      else if (cell.precipitationRate < 2.5) precipStr = 'light_rain'
+      else if (cell.precipitationRate < 7.5) precipStr = 'rain'
+      else precipStr = 'heavy_rain'
+    }
+    if (cell.precipitationType === 'hail') precipStr = 'hail'
+
+    // Wind:
+    let windStr = 'calm'
+    if (cell.windVelocity.length() > 3) windStr = 'breezy'
+    if (cell.windVelocity.length() > 8) windStr = 'windy'
+    if (cell.windVelocity.length() > 15) windStr = 'strong_wind'
+    if (cell.windVelocity.length() > 25) windStr = 'storm'
+
+    // Visibility:
+    let visStr = ''
+    if (cell.visibility < 50) visStr = 'dense_fog'
+    else if (cell.visibility < 200) visStr = 'fog'
+    else if (cell.cloudCover > 0.8) visStr = 'overcast'
+
+    return `${tempStr}, ${precipStr}, ${windStr}${visStr ? ', ' + visStr : ''}`
+    // Examples:
+    //   "mild, clear, calm"
+    //   "cold, rain, windy"
+    //   "freezing, heavy_snow, storm"
+    //   "hot, clear, breezy"
+    //   "cold, fog, calm"
+  }
+
+  // This string is placed into the SLM input's environment.weather field.
+  // The SLM was trained on these exact category strings during its training data generation.
+  // The SLM knows: "heavy_rain" means seek shelter. "freezing" means stay near fire.
+}
+```
+
+---
+
+##### Connection 18: Lightning Effects Chain (moderate)
+
+```
+LightningSystem {
+  // Lightning is a weather event with cascading effects across multiple systems.
+
+  // TRIGGER: during storm weather (windSpeed > 20 m/s AND cloudCover > 0.9)
+  //   probability per game-minute: 0.05 (one strike every ~20 game-minutes during a storm)
+  //   = one strike every ~5 real minutes of storm
+
+  // TARGET SELECTION:
+  //   1. Find all objects within the atmosphere cell taller than 5m above local terrain
+  //      (trees, structures, player characters on hilltops)
+  //   2. Weight each by: height² × conductivity
+  //      Tall metal structure: highest weight (tall + conductive)
+  //      Tall tree: high weight (tall but less conductive)
+  //      Player on hilltop: moderate weight
+  //      Short bush: zero weight (below 5m threshold)
+  //   3. Select target randomly weighted by scores
+  //   4. If no valid targets: lightning strikes open ground (harmless, visual + sound only)
+
+  // EFFECTS ON STRUCK TARGET:
+  //
+  //   Tree:
+  //     tree.health -= 80 (usually lethal — trees explode from steam pressure inside)
+  //     If tree.moisture > 0.3: bark explodes outward (fragment debris)
+  //     If tree.health ≤ 0: tree falls (becomes harvestable log)
+  //     Fire: if tree is dry enough (moisture < 0.3) AND NOT raining on this cell:
+  //       tree catches fire. Note: during a storm, rain usually prevents fire.
+  //       BUT: lightning can start fires at the END of a storm when rain stops but
+  //       smoldering wood persists → fire starts hours later when wind fans embers.
+  //
+  //   Structure:
+  //     If material is conductive (metal roof, iron fasteners):
+  //       current flows through structure → heat at connection points
+  //       Each metal fastener receives: temperature += 500°C (brief but intense)
+  //       If fastener is near flammable material: may ignite (Connection 7)
+  //     If material is non-conductive (stone, wood):
+  //       Energy disperses through the structure → heat + possible fire
+  //       Fire chance = 0.3 if the structure has any flammable component AND is exposed
+  //
+  //   Player character:
+  //     Direct hit: 95% lethal (real: lightning kills ~10% of struck humans,
+  //       but game simplifies — surviving a direct lightning strike is unlikely)
+  //     Near miss (within 5m): knockback force + 30% health damage + temporary daze
+  //       (screen flash white, hearing muted for 3 game-seconds, vision blur)
+  //
+  //   Ground:
+  //     Fulgurite: sand/soil at strike point melts into glass tube (if sandy soil)
+  //     New MaterialPacket: fulgurite { SiO₂ glass, mass: 0.1kg }
+  //     A rare, interesting item for curious players to discover.
+
+  // VISUAL: bright white flash illuminating entire scene for 1 frame
+  //   followed by branching line geometry from cloud to target (rendered for 0.2 seconds)
+  //   Client-side visual effect, triggered by ENVIRONMENT_STATE event
+
+  // SOUND: thunder (Connection 1, thunder subtype)
+  //   Delay from distance. Volume from distance. Rolling rumble 1-5 seconds.
+}
+```
+
+---
+
+##### Connection 19: Snow Depth → Movement Speed (moderate)
+
+```
+SnowMovementSystem {
+  // Snow accumulates on exposed terrain. Deep snow slows movement.
+
+  // ACCUMULATION:
+  //   When precipitationType == 'snow' AND cell is exposed (shelter map):
+  //     snowDepth += precipitationRate × snowDensityFactor × dt
+  //     snowDensityFactor = 0.1 (fresh snow is ~10% the density of water)
+  //     5 mm/hr rain equivalent as snow: 5 × 0.1 / 1000 = 0.0005 m/hr = 0.5mm/hr of snow depth
+  //     Wait, that seems low. Real: 1mm rain ≈ 10mm snow depth.
+  //     snowDepth += precipitationRate × 10 / 1000 × dt_hours
+  //     5 mm/hr rain for 8 hours: snowDepth = 5 × 10 / 1000 × 8 = 0.4m = 40cm. Realistic.
+
+  // MELTING:
+  //   When airTemperature > 0°C:
+  //     meltRate = (airTemperature × 0.005) m/hour (5mm per degree per hour)
+  //     snowDepth -= meltRate × dt
+  //     Melted snow → waterVolume added to grid cell (Connection 8)
+  //     Spring melt: temperatures rise → massive snowmelt → river flooding. Emergent.
+
+  // COMPACTION:
+  //   Old snow compresses: snowDepth decreases by 2% per game-day naturally
+  //   Foot traffic compresses snow faster: walked-on snow compacts to 50% depth
+
+  // MOVEMENT SPEED PENALTY:
+  //   speedMultiplier = 1.0 - min(1.0, snowDepth / maxWalkableDepth) × 0.5
+  //   maxWalkableDepth = 0.8m (waist-deep — above this, player is effectively stuck)
+  //
+  //   snowDepth 0m: speedMultiplier = 1.0 (no penalty)
+  //   snowDepth 0.1m (ankle): speedMultiplier = 0.94 (barely noticeable)
+  //   snowDepth 0.3m (knee): speedMultiplier = 0.81 (significant trudging)
+  //   snowDepth 0.5m (thigh): speedMultiplier = 0.69 (very slow)
+  //   snowDepth 0.8m+ (waist+): speedMultiplier = 0.50 (minimum — exhausting)
+  //
+  //   Stamina drain: staminaDrainMultiplier = 1.0 + snowDepth × 3
+  //     0.3m snow: stamina drains 1.9× faster while walking
+  //     Players in deep snow get exhausted quickly
+
+  // SNOW + ANIMALS:
+  //   Large animals (horse, cattle) break through shallow snow easier
+  //     Animal speedPenalty = standard × (1 - animalMass / 500)
+  //     Horse (450kg): almost no penalty in 0.3m snow
+  //   Small animals (rabbit, chicken): stuck in deep snow
+  //     speedPenalty is worse for small animals (proportional to body height vs snow depth)
+
+  // FOOTPRINTS:
+  //   Players and animals leave visible footprints in snow
+  //   Tracked as terrain decals that last until snow melts or new snow covers them
+  //   Wolves can track prey by following footprints (animal AI uses this for hunting)
+}
+```
+
+---
+
+##### Connection 20: Pest System for Farming (moderate)
+
+```
+FarmPestSystem {
+  // Crops attract pests. Pest risk scales with monoculture size.
+
+  // PEST EVENT PROBABILITY:
+  //   Checked per crop field per game-day:
+  //
+  //   pestProbability = baseProbability × monocultureMultiplier × seasonMultiplier × predatorMultiplier
+  //
+  //   baseProbability = 0.005 (0.5% per game-day for any field)
+  //
+  //   monocultureMultiplier:
+  //     countSameCrop = number of crop entities of the same species within 20m
+  //     monocultureMultiplier = 1.0 + countSameCrop × 0.05
+  //     10 wheat plants: 1.5×. 50 wheat plants: 3.5×. 100: 6.0×.
+  //     Diverse garden (3 wheat + 3 beans + 3 squash): 1.15× each (low risk)
+  //
+  //   seasonMultiplier:
+  //     Spring: 1.0 (normal)
+  //     Summer: 2.0 (peak insect activity)
+  //     Autumn: 1.5 (harvest time, insects seeking food for winter)
+  //     Winter: 0.1 (most insects dormant)
+  //
+  //   predatorMultiplier:
+  //     birdPopulationNearby > 5: 0.5 (birds eat insects → fewer pests)
+  //     birdPopulationNearby > 10: 0.3
+  //     birdPopulationNearby = 0: 1.5 (no natural pest control)
+
+  // WHEN A PEST EVENT FIRES:
+  //   1. Select pest type based on crop species:
+  //      Wheat/barley: aphids (suck plant juices) or locusts (eat leaves)
+  //      Cabbage/squash: caterpillars (eat leaves)
+  //      Potato: blight (fungal — especially in wet conditions)
+  //      Fruit trees: fruit fly
+  //      Grain storage: weevils, rats (not insects but same system)
+  //
+  //   2. Apply damage to affected crops:
+  //      pestDamage = 5 HP per game-day per affected crop entity
+  //      Affected radius: 5m from initial pest spawn point
+  //      Spreads: 1m per game-day outward (pests move to adjacent crops)
+  //
+  //   3. Visual: no insect entities (too expensive). Instead:
+  //      Affected crops show visual damage: holes in leaves (texture overlay),
+  //      wilting, discoloration. Player notices "something is wrong with my crops."
+  //
+  //   4. Player response:
+  //      Manual removal: interact with affected crop → removes pest for that plant (5 game-sec each)
+  //      Companion planting: marigolds within 3m repel nematodes (pestProbability × 0.3)
+  //      Birds: maintain bird habitat near fields (don't cut down all trees)
+  //      Chemical: sulfur dust (from volcanic deposits) sprinkled on crops → kills insects
+  //        Requires: sulfur MaterialPacket + grinding stone → sulfur powder → apply to crops
+  //      Cat in grain storage: rodent damage reduced by 90%
+}
+```
+
+---
+
+##### Connection 21: Soil Erosion Conversion (moderate)
+
+```
+SoilErosionSystem {
+  // Rain on sloped terrain removes topsoil.
+
+  // Per terrain cell, per weather tick (when raining):
+  //   erosionRate = precipitationRate × slopeAngle × (1 - vegetationCover) × (1 - organicMatter) × 0.00001
+  //
+  //   precipitationRate: mm/hour from weather system (direct value)
+  //   slopeAngle: radians — computed from height difference between adjacent cells
+  //     slope = atan2(heightDifference, cellDistance)
+  //     Flat (0°): erosionRate = 0 (no slope, water doesn't flow)
+  //     Moderate (15°): erosionRate moderate
+  //     Steep (45°): erosionRate very high
+  //
+  //   vegetationCover: 0-1
+  //     No crops or plants: 0 (bare soil, maximum erosion)
+  //     Grass/ground cover: 0.3
+  //     Dense crops: 0.6
+  //     Forest: 0.9 (roots hold soil, almost no erosion)
+  //     Computed: count of living plant entities in cell / maxPlantsPerCell
+  //
+  //   organicMatter: from SoilState (0-1)
+  //     High organic matter binds soil particles together
+  //     Well-composted soil resists erosion even without plants
+  //
+  //   Result: all nutrient values decrease proportionally
+  //     soil.nitrogen -= soil.nitrogen × erosionRate × dt
+  //     soil.phosphorus -= soil.phosphorus × erosionRate × dt
+  //     soil.potassium -= soil.potassium × erosionRate × dt
+  //     soil.organicMatter -= soil.organicMatter × erosionRate × dt
+  //
+  //   Severe erosion: if cumulative erosion > 0.5 of original topsoil:
+  //     Soil layer thins → farmable depth decreases
+  //     Eventually: bedrock exposed → unfarmable
+  //     This takes many game-years without vegetation
+
+  // PREVENTION:
+  //   Terracing: flat steps cut into hillside → slope = 0 on each step → no erosion
+  //   Contour plowing: plow lines follow terrain contour → water follows furrows, not downhill
+  //     (reduces effective slopeAngle by 50% for erosion calculation)
+  //   Cover crops: plant ground cover between seasons → vegetationCover stays > 0.3
+  //   Mulching: straw/leaf layer on soil surface → reduces effective precipitationRate by 60%
+}
+```
+
+---
+
+##### Connection 22: Clothing Warmth Combination (moderate)
+
+```
+ClothingWarmthSystem {
+  // Multiple clothing items combine to insulate the player.
+
+  // Each ClothingItem has warmth: number (°C of insulation)
+  // Warmth values per slot:
+  //   head (hat/helmet): 1-3°C
+  //   torso (shirt): 2-5°C
+  //   outerLayer (jacket/cloak): 5-15°C
+  //   legs (pants): 2-5°C
+  //   feet (boots): 1-3°C
+  //   gloves: 1-2°C
+  //   No insulation from: belt, necklace, bracelet, ring, backpack
+
+  // COMBINATION FORMULA:
+  //   totalWarmth = head.warmth + torso.warmth + outer.warmth + legs.warmth + feet.warmth + gloves.warmth
+  //   Simple addition. No diminishing returns (layering IS additive in reality).
+  //   Full wool outfit: 3 + 5 + 12 + 5 + 3 + 2 = 30°C of insulation
+  //   Bare (no clothes): 0°C of insulation
+  //
+  // Applied to body temperature:
+  //   heatLoss = baseHeatLoss / (1 + totalWarmth × 0.1)
+  //   totalWarmth 0 (naked): heatLoss = baseHeatLoss (full exposure)
+  //   totalWarmth 10 (light clothes): heatLoss = baseHeatLoss / 2.0 (halved)
+  //   totalWarmth 30 (full wool): heatLoss = baseHeatLoss / 4.0 (quarter)
+  //
+  // WET CLOTHING:
+  //   If raining AND exposed (shelter map) AND clothing.waterResistance < 1.0:
+  //     clothing.moisture increases over time
+  //     wetWarmthMultiplier = 1.0 - clothing.moisture × 0.8
+  //     Wet wool retains 80% warmth (wool is remarkable this way)
+  //     Wet cotton retains 20% warmth (cotton is terrible when wet)
+  //     effectiveWarmth = item.warmth × wetWarmthMultiplier
+  //   Drying: when not raining and near fire or in sun:
+  //     clothing.moisture decreases based on temperature and wind
+
+  // BODY REGION COVERAGE:
+  //   Injury from hot inventory items maps to clothing slot:
+  //     Item in pants pocket → leg region
+  //     Item in torso (jacket pocket) → torso region
+  //     Item in backpack → torso region (backpack sits on back/torso)
+  //     Item in hand → arm region of that hand
+}
+```
+
+---
+
+##### Connection 23: Swimming Buoyancy Formula (moderate)
+
+```
+SwimmingBuoyancySystem {
+  // Buoyancy depends on: body fat, carried weight, and clothing.
+
+  // BASE BUOYANCY (from character creation §7.1):
+  //   baseBuoyancy = 0.5 + bodyFat × 0.3 - muscularity × 0.1
+  //   Thin (fat 0.1, muscle 0.2): 0.5 + 0.03 - 0.02 = 0.51 (barely floats)
+  //   Average (fat 0.3, muscle 0.3): 0.5 + 0.09 - 0.03 = 0.56 (floats comfortably)
+  //   Fat (fat 0.7, muscle 0.2): 0.5 + 0.21 - 0.02 = 0.69 (very buoyant)
+  //   Muscular (fat 0.1, muscle 0.8): 0.5 + 0.03 - 0.08 = 0.45 (sinks without effort)
+  //
+  //   buoyancy > 0.5: player floats naturally (treading water uses less stamina)
+  //   buoyancy < 0.5: player sinks slowly (must actively swim to stay afloat)
+
+  // CARRIED WEIGHT EFFECT:
+  //   effectiveBuoyancy = baseBuoyancy - (totalCarriedWeight / maxCarryWeight) × 0.4
+  //
+  //   Naked (0kg): effectiveBuoyancy = baseBuoyancy (full float)
+  //   Light gear (10kg carried, max 60kg): effectiveBuoyancy = base - 0.067 (slight reduction)
+  //   Heavy gear (40kg): effectiveBuoyancy = base - 0.267 (significant sinking)
+  //   Full load (60kg): effectiveBuoyancy = base - 0.4 (probably sinking)
+  //
+  //   Average person (baseBuoyancy 0.56) carrying 40kg of stone:
+  //     effectiveBuoyancy = 0.56 - 0.267 = 0.293 → SINKS. Must drop items or drown.
+
+  // DROWNING THRESHOLD:
+  //   if effectiveBuoyancy < 0.3: player CANNOT stay afloat without constant swimming
+  //     stamina drain while treading water: base × (0.5 - effectiveBuoyancy) × 10
+  //     At buoyancy 0.2: stamina drain = base × 3.0 (exhaustion in ~30 seconds)
+  //   if effectiveBuoyancy < 0.1: player sinks immediately regardless of stamina
+  //     Must drop items NOW or die
+  //
+  //   Player can voluntarily drop items while in water:
+  //     Metal items sink (density > 1000 kg/m³) → lost to the bottom
+  //     Wood items float (density < 1000 kg/m³) → recoverable from surface
+  //     This creates a real risk/reward: carry heavy tools across a river? Risk drowning.
+}
+```
+
+---
+
+##### Connection 24: Sleep Waking Threshold (moderate)
+
+```
+SleepWakingSystem {
+  // Sleeping players can be woken by loud sounds or damage.
+
+  // DAMAGE WAKING: any damage to the player → instant wake. No threshold.
+  //   Player opens eyes, brief daze (vision dark for 1 game-second while "eyes adjust")
+
+  // SOUND WAKING:
+  //   Each SOUND_EVENT that reaches the sleeping player has a perceived loudness:
+  //     perceivedLoudness = soundPower × acousticEfficiency / (4π × distance²)
+  //     (inverse square law, same as §3.3 spatial audio)
+  //
+  //   Wake threshold: perceivedLoudness > 0.1 (normalized scale)
+  //
+  //   What wakes a sleeper:
+  //     Wolf howl at 50m: loudness ≈ 0.15 → WAKES (designed to be alarming)
+  //     Player walking at 5m: loudness ≈ 0.005 → does not wake (quiet footsteps)
+  //     Player running at 5m: loudness ≈ 0.02 → does not wake
+  //     Combat at 10m (metal clash): loudness ≈ 0.3 → WAKES
+  //     Thunder at 1km: loudness ≈ 0.08 → does not wake (too far)
+  //     Thunder at 200m: loudness ≈ 2.0 → WAKES (very loud)
+  //     Campfire crackle at 3m: loudness ≈ 0.03 → does not wake (background)
+  //     Dog barking at 10m: loudness ≈ 0.12 → WAKES (alert sound)
+  //
+  //   Fatigue affects threshold:
+  //     if fatigue > 90: wakeThreshold = 0.2 (exhausted person sleeps through more)
+  //     if fatigue < 50: wakeThreshold = 0.05 (light sleeper, wakes easily)
+  //
+  //   If woken: fatigue only partially recovered (based on time slept so far)
+  //     fatigue -= 12 × hoursSlept (same rate as normal sleep)
+  //     Player groggy: -10% movement speed for first 30 game-seconds after waking
+}
+```
+
+---
+
+##### Connection 25: Video Mode SPH Count Check (moderate)
+
+```
+VideoModeTrigger {
+  // When does the server switch a player from state mode to video stream mode?
+
+  // CHECK FREQUENCY: every 1 second (same as ENVIRONMENT_STATE)
+  //   NOT every tick (60Hz check is wasteful for a 0.4s transition)
+
+  // SPATIAL QUERY:
+  //   For each connected player in state mode:
+  //     count = number of active (non-sleeping) SPH particles within 10m of player
+  //     Distance: Euclidean distance in 3D (not geodesic — 10m is small enough on a planet)
+  //     threshold = 200 particles
+
+  //   if count > threshold AND player is NOT already in video mode:
+  //     server initiates video mode switch for this player:
+  //       1. Start GPU rendering for this player's camera
+  //       2. Send MODE_SWITCH { mode: 'video' } to client
+  //       3. Client crossfades from 3D canvas to video element (0.4s)
+
+  //   if count < 50 AND player IS in video mode AND not at workstation:
+  //     server exits video mode:
+  //       1. Send MODE_SWITCH { mode: 'state' }
+  //       2. Stop GPU rendering for this player
+  //       3. Client crossfades back to 3D canvas
+
+  // WORKSTATION OVERRIDE:
+  //   Player at a workstation (precision craft mode): ALWAYS in video mode
+  //   regardless of particle count. Video mode persists until player exits workstation.
+
+  // COST: one spatial query per player per second.
+  //   50 players × 1 query/sec = 50 queries/sec
+  //   Each query: iterate active particles (typically <5000), check distance. ~0.1ms per query.
+  //   Total: ~5ms/second. Negligible.
+}
+```
+
+---
+
+##### Connection 26: ENVIRONMENT_STATE Message Schema (moderate)
+
+```
+EnvironmentStateMessage {
+  // Sent from server to all clients at 1 Hz.
+  // Contains everything the client needs to drive GPU shaders.
+
+  type: 'ENVIRONMENT_STATE'
+  timestamp: number                  // server tick
+
+  weather: {
+    windSpeed: number                // m/s
+    windDirection: [number, number]  // normalized 2D vector (x, z)
+    precipitationRate: number        // mm/hour (0 = no rain/snow)
+    precipitationType: 'none' | 'rain' | 'snow' | 'hail' | 'sleet'
+    temperature: number              // °C at player's position
+    humidity: number                 // 0-1
+    cloudCover: number               // 0-1
+    visibility: number               // meters
+    fogDensity: number               // 0-1 (0 = clear, 1 = pea soup)
+  }
+
+  sun: {
+    azimuth: number                  // degrees (0-360, east to west)
+    elevation: number                // degrees (-90 to 90, below/above horizon)
+    intensity: number                // 0-1 (0 at night, 1 at clear noon)
+    color: [number, number, number]  // RGB (warm at dawn/dusk, white at noon)
+  }
+
+  season: {
+    dayOfYear: number                // 0-364
+    seasonName: 'spring' | 'summer' | 'autumn' | 'winter'
+    daylightHours: number            // hours of sunlight today
+  }
+
+  fires: [{                          // all active fires within 200m of player
+    position: [number, number, number]  // world-space
+    intensity: number                // 0-1 (brightness/size of fire)
+    radius: number                   // meters of light/heat effect
+  }]
+
+  rivers: [{                         // river segments within 200m of player
+    points: [number, number, number][]  // polyline of river center
+    flowSpeed: number                // m/s
+    width: number                    // meters
+  }]
+
+  timeOfDay: {
+    gameHour: number                 // 0-23.99
+    isDaytime: boolean
+    moonPhase: number                // 0-1 (0=new, 0.5=full, 1=new again)
+    moonElevation: number            // degrees
+  }
+
+  // Size estimate:
+  //   weather: ~60 bytes
+  //   sun: ~30 bytes
+  //   season: ~15 bytes
+  //   fires (5 fires avg): ~100 bytes
+  //   rivers (3 segments avg): ~200 bytes
+  //   timeOfDay: ~20 bytes
+  //   Total: ~425 bytes per message × 1 Hz = ~425 bytes/second per player
+  //   Compressed (gzip): ~200 bytes/second. Negligible bandwidth.
+}
+```
+
+---
+
+##### Connection 27: Volcanic Eruption Triggers (moderate)
+
+```
+VolcanicEruptionSystem {
+  // Eruptions are random events at geologically active locations.
+
+  // TRIGGER:
+  //   The world has volcanic zones generated during planet formation (§4.1):
+  //     Tectonic plate boundaries (convergent and divergent)
+  //     Hotspot locations (like Hawaii — randomly placed during generation)
+  //
+  //   Per volcanic zone, per game-month:
+  //     eruptionProbability = zoneActivity × 0.001
+  //     zoneActivity: 0-1 based on plate boundary type
+  //       Convergent (subduction): 0.8 (most active — Pacific Ring of Fire)
+  //       Divergent (mid-ocean ridge): 0.5 (moderate — Iceland type)
+  //       Hotspot: 0.3 (intermittent — Hawaiian type)
+  //     Average: one eruption per volcanic zone every ~3-8 game-years
+  //       = ~9-24 real months. Rare but impactful.
+
+  // ERUPTION PROCESS:
+  //   1. Server selects a specific location within the volcanic zone
+  //      (randomly within 500m of zone center)
+  //   2. Magma MaterialPacket generated: composition based on zone type
+  //      Basaltic (divergent/hotspot): { SiO₂:0.50, MgO:0.08, FeO:0.10, CaO:0.10, ... }
+  //        viscosity: ~100 Pa·s (flows far, Hawaiian-style)
+  //      Andesitic (convergent): { SiO₂:0.60, Al₂O₃:0.17, ... }
+  //        viscosity: ~10,000 Pa·s (intermediate)
+  //      Rhyolitic (explosive convergent): { SiO₂:0.75, ... }
+  //        viscosity: ~10⁶ Pa·s (barely flows, explosive — Vesuvius-style)
+  //   3. Temperature: 800-1200°C (above melting point → liquid phase)
+  //   4. Volume: 100-10,000 m³ of magma (enough to create a visible lava flow)
+  //   5. Spawn as SPH/MPM particles at the eruption location
+  //      Particle count: volume / particleMass. At 0.01 m³ per particle: 10,000-1,000,000 particles.
+  //      For performance: cap at 50,000 particles. Larger eruptions use coarser particles.
+
+  // LAVA FLOW (handled by fluid simulation §3.2):
+  //   Particles flow downhill (gravity)
+  //   Viscosity from composition: basaltic flows fast and far, rhyolitic barely moves
+  //   Cooling: particles lose heat to air and terrain
+  //     When T drops below solidus → particles freeze → become solid terrain
+  //     New rock MaterialPacket at the solidified location
+  //     This IS terrain modification → permanent (§7.12 persistence)
+
+  // EFFECTS ON SETTLEMENTS:
+  //   Lava flowing toward a settlement: NPCs notice (SLM input: "lava approaching from north")
+  //     SLM response: "FLEE. Everyone leave settlement. Go south."
+  //     NPCs evacuate. Player is warned by fleeing NPCs.
+  //   Lava engulfs structures: structures burn/melt (depending on material)
+  //     Wood: burns. Stone: survives but buried. Metal: may melt if lava is hot enough.
+  //   After eruption: new mineral-rich soil around volcano
+  //     Volcanic ash is extremely fertile: N, P, K all high
+  //     Settlements that survive nearby benefit from better farming
+
+  // PLAYER INTERACTION:
+  //   Player cannot CAUSE eruptions
+  //   Player can OBSERVE eruptions (spectacular visual + sound)
+  //   Player can harvest volcanic materials: obsidian, basalt, pumice, sulfur
+  //   Player can be killed by lava (extreme heat damage, see §7.6 death causes)
+}
+```
+
+---
+
+##### Connection 28: Biome → Initial Organism Spawning (moderate)
+
+```
+BiomeOrganismSpawning {
+  // During world generation, after biomes are assigned (§4.1),
+  // organisms are spawned according to biome affinity.
+
+  // ALGORITHM:
+  //   For each terrain chunk:
+  //     biome = chunk.biome (from Whittaker classification — temperature × precipitation)
+  //     For each species in the species registry (§4.2):
+  //       if species.biome includes this biome:
+  //         spawnProbability = species.biomeAffinity × populationDensityForBiome
+  //
+  //     populationDensityForBiome:
+  //       Forest: high plant density, moderate animal density
+  //       Grassland: low tree density, high herbivore density
+  //       Desert: very low everything
+  //       Tundra: low plant, low animal
+  //       Tropical: highest diversity (most species present)
+  //
+  //     For each species that passes probability check:
+  //       spawnCount = basePop × biomeArea × carryingCapacity
+  //       Scatter spawnCount organisms randomly within the chunk
+  //       Each organism: random position within chunk, random genome (§4.2), age = random adult
+  //
+  //   DIVERSITY RULES:
+  //     Minimum 3 plant species per biome (prevents monoculture)
+  //     Minimum 1 herbivore species per biome
+  //     Minimum 1 predator species if herbivores present
+  //     Maximum species per biome: based on biome NPP (net primary productivity)
+  //       Tropical: up to 30 species. Desert: 5-8 species. Tundra: 3-5 species.
+  //
+  //   STARTING POPULATION (from §4.2): 80 primordial organisms
+  //     This 80 is the TOTAL across the entire planet at game start
+  //     Distributed proportionally to biome area × NPP
+  //     Large biomes with high NPP get more starting organisms
+  //     Populations grow from these seeds via reproduction (§4.2 genome system)
+  //     After ~100 game-days: populations reach carrying capacity
+}
+```
+
+---
+
+##### Connection 29: Cooking Temperature → Calorie Multiplier (moderate)
+
+```
+CookingSystem {
+  // Cooking changes food's nutritional value. The multiplier depends on
+  // temperature, duration, and food type.
+
+  // CALORIE MULTIPLIER:
+  //   rawCalories = food.packet.calorieContent (from MaterialPacket)
+  //   cookedCalories = rawCalories × cookingMultiplier
+  //
+  //   cookingMultiplier depends on temperature reached AND duration held:
+  //
+  //   Temperature thresholds:
+  //     < 50°C: raw (multiplier = 1.0, no change)
+  //     50-70°C: warming (multiplier = 1.1 — slightly easier to digest)
+  //     70-100°C: cooking (multiplier = 1.5 — proteins denature, starches gelatinize)
+  //       This is the sweet spot. Boiling, simmering, slow roasting.
+  //     100-150°C: roasting (multiplier = 1.8 — Maillard reaction, more digestible)
+  //     150-200°C: high roasting (multiplier = 2.0 — maximum benefit, some nutrients destroyed)
+  //     > 200°C: burning (multiplier decreases)
+  //       200-300°C: charring (multiplier = 1.5 → 0.5 — losing nutritional value)
+  //       > 300°C: fully carbonized (multiplier = 0.1 — barely edible charcoal)
+  //
+  //   Duration matters: food must be at cooking temperature for minimum time:
+  //     Thin meat (1cm): 5 game-minutes at 70°C+ for full multiplier
+  //     Thick meat (5cm): 30 game-minutes
+  //     Root vegetables: 20 game-minutes (need to soften starch)
+  //     Grain (bread baking): 30-60 game-minutes at 150-200°C
+  //
+  //   If duration < minimum: partial cooking
+  //     effectiveMultiplier = 1.0 + (fullMultiplier - 1.0) × (duration / requiredDuration)
+  //
+  //   FOOD SAFETY:
+  //     Raw meat: bacterial risk (see §7.2 food poisoning)
+  //     Cooked to 70°C+ for required time: bacteria killed, safe to eat
+  //     Partially cooked: reduced but not eliminated bacterial risk
+  //       safetyMultiplier = min(1.0, duration × temperature / (requiredDuration × 70))
+  //       < 0.5: significant food poisoning risk
+  //       > 0.8: safe
+
+  // IMPLEMENTATION:
+  //   When food MaterialPacket is near a fire or in a workstation above 50°C:
+  //     food.temperature increases (heat transfer from fire → food)
+  //     cookingProgress += dt if food.temperature > 50°C
+  //     When cookingProgress > requiredDuration at reached temperature:
+  //       food.calorieContent *= cookingMultiplier
+  //       food.composition changes (water evaporates, proteins denature)
+  //         moisture decreases → food becomes lighter and drier
+  //         If overcooked: carbon content increases (charring)
+}
+```
+
+---
+
+##### Connection 30: NPC Fitness Changes (moderate)
+
+```
+NPCFitnessSystem {
+  // NPCs have the same body stats as players (§7.2). Their fitness changes from activity.
+
+  // NPCs use the SAME fitness training system as players (§7.2):
+  //   strength increases from: mining, carrying heavy loads, building
+  //   endurance increases from: running, swimming, sustained work
+  //   speed increases from: sprinting, fleeing from danger
+  //
+  //   Training rate (same as player): +0.0001 per relevant action
+  //   Decay rate: -0.00005 per game-day for unused attributes
+  //   Range: 0.5 (baseline) to 1.0 (peak)
+
+  // PRACTICAL EFFECT:
+  //   An NPC that mines copper ore every day gradually gets stronger
+  //     strength increases from 0.5 to ~0.65 over 2000 mining actions (~months of play)
+  //     This means: the NPC can carry more ore per trip, swings the pick faster
+  //   An NPC that runs messages between settlements gets faster
+  //   An NPC that sits idle all day slowly loses fitness
+  //
+  //   Old NPCs (age > 50): fitness caps decrease (see §7.1 aging system)
+  //     Even a hard-working old NPC can't maintain peak fitness
+  //   Young NPCs (age 15-35): peak cap = 1.0, can reach maximum with enough training
+
+  // NPC APPEARANCE:
+  //   Fitness affects the NPC's body morph (same as player):
+  //     High strength → muscularity morph increases slightly over time
+  //     Low activity → bodyFat morph may increase slightly
+  //     Very slow change: noticeable only over game-years
+  //
+  // This means: players who visit a settlement repeatedly over game-months
+  // will notice NPCs who mine a lot have bulkier arms. Emergent, not scripted.
+}
+```
+
+---
+
+##### Connection 31: NPC Structural Decay Detection (moderate)
+
+```
+NPCMaintenanceSystem {
+  // NPCs need to detect and repair decaying structures.
+
+  // DETECTION:
+  //   The server tracks durability per world_object (§7.12 persistence).
+  //   Per settlement, per game-day:
+  //     Scan all structures within settlement territory
+  //     For each structure where ANY block has durability < 0.7:
+  //       Add to settlement.maintenanceNeeds list:
+  //         { structureId, lowestDurability, blockCount, materialNeeded }
+  //
+  //   This list is included in the SLM input as part of settlementNeeds:
+  //     "storage_hut_3: roof leaking (durability 0.45), needs thatch repair"
+  //     "wall_section_7: mud mortar dissolving (durability 0.3), needs repointing"
+
+  // NPC RESPONSE:
+  //   When an NPC's SLM sees a maintenance need AND the NPC has relevant skills:
+  //     SLM output: "repair:storage_hut_3_roof"
+  //     NPC gathers repair materials (thatch, mortar, stone — whatever the structure needs)
+  //     NPC pathfinds to the damaged structure
+  //     NPC performs repair action (similar to building: place new material, apply mortar)
+  //     Duration: 5-30 game-minutes depending on damage extent
+  //     Result: durability of repaired blocks increases
+  //       New mortar: block.bondStrength reset to fresh value
+  //       New thatch: block.durability = 1.0
+  //       Patch repair: block.durability += 0.3 (partial, not full)
+
+  // PRIORITY:
+  //   NPCs prioritize maintenance by impact:
+  //     Shelter roof leaking → high priority (occupants get wet → health risk)
+  //     Storage hut wall cracking → high priority (stored food at risk)
+  //     Decorative wall crumbling → low priority (aesthetic, not functional)
+  //     Wall segment on perimeter → medium priority (security)
+  //
+  //   If no NPC has maintenance skills → structures decay without repair
+  //   A settlement's sophistication partly depends on whether it can maintain what it built
+
+  // IF MAINTENANCE FAILS (no materials, no skilled NPC):
+  //   Structure continues decaying
+  //   At durability 0: blocks fail → structural collapse (§3.4)
+  //   Collapsed structure becomes rubble (loose MaterialPackets on ground)
+  //   The settlement's assessSettlement() rating drops (fewer structures = lower assessment)
+  //   This is how abandoned settlements become ruins naturally
+}
+```
+
 ### 3.1 Emergent Material System — Nothing Is Pre-Defined
 
 #### The Principle

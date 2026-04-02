@@ -958,283 +958,254 @@ This technique is used by Unreal Engine 5, Unity HDRP, and most modern games wit
 
 ---
 
-### 3.3 Sound Engine — Physics-Driven Audio
+### 3.3 Sound Engine — Synthesized from Physics, Zero Samples
 
 #### The Principle
 
-Every sound in the real world is produced by a physical event: two objects collide and their surfaces vibrate, a fluid turbulates as it flows past an obstacle, air rushes through a narrow opening. The frequency, timbre, and volume of the resulting sound are determined by the physical properties of the objects and the medium.
+Every sound in the real world is just air vibrating. When you hit a metal bar, the bar vibrates at specific frequencies determined by its material (Young's modulus, density) and shape (length, thickness). Those vibrations push air molecules, creating pressure waves that reach your ear. The ear decomposes those waves into frequencies (via the cochlea) and the brain interprets them as "the sound of metal being hit."
 
-The game follows the same principle. There is no `sounds/` folder with `campfire_loop.wav` or `footstep_dirt_03.mp3` mapped to game events. Instead, the **audio engine computes what you should hear** from the physics of what is happening.
+This means: **if you know the material properties and the geometry, you can compute the exact frequencies the object will produce.** No recordings needed. No samples. The sound is derived from the same MaterialPacket properties that determine melting point, color, and structural strength.
+
+This technique is called **Modal Synthesis** — a proven method used in academic research, film sound design, and game audio. The game produces ALL sound from physics. Zero audio files ship with the game.
+
+#### How Sound Actually Works (The Physics)
+
+```
+The Physics of Vibration {
+  // When an object is struck, it vibrates. The vibration is NOT random —
+  // it is a precise set of frequencies called MODES (eigenmodes).
+  //
+  // A vibrating bar has mode frequencies:
+  //   f_n = (β_n² / 2πL²) × √(EI / ρA)
+  //   where:
+  //     f_n = frequency of mode n (Hz)
+  //     β_n = mode constant (β₁=4.73, β₂=7.85, β₃=11.0, β₄=14.1, ...)
+  //     L = length of bar (m)
+  //     E = Young's modulus (Pa) — from MaterialPacket
+  //     I = second moment of area (m⁴) — from object geometry
+  //     ρ = density (kg/m³) — from MaterialPacket
+  //     A = cross-section area (m²) — from object geometry
+  //
+  // A vibrating plate (2D) has modes:
+  //   f_mn = (π/2) × √(E·h² / (12·ρ·(1-ν²))) × (m²/a² + n²/b²)
+  //   where h = thickness, a,b = plate dimensions, ν = Poisson's ratio, m,n = mode indices
+  //
+  // A vibrating string has modes:
+  //   f_n = (n/2L) × √(T / μ)
+  //   where T = tension, μ = mass per unit length
+  //
+  // KEY INSIGHT: every one of these formulas takes its inputs from the MaterialPacket
+  // (E, ρ) and the object's geometry (L, A, I). Given those, the sound is DETERMINED.
+  // There is no guessing, no randomness — it's physics.
+  //
+  // This is why a small iron nail pings at ~4000 Hz and a large iron anvil rings at
+  // ~300 Hz. Same material (same E, same ρ), different geometry (different L) →
+  // different sound. The formula computes both correctly.
+}
+```
+
+#### Three Synthesis Methods
+
+```
+SoundEngine {
+  // The engine has three synthesis methods, each for a different type of sound.
+  // All three produce audio from MATH ONLY — no recordings, no samples, no files.
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // METHOD 1: Modal Synthesis — Struck/Vibrating Objects
+  // ═══════════════════════════════════════════════════════════════════════════
+  //
+  // Used for: impacts, breaking, footsteps, tool strikes, structural collapse,
+  //           anything where a solid object vibrates after being excited.
+  //
+  // How it works:
+  //   1. Compute the object's resonant modes from material + geometry
+  //   2. Each mode = one sine wave oscillator at a specific frequency
+  //   3. Set each mode's initial amplitude from the excitation (where/how hard it was hit)
+  //   4. Apply exponential decay to each mode (rate from material damping)
+  //   5. Sum all modes → output waveform → speaker
+
+  ModalSynth {
+    computeModes(material: MaterialPacket, geometry: ObjectGeometry): Mode[] {
+      modes = []
+      for n = 1 to 30:
+        // Frequency from eigenmode formula (depends on shape type):
+        if geometry.type == 'bar':
+          f = (BETA[n]² / (2 * PI * L²)) * sqrt(E * I / (rho * A))
+        else if geometry.type == 'plate':
+          f = (PI / 2) * sqrt(E * h² / (12 * rho * (1 - nu²))) * (m²/a² + n²/b²)
+        else if geometry.type == 'sphere':
+          f = (BETA_SPHERE[n] / (2 * PI * R)) * sqrt(E / (rho * (1 - nu²)))
+
+        // Decay: internal damping determines how long each mode rings
+        // Q factor ≈ youngsModulus / (internalFriction × density)
+        // Metals: Q ~ 1000-5000 (ring for seconds)
+        // Wood: Q ~ 10-50 (thud, gone in 0.05s)
+        // Stone: Q ~ 50-200 (medium)
+        decay = Q / (PI * f)
+
+        // Amplitude: depends on where object was hit relative to mode shape
+        amplitude = excitationEnergy * modeShapeAtContactPoint(n, contactPoint)
+
+        modes.push({ frequency: f, amplitude, decayRate: 1/decay })
+      return modes
+    }
+
+    // WebAudio implementation:
+    //   Each mode = one OscillatorNode (sine wave) + one GainNode (decay envelope)
+    //   osc.frequency.value = mode.frequency
+    //   gain.gain.exponentialRampToValueAtTime(0.001, now + 1/mode.decayRate)
+    //   20 modes × 2 nodes = 40 WebAudio nodes per sound event — trivial for WebAudio
+  }
+
+  // What modal synthesis produces:
+  //   Iron anvil (L=0.5m, E=200GPa, ρ=7800): f₁=312Hz, decay 3.2s → deep resonant clang
+  //   Ceramic cup (R=0.04m, E=70GPa, ρ=2400): f₁=2800Hz, decay 0.3s → sharp high clink
+  //   Oak log (L=1.0m, E=12GPa, ρ=600): f₁=68Hz, decay 0.05s → short dull thud
+  //   Glass pane (0.5×0.5m, h=3mm, E=70GPa): f₁=850Hz, decay 0.5s → bright ring, shatters into many high-freq fragments
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // METHOD 2: Noise Synthesis — Continuous/Turbulent Sounds
+  // ═══════════════════════════════════════════════════════════════════════════
+  //
+  // Used for: wind, rain, fire, water flow, grinding, scraping, sand pouring.
+  // These are NOT periodic vibrations — they are NOISE shaped by physics.
+
+  NoiseSynth {
+    // Wind:
+    //   Aeolian tone: f = St × v / d (Strouhal number ~0.2, v = wind speed, d = obstacle diameter)
+    //   Implementation: band-pass filtered brown noise centered at the Aeolian frequency
+    //   Each thin object (branch, fence post, wire) produces its own tone
+    //   Forest in wind: dozens of Aeolian tones from branches → broadband rush
+
+    // Rain:
+    //   Each drop impact = micro-impulse. Many impacts = noise.
+    //   Drop pitch: Minnaert bubble frequency f = 3.26 / r (r = drop radius in meters)
+    //     Light rain (r=1mm): f ≈ 3260 Hz. Heavy rain (r=3mm): f ≈ 1087 Hz.
+    //   Surface material adds its own modal response (rain on metal roof = noise + metal modes)
+
+    // Fire:
+    //   Low-frequency: brown noise at 60-200 Hz (turbulent combustion)
+    //   Crackle: random short broadband bursts at 1-4 kHz (moisture pockets exploding)
+    //     Rate proportional to wood moisture content
+    //   Hiss: high-frequency white noise at 4-8 kHz (steam, if moisture > 0.3)
+
+    // Water flow:
+    //   Turbulence spectrum follows Kolmogorov cascade (power law — more energy at low frequencies)
+    //   Small stream: high-pitched babble (2-4 kHz). Large river: low rumble (100-400 Hz)
+    //   Frequency inversely proportional to channel width
+    //   Rapids: add white noise bursts (air entrainment)
+
+    // Grinding/scraping:
+    //   Stick-slip friction: contact alternates between sticking and slipping
+    //   Each slip = modal excitation of both surfaces
+    //   Fast scraping: impulses merge into tonal sound. Slow: individual pops.
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // METHOD 3: Source-Filter Synthesis — Voice and Animal Calls
+  // ═══════════════════════════════════════════════════════════════════════════
+  //
+  // Voice is a vibrating membrane (vocal cords) producing a base frequency,
+  // filtered through a resonant cavity (throat/mouth/nasal passage).
+
+  VoiceSynth {
+    // Source: vocal cord vibration → pulse/sawtooth oscillator at fundamental f₀
+    //   Human male: f₀ = 85-180 Hz
+    //   Human female: f₀ = 165-255 Hz
+    //   Wolf howl: f₀ = 150-780 Hz (sweeps through range)
+    //   Bird song: f₀ = 1000-8000 Hz (syrinx produces very high frequencies)
+    //   Dog bark: f₀ = 500 Hz, short burst (50ms), harsh spectrum
+    //   Cow moo: f₀ = 60-200 Hz
+    //   Bee buzz: f₀ = wingbeat frequency (200 Hz) — mechanical, not vocal
+
+    // Filter: vocal tract creates FORMANTS — resonant peaks that define the sound
+    //   "ah" (open mouth): F1=800Hz, F2=1200Hz
+    //   "ee" (narrow mouth): F1=300Hz, F2=2300Hz
+    //   "oo" (rounded lips): F1=300Hz, F2=800Hz
+    //   Implementation: chain of 3-5 BiquadFilterNodes in WebAudio, each at a formant freq
+
+    // NPC speech (§5.3):
+    //   1. Language generator produces phoneme sequence
+    //   2. Each phoneme maps to formant configuration
+    //   3. Source oscillator at NPC's pitch (body size → pitch: larger = lower)
+    //   4. Formant filters morph between phoneme configurations
+    //   5. Result: sounds like speech in an unknown language — no audio files needed
+
+    // Animal calls:
+    //   Same source-filter but species-specific:
+    //   Wolf howl: f₀ sweeps 150→400→250 Hz over 5-10s, smooth formants
+    //   Bird chirp: rapid f₀ sweep 2000-6000 Hz in 20-50ms
+    //   Frog: f₀=100-300Hz, throat sac acts as Helmholtz resonator (amplifies)
+    //   Insect: oscillator at wingbeat frequency (no filter — pure mechanical tone)
+  }
+}
+```
 
 #### The Audio Pipeline
 
 ```
-PhysicsEvent → SoundDescriptor → SampleSelector → AudioProcessor → WebAudio → Speakers
+SOUND_EVENT (from server) → SoundComputer → Synthesizer → Environment → Spatial → Speaker
 
-Step 1: PhysicsEvent
-  Any physics interaction generates an event:
-  { type: 'impact'|'scrape'|'flow'|'break'|'combustion'|'pressure_release',
-    materialA: MaterialPacket,        // first material involved
-    materialB: MaterialPacket | null, // second material (null for single-material events like cracking)
-    energy: number,                   // joules of the interaction
-    contactPoint: Vec3,               // world position where it happened
-    contactNormal: Vec3,              // surface normal at contact
-    relativeVelocity: Vec3 }          // approach speed and direction
+Step 1: SOUND_EVENT arrives from server with:
+  { type, materialA, materialB, energy, contactPoint, geometryA, relativeVelocity }
 
-Step 2: SoundDescriptor
-  Computed from the physics event + material properties:
-  {
-    // ── Timbre Selection ────────────────────────────────────────────────────
-    // Based on material classification + hardness
-    timbreClass: computeTimbreClass(materialA, materialB)
-    // Classes: 'metallic', 'lithic' (stone/ceramic), 'organic' (wood/bone/leather),
-    //          'granular' (sand/gravel/soil), 'liquid', 'gas' (wind/steam/explosion)
+Step 2: SoundComputer selects synthesis method:
+  impact/break  → Modal Synthesis (Method 1)
+  scrape        → Modal + Noise hybrid
+  flow/combustion → Noise Synthesis (Method 2)
+  voice/animal  → Source-Filter (Method 3)
 
-    // ── Pitch ───────────────────────────────────────────────────────────────
-    // Fundamental frequency from object size and material stiffness
-    // f₀ = (1/2L) × √(E/ρ)  where:
-    //   L = characteristic length of the vibrating object (m)
-    //   E = Young's modulus (Pa) — from MaterialPacket.youngsModulus (computed from bonding energy)
-    //   ρ = density (kg/m³) — from MaterialPacket
-    fundamentalFreq: computeF0(materialA)     // Hz
-    // A small stone chip: L=0.03m, E=70GPa, ρ=2700 → f₀ ≈ 2700 Hz (high ping)
-    // A large iron anvil: L=0.5m, E=200GPa, ρ=7800 → f₀ ≈ 320 Hz (deep ring)
-    // A wooden log: L=1.0m, E=12GPa, ρ=600 → f₀ ≈ 70 Hz (low thud)
+Step 3: Synthesizer creates WebAudio nodes and produces waveform
 
-    // ── Volume ──────────────────────────────────────────────────────────────
-    // Sound power from impact energy
-    // P_sound = η × E_impact / t_contact  where:
-    //   η = acoustic efficiency (metal: 0.01, stone: 0.005, wood: 0.002, sand: 0.0001)
-    //   E_impact = ½mv² (kinetic energy of impact)
-    //   t_contact = contact duration (harder materials = shorter = louder)
-    soundPower: computePower(energy, materialA, materialB)   // watts
+Step 4: Environment filter (client-side):
+  Underwater: low-pass 800 Hz + speed of sound 1500 m/s
+  Cave: reverb proportional to estimated cave volume
+  Forest: multi-tap delay (tree reflections) + high-freq absorption
+  Open field: dry (no reverb)
 
-    // ── Decay ───────────────────────────────────────────────────────────────
-    // How quickly the sound dies out
-    // Metal: long decay (ringing), τ = 2-5 seconds
-    // Stone: medium decay, τ = 0.1-0.5 seconds
-    // Wood: short decay, τ = 0.05-0.2 seconds
-    // Soft materials: nearly instant, τ < 0.05 seconds
-    decayTime: computeDecay(materialA)   // seconds (time to -60dB)
-  }
+Step 5: Spatial positioning (WebAudio PannerNode):
+  HRTF panning (directional hearing)
+  Inverse square distance attenuation (I = P / 4πr²)
+  Propagation delay: distance / 343 m/s (thunder after lightning)
 
-Step 3: SampleSelector
-  The engine has a library of base audio samples — short recordings of real-world
-  sounds that serve as raw material for the audio processor to transform.
-
-  HOW THIS WORKS IN REAL LIFE:
-  Sound is air vibrating at specific frequencies. Every material vibrates differently
-  when struck — metal rings (sustained sine-like oscillation), wood thuds (short burst
-  of broadband noise), stone cracks (sharp transient + mid-frequency decay). These
-  vibration patterns are called the material's "impulse response."
-
-  We can't synthesize these from scratch in real-time (too expensive). Instead, we
-  record a small set of REAL sounds and transform them:
-  - A recording of a hammer hitting an anvil = the "metallic impact" template
-  - The audio processor pitch-shifts it (lower for a large anvil, higher for a nail)
-  - The processor adjusts volume, decay time, and filtering
-  - Result: one recording produces hundreds of variations
-
-  This is how film sound design works — foley artists record a few base sounds
-  and the mixer transforms them for each scene. Same principle, automated.
-
-  BASE SAMPLE LIBRARY (recorded once, ~55 WAV files, ~5MB total):
-
-  // Impact sounds (short transients — a thing hitting another thing)
-  metallic_impact[5]: recorded from real metal strikes at 5 energy levels
-    [0] light tap on small piece    → used for: coins, nails, small tools
-    [1] medium strike on plate      → used for: hammering, tool contact
-    [2] heavy strike on anvil       → used for: forging, large metal impacts
-    [3] clang (two metals)          → used for: sword clashing, metal on metal
-    [4] massive crash               → used for: structural collapse, heavy drop
-  metallic_scrape[3]: metal dragging on metal at 3 speeds
-  metallic_ring[3]: sustained resonance from 3 different-sized metal objects
-
-  lithic_impact[5]: rock/stone/ceramic strikes at 5 energy levels
-  lithic_crack[3]: stone breaking, ceramic shattering
-  lithic_grind[3]: stone on stone grinding (mortar and pestle, millstone)
-
-  organic_impact[5]: wood strikes at 5 energy levels (knocking, chopping, breaking)
-  organic_creak[3]: wood bending, rope stretching, leather flexing
-
-  granular_step[5]: footstep on loose material at 5 densities (sand to packed gravel)
-  granular_pour[3]: pouring grain/sand/gravel
-
-  liquid_splash[5]: water impact at 5 scales (drip to cannonball)
-  liquid_flow[3]: continuous water flow (trickle, stream, rush)
-  liquid_bubble[3]: underwater bubbling at 3 rates
-
-  gas_rush[3]: air movement (breeze to gale)
-  gas_hiss[3]: pressurized gas release (steam, leak)
-  combustion[5]: fire sounds at 5 intensities (match to bonfire)
-
-  Total: 55 samples.
-
-  HOW THE PROCESSOR TURNS 55 INTO INFINITE VARIETY:
-  Each sample is a template. The AudioProcessor (Step 4) transforms it:
-    - Pitch shift: playbackRate changes the perceived material size
-      Same "metallic_impact[2]" at 0.5× speed = large bell
-      Same sample at 2.0× speed = tiny tin can
-    - Filter: low-pass removes high frequencies (muffled/underwater)
-      high-pass removes low frequencies (thin/distant)
-    - Decay envelope: controls how long the sound rings
-      Metal: long exponential decay (ringing)
-      Wood: short decay (thud)
-    - Layering: combine two samples for complex sounds
-      Stone chisel = lithic_crack + metallic_ring (stone breaks + tool rings)
-    - Reverb/delay: environment shapes the tail of the sound
-
-  WHY THIS WORKS:
-  Human hearing is sensitive to pitch, volume, and timing — but not to the exact
-  waveform shape. A pitch-shifted anvil strike sounds like a different-sized anvil
-  to the ear, even though it's the same recording played faster. This is why one
-  recording can serve hundreds of in-game sounds convincingly.
-
-  WHAT SOUNDS BAD AND HOW TO AVOID IT:
-  - Pitch-shifting too far (>3× or <0.3×) sounds artificial → need multiple base samples per category at different natural pitches
-  - Same sample playing twice identically = robotic → add random ±5% pitch variation and ±10% timing offset per play
-  - No environmental filtering = sounds disconnected from space → always apply distance + environment + medium filtering
-
-Step 4: AudioProcessor
-  The selected sample is transformed in real-time by the WebAudio API:
-
-  // Pitch shift to match computed fundamental frequency
-  playbackRate = fundamentalFreq / sampleBaseFreq
-
-  // Volume from sound power + distance attenuation
-  // Inverse square law: I = P / (4π r²) where r = distance from source to listener
-  gain = soundPower / (4 * Math.PI * distance² + 1)   // +1 prevents division by zero at contact
-  // Clamp to [0, 1] for output
-
-  // Decay envelope: exponential falloff
-  // gain(t) = gain₀ × e^(-t/τ) where τ = decayTime
-
-  // Environment filtering:
-  if (underwater) {
-    // Low-pass filter at 800 Hz (water absorbs high frequencies)
-    // Speed of sound: 1500 m/s (vs 343 m/s in air) — affects spatial delay
-    lowpassCutoff = 800
-    speedOfSound = 1500
-  } else if (inCave) {
-    // Convolution reverb with cave impulse response
-    // Reverb time: proportional to cave volume (estimated from nearest walls raycast)
-    reverbTime = estimateCaveVolume(listenerPosition) * 0.001  // seconds
-    reverbWetMix = 0.6
-  } else if (inForest) {
-    // Scattered reflections: short multi-tap delay (tree trunks)
-    // High-frequency absorption from foliage
-    lowpassCutoff = 4000
-    scatterDelay = [20, 35, 55, 80]  // ms, from nearby tree reflections
-    scatterGain = [0.3, 0.2, 0.15, 0.1]
-  } else {
-    // Open field: dry sound, no reverb
-    reverbWetMix = 0.0
-  }
+Step 6: Output → speaker
 ```
 
-#### Continuous Sounds (Not Impacts)
+#### What This System Can Produce
 
-Some sounds are ongoing processes, not single events:
+| Sound | Method | Key Parameters |
+|-------|--------|---------------|
+| Hammer on anvil | Modal | E=200GPa, ρ=7800, L=0.5m → f₁=312Hz, Q=3000 |
+| Footstep on stone | Modal | Stone surface modes excited by foot impact |
+| Footstep on sand | Noise | Many micro-granular impacts → filtered white noise |
+| Campfire | Noise | Brown noise 60-200Hz + random crackle impulses |
+| Rain on roof | Noise+Modal | Minnaert drop frequency + roof modal response |
+| Wind through trees | Noise | Aeolian tones from branches (f=0.2v/d) |
+| River flowing | Noise | Kolmogorov turbulence spectrum |
+| Glass breaking | Modal | High-frequency modes + many fragment modes |
+| NPC speaking | Voice | Pulse oscillator + formant filters |
+| Wolf howling | Voice | f₀ sweep + throat formants |
+| Bird singing | Voice | Rapid f₀ sweep via syrinx model |
+| Bee buzzing | Oscillator | Single tone at wingbeat frequency |
+| Pouring liquid | Noise | Minnaert bubble oscillations |
+| Silence in cave | Environment | Long reverb tail, no active sources |
 
-```
-ContinuousSoundSources {
-  // ── Fire ──────────────────────────────────────────────────────────────────
-  // Fire sound = turbulent gas flow + crackling (moisture in wood popping)
-  // Volume: proportional to fire intensity (fuel burn rate × oxygen supply)
-  // Pitch: base rumble at 80-200 Hz (turbulence), crackle overlays at 1-4 kHz
-  // The crackle rate depends on wood moisture content:
-  //   dryWood (moisture < 0.1): rare crackles, clean burn sound
-  //   wetWood (moisture > 0.4): frequent loud pops, hissing steam overlay
-  fire: {
-    baseFreq: 80 + fuelBurnRate * 120,       // Hz
-    crackleRate: woodMoisture * 10,           // pops per second
-    hissOverlay: woodMoisture > 0.3,          // steam hiss from wet wood
-    volume: fuelBurnRate * 0.5                // normalized
-  }
-
-  // ── Flowing Water ─────────────────────────────────────────────────────────
-  // Sound of water = turbulence at obstacles
-  // Volume: proportional to flow speed × cross-section area
-  // Pitch: small stream = high (2-4 kHz babble), large river = low (100-400 Hz rumble)
-  // River sound uses the queryNearestRiver() data from RiverSystem.ts:
-  water: {
-    baseFreq: 4000 / (riverWidth + 1),        // narrower = higher pitch
-    turbulenceNoise: brownNoise,               // base waveform
-    volume: flowSpeed * crossSection * 0.01,
-    splashOverlay: flowSpeed > 2.0             // rapids add white noise bursts
-  }
-
-  // ── Wind ──────────────────────────────────────────────────────────────────
-  // Wind sound = air flowing past the listener's ears and nearby objects
-  // Pitch: proportional to wind speed (Aeolian tone: f = 0.2 × v / d, where d = object diameter)
-  // Volume: proportional to v² (kinetic energy of air)
-  // Variation: gusts modulate volume sinusoidally (period 3-8 seconds)
-  wind: {
-    baseFreq: 0.2 * windSpeed / 0.02,         // ear diameter ~2cm → Aeolian frequency
-    volume: windSpeed * windSpeed * 0.001,
-    gustModulation: sin(time * gustFreq) * 0.3 + 0.7,   // 70-100% volume oscillation
-    objectWhistle: nearbyThinObjects.map(obj =>  // fence posts, branches whistle
-      ({ freq: 0.2 * windSpeed / obj.diameter, volume: windSpeed * 0.01 }))
-  }
-
-  // ── Footsteps ─────────────────────────────────────────────────────────────
-  // Generated per step from the walk cycle animation (foot contact event)
-  footstep: {
-    // Terrain material at foot contact point determines timbre class:
-    terrainMaterial: getTerrainMaterialAt(footPosition)
-    // stone/rock → lithic_impact, hard tap
-    // sand → granular_step, soft crunch (pitch varies with grain size)
-    // mud → liquid + granular mix, squelch (moisture content determines wet/dry balance)
-    // grass → organic + granular, soft swish
-    // wood (floor/dock) → organic_impact, hollow knock (pitch from plank thickness)
-    // snow → granular, high-pitched crunch (compacting ice crystals)
-    // metal (grating) → metallic_impact, sharp ring
-
-    // Volume from player mass × step force
-    // Running = 2× walking volume
-    // Sneaking = 0.3× walking volume (also slower step frequency)
-    volume: playerMass * stepForce * terrainLoudness[terrainType]
-  }
-}
-```
-
-#### Spatial Audio (3D Positioning)
-
-```
-SpatialAudio {
-  // All sounds are positioned in 3D using WebAudio's PannerNode
-  panningModel: 'HRTF'                      // Head-Related Transfer Function
-                                              // Simulates how sound arrives at each ear differently
-                                              // based on direction — enables "I hear it to my left"
-
-  // Distance attenuation: inverse square law with rolloff
-  distanceModel: 'inverse'
-  refDistance: 1.0                            // full volume at 1 meter
-  maxDistance: 200.0                          // silent beyond 200 meters
-  rolloffFactor: 1.0                         // standard inverse-square (realistic)
-
-  // Sound travels at finite speed (optional, for immersion):
-  // delay = distance / speedOfSound
-  // At 100m: delay = 100/343 = 0.29 seconds
-  // Player sees lightning, then hears thunder 0.3s later per 100m distance
-  // This is subtle but adds enormous realism for distant events (explosions, mining, thunder)
-  propagationDelay: distance / (underwater ? 1500 : 343)   // seconds
-}
-```
+**Zero audio files ship with the game.** Every sound is computed from MaterialPacket properties + object geometry + physics formulas. A new material automatically produces correct sounds.
 
 #### Performance Budget
 
-The audio system must stay within strict CPU limits:
-
 | Component | Budget | How |
 |-----------|--------|-----|
-| SoundDescriptor computation | <0.1ms per event | Simple arithmetic on material properties — no iteration, no lookup tables |
-| Sample selection | <0.05ms per event | Direct array index from timbre class + energy bucket |
-| WebAudio processing | ~2-3ms total | Handled by browser's audio thread (not main thread). Typically 8-16 concurrent voices max. |
-| Environment estimation | ~0.5ms per frame | Raycast cache for cave/forest/open classification. Recompute only when player moves >5m. |
-| Total audio CPU | <1ms main thread | Most work happens on the browser's audio thread. Main thread only computes SoundDescriptors and sends them to WebAudio. |
+| Mode computation | <0.1ms per event | ~30 eigenfrequency calculations |
+| WebAudio node creation | <0.05ms per event | OscillatorNode + GainNode per mode |
+| Noise generation | ~0.01ms per frame | One noise buffer, filtered per source |
+| Voice synthesis | ~0.02ms per frame | Oscillator + 3-5 filters per voice |
+| Environment filter | ~0.5ms per frame | Raycast cache, recompute when player moves >5m |
+| WebAudio processing | ~2-3ms total | Browser audio thread (not main thread) |
+| **Total main thread** | **<1ms** | Main thread computes parameters only |
 
-**Voice limiting:** Maximum 16 simultaneous sounds. When a new sound would exceed the limit, the quietest (lowest gain after distance attenuation) sound is dropped. Continuous sounds (fire, river, wind) have reserved slots (max 4) and compete separately from transient sounds (impacts, footsteps).
+**Voice limiting:** Maximum 24 concurrent sound sources. Modal synthesis uses lightweight sine oscillators (cheaper than sample playback). Quietest sounds dropped first. Continuous sounds (fire, wind, water) get 6 reserved slots.
 
 
 ### 3.4 Structural Physics — How Buildings Stand or Fall

@@ -461,7 +461,11 @@ function CodeBlockContent({ lines }: { lines: string[] }) {
           return cleaned.split('|').map(s => s.trim()).filter(s => s.length > 0)
         }
 
-        // Group data lines between border lines into logical rows
+        // Group data lines into logical rows
+        // Rule: a new row starts when EITHER:
+        //   a) A border line (┌├└) appears, OR
+        //   b) The first cell of the data line is non-empty (new entity)
+        // A continuation line has an empty first cell (multi-line cell)
         const logicalRows: string[][] = []
         let currentCells: string[] = []
 
@@ -475,10 +479,12 @@ function CodeBlockContent({ lines }: { lines: string[] }) {
           }
           if (isBoxData(line)) {
             const cells = extractCells(line)
+            const firstCellEmpty = cells.length > 0 && cells[0].trim() === ''
             if (currentCells.length === 0) {
+              // First data line after a border
               currentCells = cells
-            } else {
-              // Merge multi-line cells
+            } else if (firstCellEmpty) {
+              // Continuation: first cell is empty → merge with current row
               for (let ci = 0; ci < cells.length && ci < currentCells.length; ci++) {
                 if (cells[ci]) {
                   currentCells[ci] = currentCells[ci]
@@ -486,6 +492,10 @@ function CodeBlockContent({ lines }: { lines: string[] }) {
                     : cells[ci]
                 }
               }
+            } else {
+              // New row: first cell has content
+              logicalRows.push(currentCells)
+              currentCells = cells
             }
           }
         }

@@ -408,16 +408,38 @@ function CodeBlockContent({ lines }: { lines: string[] }) {
         i++
       }
 
-      // Check if any comment lines contain a box-drawing or pipe table
-      // Strip // prefix from each line and look for table patterns
+      // Check if comment lines contain a box-drawing or pipe table
+      // Strip // prefix and look for lines containing │ (box-drawing pipe)
       const stripped = commentLines.map(l => l.trimStart().replace(/^\/\/\s?/, ''))
-      const tableStartIdx = stripped.findIndex(l => /^[┌╭]/.test(l.trim()) || (/^\|/.test(l.trim()) && l.trim().split('|').length >= 3))
+
+      // Find table boundaries by looking for lines with │ (data) or ┌├└─ (borders)
+      // Use character code check for reliability: │ = U+2502, ┌ = U+250C, └ = U+2514
+      const hasBoxChar = (l: string) => {
+        const t = l.trim()
+        for (let ci = 0; ci < Math.min(t.length, 3); ci++) {
+          const c = t.charCodeAt(ci)
+          // Box drawing range: U+2500 to U+257F
+          if (c >= 0x2500 && c <= 0x257F) return true
+        }
+        return false
+      }
+      const isBoxBorder = (l: string) => {
+        const t = l.trim()
+        if (t.length === 0) return false
+        const c = t.charCodeAt(0)
+        // ┌ = 250C, ├ = 251C, └ = 2514, ╭ = 256D, ╰ = 2570
+        return c === 0x250C || c === 0x251C || c === 0x2514 || c === 0x256D || c === 0x2570
+      }
+      const isBoxData = (l: string) => {
+        const t = l.trim()
+        if (t.length === 0) return false
+        return t.charCodeAt(0) === 0x2502 // │ = U+2502
+      }
+
+      const tableStartIdx = stripped.findIndex(l => hasBoxChar(l))
       let tableEndIdx = -1
       for (let ti = stripped.length - 1; ti >= 0; ti--) {
-        if (/^[└╰]/.test(stripped[ti].trim()) || (/^\|/.test(stripped[ti].trim()) && stripped[ti].trim().split('|').length >= 3)) {
-          tableEndIdx = ti
-          break
-        }
+        if (hasBoxChar(stripped[ti])) { tableEndIdx = ti; break }
       }
 
       if (tableStartIdx !== -1 && tableEndIdx > tableStartIdx) {
@@ -428,33 +450,35 @@ function CodeBlockContent({ lines }: { lines: string[] }) {
         if (beforeTable.length > 0) groups.push({ type: 'comment', lines: beforeTable })
 
         // Parse box-drawing table with multi-line cell support
-        // Separator lines (┌├└ followed by ─) divide logical rows
-        const isSepLine = (l: string) => /^[┌├└╭╰][─┬┼┴╮╯┐┘]+$/.test(l.trim())
-        const isDataLine = (l: string) => /^│/.test(l.trim())
-        const extractCells = (l: string) =>
-          l.replace(/[│]/g, '|').split('|').map(s => s.trim()).filter((_, ci, arr) => ci > 0 && ci < arr.length - 1)
-          // skip first empty and last empty from split
+        const extractCells = (l: string): string[] => {
+          // Replace all box-drawing characters with |
+          let cleaned = ''
+          for (let ci = 0; ci < l.length; ci++) {
+            const c = l.charCodeAt(ci)
+            cleaned += (c >= 0x2500 && c <= 0x257F) ? '|' : l[ci]
+          }
+          // Split by | and filter
+          return cleaned.split('|').map(s => s.trim()).filter(s => s.length > 0)
+        }
 
-        // Group data lines between separators into logical rows
+        // Group data lines between border lines into logical rows
         const logicalRows: string[][] = []
         let currentCells: string[] = []
-        let isFirstDataGroup = true
 
         for (const line of tableSection) {
-          if (isSepLine(line)) {
+          if (isBoxBorder(line)) {
             if (currentCells.length > 0) {
               logicalRows.push(currentCells)
               currentCells = []
-              isFirstDataGroup = false
             }
             continue
           }
-          if (isDataLine(line)) {
+          if (isBoxData(line)) {
             const cells = extractCells(line)
             if (currentCells.length === 0) {
               currentCells = cells
             } else {
-              // Merge: append to existing cells (multi-line cell)
+              // Merge multi-line cells
               for (let ci = 0; ci < cells.length && ci < currentCells.length; ci++) {
                 if (cells[ci]) {
                   currentCells[ci] = currentCells[ci]
@@ -471,8 +495,7 @@ function CodeBlockContent({ lines }: { lines: string[] }) {
           const headers = logicalRows[0]
           const rows = logicalRows.slice(1)
           groups.push({ type: 'table', lines: [JSON.stringify({ headers, rows })] })
-        } else if (logicalRows.length === 1) {
-          // Single row — might be header only, render as comment
+        } else {
           groups.push({ type: 'comment', lines: commentLines.slice(tableStartIdx, tableEndIdx + 1) })
         }
 

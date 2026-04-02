@@ -148,18 +148,27 @@ function slugify(text: string): string {
     .replace(/^-|-$/g, '')
 }
 
-/** Parse all headings for the full ToC */
+/** Parse all headings for the full ToC — generates unique IDs for duplicates */
 function parseToc(md: string): TocEntry[] {
   const entries: TocEntry[] = []
+  const idCounts = new Map<string, number>()
+
+  function uniqueId(text: string): string {
+    const base = slugify(text)
+    const count = idCounts.get(base) ?? 0
+    idCounts.set(base, count + 1)
+    return count === 0 ? base : `${base}-${count}`
+  }
+
   for (const line of md.split('\n')) {
     const h2 = line.match(/^## (.+)$/)
     const h3 = line.match(/^### (.+)$/)
     const h4 = line.match(/^#### (.+)$/)
     const h5 = line.match(/^##### (.+)$/)
-    if (h2) entries.push({ level: 2, text: h2[1].replace(/\*\*/g, ''), id: slugify(h2[1]) })
-    else if (h3) entries.push({ level: 3, text: h3[1].replace(/\*\*/g, ''), id: slugify(h3[1]) })
-    else if (h4) entries.push({ level: 4, text: h4[1].replace(/\*\*/g, ''), id: slugify(h4[1]) })
-    else if (h5) entries.push({ level: 5, text: h5[1].replace(/\*\*/g, ''), id: slugify(h5[1]) })
+    if (h2) entries.push({ level: 2, text: h2[1].replace(/\*\*/g, ''), id: uniqueId(h2[1]) })
+    else if (h3) entries.push({ level: 3, text: h3[1].replace(/\*\*/g, ''), id: uniqueId(h3[1]) })
+    else if (h4) entries.push({ level: 4, text: h4[1].replace(/\*\*/g, ''), id: uniqueId(h4[1]) })
+    else if (h5) entries.push({ level: 5, text: h5[1].replace(/\*\*/g, ''), id: uniqueId(h5[1]) })
   }
   return entries
 }
@@ -170,6 +179,14 @@ function parseBlocks(md: string): Block[] {
   const lines = md.split('\n')
   const blocks: Block[] = []
   let i = 0
+  const idCounts = new Map<string, number>()
+
+  function uniqueId(text: string): string {
+    const base = slugify(text)
+    const count = idCounts.get(base) ?? 0
+    idCounts.set(base, count + 1)
+    return count === 0 ? base : `${base}-${count}`
+  }
 
   while (i < lines.length) {
     const line = lines[i]
@@ -179,15 +196,15 @@ function parseBlocks(md: string): Block[] {
 
     // H5 before H4/H3/H2/H1 (most specific first)
     const h5m = line.match(/^##### (.+)$/)
-    if (h5m) { blocks.push({ type: 'h5', text: h5m[1], id: slugify(h5m[1]) }); i++; continue }
+    if (h5m) { blocks.push({ type: 'h5', text: h5m[1], id: uniqueId(h5m[1]) }); i++; continue }
     const h4m = line.match(/^#### (.+)$/)
-    if (h4m) { blocks.push({ type: 'h4', text: h4m[1], id: slugify(h4m[1]) }); i++; continue }
+    if (h4m) { blocks.push({ type: 'h4', text: h4m[1], id: uniqueId(h4m[1]) }); i++; continue }
     const h3m = line.match(/^### (.+)$/)
-    if (h3m) { blocks.push({ type: 'h3', text: h3m[1], id: slugify(h3m[1]) }); i++; continue }
+    if (h3m) { blocks.push({ type: 'h3', text: h3m[1], id: uniqueId(h3m[1]) }); i++; continue }
     const h2m = line.match(/^## (.+)$/)
-    if (h2m) { blocks.push({ type: 'h2', text: h2m[1], id: slugify(h2m[1]) }); i++; continue }
+    if (h2m) { blocks.push({ type: 'h2', text: h2m[1], id: uniqueId(h2m[1]) }); i++; continue }
     const h1m = line.match(/^# (.+)$/)
-    if (h1m) { blocks.push({ type: 'h1', text: h1m[1], id: slugify(h1m[1]) }); i++; continue }
+    if (h1m) { blocks.push({ type: 'h1', text: h1m[1], id: uniqueId(h1m[1]) }); i++; continue }
 
     // Horizontal rule
     if (line.match(/^---+$/)) { blocks.push({ type: 'hr' }); i++; continue }
@@ -674,16 +691,39 @@ function buildSectionGroups(toc: TocEntry[]): SectionGroup[] {
 function getPageHeadings(toc: TocEntry[], activeH2Id: string): TocEntry[] {
   const items: TocEntry[] = []
   let inSection = false
+  let lastH3 = ''
 
   for (const entry of toc) {
     if (entry.level === 2) {
       inSection = entry.id === activeH2Id
+      lastH3 = ''
       continue
     }
-    if (inSection && (entry.level === 3 || entry.level === 4 || entry.level === 5)) {
-      items.push(entry)
+    if (inSection) {
+      if (entry.level === 3) lastH3 = entry.text
+      if (entry.level === 3 || entry.level === 4 || entry.level === 5) {
+        items.push(entry)
+      }
     }
   }
+
+  // Add parent context to duplicate-text entries so "The Principle" becomes
+  // "The Principle (Emergent Material…)" in the sidebar
+  const textCounts = new Map<string, number>()
+  for (const item of items) textCounts.set(item.text, (textCounts.get(item.text) ?? 0) + 1)
+
+  if ([...textCounts.values()].some(c => c > 1)) {
+    let currentH3 = ''
+    for (const item of items) {
+      if (item.level === 3) { currentH3 = item.text; continue }
+      if ((textCounts.get(item.text) ?? 0) > 1 && currentH3) {
+        // Truncate parent name to keep it short
+        const short = currentH3.length > 20 ? currentH3.slice(0, 20) + '...' : currentH3
+        item.text = `${item.text} (${short})`
+      }
+    }
+  }
+
   return items
 }
 

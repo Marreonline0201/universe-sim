@@ -400,14 +400,57 @@ function CodeBlockContent({ lines }: { lines: string[] }) {
       continue
     }
 
-    // Detect comment lines
+    // Detect comment lines — but check for tables inside comments
     if (trimmed.startsWith('//')) {
       const commentLines: string[] = []
       while (i < lines.length && lines[i].trimStart().startsWith('//')) {
         commentLines.push(lines[i])
         i++
       }
-      groups.push({ type: 'comment', lines: commentLines })
+
+      // Check if any comment lines contain a box-drawing or pipe table
+      // Strip // prefix from each line and look for table patterns
+      const stripped = commentLines.map(l => l.trimStart().replace(/^\/\/\s?/, ''))
+      const tableStartIdx = stripped.findIndex(l => /^[┌╭]/.test(l.trim()) || (/^\|/.test(l.trim()) && l.trim().split('|').length >= 3))
+      let tableEndIdx = -1
+      for (let ti = stripped.length - 1; ti >= 0; ti--) {
+        if (/^[└╰]/.test(stripped[ti].trim()) || (/^\|/.test(stripped[ti].trim()) && stripped[ti].trim().split('|').length >= 3)) {
+          tableEndIdx = ti
+          break
+        }
+      }
+
+      if (tableStartIdx !== -1 && tableEndIdx > tableStartIdx) {
+        // Split: comments before table, the table, comments after table
+        const beforeTable = commentLines.slice(0, tableStartIdx)
+        const tableSection = stripped.slice(tableStartIdx, tableEndIdx + 1)
+        const afterTable = commentLines.slice(tableEndIdx + 1)
+
+        if (beforeTable.length > 0) groups.push({ type: 'comment', lines: beforeTable })
+
+        // Parse the box-drawing table
+        // First clean: remove box chars (┌┐└┘├┤┬┴┼─│) and use | as delimiter
+        const cleanedRows = tableSection
+          .filter(l => l.trim().length > 0 && !/^[┌└├╭╰][─┬┼┴╮╯]+/.test(l.trim())) // skip border-only rows
+          .map(l => l.replace(/[┌┐└┘├┤┬┴┼─╭╰╮╯]/g, '|').replace(/\|\|+/g, '|')) // replace box chars with |
+
+        const parseRow = (row: string) => row.split('|').map(s => s.trim()).filter(s => s.length > 0)
+        const isSep = (row: string) => /^[\s|:\-─]+$/.test(row)
+
+        const dataRowsParsed = cleanedRows.filter(r => !isSep(r)).map(parseRow)
+        if (dataRowsParsed.length >= 2) {
+          const headers = dataRowsParsed[0]
+          const rows = dataRowsParsed.slice(1)
+          groups.push({ type: 'table', lines: [JSON.stringify({ headers, rows })] })
+        } else {
+          // Couldn't parse — render as comments
+          groups.push({ type: 'comment', lines: commentLines.slice(tableStartIdx, tableEndIdx + 1) })
+        }
+
+        if (afterTable.length > 0) groups.push({ type: 'comment', lines: afterTable })
+      } else {
+        groups.push({ type: 'comment', lines: commentLines })
+      }
       continue
     }
 

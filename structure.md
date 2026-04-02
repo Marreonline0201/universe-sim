@@ -237,6 +237,561 @@ Both methods use material properties from the MaterialPacket (viscosity, surface
 
 The sections below describe each stage's physics in detail.
 
+#### Cross-System Connections — Every Road Between Systems
+
+Every system in the game talks to other systems. This section specifies exactly **what data flows between them, when it triggers, and what formula converts it.** These are the "roads" between the "buildings."
+
+```
+CrossSystemConnections {
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // CONNECTION 1: Sound Triggers — When does each system emit a SOUND_EVENT?
+  // ═══════════════════════════════════════════════════════════════════════════
+  //
+  // Problem: the sound engine (§3.3) needs a SOUND_EVENT to produce audio.
+  // But many physical processes (rain, fire, animals) don't have obvious
+  // "impact" moments. When exactly does rain become a sound?
+  //
+  // Answer: the server's physics tick (Stage 7) checks each active process
+  // and emits sound events at the right frequency.
+
+  SoundTriggers {
+    // RAIN → SOUND:
+    //   Rain is NOT individual particle impacts (too many events).
+    //   Instead: the server treats rain as a CONTINUOUS NOISE SOURCE.
+    //   When precipitationRate > 0 in the player's area:
+    //     Emit one continuous SOUND_EVENT per player:
+    //     { type: 'flow', energy: precipitationRate × areaExposed,
+    //       materialA: { composition: WATER }, materialB: terrainMaterialAtPlayer,
+    //       position: playerPosition, geometry: { type: 'area', dimensions: [10] } }
+    //   The client's noise synthesizer (Method 2) creates rain sound from this:
+    //     Volume from energy (heavier rain = louder)
+    //     Pitch from Minnaert frequency (drop size from precipitationRate)
+    //     Surface resonance from materialB (rain on stone vs rain on wood)
+    //   Updated every 1 second (matches ENVIRONMENT_STATE rate)
+
+    // FIRE → SOUND:
+    //   Each burning object emits one continuous SOUND_EVENT:
+    //     { type: 'combustion', energy: fuelBurnRate × combustionEnergy,
+    //       materialA: burningMaterial, position: firePosition }
+    //   Crackle rate formula: cracklesPerSecond = materialA.waterAbsorption × 15
+    //     Dry wood (moisture 0.05): 0.75 crackles/sec (occasional pop)
+    //     Wet wood (moisture 0.4): 6 crackles/sec (constant popping)
+    //     Bone-dry (moisture 0): 0 crackles/sec (clean burn)
+    //   Updated every 0.5 seconds while fire is active
+
+    // ANIMALS → SOUND:
+    //   Triggered by the animal brain's behavioral state transitions:
+    //     Herd panic starts → leader emits alarm call:
+    //       { type: 'animal', subtype: 'alarm', species: 'sheep',
+    //         f0: 350, duration: 0.3, position: animalPosition }
+    //     Wolf pack begins hunting → alpha howl:
+    //       { type: 'animal', subtype: 'howl', species: 'wolf',
+    //         f0: [150, 400, 250], duration: 8.0, position: wolfPosition }
+    //         (f0 is an array = frequency sweep over time)
+    //     Bird dawn → chorus trigger:
+    //       { type: 'animal', subtype: 'song', species: 'bird',
+    //         f0: [2000, 6000], duration: 0.05, repeat: 20, position: birdPosition }
+    //     Cow idle → occasional moo:
+    //       probability: 0.002 per tick when idle → { type: 'animal', subtype: 'contact',
+    //         species: 'cattle', f0: 120, duration: 1.5 }
+    //
+    //   The SLM doesn't decide when to vocalize — behavioral STATE TRANSITIONS
+    //   trigger vocalizations automatically. The SLM decides behavior; sounds follow.
+
+    // NPC SPEECH → SOUND:
+    //   Triggered when NPC intent system (§5.3) activates:
+    //     NPC decides to greet, warn, teach, or trade
+    //     → emit: { type: 'voice', phonemes: languageGenerator.speak(intent),
+    //               f0: npcBasePitch, formants: languageGenerator.formants(phonemes),
+    //               position: npcPosition }
+    //     npcBasePitch = 200 - (npcHeight × 0.5) Hz (taller = deeper voice)
+
+    // FLUID → SOUND:
+    //   SPH particles hitting terrain at speed > 0.5 m/s emit splash:
+    //     { type: 'flow', subtype: 'splash', energy: 0.5 × mass × velocity²,
+    //       materialA: particleMaterial, materialB: terrainMaterial, position: contactPoint }
+    //   Pouring (continuous stream): one event per second while pour is active
+    //   Bubbles (liquid entering container with air): bubble rate from fill speed
+    //     bubbleFreq = 3.26 / estimatedBubbleRadius
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // CONNECTION 2: Weather → World — Shelter detection and material effects
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  WeatherShelterDetection {
+    // Problem: when it rains, materials under a roof should stay dry.
+    // But how does the weather system know if a material is "under a roof"?
+    //
+    // Answer: vertical raycast from sky downward.
+    //
+    // For each material/object that needs a weather exposure check:
+    //   Cast a ray straight up from the object's position
+    //   If the ray hits a solid block (roof, overhang, tree canopy) before
+    //     reaching open sky → object is SHELTERED
+    //   If the ray reaches open sky → object is EXPOSED
+    //
+    // Optimization: don't raycast every object every tick.
+    //   Cache shelter status per terrain cell (2m × 2m resolution)
+    //   Recalculate when: a structure is built/destroyed in the cell above
+    //   Result: shelterMap[cellX][cellZ] = true/false
+    //
+    // Used by:
+    //   Rain → material moisture: only exposed materials get wet
+    //   Snow accumulation: only exposed surfaces accumulate snow
+    //   Wind force on structures: only exposed walls experience full wind
+    //   Sunlight for farming: only exposed crops get full light
+    //   Player body temperature: sheltered = reduced heat loss from rain/wind
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // CONNECTION 3: Animal/Organism Death → MaterialPacket Conversion
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  OrganismDeathToMaterial {
+    // Problem: when a deer dies, the species registry says it produces
+    // "hide, antler, sinew, bone, fat." But how does the game entity
+    // (organism) become physical items (MaterialPackets)?
+    //
+    // Answer: on death, the organism entity becomes a CORPSE ENTITY,
+    // and the player harvests products from the corpse.
+
+    // Step 1: Organism dies (health → 0 from starvation, predation, combat, age)
+    //   Server removes organism from active simulation
+    //   Server spawns a CorpseEntity at the organism's position:
+    //     { species, bodyMass, position, deathTime, harvestable: true }
+    //   Corpse is visible to all players (dead animal model, lying on ground)
+
+    // Step 2: Player interacts with corpse (walk up, press interact key)
+    //   Opens a simple "harvest" action — not a UI menu, just "Harvest [species]"
+    //   Each harvest action takes game-time (5-30 game-seconds depending on tool)
+    //     Bare hands: slow, gets meat + hide (rough)
+    //     Stone knife: moderate, gets meat + hide + sinew
+    //     Iron knife: fast, gets all products cleanly (more yield)
+
+    // Step 3: Products spawn as MaterialPackets in player's inventory
+    //   Each product is a real MaterialPacket with composition:
+    //     Hide: { collagen: 0.65, water: 0.15, fat: 0.10, minerals: 0.10 }
+    //     Bone: { calcium_phosphate: 0.70, collagen: 0.20, water: 0.10 }
+    //     Meat: { protein: 0.22, fat: 0.05, water: 0.72, minerals: 0.01 }
+    //     Fat/tallow: { fatty_acids: 0.85, water: 0.10, protein: 0.05 }
+    //   The mass of each product scales with the organism's bodyMass
+    //   Total product mass = ~60% of bodyMass (rest is waste/blood)
+
+    // Step 4: Unharvested corpse decomposes
+    //   After 7 game-days: corpse disappears
+    //   Nutrients absorbed into soil (SoilState at that cell):
+    //     nitrogen += bodyMass × 0.003
+    //     phosphorus += bodyMass × 0.001
+    //   Decomposer fungi (§4.2) accelerate this if present
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // CONNECTION 4: Animal Manure Production
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  ManureProduction {
+    // Problem: farming says "collect dung from animal enclosures" but when
+    // and how does dung appear?
+    //
+    // Answer: animals produce dung at a rate proportional to food intake.
+
+    // Every animal that has eaten in the last game-day produces dung:
+    //   dungInterval = 4 game-hours (cattle), 2 game-hours (chicken), 3 (sheep/goat/pig)
+    //   When the interval elapses:
+    //     Server spawns a small MaterialPacket at the animal's current position:
+    //       { composition: species-specific (see §4.4 nutrient values),
+    //         mass: bodyMass × 0.02,  // 2% of body mass per deposit
+    //         temperature: 37, phase: 'solid' }
+    //     This is a physical world object — it sits on the ground
+    //     Player can pick it up (goes into inventory as a MaterialPacket)
+    //     Player can apply it to soil (farming system reads nutrientContent)
+    //
+    // In an enclosure: dung accumulates on the ground over time
+    //   NPCs with farming knowledge collect it as part of their goal loop
+    //   If not collected: decomposes in 14 game-days → nutrients go to soil directly
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // CONNECTION 5: NPC Crafting API — How NPCs Use Workstations Without a UI
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  NPCCraftingAPI {
+    // Problem: crafting requires "press F at workstation." NPCs can't press F.
+    //
+    // Answer: the workstation interaction is a SERVER-SIDE FUNCTION, not a UI.
+    // The F-key and the panel are the PLAYER'S interface to that function.
+    // NPCs call the same function directly.
+
+    // The server has:
+    //   function attemptCraft(actorId, workstationId, inputMaterials[]) → CraftResult
+    //
+    // When a PLAYER presses F:
+    //   Client sends WORKSTATION_USE { playerId, workstationId }
+    //   Client shows UI panel for material selection
+    //   Player selects materials → client sends CRAFT_REQUEST { materials[] }
+    //   Server calls attemptCraft(playerId, workstationId, materials)
+    //   Server runs reaction engine (§3.1) on the inputs
+    //   Server returns result (success/failure + output MaterialPacket)
+    //
+    // When an NPC decides to craft (SLM output: "use_workstation:bloomery"):
+    //   NPC walks to bloomery (pathfinding)
+    //   NPC's brain selects materials from what it's carrying
+    //   Server calls attemptCraft(npcId, workstationId, materials)
+    //   Same reaction engine runs, same physics, same result
+    //   NPC receives the output MaterialPacket
+    //
+    // The function is identical. The only difference is WHO calls it:
+    //   Player: via WebSocket message triggered by UI interaction
+    //   NPC: via direct function call from the NPC goal loop
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // CONNECTION 6: NPC Building Placement — How NPCs Choose Where to Build
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  NPCBuildingPlacement {
+    // Problem: players aim with a mouse to place blocks. NPCs have no mouse.
+    //
+    // Answer: the SLM decides WHAT to build. A placement algorithm decides WHERE.
+
+    // When SLM outputs "build:shelter_hut":
+    //   1. NPC queries: what building type? → shelter_hut
+    //   2. BuildingTemplates define rough shapes:
+    //      shelter_hut: { footprint: 3×3m, height: 2.5m, walls: 4, roof: true, door: 1 }
+    //      storage_hut: { footprint: 2×2m, height: 2m, walls: 4, roof: true, door: 1 }
+    //      wall_segment: { length: 3m, height: 2m, thickness: 0.3m }
+    //
+    //   3. PlacementAlgorithm finds a valid position:
+    //      - Within settlement territory
+    //      - On flat-ish terrain (slope < 15°)
+    //      - Not overlapping existing structures (check world_objects table)
+    //      - Near other structures (settlements cluster, not scatter)
+    //      - Door faces toward settlement center (social — people face inward)
+    //      - At least 2m from nearest structure (fire safety gap)
+    //
+    //   4. NPC executes build over multiple game-hours:
+    //      - Gathers materials (logs, stones, clay)
+    //      - Places each block using server-side placeObject() function
+    //        (same function players use, but with computed position/rotation)
+    //      - Bonds blocks with available mortar (mud if early, lime if known)
+    //      - Result: a real structure made of real MaterialPackets
+    //
+    // The building is NOT a prefab. The NPC places individual blocks.
+    // Two NPCs building the same template may produce slightly different results
+    // (different stone sizes, different mortar quality, different terrain adaptation).
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // CONNECTION 7: Fire Spread Between Structures
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  FireSpread {
+    // Problem: §3.4 says "fire spreads to adjacent wooden structures" but
+    // doesn't specify the spread probability or mechanism.
+    //
+    // Answer: fire spread is a HEAT TRANSFER problem (Stage 1 of the tick).
+
+    // A burning block radiates heat to its neighbors.
+    // Heat transfer formula (same as temperature propagation):
+    //   Q = emissivity × σ × A × (T_fire⁴ - T_neighbor⁴) per tick
+    //   where σ = Stefan-Boltzmann constant, A = facing area, T in Kelvin
+    //
+    // A block that receives enough heat crosses its ignition temperature:
+    //   if (block.temperature > block.packet.ignitionTemperature
+    //       && block.packet.flammability > 0):
+    //     block catches fire
+    //
+    // This means:
+    //   Wood (ignition ~300°C, flammability 0.8): catches easily from nearby fire
+    //   Stone (no ignition — flammability 0): never catches fire (but conducts heat through)
+    //   Wet wood (flammability reduced by moisture): harder to ignite
+    //
+    // Wind effect: wind pushes hot air in the wind direction
+    //   Downwind blocks receive 2× the heat flux from fire
+    //   Upwind blocks receive 0.5× (wind blows heat away from them)
+    //   windMultiplier = 1.0 + cos(angleBetweenWindAndBlockDirection) × 1.0
+    //
+    // Fire consumes fuel: burning reduces the block's mass
+    //   burnRate = fuelBurnRate × oxygenSupply × flammability
+    //   mass -= burnRate × dt
+    //   When mass < 10% of original → block collapses (structural check triggers)
+    //   The block becomes ash (new MaterialPacket: mostly potassium + carbon)
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // CONNECTION 8: Rain → SPH Particle Spawning
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  RainToParticles {
+    // Problem: §3.2 describes a water cycle where rain becomes SPH particles,
+    // but the conversion formula is missing.
+    //
+    // Answer: rain is ONLY visual in Mode 1. Rain becomes real water when it
+    // hits the ground — by adding volume to the grid (Scale 3), not by spawning
+    // thousands of SPH particles from the sky.
+
+    // How rain works:
+    //   1. Weather system says: precipitationRate = 5 mm/hour in this area
+    //   2. Client renders rain as GPU billboard particles (visual only, no physics)
+    //   3. Server adds water to grid cells (Scale 3):
+    //        waterVolumeAdded = precipitationRate × cellArea × dt / 1000
+    //        (converting mm/hour to m³/second)
+    //        For a 2×2m cell at 5mm/hr: +0.0000055 m³ per second
+    //   4. Grid water flows downhill (Manning's equation) → forms puddles, streams
+    //   5. If a player scoops water from a puddle → grid→SPH transition (§3.2)
+    //
+    // Rain does NOT spawn thousands of falling SPH particles.
+    // That would be too expensive and unnecessary.
+    // The visual (falling rain drops) is client-side GPU particles.
+    // The physical (water on the ground) is server-side grid cells.
+    // They connect at the ground: visual stops, grid volume increases.
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // CONNECTION 9: Evaporation → Weather Humidity
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  EvaporationToHumidity {
+    // Problem: the water cycle says "evaporation → humidity → clouds → rain"
+    // but the number connecting evaporation to humidity is missing.
+    //
+    // Answer: evaporation rate from water surfaces feeds into the atmosphere cell.
+
+    // Per atmosphere cell (2×2m), per tick (1 Hz):
+    //   waterSurfaceArea = area of grid cells in this column with waterVolume > 0
+    //   evapRate = waterSurfaceArea × (1 - humidity) × (T_surface / 100) × windSpeed × 0.00001
+    //   // kg/m²/second — Penman equation simplified
+    //
+    //   // Remove water from the grid:
+    //   for each grid cell with water:
+    //     cell.waterVolume -= evapRate × cellArea × dt
+    //
+    //   // Add moisture to atmosphere:
+    //   atmosphereCell.humidity += evapRate × cellArea / atmosphereCell.airMass
+    //
+    // This closes the cycle:
+    //   Evaporation → humidity up → dew point reached → clouds → precipitation → grid water → evaporation
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // CONNECTION 10: Precision Craft → Functional Properties
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  PrecisionCraftToFunction {
+    // Problem: when a player shapes clay, "the shape IS the final object."
+    // But how does the game measure the shape's functional properties?
+    //
+    // Answer: voxelize the deformed mesh and measure from the voxel grid.
+
+    // After the player finishes shaping (exits precision craft mode):
+    //   1. The deformed mesh is voxelized into a small 3D grid (16×16×16 resolution)
+    //   2. Measurements computed from the voxel grid:
+    //
+    //      volume = count of interior voxels × voxelSize³
+    //        (interior = voxels surrounded on all sides by solid)
+    //        This is the container capacity — a bowl-shaped object holds liquid
+    //
+    //      wallThickness = average distance from interior to nearest exterior surface
+    //        Thin walls (< 3 voxels): fragile — low structural strength
+    //        Thick walls (> 6 voxels): strong but heavy and uses more material
+    //
+    //      symmetry = compare left half to right half of voxel grid
+    //        symmetryScore = 1.0 - (count of mismatched voxels / total voxels)
+    //        High symmetry: looks good, pottery wheel bonus
+    //        Low symmetry: lopsided, reduced volume (liquid pools to one side)
+    //
+    //      openingSize = count of top-layer voxels that are empty (the "mouth" of the pot)
+    //        Small opening: harder to fill/pour, but liquid stays in better
+    //        Large opening: easy to fill, but spills when tilted
+    //
+    //   3. These measurements become properties of the resulting world object:
+    //      CraftedObject { packet: MaterialPacket, volume, wallThickness, symmetry, openingSize }
+    //
+    //   4. The structural system uses wallThickness × packet.compressiveStrength
+    //      to determine if the pot survives being dropped or filled with heavy liquid
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // CONNECTION 11: Sharpness — The Missing MaterialPacket Property
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  SharpnessProperty {
+    // Problem: combat uses "sharpnessFactor" but sharpness isn't one of the
+    // 33 MaterialPacket properties. Where does it come from?
+    //
+    // Answer: sharpness is NOT a material property — it's an OBJECT property.
+    // A lump of iron has no sharpness. A knife made from that iron does.
+    // Sharpness comes from the object's GEOMETRY (how thin the edge is),
+    // not from its composition.
+
+    // When a tool is crafted (§6.4 precision craft mode):
+    //   The player shapes the edge during knapping or forging
+    //   Edge geometry is measured from the deformed mesh:
+    //     edgeRadius = minimum thickness at the tool's strike point (in mm)
+    //     A razor-sharp flint edge: edgeRadius ≈ 0.01mm
+    //     A rough stone axe edge: edgeRadius ≈ 2mm
+    //     A blunt hammer: edgeRadius ≈ 20mm (not sharp at all)
+    //
+    //   sharpness = 1.0 / (1.0 + edgeRadius × 10)
+    //     razor (0.01mm): sharpness ≈ 0.91
+    //     stone axe (2mm): sharpness ≈ 0.05
+    //     hammer (20mm): sharpness ≈ 0.005
+
+    // Sharpness degradation per use:
+    //   edgeRadius += targetHardness / (toolHardness × 1000) per impact
+    //   Hitting soft wood: barely dulls (small edgeRadius increase)
+    //   Hitting hard stone: dulls fast (large edgeRadius increase)
+    //   If tool is harder than target: dulls slowly
+    //   If tool is softer than target: dulls very fast AND may chip
+    //
+    //   Re-sharpening: use a grinding stone (precision craft mode on the tool's edge)
+    //     edgeRadius decreases back toward the original value
+    //     Can't sharpen below the material's minimum (flint can be sharper than copper)
+
+    // Stored per tool, not per MaterialPacket:
+    //   ToolInstance { packet: MaterialPacket, grip: ToolGrip, edgeRadius: number }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // CONNECTION 12: Combat → Tool and Armor Durability
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  CombatDurability {
+    // Problem: combat computes damage to the target, but what happens to
+    // the weapon and armor?
+
+    // TOOL DURABILITY on impact:
+    //   Every impact applies stress to the tool.
+    //   If impactForce > tool.packet.tensileStrength × toolCrossSection:
+    //     Tool breaks! (shatters into MaterialPacket fragments)
+    //     A stone axe hitting iron armor: stone may shatter (stone is brittle)
+    //     An iron sword hitting wood: sword is fine (iron is much stronger)
+    //   Otherwise: micro-damage accumulates
+    //     tool.durability -= impactEnergy / (tool.packet.youngsModulus × toolVolume)
+    //     When durability reaches 0: tool breaks
+    //     Tool lasts hundreds of hits against soft targets, dozens against hard targets
+
+    // ARMOR DURABILITY on receiving damage:
+    //   Each hit reduces armor durability:
+    //     armor.durability -= effectiveDamage × 0.01
+    //     (1% of damage dealt to body goes to armor as wear)
+    //   As durability drops, absorption decreases linearly:
+    //     effectiveAbsorption = baseAbsorption × armor.durability
+    //     Fresh iron armor (durability 1.0): absorption = 0.7
+    //     Half-worn iron armor (durability 0.5): absorption = 0.35
+    //     Broken armor (durability 0): absorption = 0 (no protection)
+    //   Armor can be repaired at a workstation:
+    //     Metal armor: reheat + hammer (smithing) → durability restored
+    //     Leather armor: patch with new leather → partial durability restore
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // CONNECTION 13: Combat → Bleed Rate
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  CombatToBleedRate {
+    // Problem: the injury system has bleedRate per body region, but combat
+    // doesn't specify how damage translates to bleeding.
+    //
+    // Answer: sharp weapons cause bleeding, blunt weapons don't.
+
+    // When a hit lands:
+    //   if (tool.sharpness > 0.1):  // sharp edge
+    //     bleedRate = damage × sharpness × 0.5  // HP per game-minute
+    //     // A sharp iron sword dealing 40% damage: bleedRate = 0.4 × 0.5 × 0.5 = 0.1 HP/min
+    //   else:  // blunt object (hammer, rock, fist)
+    //     bleedRate = 0  // bruising, not cutting — no bleeding
+    //
+    // Bleed rate stacks: multiple cuts on the same region add up
+    // Bleed stops when:
+    //   Player applies bandage (cloth + pressure → bleedRate = 0 for that region)
+    //   Or bleedRate naturally reduces at 0.01/game-minute (clotting)
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // CONNECTION 14: Barter Exchange Rate — Settlement Trade Pricing
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  BarterExchangeRate {
+    // Problem: settlements trade surplus for deficit, but at what rate?
+    //
+    // Answer: price is inversely proportional to stockpile level.
+
+    // Each settlement tracks stockpile per category:
+    //   food_kg, fuel_kg, ore_kg, tools_count, cloth_kg, ...
+    //
+    // "Value" of a material to a settlement:
+    //   value = needWeight / (stockpile + 1)
+    //   needWeight per category:
+    //     food: 10 (always critical)
+    //     fuel: 5 (important for smelting settlements)
+    //     ore: 3 (important for mining settlements)
+    //     tools: 8 (always needed)
+    //     cloth: 2 (nice to have)
+    //
+    //   A settlement with 5kg food and 200kg copper ore:
+    //     food value: 10 / (5 + 1) = 1.67 (desperately wants food)
+    //     ore value: 3 / (200 + 1) = 0.015 (has plenty of ore)
+    //
+    // Exchange rate between two settlements:
+    //   Settlement A has copper (value 0.015), wants food (value 1.67)
+    //   Settlement B has food (value 0.02), wants copper (value 0.5)
+    //
+    //   A offers: X kg copper for Y kg food
+    //   Exchange ratio: A's food_value / A's copper_value = 1.67 / 0.015 = 111
+    //   Meaning: A would give 111 kg copper for 1 kg food (it's desperate)
+    //   But B also has a ratio: B's copper_value / B's food_value = 0.5 / 0.02 = 25
+    //   Meaning: B would give 1 kg food for 25 kg copper
+    //
+    //   Final trade rate: geometric mean = sqrt(111 × 25) ≈ 53 kg copper per 1 kg food
+    //   Both sides benefit relative to their own valuation.
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // CONNECTION 15: Player-NPC Trade Interface
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  PlayerNPCTrade {
+    // Problem: player-player trade is physical (drop items), but how does a
+    // player trade with a settlement?
+    //
+    // Answer: same physical mechanism. No special UI.
+
+    // Step 1: Player walks to a settlement's storage area
+    //   (visible structure with stored goods — clay pots, baskets, piles of material)
+    //
+    // Step 2: Player drops items on the ground near the storage
+    //   Server detects: player dropped MaterialPacket within settlement territory
+    //
+    // Step 3: A nearby NPC notices the dropped items
+    //   NPC SLM evaluates: "A player dropped copper ore near our storage.
+    //     We need copper (low stockpile). We have excess food.
+    //     I'll take the copper and leave food in exchange."
+    //   NPC walks to the dropped item, picks it up
+    //   NPC walks to storage, retrieves food proportional to exchange rate (§connection 14)
+    //   NPC walks back and drops food near where the player dropped copper
+    //
+    // Step 4: Player picks up the food
+    //
+    // This is barter. No UI, no menu, no "trade window."
+    // The NPC acts as a real person: sees an offering, evaluates it,
+    // and reciprocates based on the settlement's needs.
+    //
+    // Risk: the NPC might not reciprocate if trust is low
+    //   (collectiveMemory.playerTrust < 0 → NPC ignores or takes without giving)
+    // Risk: another player or animal might take the dropped items first
+    //   (same risk as player-player trade — it's a physical world)
+    //
+    // Alternative: if an NPC has the 'offer_trade' intent active:
+    //   NPC approaches the player and extends items in hand
+    //   Player can take the item (NPC then picks up what player drops)
+    //   This is a face-to-face exchange — more reliable than ground-drop
+  }
+}
+```
+
 ### 3.1 Emergent Material System — Nothing Is Pre-Defined
 
 #### The Principle

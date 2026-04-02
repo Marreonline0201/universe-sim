@@ -151,28 +151,126 @@ MaterialPacket {
   pressure: number                      // Pa (default: 101325 = 1 atm)
 
   // --- Derived (computed from composition + state, never stored manually) ---
-  meltingPoint: number                  // °C — weighted from components + alloy corrections
-  boilingPoint: number                  // °C
-  density: number                       // kg/m³
-  hardness: number                      // Mohs scale
-  thermalConductivity: number           // W/(m·K)
-  electricalConductivity: number        // S/m
-  tensileStrength: number               // MPa
-  color: [number, number, number]       // RGB derived from composition
-  crystalStructure: string              // FCC, BCC, HCP, amorphous...
+  // Every property below is CALCULATED from composition using real formulas.
+  // Nothing is looked up from a table. The property calculator runs the formula
+  // each time a property is needed (cached per temperature change).
+
+  // ── Phase transition ──────────────────────────────────────────────────────
+  meltingPoint: number                  // °C — CALPHAD weighted average + eutectic corrections
+  boilingPoint: number                  // °C — Clausius-Clapeyron relation from vapor pressure
+
+  // ── Mechanical ────────────────────────────────────────────────────────────
+  density: number                       // kg/m³ — Vegard's law for alloys, rule of mixtures
+  hardness: number                      // Mohs scale — Hall-Petch + solid solution strengthening
+  tensileStrength: number               // Pa — maximum pull force before snap
+  compressiveStrength: number           // Pa — maximum squeeze force before crush
+  shearStrength: number                 // Pa — maximum sideways force before shear
+  youngsModulus: number                 // Pa (elasticity) — how much it flexes before breaking
+                                        // Used by: §3.3 sound (pitch: f₀ = (1/2L)√(E/ρ))
+                                        //          §3.4 structural (span limits, beam deflection)
+  frictionCoefficient: number           // dimensionless — surface friction (μ)
+                                        // Used by: §3.4 structural (stacked block stability)
+
+  // ── Thermal ───────────────────────────────────────────────────────────────
+  thermalConductivity: number           // W/(m·K) — how fast heat moves through material
+  specificHeatCapacity: number          // J/(kg·K) — energy needed to raise 1kg by 1°C
+                                        // Used by: temperature propagation, cooling rate
+                                        // Water: 4186, iron: 449, granite: 790, wood: 1700
+  thermalExpansion: number              // 1/K — how much material expands when heated
+                                        // Used by: structural stress from temperature changes
+  emissivity: number                    // 0-1 — how well surface radiates heat (black body = 1.0)
+                                        // Used by: radiative heat loss, fire radiation
+  ignitionTemperature: number           // °C — minimum temp for combustion (organic materials only)
+                                        // Wood: ~300°C, paper: ~230°C, coal: ~450°C, metal: N/A
+  combustionEnergy: number              // J/kg — energy released when burned
+                                        // Used by: fire system, furnace temperature calculation
+                                        // Wood: ~15 MJ/kg, charcoal: ~30 MJ/kg, coal: ~25 MJ/kg
+  flammability: number                  // 0-1 — ease of ignition (modified by moisture)
+                                        // Used by: fire starting success rate
+
+  // ── Electrical ────────────────────────────────────────────────────────────
+  electricalConductivity: number        // S/m — Matthiessen's rule
+
+  // ── Fluid (liquid/gas phase only) ─────────────────────────────────────────
+  viscosity: number                     // Pa·s — resistance to flow
+                                        // Used by: §3.2 SPH (F_viscosity = μ · ∇²v)
+                                        // Water: 0.001, honey: 2-10, lava: 100-10⁶
+                                        // Temperature-dependent: Arrhenius model μ = A·e^(Ea/RT)
+  surfaceTension: number                // N/m — surface cohesion
+                                        // Used by: §3.2 SPH (surface tension force, droplet formation)
+                                        // Water: 0.072, mercury: 0.49, molten iron: 1.87
+
+  // ── Acoustic ──────────────────────────────────────────────────────────────
+  acousticEfficiency: number            // dimensionless — fraction of impact energy converted to sound
+                                        // Used by: §3.3 sound (P_sound = η × E_impact / t_contact)
+                                        // Metal: 0.01, stone: 0.005, wood: 0.002, sand: 0.0001
+
+  // ── Chemical ──────────────────────────────────────────────────────────────
+  standardEnthalpy: number              // J/mol — formation enthalpy (ΔH_f°)
+                                        // Used by: reaction engine (ΔG = ΔH - TΔS)
+  standardEntropy: number               // J/(mol·K) — formation entropy (S°)
+  activationEnergy: number              // J/mol — energy barrier for reactions (Ea)
+                                        // Used by: Arrhenius equation k = A·e^(-Ea/RT)
+
+  // ── Environmental interaction ─────────────────────────────────────────────
+  porosity: number                      // 0-1 — how porous (affects water absorption, strength)
+                                        // Used by: §4.6 weather (material moisture model)
+                                        //          §3.4 structural (freeze-thaw damage)
+                                        // Stone: 0.01-0.05, wood: 0.3-0.6, clay brick: 0.15-0.25
+  waterAbsorption: number               // 0-1 — max moisture the material can hold
+                                        // Used by: §4.6 weather (rain → material gets wet)
+                                        // Wood: 0.8, cloth: 0.9, stone: 0.05, metal: 0.0
+
+  // ── Visual ────────────────────────────────────────────────────────────────
+  color: [number, number, number]       // RGB — Drude model for metals, absorption for non-metals
+  crystalStructure: string              // FCC, BCC, HCP, amorphous — Hume-Rothery rules
+  opacity: number                       // 0-1 — transparency (glass: 0.1, metal: 1.0, water: 0.3)
+  reflectivity: number                  // 0-1 — surface reflectance (polished metal: 0.9, wood: 0.1)
+
+  // ── Biological (organic materials only) ───────────────────────────────────
+  calorieContent: number                // kcal/kg — nutritional energy (0 for non-food materials)
+  nutrientContent: { N: number, P: number, K: number }  // fertilizer value when applied to soil
+                                        // Used by: §4.4 farming (manure, bone meal, wood ash)
 }
 ```
 
+**Total: 33 derived properties**, all computed from composition using real formulas. Every physics equation in the document can find the variable it needs in this struct. No property is hardcoded per material — they all emerge from what elements the material is made of.
+
 Every derived property is **calculated**, not looked up. The calculation uses real material science:
 
-| Property | How it's computed | Source |
-|----------|------------------|--------|
-| Melting point | Weighted average of component melting points + eutectic corrections from binary phase diagrams | CALPHAD method (simplified) |
-| Density | Rule of mixtures: `ρ = Σ(xᵢ · ρᵢ)` with packing corrections for crystal structure | Vegard's law for alloys |
-| Hardness | Hall-Petch relationship for grain size + solid solution strengthening from solute atoms | Metallurgy fundamentals |
-| Electrical conductivity | Matthiessen's rule: `1/σ = 1/σ_base + Σ(cᵢ · Δρᵢ)` — impurities increase resistivity | Resistivity tables |
-| Color | Drude model for metals (free electron plasma frequency → reflectance spectrum), absorption spectrum for non-metals | Optical properties of solids |
-| Crystal structure | Hume-Rothery rules: atomic size ratio, electronegativity difference, valence electron count → FCC/BCC/HCP prediction | Hume-Rothery (1934) |
+| Property | How it's computed | Source | Used by |
+|----------|------------------|--------|---------|
+| Melting point | Weighted average + eutectic corrections from binary phase diagrams | CALPHAD method | Phase transitions, smelting |
+| Boiling point | Clausius-Clapeyron from vapor pressure curves | Thermodynamics | Evaporation, boiling |
+| Density | `ρ = Σ(xᵢ · ρᵢ)` with packing corrections for crystal structure | Vegard's law | SPH, buoyancy, weight |
+| Hardness | Hall-Petch for grain size + solid solution strengthening | Metallurgy | Tool quality, Mohs scale |
+| Tensile strength | Empirical relation to hardness + crystal structure correction | Materials science | §3.4 beam spans, breaking |
+| Compressive strength | ~10× tensile for stone, ~1× for metals, from crystal bonding | Materials science | §3.4 stacking, foundations |
+| Shear strength | ~0.6× tensile for metals, ~0.15× compressive for stone | Materials science | §3.4 lateral force, wind |
+| Young's modulus | Bonding energy per unit cell × packing density | Solid state physics | §3.3 sound pitch, §3.4 deflection |
+| Friction coefficient | Surface roughness from crystal structure + hardness | Tribology | §3.4 stacked blocks, sliding |
+| Thermal conductivity | Wiedemann-Franz law (metals), phonon model (non-metals) | Solid state physics | Heat transfer, insulation |
+| Specific heat capacity | Dulong-Petit law (3R per mole) + corrections for bonding | Thermochemistry | Temperature change rate |
+| Thermal expansion | Grüneisen parameter from bonding strength | Solid state physics | Structural thermal stress |
+| Emissivity | Surface roughness + composition → Kirchhoff's law | Radiative physics | Heat radiation, fire glow |
+| Ignition temperature | Bond dissociation energy of weakest organic bond | Combustion chemistry | Fire starting |
+| Combustion energy | Hess's law: sum of bond energies (products - reactants) | Thermochemistry | Fire heat, furnace temp |
+| Flammability | Ignition temp × surface area × moisture correction | Fire science | Fire success rate |
+| Electrical conductivity | Matthiessen's rule: `1/σ = 1/σ_base + Σ(cᵢ · Δρᵢ)` | Solid state physics | Future: electric circuits |
+| Viscosity | Andrade equation (metals), Arrhenius (general): `μ = A·e^(Ea/RT)` | Fluid mechanics | §3.2 SPH flow resistance |
+| Surface tension | Eötvös rule: `γ = k(Tc - T - 6)/V^(2/3)` | Surface physics | §3.2 SPH droplets, meniscus |
+| Acoustic efficiency | Empirical: crystal structure → radiation efficiency | Acoustics | §3.3 sound volume |
+| Standard enthalpy | Tabulated per element, computed for compounds via Hess's law | Thermochemistry | Reaction engine ΔG |
+| Standard entropy | Tabulated per element, computed for compounds | Thermochemistry | Reaction engine ΔG |
+| Activation energy | Tabulated per reaction type, estimated from bond strengths | Reaction kinetics | Arrhenius equation |
+| Porosity | Packing efficiency from crystal structure + grain size | Materials science | Weather damage, absorption |
+| Water absorption | Porosity × surface wettability (contact angle) | Surface chemistry | Rain effect on materials |
+| Color | Drude model (metals), band gap absorption (non-metals) | Optical physics | Rendering |
+| Crystal structure | Hume-Rothery rules: size ratio, electronegativity, valence | Crystallography | Many properties depend on this |
+| Opacity | Band gap energy → photon absorption spectrum | Optical physics | Rendering transparency |
+| Reflectivity | Fresnel equations from refractive index | Optical physics | Rendering, mirror surfaces |
+| Calorie content | Combustion energy × digestibility factor (organic only) | Nutrition science | §7.2 food, §4.4 farming |
+| Nutrient content | Element composition → N/P/K extraction | Soil science | §4.4 fertilizer value |
 
 #### How Materials Combine: The Reaction Engine
 

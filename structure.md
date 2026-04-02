@@ -10775,89 +10775,173 @@ The game has no recipe database. Instead it has **transformation rules** — phy
 ---
 
 
-### 6.3 Physics-Based Crafting & Workstations
+### 6.3 Physics-Based Crafting — No Workstations, Only Conditions
 
-116 materials with 11 physics properties each. Five physics interactions: bow-drill fire, flint-and-iron fire, stone knapping, clay pottery, copper/iron smelting. Success rates computed from material properties. Hidden practice tracking. Discovery system for first successes.
+#### The Principle
 
----
+There is no such thing as a "workstation" in this game. There is no bloomery object, no forge object, no kiln object. What we casually call a "bloomery" is actually **a player-built arrangement of clay blocks, shaped into a cylinder with a hole at the base, connected to a leather bellows, fueled with charcoal.** The game does not know the word "bloomery." It knows: this arrangement creates an enclosed space where temperature reaches ~1100°C with sufficient airflow and reducing atmosphere.
 
+This follows the same principle as everything else in the simulation: materials are not pre-defined (they emerge from composition), sounds are not pre-defined (they emerge from material properties), structural integrity is not pre-defined (it emerges from forces). Crafting environments are not pre-defined — they emerge from the physical conditions created by whatever the player or NPC has built.
 
-Crafting happens **at a location**, not in a menu. The player walks to a machine, stands next to it, and works with it. The machine is a physical object with a 3D position in the world.
+A player who builds a clay cylinder with a tuyere hole and bellows gets copper smelting capability — not because they built a "bloomery," but because they created the physical conditions (1100°C, CO atmosphere, containment) that make the reaction CuCO₃ → Cu + CO₂ thermodynamically favorable. A player who achieves the same conditions by a completely different arrangement — a stone-lined pit, a clay dome, a repurposed natural cave with forced airflow — gets the same result. The physics does not care about the shape. It cares about temperature, atmosphere, and containment.
 
-#### Two Separate Things: Tools vs. Machines
+#### What the Interaction Engine Actually Checks
 
-**Tools** are carried in inventory. They affect *how well* the player does something — better tools mean higher success rate and better quality output.
+When a player places materials together, the server samples the physical conditions at the interaction point. There is no "workstation type" lookup. There are only physics queries:
 
+```
+CraftEnvironment {
+  // Sampled at the player's interaction point (where materials are placed)
 
-| Tool    | Made from                     | Improves                           |
-| ------- | ----------------------------- | ---------------------------------- |
-| Hammer  | Stone → Copper → Iron → Steel | Metalworking success rate, quality |
-| Chisel  | Flint → Iron                  | Stone shaping precision            |
-| Saw     | Flint → Iron                  | Wood splitting, bone               |
-| Needle  | Bone → Bronze                 | Leatherwork, cloth quality         |
-| Spindle | Wood                          | Spinning speed, thread quality     |
+  temperature: number           // °C — from the temperature propagation system (§3.0 Stage 1)
+                                // A pile of burning charcoal in open air: ~400°C
+                                // Same charcoal inside a clay enclosure with bellows: ~1100°C
+                                // Same enclosure but taller stack + double bellows: ~1500°C
+                                // The temperature depends on: fuel energy, oxygen supply,
+                                // insulation (enclosure material's thermal conductivity),
+                                // and draft (stack height, bellows rate)
 
+  atmosphere: {
+    oxygenFraction: number      // 0-1 — normal air is 0.21
+                                // Burning fuel consumes oxygen → drops in enclosed space
+                                // Bellows pump fresh air → raises it
+                                // Excess carbon (charcoal) + low O₂ → reducing atmosphere (CO)
+                                // Reducing atmosphere strips oxygen from ore (smelting)
+    carbonMonoxide: number      // 0-1 — produced by incomplete combustion of carbon
+    sealed: boolean             // is the reaction space enclosed? Affects gas retention
+  }
 
-**Machines** are fixed in the world. They control *what the player can do at all* — copper cannot be smelted without a furnace nearby, regardless of inventory contents.
+  containment: {
+    volume: number              // m³ — measured from the geometry of surrounding blocks
+                                // Open air: infinite (gases escape immediately)
+                                // Clay pot: 0.001 m³ (tiny, for mixing)
+                                // Stone-lined pit: 0.1 m³ (for charcoal burning)
+                                // Clay cylinder (what we'd call a "bloomery"): 0.05-0.3 m³
+    heatRetention: number       // 0-1 — from surrounding blocks' thermal conductivity
+                                // Open air: 0 (heat escapes instantly)
+                                // Clay walls: 0.7 (good insulation)
+                                // Stone walls: 0.5 (moderate)
+                                // Metal walls: 0.3 (conducts heat away)
+    openings: number            // count — affects airflow and gas escape
+                                // Sealed: 0 (no oxygen renewal, fire suffocates)
+                                // Tuyere hole: 1 (directed airflow, good for smelting)
+                                // Open top + bottom hole: 2 (natural draft, chimney effect)
+  }
 
-#### Machine Types by Era
+  surface: {
+    hardness: number            // Pa — from the surface block's MaterialPacket
+                                // Determines if the surface can serve as an "anvil"
+                                // Flat granite: ~6 GPa (good for hammering)
+                                // Iron block: ~4 GPa (excellent)
+                                // Wood: ~1 GPa (too soft for metalwork, fine for food prep)
+    flatness: number            // 0-1 — from block geometry (flat top = 1.0, irregular = 0.3)
+    area: number                // m² — working surface area
+  }
 
+  waterAccess: {
+    nearby: boolean             // water source within 2m? (for quenching, washing, mixing)
+    volume: number              // liters available
+    temperature: number         // °C of the water
+  }
 
-| Machine            | Era        | Enables                                                 | Max temperature |
-| ------------------ | ---------- | ------------------------------------------------------- | --------------- |
-| Campfire           | Stone Age  | Cooking, drying, birch tar, fire adhesives              | ~400°C          |
-| Grinding stone     | Stone Age  | Flour, ochre powder, seed crushing                      | —               |
-| Stone anvil        | Bronze Age | Basic hammering, knapping on a stable surface           | —               |
-| Bloomery           | Bronze Age | Copper, tin, lead smelting                              | ~1100°C         |
-| Kiln               | Bronze Age | High-temperature ceramics, fired bricks                 | ~1200°C         |
-| Blast furnace      | Iron Age   | Iron smelting (requires coke or charcoal + bellows)     | ~1500°C         |
-| Forge              | Iron Age   | Steel-level metalwork (anvil + bellows + fire combined) | ~1300°C         |
-| Quench bucket      | Iron Age   | Steel tempering (hot steel plunged into water)          | —               |
-| Distillation still | Medieval   | Alcohol concentration, acid production                  | —               |
-| Loom               | Medieval   | Cloth weaving from spun thread                          | —               |
+  airflow: {
+    natural: number             // m/s — from wind + chimney effect (stack height × temperature diff)
+    forced: number              // m/s — from bellows or trompe (water-powered air pump)
+                                // Single bellows: ~2 m/s → +300°C over natural draft
+                                // Double bellows: ~4 m/s → +600°C (continuous airflow)
+                                // Trompe: ~3 m/s (hands-free, requires running water)
+    total: number               // natural + forced → determines oxygen supply rate
+  }
 
+  // The temperature ceiling of any fire is determined by:
+  //   maxTemp = fuelEnergy × combustionEfficiency × (1 + airflow.total × 0.15)
+  //            × containment.heatRetention / (surfaceArea × heatLossRate)
+  //
+  // This is why the same charcoal produces different temperatures:
+  //   Open campfire: ~400°C (heat escapes in all directions)
+  //   Stone-lined pit: ~600°C (some insulation, natural draft)
+  //   Clay cylinder + single bellows: ~1100°C (good insulation + forced air)
+  //   Tall clay cylinder + double bellows: ~1500°C (great insulation + maximum O₂)
+  //   Same with coke instead of charcoal: ~1600°C+ (coke has higher energy density)
+}
+```
 
-Temperature determines what smelts. A campfire cannot smelt copper ore — it never reaches 1085°C. A bloomery can. A blast furnace can smelt iron. The player cannot bypass this by carrying a recipe card or unlocking a skill.
+#### Tools vs. Surfaces
+
+**Tools** are carried in inventory. They affect how well the player can perform mechanical actions — hammering, cutting, grinding, spinning. A better tool means more force, better precision, or faster work. Tool quality comes from composition (§3.1): a steel hammer hits harder than a stone one because steel has higher hardness and Young's modulus.
+
+| Tool type | What it does | Key property |
+|---|---|---|
+| Hammer | Applies impact force to deform material | Mass × velocity (energy), hardness of head |
+| Chisel | Concentrates force on a narrow edge | Edge sharpness (§Connection 11), hardness |
+| Saw | Abrasive cutting through friction | Tooth hardness, spacing |
+| Needle | Pierces soft materials (leather, cloth) | Tip sharpness, tensile strength |
+| Spindle | Twists fibers into thread | Rotational inertia (mass × radius²) |
+| Bellows | Pushes air into an enclosure | Volume per stroke, seal quality |
+
+**Surfaces** are whatever the player works on. A flat stone IS an anvil. A heavy iron block IS a better anvil. There is no "anvil" object type — there is only the hardness, flatness, and mass of whatever surface the player puts their material on. A heavier surface absorbs less rebound energy, so more force goes into deforming the workpiece.
 
 #### How a Crafting Moment Works
 
-1. Player walks within 5 meters of a machine
-2. `[F] Use Bloomery` appears on screen
-3. Player presses F — a simple panel opens with a plain-language description: *"A bloomery. Reaches ~1100°C with charcoal. Hot enough to smelt copper ore."*
-4. Player has malachite and charcoal in inventory. They select them and choose "Smelt"
-5. The interaction engine checks the physics: Is temperature high enough? Does the ore's melting point match? Is a reducing agent (charcoal) present?
-6. If yes → copper produced. Player discovered copper smelting — not because a recipe unlocked, but because the right physical conditions existed.
-7. If no → natural feedback: *"The bloomery isn't hot enough yet. Add more charcoal and wait."*
+1. Player arranges materials in the world (places ore on a flat stone, puts charcoal in a clay enclosure, attaches bellows)
+2. Player interacts with the material they want to transform (press F)
+3. Server samples the `CraftEnvironment` at that point — temperature, atmosphere, containment, surface, tools
+4. Server runs the reaction engine (§3.1) with those conditions: Is temperature above the reaction threshold? Is the atmosphere right (reducing for smelting, oxidizing for calcining)? Is there containment for the products?
+5. If conditions are met → reaction proceeds. Products appear. The player discovered something.
+6. If conditions are NOT met → nothing happens, or partial reaction occurs. Player sees the material unchanged or partly changed. No error message — just physics not being satisfied.
 
-No recipe list appears at any point.
+**No recipe list. No workstation panel. No "Use Bloomery" prompt.** The player places ore in a hot enclosed space with charcoal and bellows. If the temperature is high enough and the atmosphere is reducing, copper appears. The game never tells the player they built a "bloomery." They built a thing that works.
 
-#### Settlements Use Their Machines
+#### What NPCs Build
 
-Each settlement generates workstations matching its specialty. A copper mining settlement has a bloomery. The settlement's NPCs use it — their behavior follows a repeating goal loop:
+NPCs don't build "workstations." They build **arrangements of materials** that they've learned create useful conditions. An NPC who has discovered copper smelting knows: "I need a clay enclosure, a hole for air, bellows, and charcoal. When I put green rock inside and pump the bellows, orange metal comes out." The NPC's memory stores the physical arrangement, not a workstation type.
 
-1. **Gather** — walk to the nearest copper ore deposit within territory
-2. **Mine** — pause at the deposit for several seconds (simulates extraction)
-3. **Carry** — walk to the bloomery with ore in hand
-4. **Process** — stand at the bloomery while it smelts (workstation is "occupied")
-5. **Deliver** — walk to the settlement's storage area
-6. **Deposit** — add smelted copper to the settlement's trade inventory
-7. **Idle** — brief rest, then repeat
+```
+NPCCraftKnowledge {
+  // What an NPC remembers about how to achieve a transformation:
 
-Players can walk into any settlement and use their workstations too. The bloomery is not locked to the NPCs — it is a shared physical resource, like a village blacksmith's forge.
+  recipe: {
+    inputs: MaterialPacket[]        // "green rock" (malachite) + "black rock" (charcoal)
+    conditions: {
+      minTemperature: number        // ~1100°C (learned from experience)
+      atmosphere: string            // "needs lots of charcoal smoke" (reducing)
+      containment: boolean          // "needs to be enclosed" (yes)
+      airflow: string               // "need to pump the leather bag" (bellows)
+    }
+    output: MaterialPacket          // "orange metal" (copper)
+    arrangement: BlockPattern       // the physical layout the NPC builds:
+                                    // clay blocks in a cylinder, hole at bottom,
+                                    // bellows attached to hole
+  }
 
-#### What This Means for the Codebase
+  // The NPC builds this arrangement from available materials.
+  // If clay is unavailable, a clever NPC might try stone blocks instead.
+  // The result: different thermal properties (stone insulates less than clay),
+  // possibly lower max temperature, possibly fails. The NPC learns from this.
+  //
+  // NPCs don't share a global "bloomery blueprint." Each NPC who discovers
+  // smelting may build a slightly different arrangement. Some work better
+  // than others. Over generations, the best designs spread through observation
+  // (other NPCs watch and copy the most successful arrangements).
+}
+```
 
-**New files:**
+Settlements develop crafting capability by building these arrangements. A copper mining settlement has NPC-built clay enclosures near the ore deposit — not because the game spawned "bloomery objects," but because NPCs built them from clay, stone, and leather based on their accumulated knowledge. Players can use these same arrangements. They're shared physical structures in the world, not locked resources.
 
-- `src/world/WorkstationManager.ts` — client registry of all workstation positions, proximity detection (5m radius), temperature sampling from fire simulation
-- `src/store/workstationStore.ts` — tracks the currently-focused workstation
-- `src/ui/WorkstationPanel.tsx` — the F-key panel showing machine capability and contextual actions
-- `src/rendering/WorkstationRenderer.tsx` — 3D mesh per machine type (campfire = log cone, bloomery = stone cylinder with ember glow, kiln = beehive dome)
+#### Temperature Ceilings Emerge From Physics
 
-**Modified files:**
+What we casually call different "machines" are really just different physical arrangements that achieve different maximum temperatures:
 
-- `src/crafting/InteractionEngine.ts` — `CraftEnvironment` gains two new optional fields: `nearbyWorkstation` (controls temperature ceiling and available actions) and `heldTool` (affects success rate)
-- `universe-server/src/SettlementManager.js` — settlements generate workstations deterministically from seed + specialty; NPCs get a state machine (idle → gather → carry → process → deliver → deposit → idle) ticking at 0.5 Hz
+| Arrangement | Why it reaches that temp | Max temp |
+|---|---|---|
+| Open campfire (logs on ground) | Heat escapes in all directions, limited O₂ | ~400°C |
+| Stone-lined fire pit | Some heat retention, natural updraft | ~600°C |
+| Clay enclosure + single bellows | Good insulation + forced O₂ | ~1100°C |
+| Tall clay stack + double bellows | Great insulation + maximum O₂ supply | ~1500°C |
+| Same + coke fuel (instead of charcoal) | Higher energy density fuel | ~1600°C+ |
+| Electric arc (late game, if achieved) | No combustion limit | ~3000°C+ |
+
+The player discovers these progressively — not by "unlocking" them, but by experimenting with enclosure design, fuel types, and airflow methods. A player who independently invents a taller stack with better bellows gets higher temperatures. No one tells them to do this. The physics rewards it.
 
 
 ### 6.4 Precision Crafting Mode — Zoom-In Interaction

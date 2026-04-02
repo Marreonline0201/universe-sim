@@ -352,11 +352,12 @@ Result: weighted composition average, mass: 0.8kg
 ```
 
 This means:
-- Inventory stacking is just packet merging (compositions average out)
+- Two packets in contact as liquids merge by mass-weighted composition averaging
 - Splitting a packet divides mass but keeps the same composition
-- Impurities naturally accumulate or dilute through mixing
+- Impurities naturally accumulate or dilute through liquid mixing
 - Ore quality varies by location (different packets have different trace elements)
 - Purification is the process of separating a mixed packet into purer sub-packets
+- Inventory stacking does NOT merge composition — two ore chunks share a slot but remain separate objects (see §7.3). Merging requires melting both into liquid.
 
 #### What This Replaces
 
@@ -366,7 +367,7 @@ The current `MaterialRegistry.ts` with 118 pre-defined materials becomes:
 3. **Property calculator** — derives all material properties from composition using material science formulas
 4. **Packet store** — every object in the world is a packet (or a collection of packets)
 
-The Tier 2 (minerals) and Tier 3 (processed materials) lists in §6.3.1–6.3.2 are no longer definitions — they become **expected emergent results**. They describe what SHOULD emerge when the rules are correct. If the reaction engine, given real Cu and Sn properties, doesn't produce something with bronze-like properties at the right temperature, the rules have a bug — not a missing recipe.
+The Tier 2 (minerals) and Tier 3 (processed materials) lists in §6.1–6.2 are no longer definitions — they become **expected emergent results**. They describe what SHOULD emerge when the rules are correct. If the reaction engine, given real Cu and Sn properties, doesn't produce something with bronze-like properties at the right temperature, the rules have a bug — not a missing recipe.
 
 #### Computational Cost
 
@@ -380,7 +381,7 @@ This is feasible on current hardware because:
 
 **Estimated per-reaction cost:** < 0.1ms on a single CPU core. A player performing 10 crafting actions per minute costs essentially nothing.
 
-**Where it gets expensive:** fluid simulation (§6.3.4), where millions of packets move and interact continuously. That is a separate problem addressed in the next section.
+**Where it gets expensive:** fluid simulation (§3.2), where millions of packets move and interact continuously. That is a separate problem addressed in the next section.
 
 ---
 
@@ -424,21 +425,21 @@ SPH handles all of these because the particles move with the fluid — they go w
 
 ```
 SPHParticle {
-  // --- From the material packet system (§6.3.3) ---
-  composition: Map<Element, number>    // what this droplet is made of
-  mass: number                          // kg (fixed at creation)
-  temperature: number                   // °C (changes from environment + neighbors)
+  // An SPH particle IS a MaterialPacket fragment. It inherits all 33 properties.
+  packet: MaterialPacket               // composition, mass, temperature, and ALL derived properties
+                                        // viscosity, surfaceTension, density etc. come from packet
 
-  // --- SPH physics state ---
+  // --- SPH physics state (unique to particles, not in MaterialPacket) ---
   x, y, z: number                      // position on the sphere surface (world space)
   vx, vy, vz: number                   // velocity (m/s)
-  density: number                       // kg/m³ (computed from neighbors each tick)
-  pressure: number                      // Pa (computed from density)
+  sphDensity: number                   // kg/m³ (computed from neighbors each tick — NOT the same as packet.density)
+  pressure: number                      // Pa (computed from sphDensity via Tait equation)
+  sleeping: boolean                     // true if settled (skip force calculations)
 
-  // --- Derived from composition (computed once, updated on temperature change) ---
-  viscosity: number                     // Pa·s — how thick/resistant to flow
-  surfaceTension: number                // N/m — how strongly the surface pulls inward
-  restDensity: number                   // kg/m³ — density at atmospheric pressure
+  // Derived properties used by SPH forces are read directly from packet:
+  //   packet.viscosity     → F_viscosity = μ · ∇²v
+  //   packet.surfaceTension → F_surface = σ · κ · n̂
+  //   packet.density       → restDensity (ρ₀) for Tait equation
 }
 ```
 
@@ -457,12 +458,12 @@ This is the same equation used in real computational fluid dynamics. It produces
 
 Formula: `F_viscosity = μ · ∇²v` (Laplacian of velocity field, scaled by dynamic viscosity μ)
 
-**The viscosity comes from the material's composition**, not from a hardcoded value per liquid type:
-- Water (H₂O): μ ≈ 0.001 Pa·s at 20°C — hydrogen bonds are weak
-- Molten copper: μ ≈ 0.004 Pa·s at 1100°C — metallic bonds broken by heat
-- Molten glass (SiO₂): μ ≈ 10⁶ Pa·s at 1000°C — silicon-oxygen network barely broken
-- Honey (sugar solution): μ ≈ 2–10 Pa·s — long sugar molecules tangle
-- Lava (basaltic): μ ≈ 10–100 Pa·s — silicate networks partially intact
+**The viscosity comes from the material's composition** via the Andrade/Arrhenius equation in the property calculator (§3.1). These are **expected computed results**, not hardcoded values — the property calculator should produce these when given the correct composition:
+- Water (H₂O): expected μ ≈ 0.001 Pa·s at 20°C — hydrogen bonds are weak
+- Molten copper: expected μ ≈ 0.004 Pa·s at 1100°C — metallic bonds broken by heat
+- Molten glass (SiO₂): expected μ ≈ 10⁶ Pa·s at 1000°C — silicon-oxygen network barely broken
+- Honey (sugar solution): expected μ ≈ 2–10 Pa·s — long sugar molecules tangle
+- Lava (basaltic): expected μ ≈ 10–100 Pa·s — silicate networks partially intact
 
 Temperature reduces viscosity for all materials (Arrhenius model: `μ = A · e^(Ea/RT)`). Hotter liquid flows faster. This is why lava near the vent flows quickly but slows to a crawl as it cools.
 
@@ -524,7 +525,7 @@ for each particle i:
 
 #### Phase Transitions: Solid ↔ Liquid ↔ Gas
 
-Phase transitions connect the fluid simulation to the material packet system (§6.3.3). They are the bridge between the static world of solids and the dynamic world of fluids.
+Phase transitions connect the fluid simulation to the material packet system (§3.1). They are the bridge between the static world of solids and the dynamic world of fluids.
 
 **Melting (solid → liquid):**
 ```
@@ -614,7 +615,7 @@ Rules per tick (0.5–1 Hz — slow, large scale):
 - Water flows from high cells to low cells (terrain height + water depth)
 - Flow rate depends on slope (Manning's equation: `v = (1/n) · R^(2/3) · S^(1/2)` where n is roughness, R is hydraulic radius, S is slope)
 - Evaporation removes water based on temperature and humidity
-- Rain adds water based on weather system (§6.6)
+- Rain adds water based on weather system (§4.6)
 - Rivers defined by RiverSystem.ts are permanent flow paths with base flow rates
 
 This extends the existing `fluid.worker.ts` and `RiverSystem.ts`. The grid is the same 3D grid already initialized in the worker — it just needs water-specific logic added.
@@ -665,7 +666,7 @@ The ocean shader reads sea level from the simulation state.
 
 #### Mixing and Reactions in Liquid
 
-When two SPH particles of different composition are neighbors, they can mix and react — using the same reaction engine from §6.3.3.
+When two SPH particles of different composition are neighbors, they can mix and react — using the same reaction engine from §3.1.
 
 **Diffusion (passive mixing):**
 Each tick, neighboring particles exchange a small fraction of their composition proportional to their contact area and the diffusion coefficient. Over time, two adjacent liquids homogenize. Stirring (player action or turbulent flow) increases the mixing rate by bringing distant particles into contact.
@@ -679,7 +680,7 @@ particle_j.composition += mixRate · (particle_i.composition - particle_j.compos
 where D is the diffusion coefficient (depends on temperature and the materials involved).
 
 **Reactions in liquid phase:**
-When two particles' mixed composition satisfies a reaction condition (§6.3.3 reaction engine — Gibbs free energy check), the reaction fires:
+When two particles' mixed composition satisfies a reaction condition (§3.1 reaction engine — Gibbs free energy check), the reaction fires:
 - Acid dissolves metal: HCl particles + Fe particles → FeCl₂ solution + H₂ gas bubbles
 - Salt dissolves in water: NaCl solid particles near H₂O particles → Na⁺ and Cl⁻ dissolve into water composition
 - Oil and water refuse to mix: if immiscible (ΔG of mixing > 0), particles repel at the interface instead of diffusing
@@ -735,7 +736,7 @@ When all scales work together, the full hydrological cycle emerges:
 EVAPORATION: Ocean + lakes + rivers lose water (temperature + surface area + wind)
   ↓ water vapor enters atmosphere
 CLOUD FORMATION: Vapor rises, cools below dew point, condenses
-  ↓ water droplets aggregate into clouds (weather system §6.6)
+  ↓ water droplets aggregate into clouds (weather system §4.6)
 PRECIPITATION: Clouds release water as rain (liquid) or snow (solid)
   ↓ SPH particles fall from sky (Scale 1-2)
 SURFACE FLOW: Rain hits terrain, flows downhill
@@ -750,7 +751,7 @@ GROUNDWATER: Some rain absorbs into porous terrain
   ↓ feeds springs, wells, and maintains river base flow in dry season
 ```
 
-No part of this cycle is scripted. It all follows from the physics: gravity pulls water down, heat drives evaporation, cooling drives condensation, terrain shape determines where water collects and flows. The weather system (§6.6) provides precipitation. The fluid simulation handles everything after the raindrop forms.
+No part of this cycle is scripted. It all follows from the physics: gravity pulls water down, heat drives evaporation, cooling drives condensation, terrain shape determines where water collects and flows. The weather system (§4.6) provides precipitation. The fluid simulation handles everything after the raindrop forms.
 
 #### Lava: Liquid Rock
 
@@ -783,7 +784,7 @@ Lava flowing over water produces instant steam (boiling) + rapid cooling of the 
 
 On a GPU (WebGPU compute shaders, when available): SPH particle count can increase 10–100× for the same cost. 200,000 local environment particles at 30 Hz is feasible on a mid-range GPU.
 
-The server (for shared world state) only needs to run Scale 3 (grid) and Scale 4 (math). Crafting-scale and local-scale SPH run on the client only — they are visual and player-local. The server broadcasts grid cell water levels in the WORLD_SNAPSHOT, and clients generate local SPH particles for visual detail.
+**All SPH simulation runs on the server** (consistent with §3.5 server-authoritative physics). The server computes particle positions, velocities, and phase transitions. Results are sent to clients as PHYSICS_EVENT messages containing particle position arrays. The client renders particles but never simulates them — it cannot invent fluid behavior that the server didn't compute. This prevents cheating (a modified client can't fake liquid flow) and ensures all players see the same fluid.
 
 #### Critical Optimizations
 
@@ -993,7 +994,7 @@ Step 2: SoundDescriptor
     // Fundamental frequency from object size and material stiffness
     // f₀ = (1/2L) × √(E/ρ)  where:
     //   L = characteristic length of the vibrating object (m)
-    //   E = Young's modulus (Pa) — derived from material hardness and crystal structure
+    //   E = Young's modulus (Pa) — from MaterialPacket.youngsModulus (computed from bonding energy)
     //   ρ = density (kg/m³) — from MaterialPacket
     fundamentalFreq: computeF0(materialA)     // Hz
     // A small stone chip: L=0.03m, E=70GPa, ρ=2700 → f₀ ≈ 2700 Hz (high ping)
@@ -1018,28 +1019,81 @@ Step 2: SoundDescriptor
   }
 
 Step 3: SampleSelector
-  The engine has a library of ~50 base audio samples organized by timbre class:
+  The engine has a library of base audio samples — short recordings of real-world
+  sounds that serve as raw material for the audio processor to transform.
 
-  metallic_impact[]: 5 samples (light tap to heavy strike)
-  metallic_scrape[]: 3 samples (slow to fast)
-  metallic_ring[]:   3 samples (small to large resonator)
-  lithic_impact[]:   5 samples
-  lithic_crack[]:    3 samples
-  lithic_grind[]:    3 samples
-  organic_impact[]:  5 samples (wood knock to bone crack)
-  organic_creak[]:   3 samples
-  granular_step[]:   5 samples (packed to loose)
-  granular_pour[]:   3 samples
-  liquid_splash[]:   5 samples (drip to pour)
-  liquid_flow[]:     3 samples (trickle to rush)
-  liquid_bubble[]:   3 samples
-  gas_rush[]:        3 samples (breeze to blast)
-  gas_hiss[]:        3 samples
-  combustion[]:      5 samples (spark to roar)
+  HOW THIS WORKS IN REAL LIFE:
+  Sound is air vibrating at specific frequencies. Every material vibrates differently
+  when struck — metal rings (sustained sine-like oscillation), wood thuds (short burst
+  of broadband noise), stone cracks (sharp transient + mid-frequency decay). These
+  vibration patterns are called the material's "impulse response."
 
-  Selection: timbreClass + energy level → pick the closest base sample
-  Total: ~55 samples. Compared to typical games that ship 500-2000 samples,
-  this is 10× smaller because the variation comes from processing, not recording.
+  We can't synthesize these from scratch in real-time (too expensive). Instead, we
+  record a small set of REAL sounds and transform them:
+  - A recording of a hammer hitting an anvil = the "metallic impact" template
+  - The audio processor pitch-shifts it (lower for a large anvil, higher for a nail)
+  - The processor adjusts volume, decay time, and filtering
+  - Result: one recording produces hundreds of variations
+
+  This is how film sound design works — foley artists record a few base sounds
+  and the mixer transforms them for each scene. Same principle, automated.
+
+  BASE SAMPLE LIBRARY (recorded once, ~55 WAV files, ~5MB total):
+
+  // Impact sounds (short transients — a thing hitting another thing)
+  metallic_impact[5]: recorded from real metal strikes at 5 energy levels
+    [0] light tap on small piece    → used for: coins, nails, small tools
+    [1] medium strike on plate      → used for: hammering, tool contact
+    [2] heavy strike on anvil       → used for: forging, large metal impacts
+    [3] clang (two metals)          → used for: sword clashing, metal on metal
+    [4] massive crash               → used for: structural collapse, heavy drop
+  metallic_scrape[3]: metal dragging on metal at 3 speeds
+  metallic_ring[3]: sustained resonance from 3 different-sized metal objects
+
+  lithic_impact[5]: rock/stone/ceramic strikes at 5 energy levels
+  lithic_crack[3]: stone breaking, ceramic shattering
+  lithic_grind[3]: stone on stone grinding (mortar and pestle, millstone)
+
+  organic_impact[5]: wood strikes at 5 energy levels (knocking, chopping, breaking)
+  organic_creak[3]: wood bending, rope stretching, leather flexing
+
+  granular_step[5]: footstep on loose material at 5 densities (sand to packed gravel)
+  granular_pour[3]: pouring grain/sand/gravel
+
+  liquid_splash[5]: water impact at 5 scales (drip to cannonball)
+  liquid_flow[3]: continuous water flow (trickle, stream, rush)
+  liquid_bubble[3]: underwater bubbling at 3 rates
+
+  gas_rush[3]: air movement (breeze to gale)
+  gas_hiss[3]: pressurized gas release (steam, leak)
+  combustion[5]: fire sounds at 5 intensities (match to bonfire)
+
+  Total: 55 samples.
+
+  HOW THE PROCESSOR TURNS 55 INTO INFINITE VARIETY:
+  Each sample is a template. The AudioProcessor (Step 4) transforms it:
+    - Pitch shift: playbackRate changes the perceived material size
+      Same "metallic_impact[2]" at 0.5× speed = large bell
+      Same sample at 2.0× speed = tiny tin can
+    - Filter: low-pass removes high frequencies (muffled/underwater)
+      high-pass removes low frequencies (thin/distant)
+    - Decay envelope: controls how long the sound rings
+      Metal: long exponential decay (ringing)
+      Wood: short decay (thud)
+    - Layering: combine two samples for complex sounds
+      Stone chisel = lithic_crack + metallic_ring (stone breaks + tool rings)
+    - Reverb/delay: environment shapes the tail of the sound
+
+  WHY THIS WORKS:
+  Human hearing is sensitive to pitch, volume, and timing — but not to the exact
+  waveform shape. A pitch-shifted anvil strike sounds like a different-sized anvil
+  to the ear, even though it's the same recording played faster. This is why one
+  recording can serve hundreds of in-game sounds convincingly.
+
+  WHAT SOUNDS BAD AND HOW TO AVOID IT:
+  - Pitch-shifting too far (>3× or <0.3×) sounds artificial → need multiple base samples per category at different natural pitches
+  - Same sample playing twice identically = robotic → add random ±5% pitch variation and ±10% timing offset per play
+  - No environmental filtering = sounds disconnected from space → always apply distance + environment + medium filtering
 
 Step 4: AudioProcessor
   The selected sample is transformed in real-time by the WebAudio API:
@@ -1187,7 +1241,7 @@ The audio system must stay within strict CPU limits:
 
 ##### The Principle
 
-Every structure in the game is made of MaterialPackets (§6.3.3). A wall is not a "wall object" — it is a collection of MaterialPackets (stone blocks, mud bricks, wooden beams) placed in the world and optionally bonded together. Whether that wall stands or falls is determined by the **same material properties** that determine melting point, hardness, and conductivity: compressive strength, tensile strength, shear strength, density. There is no separate "structural integrity" system — there is physics applied to materials.
+Every structure in the game is made of MaterialPackets (§3.1). A wall is not a "wall object" — it is a collection of MaterialPackets (stone blocks, mud bricks, wooden beams) placed in the world and optionally bonded together. Whether that wall stands or falls is determined by the **same material properties** that determine melting point, hardness, and conductivity: compressive strength, tensile strength, shear strength, density. There is no separate "structural integrity" system — there is physics applied to materials.
 
 ##### Every Block Is a MaterialPacket
 
@@ -1195,14 +1249,11 @@ Every structure in the game is made of MaterialPackets (§6.3.3). A wall is not 
 StructuralBlock {
   // A placed building block IS a MaterialPacket. It has:
   packet: MaterialPacket             // composition, mass, density, temperature, phase
-
-  // Structural properties COMPUTED from composition (§6.3.3 property calculator):
-  compressiveStrength: number        // Pa — how much squeezing force before it crushes
-  tensileStrength: number            // Pa — how much pulling force before it snaps
-  shearStrength: number              // Pa — how much sideways force before it shears
-  elasticity: number                 // Young's modulus (Pa) — how much it flexes before breaking
-  // These are NOT stored — they are computed from the MaterialPacket's composition
-  // every time they're needed, same as melting point and hardness.
+  // ALL structural properties come directly from the packet:
+  //   packet.compressiveStrength, packet.tensileStrength, packet.shearStrength,
+  //   packet.youngsModulus, packet.frictionCoefficient, packet.density
+  // No structural properties are stored on the block — they are read from the
+  // MaterialPacket's property calculator (§3.1). Same system as melting point.
 
   // Real material values (computed by property calculator from composition):
   //   Granite (SiO₂ + Al₂O₃ + feldspar):
@@ -1354,7 +1405,7 @@ ForceSystem {
   //   Cross-bracing (diagonal timber inside walls) resists lateral loads
   //   Buttresses (thick supports on the outside) resist lateral loads
   //
-  // Player impact (§6.8.17 combat):
+  // Player impact (§7.5 combat):
   //   Hitting a wall with a tool applies force at the impact point
   //   If force > bond strength at that block → block breaks free
   //   If that block was load-bearing → cascade above it
@@ -1410,7 +1461,7 @@ FoundationSystem {
 ```
 StructuralDecay {
   // Buildings are not permanent. Materials degrade over time from weather.
-  // This connects directly to the weather system (§6.6) and material properties.
+  // This connects directly to the weather system (§4.6) and material properties.
 
   // ── Rain damage ───────────────────────────────────────────────────────
   //
@@ -1450,12 +1501,12 @@ StructuralDecay {
   // NPC settlements maintain their buildings through the SLM:
   //   "The storage hut roof is leaking. I'll repair it with new thatch."
   //   When no NPCs remain → no maintenance → structures decay → ruins
-  //   This is why §6.5 mentions dead settlements leaving ruins
+  //   This is why §5.1 mentions dead settlements leaving ruins
 
   // ── Fire damage ───────────────────────────────────────────────────────
   //
   // Fire weakens and destroys building materials:
-  //   Wood: burns completely if sustained fire (ignition from §6.3 fire system)
+  //   Wood: burns completely if sustained fire (ignition from §3.1 fire properties)
   //     A wooden wall catches fire → burns for 10-30 game-minutes → collapses
   //     Fire spreads to adjacent wooden structures (fire contagion)
   //   Stone: survives fire but thermal shock can crack it
@@ -1499,7 +1550,7 @@ StructuralPerformance {
   //   3. For each dirty block, compute: can it trace a load path to ground?
   //      If yes: compute total load on it, check stress vs strength
   //      If no: block is unsupported → falls
-  //   4. Falling blocks become rigid body physics objects (§6.8.10)
+  //   4. Falling blocks become rigid body physics objects (§7.4)
   //      They tumble, bounce, break into pieces on impact
   //      Each piece is a new MaterialPacket (smaller mass, same composition)
   //   5. Cascade: if a falling block hits another structure → damage check → may trigger more collapse
@@ -1545,7 +1596,7 @@ This is a real-world online simulation. The server is the world. The client is a
 │  │   ├── NPC state machines (goal loops, positions, carried items)           │
 │  │   ├── Organism simulation (births, deaths, movement, feeding)            │
 │  │   └── Dropped item positions and despawn timers                           │
-│  ├── Weather and atmosphere (§6.6)                                           │
+│  ├── Weather and atmosphere (§4.6)                                           │
 │  ├── Settlement economy (trade, population, resource stockpiles)             │
 │  ├── Crafting validation (interaction engine runs server-side)               │
 │  └── Death, loot drops, respawn timing                                       │
@@ -1576,7 +1627,7 @@ This is a real-world online simulation. The server is the world. The client is a
 │  │   ├── Lighting (sun position from season/time, torches, campfires)        │
 │  │   ├── Ocean shader (Gerstner waves — visual only, no physics)            │
 │  │   └── UI panels (inventory, workstation, map)                             │
-│  ├── Sound generation (§6.8.6)                                               │
+│  ├── Sound generation (§3.3)                                               │
 │  │   ├── Receives SOUND_EVENT from server                                    │
 │  │   ├── Computes audio parameters locally (pitch, volume, timbre)           │
 │  │   ├── Spatial audio positioning from server-provided source position      │
@@ -1598,7 +1649,7 @@ This is a real-world online simulation. The server is the world. The client is a
 
 - **Anti-cheat:** If the client computed reactions, a modified client could claim "I smelted gold from dirt." The server runs the reaction engine — the client only sees the result.
 - **Consistency:** Two players watching the same smelting see the same outcome because the server computed it once.
-- **Sound from physics:** Sound events are a byproduct of server physics. When an impact happens server-side, the server emits a `SOUND_EVENT` with the physics descriptor. The client's audio engine (§6.8.6) converts that into actual audio. The client hears what the server says happened — not what the client thinks happened.
+- **Sound from physics:** Sound events are a byproduct of server physics. When an impact happens server-side, the server emits a `SOUND_EVENT` with the physics descriptor. The client's audio engine (§3.3) converts that into actual audio. The client hears what the server says happened — not what the client thinks happened.
 
 #### Latency Mitigation
 
@@ -1727,7 +1778,7 @@ Neither extreme is ideal. The hybrid approach uses each where it's strongest.
 │  MODE 2: Video Stream (only for interactive physics, ~10% of play time)    │
 │                                                                             │
 │  Used ONLY when the player is directly interacting with physics:            │
-│    - Precision crafting (§6.8.14): shaping clay, knapping flint, forging   │
+│    - Precision crafting (§6.4): shaping clay, knapping flint, forging   │
 │    - Pouring liquid from one container to another                           │
 │    - Smelting: watching ore melt and metal separate from slag               │
 │    - Active lava flow deforming terrain in front of the player              │
@@ -1767,7 +1818,7 @@ Mode Switch Triggers {
   // ── State → Video (player enters a physics-heavy context) ─────────────────
 
   trigger_1: "Player presses F at a workstation"
-    // Camera zooms into the workstation (§6.8.14 precision craft mode)
+    // Camera zooms into the workstation (§6.4 precision craft mode)
     // During the zoom animation (0.5s), the server:
     //   1. Starts rendering this player's view on the GPU
     //   2. Begins encoding H.264 frames
@@ -2842,7 +2893,7 @@ The current system models organisms as abstract entities with diet types and ene
 
 Every animal in the species registry (§6.2.1) is not just a walking resource bag. Each animal is an individual with real behavioral traits based on its species' biology. A wolf doesn't just "patrol" — it hunts in a pack, communicates with howls, establishes territory, avoids larger predators, raises pups, and remembers where prey was found before. A sheep doesn't just "graze" — it follows the flock, panics when separated, recognizes individual faces (sheep can remember 50 faces for years — real research), and moves toward fresh grass while avoiding areas that smell like predators.
 
-The animal AI uses the **same three-tier system as NPCs** (§6.5.1), but with a species-specific Tier 2 model fine-tuned on animal behavior rather than human behavior.
+The animal AI uses the **same three-tier system as NPCs** (§5.2), but with a species-specific Tier 2 model fine-tuned on animal behavior rather than human behavior.
 
 #### Animal Brain — Simplified Three-Tier
 
@@ -2885,7 +2936,7 @@ AnimalBrain {
 
 #### Species Trait System
 
-Every individual animal has traits determined by its genome (§6.2 — 256-bit genome with Hamming distance speciation). Traits are expressed as continuous values that affect behavior.
+Every individual animal has traits determined by its genome (§4.2 — 256-bit genome with Hamming distance speciation). Traits are expressed as continuous values that affect behavior.
 
 ```
 AnimalTraits {
@@ -3435,7 +3486,7 @@ AnimalPlayerInteraction {
 
   // ── Sound communication ───────────────────────────────────────────────
   //
-  // Animals vocalize (part of the physics-driven sound system §6.8.6):
+  // Animals vocalize (part of the physics-driven sound system §3.3):
   //   Cow: moo (contact call — "where are you?"), bellow (distress/mating)
   //   Sheep: baa (contact call), bleat (lamb calling mother)
   //   Horse: neigh (alert), nicker (friendly greeting), snort (alarm)
@@ -3459,7 +3510,7 @@ AnimalPlayerInteraction {
 
 Farming is not a minigame. It is the application of soil science, plant biology, weather, and seasonal cycles to produce food at scale. The player does not "plant wheat seed → wait → harvest wheat." They clear land, prepare soil that has real nutrient content, plant seeds in soil that may or may not support that crop, provide water if rain is insufficient, protect from pests and disease, harvest at the right moment, process the harvest, and manage soil fertility across seasons so the land doesn't die.
 
-Every step interacts with systems already specified: weather (§6.6) provides rain and temperature, seasons (§6.7) determine growing windows, terrain (§6.8.10) determines soil access, animals (§6.2.2) provide manure and plowing, organisms (§6.2.1) define plant species, and the material system (§6.3.3) handles everything as MaterialPackets.
+Every step interacts with systems already specified: weather (§4.6) provides rain and temperature, seasons (§6.7) determine growing windows, terrain (§7.4) determines soil access, animals (§6.2.2) provide manure and plowing, organisms (§6.2.1) define plant species, and the material system (§3.1) handles everything as MaterialPackets.
 
 #### Soil Model
 
@@ -3503,7 +3554,7 @@ SoilState {
   // 0.8+ = waterlogged (roots suffocate — only rice tolerates this)
   //
   // Moisture changes from:
-  //   Rain: +rate depends on precipitation (§6.6) and soil texture
+  //   Rain: +rate depends on precipitation (§4.6) and soil texture
   //     sandySoil: absorbs fast, drains fast (moisture spikes then drops)
   //     claySoil: absorbs slow, retains long (waterlogging risk)
   //   Evaporation: -rate depends on temperature, wind, sun exposure
@@ -3831,12 +3882,12 @@ FarmingActions {
   // ── 1. Clear land ─────────────────────────────────────────────────────
   // Remove trees (axe), remove rocks (pickaxe), remove brush (hands or machete)
   // Slash-and-burn: set fire to vegetation → ash adds potassium to soil (+0.1 K, +0.3 pH)
-  // Already covered by terrain interaction (§6.8.10) and fire system
+  // Already covered by terrain interaction (§7.4) and fire system
 
   // ── 2. Till soil ──────────────────────────────────────────────────────
   // Break up topsoil to prepare for planting
   //
-  // Methods (from §6.8.10 + §6.2.2):
+  // Methods (from §7.4 + §6.2.2):
   //   Digging stick: poke holes for individual seeds → 0.1 m²/game-minute
   //   Stone hoe: scrape and turn topsoil → 0.3 m²/game-minute
   //   Iron hoe: faster, deeper till → 0.5 m²/game-minute
@@ -3865,18 +3916,18 @@ FarmingActions {
   //   Wrong season: seed germinates but growth factor = 0 from temperature → dies
 
   // ── 4. Water (if needed) ──────────────────────────────────────────────
-  // Rain handles most watering automatically (§6.6 weather → §SoilState moisture)
+  // Rain handles most watering automatically (§4.6 weather → §SoilState moisture)
   // In dry climates or dry seasons, player must irrigate:
   //
   //   Manual watering: carry water in container → pour on crop → +0.05 moisture per liter
   //     Tedious, doesn't scale. Works for a small garden.
   //
-  //   Irrigation channel: dig a shallow trench from water source to field (§6.8.10 digging)
+  //   Irrigation channel: dig a shallow trench from water source to field (§7.4 digging)
   //     Water flows by gravity (must be downhill from source)
   //     Channel width determines flow rate
   //     Continuously supplies moisture to adjacent soil cells
   //     The player invents irrigation by digging — no special "irrigation" system needed
-  //     The fluid system (§6.3.4) handles water flow in channels
+  //     The fluid system (§3.2) handles water flow in channels
   //
   //   Flood irrigation (rice paddy): build berms (low walls of mud) around a flat area
   //     Fill with water → water stands in the paddy → rice grows in standing water
@@ -3907,7 +3958,7 @@ FarmingActions {
   //     Spread: density-dependent (close planting → faster spread)
   //     Wet weather increases fungal disease risk
   //     Prevention: proper spacing, crop rotation, remove infected plants immediately
-  //     Treatment: copper sulfate spray (Bordeaux mixture — §6.3.3 emergent chemistry)
+  //     Treatment: copper sulfate spray (Bordeaux mixture — §3.1 emergent chemistry)
 
   // ── 6. Harvest ────────────────────────────────────────────────────────
   //
@@ -4067,7 +4118,7 @@ SoilFertilityManagement {
   //
   // Prevention:
   //   Terracing: cut steps into hillside → flat planting surfaces → no slope erosion
-  //     Requires significant digging (§6.8.10) but makes mountain farming possible
+  //     Requires significant digging (§7.4) but makes mountain farming possible
   //     This is how Inca agriculture worked on Andean slopes
   //   Contour plowing: plow across the slope, not up/down → water follows furrows instead of eroding downhill
   //   Cover crops: plant ground cover between main crops → roots hold soil
@@ -4134,7 +4185,7 @@ FoodPreservation {
     // Cold slows bacterial growth (§6.8.11 spoilage model: temperatureFactor = 0 below 4°C)
     // Methods:
     //   Root cellar: dig a pit, store food underground → temperature is ~10-15°C year-round
-    //     Requires: digging (§6.8.10), structure to prevent collapse
+    //     Requires: digging (§7.4), structure to prevent collapse
     //     Extends food life by ~3×
     //   Ice cellar: harvest ice in winter, store in insulated pit → keeps food near 0°C
     //     Extends food life by ~10×
@@ -4172,7 +4223,7 @@ FoodPreservation {
 
 ```
 NPCFarming {
-  // NPCs farm using the same systems as players. The SLM (§6.5.1) decides
+  // NPCs farm using the same systems as players. The SLM (§5.2) decides
   // when and what to plant based on settlement needs and available knowledge.
 
   // ── How settlements start farming ─────────────────────────────────────
@@ -4867,7 +4918,7 @@ SeasonSystem {
 
 ```
 Season effects on systems:
-  // Organism energy budgets (§6.2):
+  // Organism energy budgets (§4.2):
   autotroph.photosynthesisRate *= daylightHours / 12    // more light = more energy
   heterotroph.metabolicRate *= 1 + (30 - T_air) × 0.01  // cold = higher metabolism to stay warm
 
@@ -5336,7 +5387,7 @@ CuriositySystem {
   //
   // NPCs use the SAME crafting system as players (§6.3, §6.8.1).
   // When a curious NPC tries a new material combination at a workstation:
-  //   1. The reaction engine (§6.3.3) computes the result
+  //   1. The reaction engine (§3.1) computes the result
   //   2. If the result is new: NPC stores it as a discovery
   //   3. NPC remembers: "heating malachite with charcoal produced copper"
   //   4. This memory persists → NPC can repeat the process
@@ -5551,7 +5602,7 @@ SocialSystem {
   //
   // Physical conflict between NPCs:
   //   Rare — only when relationship < -0.5 AND both have low agreeableness
-  //   Uses the same physics-based combat system as player combat (§6.8.17)
+  //   Uses the same physics-based combat system as player combat (§7.5)
   //   Other NPCs react: high-agreeableness NPCs try to stop it,
   //   high-neuroticism NPCs flee, others watch
 }
@@ -5561,7 +5612,7 @@ SocialSystem {
 
 ```
 SettlementExpansion {
-  // NPCs build structures through the same building system as players (§6.8.10).
+  // NPCs build structures through the same building system as players (§7.4).
   // The SLM decides WHAT to build. The NPC physically constructs it.
 
   // ── Decision to build ─────────────────────────────────────────────────
@@ -5587,7 +5638,7 @@ SettlementExpansion {
   //    I'll gather more wood first."
   // 3. NPC walks to the build site (SLM chooses location:
   //    "Near the other shelters but not blocking the path to the river")
-  // 4. NPC places materials using the build system (§6.8.10)
+  // 4. NPC places materials using the build system (§7.4)
   //    Walls → roof → door opening
   //    Each placement is a physical action in the world (visible to players)
   // 5. Construction takes many game-hours (NPC takes breaks for food, sleep)
@@ -5603,7 +5654,7 @@ SettlementExpansion {
   //   1-5 NPCs leave together (pair-bonded NPCs leave as a group)
   //   They walk to a new location (chosen by SLM based on resource proximity)
   //   They begin building a new settlement from scratch
-  //   The new settlement starts as a "camp" (§6.5 assessment)
+  //   The new settlement starts as a "camp" (§5.1 assessment)
   //   Trade routes may form back to the parent settlement
 
   // ── Settlement death ──────────────────────────────────────────────────
@@ -5998,7 +6049,7 @@ SettlementKnowledge {
 The knowledge transfer system works because of the synergy between three other systems:
 
 1. **Physics-based crafting (§6.3)** — there are no recipes to "teach." The knowledge IS the physical process. Seeing it done IS learning it.
-2. **Emergent materials (§6.3.3)** — the output isn't a named item. It's whatever physics produces. The NPC doesn't make "copper" — they make "the orange metal that comes from heating green rock." The player figures out the name (or doesn't — names don't matter, properties do).
+2. **Emergent materials (§3.1)** — the output isn't a named item. It's whatever physics produces. The NPC doesn't make "copper" — they make "the orange metal that comes from heating green rock." The player figures out the name (or doesn't — names don't matter, properties do).
 3. **Workstation system (§6.8.1)** — the machine is a physical place. The NPC goes there. The player goes there. They're in the same space doing the same thing. No abstract menu bridges them.
 
 The language barrier is intentional. It forces players to rely on **observation** rather than **instruction**. This is harder, slower, and more frustrating than a tutorial — and that's the point. The satisfaction of figuring out copper smelting by watching an NPC is incomparably greater than reading "combine copper ore + charcoal in bloomery."
@@ -8890,7 +8941,7 @@ HumanBodyState {
   //   Clothing insulation: traps body heat
 
   // Heat loss:
-  //   Convection: wind carries heat away (wind chill from §6.6)
+  //   Convection: wind carries heat away (wind chill from §4.6)
   //   Radiation: body radiates heat to cold surroundings
   //   Evaporation: sweating (only works if humidity < 0.9)
   //   Conduction: touching cold surfaces (standing in snow, swimming in cold water)
@@ -9081,7 +9132,7 @@ The first priority for a new player is making better clothing and a carrying con
 
 #### Material Packets in Inventory
 
-Every item in inventory IS a MaterialPacket (§6.3.3). It has composition, mass, temperature, and phase.
+Every item in inventory IS a MaterialPacket (§3.1). It has composition, mass, temperature, and phase.
 
 ```
 Inventory rules for MaterialPackets:
@@ -9413,7 +9464,7 @@ PvPSystem {
 
 ```
 ToolGripSystem {
-  // When a player crafts a tool (§6.8.14 precision craft mode), they don't just
+  // When a player crafts a tool (§6.4 precision craft mode), they don't just
   // create a tool — they also define HOW to hold it.
 
   // After crafting, the player enters "grip setup":
@@ -9645,7 +9696,7 @@ ContainerPhysics {
   // Pouring liquid in:
   // 1. Player holds a container with liquid and presses "pour" while aiming at the target container
   // 2. Server creates a pour stream (SPH particles or visual) from source to target
-  // 3. Target container's contents update: mass-weighted composition merge (§6.3.3 compounding rule)
+  // 3. Target container's contents update: mass-weighted composition merge (§3.1 compounding rule)
   //    newComposition[element] = (existingMass × existingFraction[element] + addedMass × addedFraction[element]) / totalMass
   //    newTemperature = (existingMass × existingTemp + addedMass × addedTemp) / totalMass
   // 4. If two players pour simultaneously:
@@ -9794,7 +9845,7 @@ SwimmingSystem {
   //   Murky/swamp: 1-3m
   //   At depth > 20m: light dims (exponential absorption by water)
 
-  // Underwater sound: §6.8.6 applies — low-pass filter at 800 Hz, speed 1500 m/s
+  // Underwater sound: §3.3 applies — low-pass filter at 800 Hz, speed 1500 m/s
 
   // ── Carried items while swimming ──────────────────────────────────────────
   // All items are still in inventory. But:
@@ -10007,7 +10058,7 @@ settlements {
   position:     FLOAT[3] NOT NULL
   specialty:    TEXT NOT NULL                 // 'copper_mining'|'iron_mining'|'farming'|...
   population:   INT DEFAULT 20
-  // No civ_level — sophistication is derived from what NPCs have built and learned (§6.5)
+  // No civ_level — sophistication is derived from what NPCs have built and learned (§5.1)
   known_processes: TEXT[] DEFAULT '{}'       // processes NPCs have discovered: 'fire_starting', 'copper_smelting', ...
   storage:      JSONB DEFAULT '{}'           // MaterialPacket array with real compositions and masses
   trade_offers: JSONB DEFAULT '[]'           // current public trade offers
@@ -10084,7 +10135,7 @@ These exist only while the server is running. On restart, they vanish.
 // ── Active Physics Simulations ────────────────────────────────────────────────
 EphemeralState {
   // SPH particles: all active liquid/gas simulations in the world
-  sphParticles: Map<ParticleId, SPHParticle>     // see §6.3.4 for SPHParticle structure
+  sphParticles: Map<ParticleId, SPHParticle>     // see §3.2 for SPHParticle structure
   // typically 0–20,000 active at any time; 0 when no one is melting/pouring
 
   // Temperature field: materials in the world that are not at ambient temperature

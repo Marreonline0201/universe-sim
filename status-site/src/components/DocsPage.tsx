@@ -302,12 +302,26 @@ function parseBlocks(md: string): Block[] {
 
 // ── Inline renderer ───────────────────────────────────────────────────────────
 
-type InlineToken = { type: 'text' | 'bold' | 'code' | 'italic'; content: string }
+type InlineToken = { type: 'text' | 'bold' | 'code' | 'italic' | 'link'; content: string; href?: string }
 
 function tokenizeInline(text: string): InlineToken[] {
   const tokens: InlineToken[] = []
   let i = 0
   while (i < text.length) {
+    // Link [text](url)
+    if (text[i] === '[') {
+      const closeBracket = text.indexOf(']', i + 1)
+      if (closeBracket !== -1 && text[closeBracket + 1] === '(') {
+        const closeParen = text.indexOf(')', closeBracket + 2)
+        if (closeParen !== -1) {
+          const linkText = text.slice(i + 1, closeBracket)
+          const href = text.slice(closeBracket + 2, closeParen)
+          tokens.push({ type: 'link', content: linkText, href })
+          i = closeParen + 1
+          continue
+        }
+      }
+    }
     // Bold **...**
     if (text[i] === '*' && text[i + 1] === '*') {
       const end = text.indexOf('**', i + 2)
@@ -349,6 +363,7 @@ function Inline({ text }: { text: string }) {
   return (
     <>
       {tokens.map((t, idx) => {
+        if (t.type === 'link')   return <a key={idx} href={t.href} style={{ color: '#00d4ff', textDecoration: 'none', borderBottom: '1px solid rgba(0,212,255,0.3)' }} onClick={e => { if (t.href?.startsWith('#')) { e.preventDefault(); const el = document.getElementById(t.href.slice(1)); if (el) el.scrollIntoView({ behavior: 'smooth' }) }}}>{t.content}</a>
         if (t.type === 'bold')   return <strong key={idx} style={{ color: '#e8f4ff', fontWeight: 600 }}>{t.content}</strong>
         if (t.type === 'code')   return <code key={idx} style={INLINE_CODE}>{t.content}</code>
         if (t.type === 'italic') return <em key={idx} style={{ color: 'rgba(180,210,255,0.8)', fontStyle: 'italic' }}>{t.content}</em>

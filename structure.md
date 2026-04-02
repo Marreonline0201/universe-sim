@@ -12,12 +12,12 @@
 2. [The Vision](#2-what-this-project-is--the-vision)
 
 ### PART II — CORE ENGINE
-3. [Core Simulation Engine](#3-core-simulation-engine)
-    - 3.1 Emergent Material System
-    - 3.2 Fluid Simulation
-    - 3.3 Sound Engine
-    - 3.4 Structural Physics
-    - 3.5 Networking & Hybrid Rendering
+3. [Core Simulation Engine](#3-core-simulation-engine) — Unified Rust physics tick (8 stages)
+    - 3.1 Emergent Material System (Stage 3: Reactions)
+    - 3.2 Fluid Simulation — SPH + MPM hybrid (Stage 4: Fluid)
+    - 3.3 Sound Engine — Synthesized from physics (Stage 7: Sound Events)
+    - 3.4 Structural Physics (Stage 5: Integrity)
+    - 3.5 Networking & Hybrid Rendering (Stage 8: Broadcast)
 
 ### PART III — GAME WORLD
 4. [World & Life](#4-world--life) — World Gen, Organisms, Animals, Farming, Geology, Weather & Seasons
@@ -116,7 +116,126 @@ This approach has precedent. *Dwarf Fortress* (Tarn Adams, ongoing) demonstrated
 
 ## 3. Core Simulation Engine
 
-These are the foundational physics systems that power every other system in the game. The material system determines what things are. The fluid system determines how liquids move. The sound engine determines what you hear. The structural system determines whether buildings stand. The networking layer determines who computes what. Everything else in this document is built on top of these five systems.
+These are the foundational physics systems that power every other system in the game. They are NOT independent modules — they are **stages of a single physics tick loop** that runs in a Rust native process on the server. Each stage feeds into the next: temperature changes trigger phase transitions, phase transitions spawn fluid particles, fluid particles interact via forces that depend on material properties, structural blocks break when forces exceed material strength, and every physical event emits a sound descriptor.
+
+#### The Unified Physics Tick (Rust Core)
+
+Every server tick (60 Hz for crafting, 30 Hz for environment), the physics engine runs one pipeline:
+
+```
+PhysicsTick (Rust native addon, called from Node.js game server) {
+
+  // ── Stage 1: Temperature Propagation ──────────────────────────────────────
+  // All objects in the world exchange heat with neighbors and environment.
+  // Uses: MaterialPacket.thermalConductivity, specificHeatCapacity, emissivity
+  // Formula: Q = k × A × ΔT / d (Fourier's law) per contact pair
+  // Fire sources add heat. Environment (air temp from §4.6) absorbs/adds heat.
+  // Output: updated temperature for every MaterialPacket in the simulation
+
+  // ── Stage 2: Phase Transitions ────────────────────────────────────────────
+  // Check every packet: has temperature crossed melting/boiling point?
+  // Uses: MaterialPacket.meltingPoint, boilingPoint (computed from composition)
+  // If solid → liquid: fragment packet into SPH/MPM particles (§3.2)
+  // If liquid → solid: merge particles back into solid packet (§3.2)
+  // If liquid → gas: expand particles, add buoyancy (§3.2)
+  // Output: new particles spawned or merged
+
+  // ── Stage 3: Reaction Engine ──────────────────────────────────────────────
+  // For every pair of packets/particles in contact:
+  //   Check Gibbs free energy: ΔG = ΔH - TΔS (§3.1)
+  //   If ΔG < 0 and temperature > activation energy: reaction fires
+  //   Stoichiometry determines output composition
+  //   Energy balance heats/cools the output
+  // Output: transformed packets with new compositions
+
+  // ── Stage 4: Fluid Simulation ─────────────────────────────────────────────
+  // Active fluid particles (from Stage 2 or existing):
+  //   Scale 1 (crafting, 100-2000): SPH at 60 Hz — pressure, viscosity, gravity,
+  //     surface tension, terrain collision. Uses material-dependent viscosity/surfaceTension.
+  //   Scale 2 (environment, 2000-100000): MPM at 30 Hz — particle-to-grid,
+  //     grid force solve, grid-to-particle. No neighbor search needed.
+  //   Scale 3 (regional): Grid solver at 1 Hz — Manning's equation flow
+  //   Sleep system: settled particles skip computation (80-95% sleeping at any time)
+  // Output: updated particle positions and velocities
+
+  // ── Stage 5: Structural Integrity ─────────────────────────────────────────
+  // Only runs when a structural change event occurred this tick:
+  //   Block placed, block removed, block damaged, bond broken by weather
+  // Traces load paths from affected block to ground.
+  // Checks stress vs MaterialPacket.compressiveStrength/tensileStrength/shearStrength
+  // If exceeded: block breaks → becomes rigid body debris → cascade check
+  // Output: broken blocks, debris spawned
+
+  // ── Stage 6: Rigid Body Physics ───────────────────────────────────────────
+  // All loose objects (dropped items, debris, thrown tools):
+  //   Apply gravity, detect terrain collision, apply friction
+  //   Uses: MaterialPacket.density (weight), frictionCoefficient
+  // Output: updated positions for all loose objects
+
+  // ── Stage 7: Emit Sound Events ────────────────────────────────────────────
+  // Every physical event from stages 1-6 that produces sound:
+  //   Impact (rigid body hit terrain/object) → modal synthesis descriptor
+  //   Phase transition (sizzle, crack) → noise synthesis descriptor
+  //   Fluid flow (splash, pour, bubble) → noise synthesis descriptor
+  //   Structure break (crack, crash) → modal synthesis descriptor
+  // Each descriptor contains: materialA, materialB, energy, position, geometry
+  // Sent to client as SOUND_EVENTs — client synthesizes audio (§3.3)
+  // Output: array of SoundEvent descriptors
+
+  // ── Stage 8: Broadcast to Clients ─────────────────────────────────────────
+  // Package results and send via WebSocket (§3.5):
+  //   Particle positions → PHYSICS_EVENT
+  //   Sound descriptors → SOUND_EVENT
+  //   Entity state changes → ENTITY_UPDATE
+  //   Structural changes → CHUNK_UPDATE
+}
+```
+
+#### Implementation: Rust Native Addon
+
+The physics engine is written in **Rust** and compiled to a native Node.js addon via **napi-rs**. This is not WebAssembly — it is native machine code running at full CPU speed with SIMD auto-vectorization.
+
+```
+Why Rust (not JavaScript, not C++, not WASM):
+  - 10-50× faster than JavaScript for tight numerical loops (no type checks, no GC)
+  - Memory-safe unlike C++ (no segfaults, no buffer overflows)
+  - SIMD auto-vectorization (compiler processes 4-8 particles per instruction)
+  - Zero-copy data sharing with Node.js via napi-rs (Float32Array shared memory)
+  - No garbage collection pauses (predictable frame timing)
+  - Compiles to native .node binary — loaded by Node.js like any npm module
+
+Data sharing (zero-copy):
+  // Node.js creates Float32Array buffers for particle data
+  // Passes buffer references to Rust via napi-rs
+  // Rust reads and writes directly into the same memory
+  // No serialization, no copying, no message passing
+  // Node.js sees updated particle positions immediately after Rust returns
+
+Performance budget (Rust):
+  SPH crafting (2000 particles, 60 Hz):     ~0.22ms per tick → 1.3% of one CPU core
+  MPM environment (20000 particles, 30 Hz): ~0.4ms per tick  → 1.2% of one CPU core
+  Grid regional (50000 cells, 1 Hz):        ~2ms per tick    → 0.2% of one CPU core
+  Structural (on-demand):                   ~0.5-2ms per event
+  Rigid body (100 objects, 60 Hz):          ~0.05ms per tick
+  TOTAL PHYSICS:                            ~3.5% of one CPU core
+
+Compare JavaScript (same workload):          ~35-50% of one CPU core
+Rust gives 10× headroom for scaling to more players and more particles.
+```
+
+#### Fluid Methods: SPH + MPM Hybrid
+
+The fluid simulation uses two methods optimized for different scales:
+
+**SPH (Smoothed Particle Hydrodynamics)** — for crafting scale (100-2000 particles).
+Each particle checks its neighbors and computes 5 forces. Precise, accurate, good for small interactions where every droplet matters (pouring metal into a mold).
+
+**MLS-MPM (Moving Least Squares Material Point Method)** — for environment scale (2000-100,000 particles).
+Particles transfer data to a background grid, the grid solves forces, then transfers results back to particles. 3× faster than SPH at the same particle count because it avoids the expensive neighbor search. Used for rain, puddles, lava flows, floods — situations where overall flow behavior matters more than individual droplet precision.
+
+Both methods use material properties from the MaterialPacket (viscosity, surface tension, density) — the physics is the same, only the computational method differs.
+
+The sections below describe each stage's physics in detail.
 
 ### 3.1 Emergent Material System — Nothing Is Pre-Defined
 

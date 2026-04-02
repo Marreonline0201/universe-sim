@@ -150,13 +150,16 @@ PhysicsTick (Rust native addon, called from Node.js game server) {
 
   // ── Stage 4: Fluid Simulation ─────────────────────────────────────────────
   // Active fluid particles (from Stage 2 or existing):
-  //   Scale 1 (crafting, 100-2000): SPH at 60 Hz — pressure, viscosity, gravity,
-  //     surface tension, terrain collision. Uses material-dependent viscosity/surfaceTension.
-  //   Scale 2 (environment, 2000-100000): MPM at 30 Hz — particle-to-grid,
-  //     grid force solve, grid-to-particle. No neighbor search needed.
+  //   Scale 1 (crafting, 100-5000): SPH at 60 Hz — pressure, viscosity, gravity,
+  //     surface tension, terrain collision, mesh collision (SDF). Uses material-dependent properties.
+  //   Scale 2 (environment, 5000-200000): MLS-MPM at 30 Hz — particle-to-grid,
+  //     grid force solve, grid-to-particle. No neighbor search needed. 3× faster than SPH.
   //   Scale 3 (regional): Grid solver at 1 Hz — Manning's equation flow
+  //   Max total particles: 400,000 (typical active: 20,000-60,000)
   //   Sleep system: settled particles skip computation (80-95% sleeping at any time)
-  // Output: updated particle positions and velocities
+  //   Particle redistribution: splitting (near camera) / merging (far) maintains even spacing
+  //   Secondary particles: spray (Weber number), foam (vorticity), bubbles (reactions) — visual only
+  // Output: updated particle positions, velocities, and secondary particle spawn events
 
   // ── Stage 5: Structural Integrity ─────────────────────────────────────────
   // Only runs when a structural change event occurred this tick:
@@ -212,15 +215,20 @@ Data sharing (zero-copy):
   // Node.js sees updated particle positions immediately after Rust returns
 
 Performance budget (Rust):
-  SPH crafting (2000 particles, 60 Hz):     ~0.22ms per tick → 1.3% of one CPU core
-  MPM environment (20000 particles, 30 Hz): ~0.4ms per tick  → 1.2% of one CPU core
-  Grid regional (50000 cells, 1 Hz):        ~2ms per tick    → 0.2% of one CPU core
-  Structural (on-demand):                   ~0.5-2ms per event
-  Rigid body (100 objects, 60 Hz):          ~0.05ms per tick
-  TOTAL PHYSICS:                            ~3.5% of one CPU core
+  SPH crafting (5000 particles, 60 Hz):       ~0.5ms per tick  → 3% of one CPU core
+  MPM environment (50k active, 30 Hz):        ~2.0ms per tick  → 6% of one CPU core
+  MPM peak eruption (200k active, 30 Hz):     ~8.0ms per tick  → 24% of one CPU core
+  Grid regional (50000 cells, 1 Hz):          ~2ms per tick    → 0.2% of one CPU core
+  Particle redistribution (amortized):        ~0.3ms per tick  → ~1% of one CPU core
+  Structural (on-demand):                     ~0.5-2ms per event
+  Rigid body (100 objects, 60 Hz):            ~0.05ms per tick
+  TOTAL PHYSICS (sustained):                  ~10% of one CPU core
+  TOTAL PHYSICS (peak eruption):              ~34% of one CPU core
 
-Compare JavaScript (same workload):          ~35-50% of one CPU core
-Rust gives 10× headroom for scaling to more players and more particles.
+Compare JavaScript (same sustained workload): ~100%+ of one CPU core (cannot keep up)
+With WebGPU GPU compute: MPM drops from ~2ms to ~0.5ms, freeing CPU entirely.
+Rust gives 3-10× headroom for scaling to more players and more particles.
+Even at peak eruption (200k active particles), a single core handles it with 66% headroom.
 ```
 
 #### Fluid Methods: SPH + MPM Hybrid
@@ -2191,9 +2199,11 @@ VolcanicEruptionSystem {
   //        viscosity: ~10⁶ Pa·s (barely flows, explosive — Vesuvius-style)
   //   3. Temperature: 800-1200°C (above melting point → liquid phase)
   //   4. Volume: 100-10,000 m³ of magma (enough to create a visible lava flow)
-  //   5. Spawn as SPH/MPM particles at the eruption location
+  //   5. Spawn as MLS-MPM particles at the eruption location
   //      Particle count: volume / particleMass. At 0.01 m³ per particle: 10,000-1,000,000 particles.
-  //      For performance: cap at 50,000 particles. Larger eruptions use coarser particles.
+  //      Performance cap: 200,000 active particles per eruption. Larger eruptions use
+  //      adaptive particle resolution (coarser particles far from camera, finer near it).
+  //      With sleep system: most particles freeze within minutes, freeing budget for new flow.
 
   // LAVA FLOW (handled by fluid simulation §3.2):
   //   Particles flow downhill (gravity)
@@ -2867,7 +2877,7 @@ When gas-phase particles cool below boilingPoint:
 
 One simulation method cannot efficiently handle all scales of liquid in the game. A raindrop and an ocean are both water, but simulating an ocean with SPH particles would require billions of particles. Instead, the game uses different methods at different scales, with smooth transitions between them.
 
-**Scale 1 — Crafting (SPH particles, 100–2,000 particles)**
+**Scale 1 — Crafting (SPH particles, 100–5,000 particles)**
 
 This is the most interactive scale. The player directly manipulates liquid:
 - Melting ore in a bloomery → molten metal flows into a channel
@@ -2876,9 +2886,9 @@ This is the most interactive scale. The player directly manipulates liquid:
 - Boiling water → steam rises, water level drops
 - Quenching hot steel → dramatic sizzle, steam cloud
 
-SPH runs at 60 Hz in a Web Worker. 2,000 particles × 50 neighbors × 5 forces = 500,000 operations per tick. At ~10 FLOPs each = 5 MFLOP per tick. A single CPU core does 1–5 GFLOP/s. Cost: < 1% of one core.
+SPH runs at 60 Hz. 5,000 particles × 50 neighbors × 5 forces = 1,250,000 operations per tick. At ~10 FLOPs each = 12.5 MFLOP per tick. A single CPU core does 1–5 GFLOP/s in Rust with SIMD. Cost: < 1% of one core.
 
-**Scale 2 — Local environment (SPH particles, 2,000–20,000 particles)**
+**Scale 2 — Local environment (MLS-MPM particles, 5,000–200,000 particles)**
 
 Environmental liquid near the player:
 - Rain hitting the ground and forming puddles
@@ -2886,8 +2896,15 @@ Environmental liquid near the player:
 - Blood pooling from a killed animal
 - Spilled liquid from a broken container
 - A hot spring with steam
+- Lava flows from volcanic eruptions (up to 200,000 particles)
 
-SPH runs at 30 Hz in a dedicated Web Worker (separate from crafting). 20,000 particles at 30 Hz is ~30 MFLOP per tick — still cheap on a modern CPU. On a GPU compute shader (WebGPU), this could reach 200,000+ particles.
+MLS-MPM (Moving Least Squares Material Point Method) replaces SPH at this scale. MPM is 3× faster than SPH at the same particle count because it avoids the expensive neighbor search — particles transfer to a background grid, the grid solves forces, then transfers back to particles. MLS-MPM runs at 30 Hz. The particle-to-grid and grid-to-particle transfers cost ~2,700 FLOPs per particle per timestep. At 200,000 active particles: ~540 MFLOP per tick — well within a single Rust core with SIMD, or ~2ms on a mid-range GPU via WebGPU compute.
+
+Old cap was 50,000 for eruptions, 20,000 for environment. New cap is 200,000 per system, 400,000 total across all systems. This is achievable because:
+- Rust with SIMD processes 4–8 particles per instruction
+- Sleep system keeps 80–95% of particles dormant at any time
+- MLS-MPM avoids the O(n²) neighbor search that makes SPH expensive at scale
+- GPU compute path (WebGPU) unlocks 10× headroom when available
 
 **Scale 3 — Regional (grid-based, Eulerian)**
 
@@ -2980,16 +2997,141 @@ When two particles' mixed composition satisfies a reaction condition (§3.1 reac
 **Density-driven layering:**
 Denser liquid sinks, lighter liquid floats. Oil floats on water. Molten slag floats on molten iron (this is how real smelting separates metal from waste). The SPH pressure force naturally produces this layering because denser particles create higher pressure at the bottom.
 
-#### What the Player Sees
+#### What the Player Sees — Three-Tier Rendering Pipeline
 
-The visual representation of fluid adapts to scale:
+The visual representation of fluid is NOT hardcoded per material. In the real world, you don't see "water is blue" — you see light being absorbed, scattered, and refracted by matter. The renderer computes optical properties from the same MaterialPacket that drives viscosity and density. Three rendering methods handle different scales:
 
-**SPH particles (crafting and local):**
-- Each particle renders as a small sphere (metaball rendering for smooth appearance)
-- Color derived from composition: water = blue-clear, molten copper = orange-red glow, blood = dark red, oil = dark brown
-- Temperature → emissive glow: particles above 500°C glow red, above 1000°C glow orange-white
-- Surface particles have specular highlights (Fresnel reflection, same as OceanShader.ts)
-- Metaball blobbing: nearby particles visually merge into a smooth surface (marching cubes or screen-space fluid rendering)
+**Tier 1: Marching Cubes — Crafting Scale (100–5,000 particles)**
+
+When a player is melting, pouring, or mixing at a workstation, they are close. Quality matters. Particle count is low enough for real mesh extraction.
+
+```
+How it works:
+  1. Overlay a 3D grid on the crafting region (32³ = ~33,000 vertices)
+     Grid cell size = half the particle spacing (~0.03m for crafting)
+
+  2. At each grid vertex, compute a scalar field:
+     φ(x) = Σ (mⱼ / ρⱼ) · W(||x - xⱼ||, h)
+     This sums the "influence" of every nearby particle using the SPH kernel.
+     Where many particles overlap, φ is high. Where there are gaps, φ is low.
+
+  3. Extract the isosurface where φ = threshold (~0.6):
+     — For each grid cell, classify its 8 corners as inside/outside
+     — Look up triangle configuration from the 256-entry marching cubes table
+     — Interpolate vertex positions along edges where φ crosses the threshold
+     — Compute normals from ∇φ (gradient of the scalar field)
+
+  4. Result: a smooth, watertight triangle mesh (typically 5,000–20,000 triangles)
+     This mesh has NO individual particle bumps — it is a continuous surface.
+     Topology changes (drops splitting, streams merging) happen automatically.
+
+  5. Shade the mesh using optical properties derived from composition (see below).
+
+Performance at crafting scale:
+  Scalar field computation: ~0.3ms (1000 particles × ~10 neighbors per vertex)
+  Marching cubes traversal: ~0.1ms
+  Mesh rendering: ~0.2ms (5k–20k triangles, trivial for GPU)
+  Total: ~0.6ms — negligible
+```
+
+Why marching cubes here and not screen-space: player is inches away — mesh quality is noticeably better. Low particle count makes mesh extraction cheap. Produces a real 3D mesh that catches light and shadows correctly. Handles transparency naturally (can ray-march through the mesh for thickness).
+
+**Tier 2: Screen-Space Fluid Rendering (SSFR) — Environment Scale (5,000–200,000 particles)**
+
+For rain puddles, lava flows, streams, blood pools — anything with many particles where the player is not scrutinizing individual droplets. This is the technique used by NVIDIA Flex and Unreal Engine 5.
+
+The core idea: render particles as depth sprites, then blur the depth buffer to "connect the dots" into a smooth continuous surface. The blur cost is per-pixel (screen resolution), not per-particle — so 200,000 particles render at the same cost as 5,000.
+
+```
+The pipeline (5 GPU passes):
+
+  Pass 1 — Depth Sprites (0.3–0.8ms):
+    Render each particle as a camera-facing point sprite.
+    In the fragment shader, compute the sphere's depth per pixel:
+      depth(x,y) = particle_z - R · √(1 - x² - y²)
+    Write to a depth-only render target. Overlapping particles resolve via depth test.
+    Result: a bumpy depth buffer of individual sphere shapes.
+
+  Pass 2 — Bilateral Blur (0.5–1.5ms, two sub-passes):
+    A bilateral Gaussian filter smooths the depth buffer:
+      smoothed(p) = Σ w(q) · depth(q) / Σ w(q)
+      w(q) = G_spatial(||p-q||) · G_range(|depth(p) - depth(q)|)
+
+    G_spatial: standard Gaussian blur (σ = 5–10 pixels, kernel radius 10–20 px)
+    G_range: preserves edges — if two pixels have very different depths,
+             they are at a fluid boundary. Do not blur across it.
+
+    Done as two separable 1D passes (horizontal + vertical) for efficiency.
+
+    Result: individual particle bumps vanish. The depth buffer now shows a
+    smooth, continuous fluid surface — even though the particles underneath
+    are discrete points. This is where "connecting the dots" happens.
+
+  Pass 3 — Thickness (0.2–0.5ms):
+    How thick is the fluid along each view ray? Needed for transparency/color.
+    Render particles again with ADDITIVE blending and NO depth test.
+    Each sprite contributes its thickness: t(x,y) = 2R · √(1 - x² - y²)
+    Overlapping particles' thicknesses sum up naturally.
+    Result: a screen-space thickness map.
+
+  Pass 4 — Normal Reconstruction (0.1–0.2ms):
+    Compute surface normals from the smoothed depth via finite differences:
+      ∂z/∂x = (depth(x+1,y) - depth(x-1,y)) / 2
+      ∂z/∂y = (depth(x,y+1) - depth(x,y-1)) / 2
+      normal = normalize(cross(dpdx, dpdy))
+
+  Pass 5 — Compositing (0.3–0.5ms):
+    Full-screen pass that combines everything:
+    — Fresnel reflection: F = F₀ + (1-F₀)(1 - N·V)⁵
+    — Refraction: offset background UV by normal.xy × thickness
+    — Beer's Law absorption: color = exp(-absorption × thickness)
+      Water absorbs red (stays blue), lava absorbs blue (stays orange)
+    — Specular highlights from scene lights
+    — Composite over the scene at the smoothed depth
+
+Total GPU cost: 1.5–3.5ms at 1080p — INDEPENDENT of particle count.
+```
+
+**Tier 3: Raw Points + Shaders — Visual-Only Effects**
+
+Rain, snow, ash, sparks, embers, wind particles. These are not physics fluid — they are visual atmosphere. No smooth surface needed. GPU billboard particle system (THREE.Points). No physics interaction, no SPH, no fluid behavior. Already implemented in WeatherRenderer.tsx. 10,000+ particles at near-zero GPU cost. No change needed.
+
+**Tier Selection — Per Fluid Body, Per Frame**
+
+Tiers are assigned per fluid body (connected component of particles), not per particle:
+
+```
+TierSelection (per fluid body, per frame):
+  if body.context == WORKSTATION:
+    tier = MARCHING_CUBES    // player is crafting, close up, small count
+  else if body.particleCount <= 5000 AND body.closestDistanceToCamera < 3.0m:
+    tier = MARCHING_CUBES    // small body AND player is very close
+  else:
+    tier = SCREEN_SPACE      // everything else
+
+  // Tier 3 is separate — weather particles never form fluid bodies.
+```
+
+**Tier Transition — Smooth Crossfade**
+
+When a fluid body changes tier (player walks away from workstation, approaches a puddle), a 20-frame crossfade prevents visual popping:
+
+```
+TierTransition:
+  When targetTier != currentTier:
+    blendWeight increases by 0.05 per frame (~0.33 seconds crossfade)
+    Both rendering methods run simultaneously during the blend
+    Old tier fades out (opacity = 1 - blend), new tier fades in (opacity = blend)
+
+  Hysteresis prevents flickering at boundaries:
+    MARCHING_CUBES entry:  distance < 3.0m AND count < 5,000
+    MARCHING_CUBES exit:   distance > 4.0m OR count > 6,000
+    The gap prevents rapid switching when hovering near the threshold.
+
+  Fluid bodies are recomputed every 10 frames (~6× per second at 60fps)
+  via union-find on the particle neighbor graph. Between recomputations,
+  new particles inherit the body ID of their nearest neighbor.
+```
 
 **Grid cells (regional):**
 - Water surface mesh generated from grid cells with waterVolume > 0
@@ -3066,17 +3208,49 @@ Lava flowing over water produces instant steam (boiling) + rapid cooling of the 
 
 #### Performance Budget
 
-| Scale | Method | Particle/cell count | Tick rate | CPU cost per tick | Worker |
-|-------|--------|-------------------|-----------|-------------------|--------|
-| Crafting | SPH | 100–2,000 | 60 Hz | < 1 ms | Shared with game loop or dedicated |
-| Local env | SPH | 2,000–20,000 | 30 Hz | 2–5 ms | Dedicated Web Worker |
-| Regional | Grid | 10,000–50,000 cells | 1 Hz | 5–10 ms | Existing fluid.worker.ts |
-| Global | Math | 0 | On demand | < 0.1 ms | Main thread |
-| **Total** | | | | **< 15 ms** at peak | **3 workers max** |
+**Simulation (Rust, single dedicated core):**
 
-On a GPU (WebGPU compute shaders, when available): SPH particle count can increase 10–100× for the same cost. 200,000 local environment particles at 30 Hz is feasible on a mid-range GPU.
+| Scale | Method | Particle/cell count | Tick rate | Rust CPU cost per tick |
+|-------|--------|-------------------|-----------|----------------------|
+| Crafting | SPH | 100–5,000 | 60 Hz | ~0.5 ms |
+| Local env | MLS-MPM | 5,000–200,000 | 30 Hz | ~2.0 ms (50k active) / ~8.0 ms (200k active peak) |
+| Regional | Grid | 10,000–50,000 cells | 1 Hz | ~2.0 ms |
+| Global | Math | 0 | On demand | < 0.1 ms |
+| Redistribution | Amortized | — | Per tick | ~0.3 ms |
+| **Total sustained** | | **~400,000 max** | | **~10% of one CPU core** |
+| **Total peak (eruption)** | | **200k active** | | **~34% of one CPU core** |
 
-**All SPH simulation runs on the server** (consistent with §3.5 server-authoritative physics). The server computes particle positions, velocities, and phase transitions. Results are sent to clients as PHYSICS_EVENT messages containing particle position arrays. The client renders particles but never simulates them — it cannot invent fluid behavior that the server didn't compute. This prevents cheating (a modified client can't fake liquid flow) and ensures all players see the same fluid.
+**GPU compute path (WebGPU, when available):**
+
+| Scale | GPU cost per tick | Notes |
+|-------|------------------|-------|
+| Crafting SPH (5,000) | ~0.1 ms | Trivially fast on GPU |
+| Environment MPM (200,000, 4 substeps) | ~4 ms | Memory-bound, not compute-bound |
+| **Total GPU compute** | **~4.1 ms** | Leaves >12ms for rendering at 60 FPS |
+
+**Rendering (GPU):**
+
+| Component | GPU cost | Notes |
+|-----------|---------|-------|
+| Marching cubes mesh (crafting, ≤5k particles) | ~0.6 ms | 32³ grid + 5k-20k triangles |
+| Screen-space fluid (environment, any count) | ~2.5 ms at 1080p | Fixed cost regardless of particle count |
+| Weather particles (visual-only) | ~0.3 ms | Existing THREE.Points |
+| Secondary particles (spray/foam/bubbles) | ~0.1 ms | Visual-only points |
+| **Total rendering** | **~3.5 ms** | Fits comfortably in 16ms frame budget |
+
+**Memory:**
+
+| Component | Size |
+|-----------|------|
+| Particle data (400k max × 64 bytes) | ~25 MB |
+| Optical properties (400k × 40 bytes) | ~16 MB |
+| Spatial hash table | ~5 MB |
+| Marching cubes grid (32³) | ~0.5 MB |
+| Screen-space buffers (1080p: depth + thickness + normals) | ~16 MB |
+| Secondary particles (5,000 × 30 bytes) | ~0.15 MB |
+| **Total memory** | **~63 MB** |
+
+**All particle simulation runs on the server** (consistent with §3.5 server-authoritative physics). The server computes particle positions, velocities, and phase transitions. Results are streamed to clients via the particle network streaming protocol (see below). The client renders particles but never simulates them — it cannot invent fluid behavior that the server did not compute. This prevents cheating and ensures all players see the same fluid.
 
 #### Critical Optimizations
 
@@ -3186,67 +3360,377 @@ Particles far from the player don't need full-accuracy physics:
 
 This reduces the effective particle count by ~60% in typical gameplay (most fluid is not right next to the player).
 
-**6. Hybrid Rendering: Real Physics + Visual Tricks**
+**6. Particle Redistribution — Keeping Particles Evenly Spaced**
 
-The most important optimization is knowing **when NOT to simulate**. Real SPH physics only runs during active interaction moments. Everything else uses cheap visual approximations:
+SPH works best when particles are roughly uniformly spaced. During simulation, particles naturally clump in convergent flows and spread out in divergent flows. This causes density estimation errors (pressure oscillations), visual artifacts (gaps in the rendered surface), and wasted computation (too many particles in one spot). The redistribution system fixes this.
+
+**Splitting — one particle becomes two:**
+```
+Trigger conditions (any one):
+  — Particle spacing exceeds 1.5× target spacing for its zone
+  — Particle enters a high-resolution zone (closer to camera)
+  — Local vorticity exceeds threshold (turbulent region needs detail)
+
+How splitting works:
+  Parent particle (mass m, velocity v, position x):
+  → 2 child particles, each mass m/2
+  → Positions: x ± ε (offset along velocity gradient direction)
+  → Velocities: both inherit parent's velocity
+  → Smoothing radius: h_child = h_parent × 0.794 (= 2^(-1/3) in 3D)
+  → Composition, temperature: inherited exactly
+  → Mass is EXACTLY conserved: m_parent = m_child1 + m_child2
+```
+
+**Merging — two particles become one:**
+```
+Trigger conditions (both required):
+  — Two particles closer than 0.3× smoothing radius h
+  — Both particles are in a low-resolution zone (far from camera)
+
+How merging works:
+  Two particles (m₁, v₁, x₁) + (m₂, v₂, x₂):
+  → 1 merged particle:
+     mass = m₁ + m₂                           (exact conservation)
+     position = (m₁x₁ + m₂x₂) / (m₁+m₂)     (center of mass)
+     velocity = (m₁v₁ + m₂v₂) / (m₁+m₂)      (momentum conservation)
+     composition = mass-weighted average
+     temperature = mass-weighted average
+  → Kinetic energy is NOT conserved — merging dissipates the relative
+     velocity energy, acting as artificial viscosity. Acceptable because
+     merging only happens far from the camera where precision is irrelevant.
+```
+
+**Adaptive resolution zones (camera-based LOD for particles):**
+
+| Zone | Distance | Particle radius | Relative to base | Particles needed (same volume) |
+|------|----------|----------------|------------------|-------------------------------|
+| 0 (near) | 0–5 m | 0.02 m | 1× (base) | 1× |
+| 1 (mid) | 5–15 m | 0.04 m | 2× | 1/8× |
+| 2 (far) | 15–40 m | 0.08 m | 4× | 1/64× |
+| 3 (distant) | 40 m+ | 0.16 m | 8× | 1/512× |
+
+Each doubling of radius = 8× the volume per particle = 8× fewer particles needed. Zone 3 needs 512× fewer particles than Zone 0 for the same volume of fluid. A lava flow covering 100m would need 2 million uniform particles. With adaptive resolution: ~100k–200k. Same visual quality near the camera. 10–50× particle count reduction for large-scale phenomena.
+
+**Transition bands** (width ~5× particle spacing) between zones prevent sharp boundaries. Both resolutions coexist in the band. Particles gradually split (approaching camera) or merge (moving away). Forces between different-sized particles use averaged smoothing radius: `h_ij = (h_i + h_j) / 2`. This maintains Newton's third law across resolution boundaries.
+
+**Hysteresis** prevents split/merge oscillation: split when particle is > 1.5× target size for zone, merge when < 0.5× target size. The gap (0.5× to 1.5×) is the stable band — no action taken.
+
+**7. Hybrid Rendering: Real Physics + Visual Approximations**
+
+The most important optimization is knowing **when NOT to simulate**. Real SPH/MPM physics only runs during active interaction moments. Everything else uses cheap visual approximations:
 
 | Situation | Physics method | Visual method |
 |---|---|---|
-| Player melting/pouring metal | Real SPH (200-500 particles) | Screen-space fluid smoothing on SPH particles |
-| Player mixing chemicals | Real SPH + diffusion | Color blending shader on SPH particles |
-| Rain falling | None | GPU billboard particle system (thousands of quads, no physics) |
+| Player melting/pouring metal | Real SPH (500-5,000 particles) | Tier 1: Marching cubes mesh |
+| Player mixing chemicals | Real SPH + diffusion | Tier 1: Marching cubes with composition-driven color |
+| Rain falling | None | Tier 3: GPU billboard particle system (no physics) |
 | Rain puddles forming | Heightfield (add volume to grid cell) | Puddle decal texture + animated ripple shader |
 | River | Grid flow (volume + direction) | River mesh + scaled-down Gerstner waves from OceanShader |
-| Waterfall | None | Particle trail effect + splash particles + foam texture at base |
+| Waterfall | None (visual) + MPM at base (splash) | Tier 3 particle trail + Tier 2 SSFR at splash zone |
 | Lake | Grid cell (single water volume number) | Flat mesh at water height + wave shader + edge foam |
 | Ocean | None | Pure Gerstner wave shader (already built in OceanShader.ts) |
-| Lava (active flow front) | Real SPH (2,000-5,000 particles) | Emissive shader + heat distortion + cooled parts become terrain texture |
+| Lava (active flow front) | Real MPM (5,000-200,000 particles) | Tier 2: SSFR with emissive glow + heat distortion |
 | Lava (cooled) | None | Terrain with volcanic rock texture |
 | Blood | None | Decal projected onto terrain surface |
 | Water carried in pot | Just a number (mass + composition) | Sloshing animation shader on the pot model |
 
-The SPH system activates only when needed (phase transition triggers it) and deactivates when particles settle (sleep system) or cool into solids (merge back into material packets). During a typical gameplay session, SPH is actively running for maybe 10% of the time — during smelting, pouring, or weather events. The other 90% costs zero.
+The SPH/MPM system activates only when needed (phase transition triggers it) and deactivates when particles settle (sleep system) or cool into solids (merge back into material packets). During a typical gameplay session, SPH/MPM is actively running for maybe 10% of the time — during smelting, pouring, or weather events. The other 90% costs zero.
 
-**Screen-space fluid rendering** (for the moments when SPH is active):
-1. Render each SPH particle as a point sprite into a depth-only buffer
-2. Bilateral Gaussian blur on the depth buffer — this smooths overlapping spheres into a continuous surface
-3. Reconstruct normals from the smoothed depth
-4. Apply water/metal/lava shading (Fresnel, refraction, emissive glow) as a full-screen pass
-5. Composite over the scene
+#### Optical Property Pipeline — Composition to Light
 
-This technique is used by Unreal Engine 5, Unity HDRP, and most modern games with fluid effects. The blur cost is per-pixel (fixed cost regardless of particle count), making it extremely efficient. 5,000 particles render at the same cost as 500.
+In the real world, the appearance of any liquid is fully determined by its atomic composition and temperature. There is no color lookup table. Light enters the medium, gets absorbed at wavelength-dependent rates, scatters off suspended particles, and reflects at interfaces where refractive index changes. The renderer computes all optical properties from the same MaterialPacket that drives viscosity and density.
+
+**Step 1: Composition → Absorption Spectrum (Beer-Lambert Law)**
+
+`I(λ) = I₀ · exp(-α(λ) · d)` — light intensity decreases exponentially with distance through the medium.
+
+Each element/compound contributes to the absorption coefficient α(λ). This is real physics:
+- Pure water: absorbs red (α_red ≈ 0.45/m), passes blue (α_blue ≈ 0.02/m) → this is WHY water looks blue-green in thick layers
+- Dissolved iron (Fe³⁺): absorbs blue/green (α_blue ≈ 50/m) → this is WHY rusty water looks orange-brown
+- Dissolved copper sulfate (CuSO₄): absorbs red (α_red ≈ 80/m) → this is WHY copper sulfate solution looks blue
+- Carbon suspension (soot, charcoal): absorbs everything uniformly → this is WHY ink and crude oil look black
+
+The renderer stores absorption as RGB (not full spectrum — 3 channels is enough for visual accuracy, same approximation used in film VFX):
+
+```
+absorptionRGB(composition) = Σ (concentration_i × species_i.absorptionRGB)
+```
+
+Computed once when composition changes, not every frame. The property calculator (§3.1) already computes viscosity this way. Absorption coefficients are just another column in the element property table.
+
+**Step 2: Composition → Refractive Index**
+
+How much light bends at the fluid surface. Determines how distorted objects look through the liquid and how much reflection you see at glancing angles (Fresnel).
+
+Using the Arago-Biot mixing rule: `n_mix = Σ (volumeFraction_i × n_i)`
+
+- Water: n = 1.333
+- Molten glass (SiO₂): n = 1.458
+- Ethanol: n = 1.361
+- Molten iron: n = 2.87 (highly reflective — metallic)
+- Oil: n = 1.47
+
+High n → more reflection, more refraction distortion, more "glassy." Metallic liquids (n > 2): mostly reflective, almost no transparency.
+
+**Step 3: Composition → Scattering**
+
+Suspended particles scatter light, making liquid cloudy. Dissolved species do NOT scatter (transparent solution). Suspended solids scatter proportionally to their concentration. A liquid with suspended charcoal is opaque. A dissolved salt solution is clear. The composition already tracks dissolved vs. suspended (§3.1).
+
+**Step 4: Temperature → Blackbody Emission**
+
+Hot materials glow. This is blackbody radiation, not a special effect. Wien's displacement law: `peak_wavelength = 2898 / T(K)`. Below ~500°C: no visible emission. At 500°C: faint red glow. At 1000°C: bright orange. At 1500°C: yellow-white. The Planck distribution gives exact RGB emission at any temperature — the same equation used by every PBR renderer.
+
+**Per-particle optical attributes (40 bytes, cached):**
+- absorptionRGB: vec3 (12 bytes)
+- refractiveIndex: float (4 bytes)
+- scatteringRGB: vec3 (12 bytes)
+- emissionRGB: vec3 (12 bytes) — blackbody glow from temperature
+
+Recomputed ONLY when composition or temperature changes. For a static puddle: computed once, cached forever. For actively mixing liquids: recomputed each sim tick.
+
+**Multi-Material Screen-Space Rendering**
+
+When two immiscible fluids occupy the same screen region (oil on water, slag on molten metal), the bilateral blur must not smear them together. The solution follows from how light actually behaves in layered fluids — it passes through each layer independently, being absorbed and refracted at each interface.
+
+```
+Step 1: Classify particles into layers by density and miscibility.
+  Particles whose composition similarity is > 0.9 (dot product of
+  normalized composition vectors) are the same layer — they are
+  miscible and will mix over time. Particles with similarity < 0.9
+  are separate layers (immiscible — ΔG of mixing > 0, already
+  computed by the reaction engine).
+
+Step 2: Run the full SSFR pipeline independently per immiscible layer.
+  Each layer gets its own depth buffer, thickness map, normal map.
+  The bilateral blur operates WITHIN each layer — no cross-material smearing.
+
+Step 3: Composite layers back-to-front (densest first).
+  Light enters the top layer → absorbed by Beer's Law using top layer's α.
+  Light exits top layer, enters bottom layer → refracted at the interface
+  (Snell's law: n₁·sin(θ₁) = n₂·sin(θ₂)).
+  Light absorbed by bottom layer → reflected off bottom surface or terrain.
+  Light travels back up through both layers.
+
+Cost: one extra SSFR pass per immiscible layer.
+  1 layer (most common): ~2.5ms
+  2 layers (oil+water, metal+slag): ~4.5ms
+  3+ layers (exotic): ~6.5ms — almost never happens naturally.
+```
+
+Miscible fluids (water + dissolved salt, water + alcohol) are ONE layer. Their optical properties are the mass-weighted average of the components. This happens automatically because SPH diffusion mixes their compositions over time. As they mix, per-particle optical properties gradually converge. You literally watch the color change as mixing happens — no special rendering, just composition changing → absorption changing → color changing.
+
+#### Secondary Particles — Foam, Spray, Bubbles
+
+These are not effects. In the real world, spray happens when kinetic energy overcomes surface tension. Foam happens when gas gets trapped in liquid films. Bubbles happen when gas is produced inside a liquid. The simulation already computes everything needed to predict when these occur. Secondary particles are visual-only (Tier 3 raw points). They are spawned BY the primary SPH/MPM simulation based on physical conditions, then rendered cheaply as GPU billboards. They do not participate in SPH forces.
+
+**Spray: Liquid fragmenting into droplets**
+
+When a fluid surface moves fast enough, surface tension cannot hold the surface together. The Weber number determines this:
+
+`We = ρ · v² · L / σ` (density × velocity² × length scale / surface tension)
+
+- We > 12: surface starts to deform (waves, fingers)
+- We > 40: surface fragments into droplets (spray)
+- We > 100: explosive atomization (waterfall crashing)
+
+The SPH simulation already computes velocity and surface tension per particle. Surface particles (particles with fewer than ~70% of average neighbors — they are at the fluid boundary) are candidates for spray emission.
+
+```
+SprayEmission (per surface particle, per sim tick):
+  We = particle.density × |particle.velocity|² × particle.radius / particle.surfaceTension
+
+  if We > 40:
+    numDroplets = clamp(floor((We - 40) / 20), 1, 10)
+    for each droplet:
+      position = particle.position + random offset within kernel radius
+      velocity = particle.velocity + random perturbation (±30%)
+      lifetime = 0.5 to 2.0 seconds
+      size = particle.radius × 0.1 to 0.3
+      color = particle's optical absorptionRGB
+      movement = ballistic (full gravity, no fluid forces)
+      // On hitting fluid surface: absorbed. On hitting terrain: tiny splat.
+```
+
+**Foam: Gas trapped in liquid films**
+
+Foam forms when turbulent flow entrains air. The trapped air forms thin liquid films. Surfactants (compounds that lower surface tension: fats, proteins, soap) stabilize the films.
+
+Without surfactants: foam collapses in <1 second (pure water barely foams). This is correct.
+With surfactants: foam persists for minutes to hours (soap, beer, egg whites).
+
+The simulation already computes vorticity (curl of velocity field): `ω_i = Σⱼ (mⱼ/ρⱼ) × (vⱼ - vᵢ) × ∇W(rᵢⱼ, h)`
+
+```
+FoamGeneration (per surface particle with high vorticity):
+  if |vorticity| > FOAM_THRESHOLD:
+    // Surfactant detection: low surface tension = surfactants present
+    hasSurfactant = (particle.surfaceTension < 0.5 × WATER_SURFACE_TENSION)
+
+    foamLifetime = hasSurfactant ? 5.0–30.0 seconds : 0.2–1.0 seconds
+    // Pure water: foam dies instantly. Soapy water: foam lives long. Beer: minutes.
+
+    spawn foam particle:
+      position = particle.position + surface normal × small offset
+      velocity = particle.velocity × 0.3 (foam moves slower than fluid)
+      lifetime = foamLifetime
+      size = particle.radius × 2–5 (foam bubbles are larger)
+      color = white with slight tint from fluid absorption
+      // Foam is white because thin films scatter all wavelengths (Mie scattering)
+      movement = constrained to fluid surface, pushed by flow beneath
+      // As they age: shrink and fade (film drainage → bubbles pop)
+```
+
+**Bubbles: Gas produced inside liquid**
+
+Bubbles form when: (1) a chemical reaction produces gas (CO₂ from acid + carbonate, H₂ from acid + metal), (2) liquid is heated past boiling (steam bubbles), (3) air is trapped when an object enters liquid. Cases 1 and 2 are already handled by the reaction engine and phase transition system.
+
+```
+BubbleGeneration (triggered by reaction engine or phase transition):
+  when reaction produces gas inside a liquid body:
+    bubbleRadius = max(0.001, 2 × particle.surfaceTension / (gasP - liquidP))
+    // Laplace pressure: small bubbles need more pressure to exist
+    numBubbles = clamp(gasMass / (4/3 × π × bubbleRadius³ × gasDensity), 1, 100)
+
+    for each bubble:
+      position = reaction site
+      velocity = buoyancy-driven upward:
+        // Stokes' law: v_rise = (2/9) × (ρ_liquid - ρ_gas) × g × r² / μ_liquid
+        // Small bubbles rise slowly. Large bubbles rise fast.
+        // High viscosity (honey): very slow. Low viscosity (water): fast.
+        // This uses the fluid's viscosity — already computed.
+      lifetime = time to reach surface + 0.5s
+      size = bubbleRadius
+      // On reaching surface: pop → optionally spawn micro-spray particle
+```
+
+**Boiling** emerges from bubble count: a few bubbles per second = simmering, many per second = rolling boil. No animation — the rate tracks the heat input rate. **Fermentation** produces slow steady CO₂ bubbles over hours — the player sees this and knows fermentation is happening.
+
+**Secondary particle budget:**
+- Typical active counts: waterfall 500–2,000 spray, boiling pot 50–200 bubbles, smelting 100–500 foam
+- Max concurrent: ~5,000 secondary particles
+- GPU cost: <0.1ms (same as weather particles)
+- Memory: ~150 KB (negligible)
+- These particles are LOCAL to each client. The server does not track them. Each client independently generates secondaries from the primary particle state it receives. Since spawn conditions are deterministic (based on velocity, vorticity, reactions), all clients produce visually similar effects. Slight differences do not matter.
+
+#### Crafted Object Collision
+
+The terrain heightfield handles ground collision. But when a player pours molten copper into a clay mold, the mold is a mesh collider, not a heightfield. Particle-mesh collision is needed for crafted objects, containers, and structures.
+
+```
+MeshCollision:
+  Crafted objects with concave interiors (pots, molds, channels, troughs)
+  are decomposed into a signed distance field (SDF) at creation time.
+  The SDF stores the distance to the nearest surface at each point in a
+  3D grid encompassing the object. Inside the object: negative distance.
+  Outside: positive distance.
+
+  Per particle, per tick:
+    sdf_value = sample(object.sdf, particle.position)
+    if sdf_value < 0:
+      // Particle is inside the solid — push it out
+      gradient = sdf_gradient(object.sdf, particle.position)
+      particle.position += gradient × (-sdf_value)  // push to surface
+      // Zero out velocity into the surface, apply friction to tangential
+      v_normal = dot(particle.velocity, gradient) × gradient
+      v_tangent = particle.velocity - v_normal
+      particle.velocity = v_tangent × (1 - friction)
+
+  SDF resolution: ~0.01m (1cm) for crafting objects. A typical pot:
+  10cm × 10cm × 15cm → 10 × 10 × 15 grid = 1,500 cells × 4 bytes = 6 KB per object.
+  100 crafted objects near the player = 600 KB. Negligible.
+
+  SDFs are recomputed when the object's shape changes (player modifies it).
+  For rigid objects (finished pot, stone mold): computed once at creation.
+```
+
+#### Particle Network Streaming
+
+The world is consistent. Every player sees the same lava flow, the same river, the same puddle. But streaming 400,000 particle positions to every client every frame is impossible. The solution mirrors human perception: you can only see what is in front of you, and distant things have less detail.
+
+**The bandwidth problem:**
+
+Naive: 400,000 particles × 12 bytes (xyz float32) × 30 Hz = 144 MB/s per client. Absurd.
+
+**Solution 1: Only send what is awake.** The sleep system means 80–95% of particles are dormant. Sleeping particles were already sent when they were active — the client remembers their position. Active particles only: 400,000 × 5% = 20,000 × 12 bytes × 30 Hz = 7.2 MB/s. Better, but still too much.
+
+**Solution 2: Spatial relevance — only send what you can see.** Each client has a view frustum and a maximum interest radius. Particles outside this region are irrelevant.
+
+| Zone | Distance | Update frequency | Detail level |
+|------|----------|-----------------|-------------|
+| Full detail | 0–10 m | Every tick (30 Hz) | Every active particle, delta-compressed |
+| Reduced | 10–30 m | Every 3rd tick (10 Hz) | Every active particle, delta-compressed |
+| Sparse | 30–50 m | Every 5th tick (6 Hz) | Every 4th particle, half-precision |
+| Summary | 50 m+ | Every 10th tick (3 Hz) | Fluid body bounding box + avg velocity only |
+
+Typical active particles within 50m of a player: 1,000–5,000 (most of the world's 400k are far away).
+
+**Solution 3: Delta compression.** Particles move smoothly. The client predicts each particle's next position: `pos += velocity × dt`. The server only sends the CORRECTION (delta from prediction). Most deltas are tiny (<0.01m) and fit in 3 bytes (int8 × 3 scaled to ±0.1m range) instead of 12 bytes (float32 × 3). In practice 90%+ of particles fit in 3-byte deltas. Average cost: ~3.3 bytes per particle vs. 12 = 3.6× compression.
+
+**Combined bandwidth:**
+
+```
+Typical frame (exploring near a river):
+  Full detail:  500 particles × 3.3 bytes              = 1,650 bytes
+  Reduced:      1000 particles × 3.3 bytes (at 10 Hz)  = 1,100 bytes/tick
+  Sparse:       200 particles × 6 bytes (at 6 Hz)      = 240 bytes/tick
+  Summary:      5 bodies × 30 bytes                     = 150 bytes
+  Events:       ~100 bytes (occasional spawn/kill)
+  TOTAL per tick: ~3,240 bytes × 30 Hz = ~97 KB/s
+
+Peak frame (standing in a volcanic eruption):
+  Full detail:  3000 × 3.3 = 9,900
+  Reduced:      5000 × 3.3 = 5,500/tick
+  Sparse:       2000 × 6   = 2,400/tick
+  Events:       ~500 (many spawns)
+  TOTAL: ~18,300 bytes × 30 Hz = ~549 KB/s
+```
+
+Both well within broadband capacity. Even mobile connections (1 MB/s) handle the typical case.
+
+**Client-side gap filling:** When the network skips particles (spatial or temporal downsampling), the client fills gaps. Temporal gaps: interpolate position from last two known positions. Spatial gaps: spawn visual-only "ghost" particles to maintain fluid body shape. These ghost particles have no simulation authority — they are pure visual interpolation. They are removed when the server sends real data for that region.
+
+**Consistency:** Two players standing next to each other see the same fluid. Both receive the same authoritative particle positions from the server. The only difference: client-generated secondary particles (spray, foam, bubbles) may differ slightly because they include randomness. This is acceptable — in real life, two people standing next to the same waterfall would describe the spray slightly differently too. The 50ms round-trip latency is masked by the visual smoothness of screen-space rendering (the bilateral blur hides small jitters in position updates).
 
 #### Implementation Phases
 
 **Phase 1 — Crafting-scale SPH (connect to material packets)**
-- Implement SPH solver in a Web Worker (pressure, viscosity, gravity, terrain collision)
+- Implement SPH solver in Rust via napi-rs (pressure, viscosity, gravity, terrain collision)
 - Hook into material packet phase transitions: solid → liquid spawns particles, cooling merges them back
-- Visual: simple sphere rendering per particle with composition-based color
+- Visual: Tier 1 marching cubes mesh with composition-driven optical properties
 - Test: melt copper ore in bloomery → molten copper flows into a channel → cools into solid
 
-**Phase 2 — Local environment SPH**
-- Dedicated worker for environmental particles (rain, puddles, small streams)
-- Add surface tension for realistic droplet behavior
-- Metaball rendering for smooth liquid surfaces
-- Connect to weather system: rain events spawn falling particles
+**Phase 2 — Local environment MPM + screen-space rendering**
+- Implement MLS-MPM solver in Rust for environment-scale particles
+- Tier 2 screen-space fluid rendering pipeline (5 GPU passes)
+- Tier transition system (crossfade + hysteresis between Tier 1 and 2)
+- Connect to weather system: rain events spawn falling particles that form puddles
+- Particle redistribution system (splitting, merging, adaptive zones)
 
-**Phase 3 — Grid-based regional water**
+**Phase 3 — Grid-based regional water + scale transitions**
 - Extend fluid.worker.ts with water volume tracking, Manning's equation flow
-- SPH ↔ grid transitions (particle absorption / emission)
+- SPH/MPM ↔ grid transitions (particle absorption / emission)
 - Lakes form in terrain concavities, overflow creates rivers
 - Server syncs grid state in WORLD_SNAPSHOT
 
-**Phase 4 — Full water cycle**
+**Phase 4 — Full water cycle + secondary particles**
 - Evaporation from water surfaces → feeds weather system humidity
 - Groundwater absorption and springs
 - Seasonal variation (freeze/thaw cycle)
 - Connect ocean shader to grid system at coastlines
+- Spray (Weber number), foam (vorticity + surfactant), bubbles (reactions + boiling)
 
-**Phase 5 — Lava and exotic fluids**
-- Volcanic events spawn high-temperature SPH particles
+**Phase 5 — Lava, exotic fluids, and network streaming**
+- Volcanic events spawn high-temperature MPM particles (up to 200,000)
 - Lava cooling → terrain modification (new rock forms)
-- Molten metal in industrial processes (blast furnace, casting)
-- Acid, oil, alcohol — all derived from composition, no special cases
+- Multi-material rendering (immiscible fluid layers)
+- Particle network streaming protocol with delta compression and spatial LOD
+- Crafted object collision via signed distance fields
+
+**Phase 6 — GPU compute path (WebGPU)**
+- Port SPH crafting solver to WebGPU compute shaders
+- Port MPM environment solver to WebGPU compute (target: 200k+ particles at 30 Hz)
+- Parallel spatial hash construction on GPU
+- Fallback: Rust CPU path remains the default, GPU path is an enhancement
 
 ---
 
@@ -3847,7 +4331,7 @@ This is a real-world online simulation. The server is the world. The client is a
 │                                                                              │
 │  AUTHORITATIVE (server computes, broadcasts results):                        │
 │  ├── All physics simulations                                                 │
-│  │   ├── SPH fluid particles (melting, pouring, lava, water flow)           │
+│  │   ├── SPH/MPM fluid particles (up to 400k; melting, pouring, lava, flow) │
 │  │   ├── Material packet reactions (Gibbs free energy, stoichiometry)        │
 │  │   ├── Temperature propagation (heat transfer between objects)             │
 │  │   ├── Rigid body physics (dropped items, thrown objects, digging debris)  │
@@ -3870,7 +4354,9 @@ This is a real-world online simulation. The server is the world. The client is a
 │  ├── ENVIRONMENT_STATE (1 Hz): weather (wind speed/dir, rain rate,          │
 │  │   temperature, humidity, cloud cover), fire positions + intensities,      │
 │  │   river flow vectors, sun position, season. Drives client GPU shaders.   │
-│  ├── PHYSICS_EVENT (as needed): SPH particle spawns/updates, material        │
+│  ├── PARTICLE_UPDATE (30 Hz): delta-compressed positions, spatial LOD,       │
+│  │   spawn/kill events (~97 KB/s typical, ~549 KB/s peak eruption)          │
+│  ├── PHYSICS_EVENT (as needed): material                                     │
 │  │   reactions, temperature changes, terrain modifications                   │
 │  ├── SOUND_EVENT (as needed): physics event descriptors for audio            │
 │  │   { type, materialA, materialB, energy, position, contactNormal }        │
@@ -3885,7 +4371,8 @@ This is a real-world online simulation. The server is the world. The client is a
 │  ├── Visual rendering                                                        │
 │  │   ├── Terrain mesh from server-sent CHUNK_DATA (no local generation)      │
 │  │   ├── Player/NPC body meshes at server-provided positions                 │
-│  │   ├── SPH particle rendering (metaballs) from server particle positions   │
+│  │   ├── Fluid rendering: Tier 1 marching cubes / Tier 2 screen-space SSFR  │
+│  │   ├── Secondary particles (spray, foam, bubbles — client-generated)       │
 │  │   ├── Weather visuals (rain particles, snow, fog, clouds, lightning)      │
 │  │   ├── Lighting (sun position from season/time, torches, campfires)        │
 │  │   ├── Ocean shader (Gerstner waves — visual only, no physics)            │

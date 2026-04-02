@@ -369,6 +369,169 @@ const INLINE_CODE: React.CSSProperties = {
   fontFamily: 'inherit',
 }
 
+// ── Smart Code Block Renderer ──────────────────────────────────────────────
+// Detects tables and comments inside code blocks and renders them nicely.
+
+function CodeBlockContent({ lines }: { lines: string[] }) {
+  const groups: { type: 'comment' | 'table' | 'code'; lines: string[] }[] = []
+  let i = 0
+
+  while (i < lines.length) {
+    const trimmed = lines[i].trimStart()
+
+    // Detect markdown pipe table inside code block
+    if (trimmed.startsWith('|') && trimmed.includes('|', 1)) {
+      const tableLines: string[] = []
+      while (i < lines.length && lines[i].trimStart().startsWith('|')) {
+        tableLines.push(lines[i])
+        i++
+      }
+      const parseRow = (row: string) => row.split('|').map(s => s.trim()).filter(Boolean)
+      const isSep = (row: string) => /^[\s|:\-─]+$/.test(row)
+      const headers = tableLines.length >= 2 ? parseRow(tableLines[0]) : []
+      const dataStart = tableLines.findIndex((_, li) => li > 0 && !isSep(tableLines[li]))
+      const dataRows = tableLines.slice(dataStart < 0 ? 2 : dataStart).filter(l => !isSep(l)).map(parseRow)
+
+      if (headers.length > 0 && dataRows.length > 0) {
+        groups.push({ type: 'table', lines: [JSON.stringify({ headers, rows: dataRows })] })
+      } else {
+        groups.push({ type: 'code', lines: tableLines })
+      }
+      continue
+    }
+
+    // Detect comment lines
+    if (trimmed.startsWith('//')) {
+      const commentLines: string[] = []
+      while (i < lines.length && lines[i].trimStart().startsWith('//')) {
+        commentLines.push(lines[i])
+        i++
+      }
+      groups.push({ type: 'comment', lines: commentLines })
+      continue
+    }
+
+    // Blank line — just push as code
+    if (trimmed === '') {
+      groups.push({ type: 'code', lines: [lines[i]] })
+      i++
+      continue
+    }
+
+    // Regular code line
+    const codeLines: string[] = []
+    while (
+      i < lines.length &&
+      lines[i].trimStart() !== '' &&
+      !lines[i].trimStart().startsWith('//') &&
+      !(lines[i].trimStart().startsWith('|') && lines[i].trimStart().includes('|', 1))
+    ) {
+      codeLines.push(lines[i])
+      i++
+    }
+    if (codeLines.length > 0) groups.push({ type: 'code', lines: codeLines })
+  }
+
+  return (
+    <div>
+      {groups.map((group, gi) => {
+        if (group.type === 'comment') {
+          return (
+            <div key={gi} style={{ margin: '4px 0' }}>
+              {group.lines.map((line, li) => {
+                const indent = line.match(/^(\s*)/)?.[1]?.length ?? 0
+                const content = line.trimStart().replace(/^\/\/\s?/, '')
+                const isHeader = /^[═─╌]/.test(content) || /^[A-Z][A-Z _]+[═─╌:]/.test(content.trim())
+                const isEmpty = content.trim() === '' || /^[═─╌\s]+$/.test(content)
+
+                if (isEmpty) return <div key={li} style={{ height: 6 }} />
+
+                if (isHeader) {
+                  return (
+                    <div key={li} style={{
+                      fontSize: 10, fontWeight: 700, letterSpacing: 1.5,
+                      color: 'rgba(0,200,255,0.55)', marginTop: 12, marginBottom: 4,
+                      paddingLeft: Math.max(0, indent / 2 - 1) * 8,
+                    }}>
+                      {content.replace(/[═─╌]/g, '').trim()}
+                    </div>
+                  )
+                }
+
+                return (
+                  <p key={li} style={{
+                    margin: '1px 0', fontSize: 11.5, lineHeight: 1.75,
+                    color: 'rgba(165,200,240,0.72)',
+                    paddingLeft: Math.max(0, indent / 2 - 1) * 8,
+                    fontFamily: 'inherit',
+                  }}>
+                    <Inline text={content} />
+                  </p>
+                )
+              })}
+            </div>
+          )
+        }
+
+        if (group.type === 'table') {
+          try {
+            const { headers, rows } = JSON.parse(group.lines[0])
+            return (
+              <div key={gi} style={{ overflowX: 'auto', margin: '8px 0' }}>
+                <table style={{ borderCollapse: 'collapse', fontSize: 11, lineHeight: 1.6, minWidth: '100%' }}>
+                  <thead>
+                    <tr>
+                      {(headers as string[]).map((h: string, hi: number) => (
+                        <th key={hi} style={{
+                          padding: '5px 12px', textAlign: 'left',
+                          color: '#00d4ff', fontSize: 10, letterSpacing: 1,
+                          fontWeight: 600, background: 'rgba(0,40,80,0.4)',
+                          border: '1px solid rgba(0,180,255,0.12)',
+                          whiteSpace: 'nowrap',
+                        }}>
+                          <Inline text={h} />
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(rows as string[][]).map((row: string[], ri: number) => (
+                      <tr key={ri} style={{ background: ri % 2 === 0 ? 'transparent' : 'rgba(0,30,60,0.2)' }}>
+                        {row.map((cell: string, ci: number) => (
+                          <td key={ci} style={{
+                            padding: '4px 12px',
+                            border: '1px solid rgba(0,180,255,0.08)',
+                            color: 'rgba(190,220,255,0.75)',
+                            verticalAlign: 'top',
+                          }}>
+                            <Inline text={cell} />
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )
+          } catch {
+            return <pre key={gi} style={{ margin: 0, fontSize: 11, lineHeight: 1.7, color: 'rgba(200,230,255,0.8)', whiteSpace: 'pre', fontFamily: 'inherit' }}>{group.lines.join('\n')}</pre>
+          }
+        }
+
+        return (
+          <pre key={gi} style={{
+            margin: 0, fontSize: 11, lineHeight: 1.7,
+            color: 'rgba(200,230,255,0.8)',
+            whiteSpace: 'pre', fontFamily: 'inherit',
+          }}>
+            {group.lines.join('\n')}
+          </pre>
+        )
+      })}
+    </div>
+  )
+}
+
 // ── Block renderer ────────────────────────────────────────────────────────────
 
 function RenderBlock({ block, idx }: { block: Block; idx: number }) {
@@ -466,14 +629,7 @@ function RenderBlock({ block, idx }: { block: Block; idx: number }) {
               {block.lang}
             </div>
           )}
-          <pre style={{
-            margin: 0, fontSize: 11, lineHeight: 1.7,
-            color: 'rgba(200,230,255,0.8)',
-            whiteSpace: 'pre',
-            fontFamily: 'inherit',
-          }}>
-            {block.lines.join('\n')}
-          </pre>
+          <CodeBlockContent lines={block.lines} />
         </div>
       )
 

@@ -421,29 +421,58 @@ function CodeBlockContent({ lines }: { lines: string[] }) {
       }
 
       if (tableStartIdx !== -1 && tableEndIdx > tableStartIdx) {
-        // Split: comments before table, the table, comments after table
         const beforeTable = commentLines.slice(0, tableStartIdx)
         const tableSection = stripped.slice(tableStartIdx, tableEndIdx + 1)
         const afterTable = commentLines.slice(tableEndIdx + 1)
 
         if (beforeTable.length > 0) groups.push({ type: 'comment', lines: beforeTable })
 
-        // Parse the box-drawing table
-        // First clean: remove box chars (┌┐└┘├┤┬┴┼─│) and use | as delimiter
-        const cleanedRows = tableSection
-          .filter(l => l.trim().length > 0 && !/^[┌└├╭╰][─┬┼┴╮╯]+/.test(l.trim())) // skip border-only rows
-          .map(l => l.replace(/[┌┐└┘├┤┬┴┼─╭╰╮╯]/g, '|').replace(/\|\|+/g, '|')) // replace box chars with |
+        // Parse box-drawing table with multi-line cell support
+        // Separator lines (┌├└ followed by ─) divide logical rows
+        const isSepLine = (l: string) => /^[┌├└╭╰][─┬┼┴╮╯┐┘]+$/.test(l.trim())
+        const isDataLine = (l: string) => /^│/.test(l.trim())
+        const extractCells = (l: string) =>
+          l.replace(/[│]/g, '|').split('|').map(s => s.trim()).filter((_, ci, arr) => ci > 0 && ci < arr.length - 1)
+          // skip first empty and last empty from split
 
-        const parseRow = (row: string) => row.split('|').map(s => s.trim()).filter(s => s.length > 0)
-        const isSep = (row: string) => /^[\s|:\-─]+$/.test(row)
+        // Group data lines between separators into logical rows
+        const logicalRows: string[][] = []
+        let currentCells: string[] = []
+        let isFirstDataGroup = true
 
-        const dataRowsParsed = cleanedRows.filter(r => !isSep(r)).map(parseRow)
-        if (dataRowsParsed.length >= 2) {
-          const headers = dataRowsParsed[0]
-          const rows = dataRowsParsed.slice(1)
+        for (const line of tableSection) {
+          if (isSepLine(line)) {
+            if (currentCells.length > 0) {
+              logicalRows.push(currentCells)
+              currentCells = []
+              isFirstDataGroup = false
+            }
+            continue
+          }
+          if (isDataLine(line)) {
+            const cells = extractCells(line)
+            if (currentCells.length === 0) {
+              currentCells = cells
+            } else {
+              // Merge: append to existing cells (multi-line cell)
+              for (let ci = 0; ci < cells.length && ci < currentCells.length; ci++) {
+                if (cells[ci]) {
+                  currentCells[ci] = currentCells[ci]
+                    ? currentCells[ci] + ' ' + cells[ci]
+                    : cells[ci]
+                }
+              }
+            }
+          }
+        }
+        if (currentCells.length > 0) logicalRows.push(currentCells)
+
+        if (logicalRows.length >= 2) {
+          const headers = logicalRows[0]
+          const rows = logicalRows.slice(1)
           groups.push({ type: 'table', lines: [JSON.stringify({ headers, rows })] })
-        } else {
-          // Couldn't parse — render as comments
+        } else if (logicalRows.length === 1) {
+          // Single row — might be header only, render as comment
           groups.push({ type: 'comment', lines: commentLines.slice(tableStartIdx, tableEndIdx + 1) })
         }
 
@@ -520,17 +549,25 @@ function CodeBlockContent({ lines }: { lines: string[] }) {
           try {
             const { headers, rows } = JSON.parse(group.lines[0])
             return (
-              <div key={gi} style={{ overflowX: 'auto', margin: '8px 0' }}>
-                <table style={{ borderCollapse: 'collapse', fontSize: 11, lineHeight: 1.6, minWidth: '100%' }}>
+              <div key={gi} style={{
+                overflowX: 'auto', margin: '12px 0',
+                borderRadius: 6,
+                border: '1px solid rgba(0,180,255,0.12)',
+              }}>
+                <table style={{
+                  borderCollapse: 'collapse', fontSize: 11.5, lineHeight: 1.65,
+                  minWidth: '100%',
+                }}>
                   <thead>
                     <tr>
                       {(headers as string[]).map((h: string, hi: number) => (
                         <th key={hi} style={{
-                          padding: '5px 12px', textAlign: 'left',
-                          color: '#00d4ff', fontSize: 10, letterSpacing: 1,
-                          fontWeight: 600, background: 'rgba(0,40,80,0.4)',
-                          border: '1px solid rgba(0,180,255,0.12)',
-                          whiteSpace: 'nowrap',
+                          padding: '8px 14px', textAlign: 'left',
+                          color: '#7dd3fc', fontSize: 10.5, letterSpacing: 0.8,
+                          fontWeight: 600,
+                          background: 'rgba(0,30,70,0.5)',
+                          borderBottom: '1px solid rgba(0,180,255,0.15)',
+                          borderRight: hi < (headers as string[]).length - 1 ? '1px solid rgba(0,180,255,0.06)' : 'none',
                         }}>
                           <Inline text={h} />
                         </th>
@@ -539,12 +576,20 @@ function CodeBlockContent({ lines }: { lines: string[] }) {
                   </thead>
                   <tbody>
                     {(rows as string[][]).map((row: string[], ri: number) => (
-                      <tr key={ri} style={{ background: ri % 2 === 0 ? 'transparent' : 'rgba(0,30,60,0.2)' }}>
+                      <tr key={ri} style={{
+                        background: ri % 2 === 0 ? 'transparent' : 'rgba(0,20,50,0.25)',
+                        transition: 'background 0.1s',
+                      }}
+                      onMouseEnter={e => e.currentTarget.style.background = 'rgba(0,60,120,0.2)'}
+                      onMouseLeave={e => e.currentTarget.style.background = ri % 2 === 0 ? 'transparent' : 'rgba(0,20,50,0.25)'}
+                      >
                         {row.map((cell: string, ci: number) => (
                           <td key={ci} style={{
-                            padding: '4px 12px',
-                            border: '1px solid rgba(0,180,255,0.08)',
-                            color: 'rgba(190,220,255,0.75)',
+                            padding: '6px 14px',
+                            borderBottom: '1px solid rgba(0,180,255,0.05)',
+                            borderRight: ci < row.length - 1 ? '1px solid rgba(0,180,255,0.04)' : 'none',
+                            color: ci === 0 ? 'rgba(210,235,255,0.85)' : 'rgba(180,210,240,0.7)',
+                            fontWeight: ci === 0 ? 500 : 400,
                             verticalAlign: 'top',
                           }}>
                             <Inline text={cell} />

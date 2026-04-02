@@ -7,6 +7,7 @@ import { PlayerRoster }  from './components/PlayerRoster'
 import { PlayerDetail }  from './components/PlayerDetail'
 import { AgentControlCenter } from './components/AgentControlCenter'
 import { DocsPage } from './components/DocsPage'
+import { ConnectionMap } from './components/ConnectionMap'
 
 // ── Global CSS (injected as style tag) ────────────────────────────────────────
 const GLOBAL_CSS = `
@@ -102,12 +103,13 @@ const GLOBAL_CSS = `
   }
 `
 
-type View = 'map' | 'agents' | 'docs'
+type View = 'map' | 'agents' | 'docs' | 'connections'
 
 const VIEWS: { id: View; label: string }[] = [
-  { id: 'docs',   label: 'GAME GUIDE' },
-  { id: 'agents', label: 'AGENT CONTROL' },
-  { id: 'map',    label: 'WORLD MAP' },
+  { id: 'docs',        label: 'GAME GUIDE' },
+  { id: 'agents',      label: 'AGENT CONTROL' },
+  { id: 'connections', label: 'CONNECTIONS' },
+  { id: 'map',         label: 'WORLD MAP' },
 ]
 
 export function StatusApp() {
@@ -230,6 +232,20 @@ export function StatusApp() {
             background: 'rgba(4,8,18,0.88)',
           }}>
             <AgentControlCenter agentState={world.agentState} />
+          </div>
+        )}
+
+        {/* ── Connections view ───────────────────────────────────────────── */}
+        {view === 'connections' && (
+          <div style={{
+            flex: 1,
+            minHeight: 0,
+            position: 'relative',
+            zIndex: 5,
+            overflow: 'hidden',
+            background: 'rgba(4,8,18,0.88)',
+          }}>
+            <ConnectionMap />
           </div>
         )}
 

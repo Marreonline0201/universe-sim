@@ -14,13 +14,12 @@
 3. [Core Simulation Engine](#3-core-simulation-engine)
     - 3.1 Emergent Material System
     - 3.2 Fluid Simulation
-    - 3.3 Atmospheric Model (Weather & Seasons)
-    - 3.4 Sound Engine
-    - 3.5 Structural Physics
-    - 3.6 Networking & Hybrid Rendering
+    - 3.3 Sound Engine
+    - 3.4 Structural Physics
+    - 3.5 Networking & Hybrid Rendering
 
 ### PART III — GAME WORLD
-4. [World & Life](#4-world--life)
+4. [World & Life](#4-world--life) — World Gen, Organisms, Geology, Weather & Seasons
     - 4.1 World Generation
     - 4.2 Organism Ecosystem & Species
     - 4.3 Geology & Resource Distribution
@@ -862,269 +861,8 @@ This technique is used by Unreal Engine 5, Unity HDRP, and most modern games wit
 - Molten metal in industrial processes (blast furnace, casting)
 - Acid, oil, alcohol — all derived from composition, no special cases
 
----
 
-
-### 3.3 Atmospheric Model — Weather and Seasons
-
-#### The Principle
-
-Weather in reality is not random — it is the result of thermodynamics applied to a rotating sphere with uneven heating. The sun heats the equator more than the poles. Hot air rises, cold air sinks. Moisture evaporates from oceans, condenses when it cools, and falls as rain. Mountains force air upward, creating rain on the windward side and dry conditions on the leeward side (rain shadow). All of this is computable from terrain + solar angle + ocean position.
-
-#### Atmospheric Model (Server-Side, 1 Hz Tick)
-
-The server divides the planet into an **atmospheric grid** — one cell per terrain chunk (~64m resolution). Each cell tracks physical quantities that drive weather.
-
-```
-AtmosphereCell {
-  // ── Thermodynamics ────────────────────────────────────────────────────────
-  airTemperature: number             // °C — the temperature a player feels at this location
-  surfaceTemperature: number         // °C — ground/water surface temp (drives convection)
-  humidity: number                   // 0.0–1.0 — mass ratio of water vapor to dry air
-  pressure: number                   // Pa — barometric pressure
-
-  // ── Wind ──────────────────────────────────────────────────────────────────
-  windVelocity: Vec2                 // m/s — horizontal wind vector (drives clouds, affects player)
-  verticalAirSpeed: number           // m/s — updraft (+) or downdraft (-) (drives cloud formation)
-
-  // ── Cloud and Precipitation ───────────────────────────────────────────────
-  cloudCover: number                 // 0.0–1.0 — fraction of sky covered
-  cloudWaterContent: number          // kg/m³ — liquid water in clouds (when > threshold → rain)
-  precipitationType: 'none' | 'rain' | 'snow' | 'hail' | 'sleet'
-  precipitationRate: number          // mm/hour
-  snowDepth: number                  // meters of accumulated snow on ground
-
-  // ── Derived (computed per tick) ───────────────────────────────────────────
-  visibility: number                 // meters — reduced by fog, rain, snow, dust
-  uvIndex: number                    // 0–11+ — affects sunburn, vitamin D, material degradation
-}
-```
-
-#### Temperature Calculation
-
-Temperature at any point is computed from first principles, not from a lookup table:
-
-```
-T_air(position) = T_base(latitude, season)
-                  + ΔT_altitude(elevation)
-                  + ΔT_ocean(distanceToOcean)
-                  + ΔT_time(hourOfDay)
-                  + ΔT_cloud(cloudCover)
-                  + ΔT_wind(windChill)
-
-Where:
-  T_base(lat, season):
-    // Solar angle determines base temperature
-    // At equator, noon sun is nearly vertical → max heating
-    // At poles, sun is always low → minimal heating
-    // Season shifts the solar declination angle
-    solarAngle = 90° - |latitude - solarDeclination|
-    T_base = -20 + 50 × sin(solarAngle × π/180)    // -20°C at poles to +30°C at equator
-
-  ΔT_altitude(elevation):
-    // Lapse rate: temperature drops ~6.5°C per 1000m altitude
-    // This is the International Standard Atmosphere lapse rate
-    ΔT = -6.5 × (elevation / 1000)
-
-  ΔT_ocean(distance):
-    // Ocean moderates temperature (maritime vs continental climate)
-    // Near ocean: smaller temperature swings. Inland: larger swings.
-    maritimeFactor = 1.0 / (1.0 + distance / 500)    // 500m halflife
-    ΔT = maritimeFactor × (oceanSurfaceTemp - T_base) × 0.3
-
-  ΔT_time(hour):
-    // Diurnal cycle: coldest at dawn (06:00), warmest in afternoon (14:00)
-    // Amplitude depends on cloud cover (clouds insulate → smaller swing)
-    diurnalAmplitude = 8 × (1 - cloudCover × 0.5)    // ±8°C clear, ±4°C overcast
-    ΔT = diurnalAmplitude × sin((hour - 6) × π / 12)
-
-  ΔT_cloud(cloudCover):
-    // Clouds trap heat at night, block sun during day
-    if (isDaytime) ΔT = -cloudCover × 5              // cooler during day
-    else           ΔT = +cloudCover × 3              // warmer at night
-
-  ΔT_wind(windSpeed):
-    // Wind chill: effective temperature drop from wind
-    // Uses the NWS wind chill formula (simplified):
-    if (T_air < 10 && windSpeed > 1.3)
-      ΔT = 13.12 + 0.6215 × T_air - 11.37 × windSpeed^0.16 + 0.3965 × T_air × windSpeed^0.16 - T_air
-    else ΔT = 0
-```
-
-#### Pressure and Wind
-
-```
-Pressure at altitude:
-  // Barometric formula: P = P₀ × exp(-Mgh/RT)
-  P(h) = 101325 × exp(-0.0289644 × 9.81 × h / (8.314 × (T + 273.15)))
-
-Wind generation:
-  // Wind flows from high pressure to low pressure (pressure gradient force)
-  // Modified by Coriolis effect (planet rotation)
-  pressureGradient = (P_neighbor - P_cell) / cellDistance
-  coriolisForce = 2 × ω × sin(latitude) × windSpeed    // ω = planet angular velocity
-
-  // Mountains block and redirect wind:
-  if (terrainHeight > airLayerHeight)
-    windVelocity = deflect(windVelocity, terrainNormal)
-    // Windward side: forced uplift → condensation → rain
-    verticalAirSpeed += windSpeed × sin(terrainSlope)
-```
-
-#### Cloud Formation and Precipitation
-
-```
-Cloud formation process:
-  1. Air rises (updraft from heating, terrain uplift, or pressure convergence)
-  2. Rising air cools at the adiabatic lapse rate (9.8°C/km dry, 6.5°C/km wet)
-  3. When air cools below dew point → water vapor condenses → cloud forms
-     dewPoint = T - (100 - humidity × 100) / 5    // simplified Magnus formula
-     if (T_air < dewPoint) → cloudCover increases, cloudWaterContent increases
-
-  4. When cloudWaterContent exceeds threshold → precipitation begins
-     precipThreshold = 0.3    // g/m³ — typical for real clouds
-     if (cloudWaterContent > precipThreshold)
-       precipitationRate = (cloudWaterContent - precipThreshold) × 10    // mm/hour
-
-  5. Precipitation type depends on air temperature at ground level:
-     if (T_ground > 2°C)   → rain
-     if (T_ground ∈ [-2, 2]) → sleet (mixed)
-     if (T_ground < -2°C)  → snow
-     if (updraft > 10 m/s && T_cloud < -20°C) → hail (strong thunderstorm)
-```
-
-#### Rain Shadow Effect
-
-Mountains create wet windward sides and dry leeward sides:
-
-```
-When wind hits a mountain:
-  1. Air forced upward on windward side → cools → condenses → rain on windward slope
-  2. Air crosses the ridge → descends on leeward side → warms (adiabatic) → humidity drops
-  3. Leeward side receives much less precipitation → dry biome (desert, steppe)
-
-  // This is why the eastern side of the Cascade Range in Washington is dry
-  // while the western side gets 2000mm+ of rain per year.
-  // The game replicates this from terrain + wind direction alone — no biome painting needed.
-```
-
-#### Effects on Game Systems
-
-| Weather State | Effect on Player | Effect on Materials | Effect on NPCs | Effect on Sound |
-|---------------|-----------------|--------------------|-----------------|-----------------|
-| Rain | Visibility reduced to 200-500m. Body temperature drops faster. Clothing gets wet (weight increase). | Wood moisture increases (+0.01/minute exposed). Flammability drops. Metal surfaces oxidize faster. Clay becomes workable. | NPCs seek shelter. Gathering pauses. | Rain ambient noise. Footstep sounds become wet/splashy. |
-| Snow | Visibility 100-300m. Hypothermia risk. Movement speed -30% in deep snow. | All moisture increases. Snow accumulates on surfaces. Melts above 0°C → water. | NPCs stay indoors. Population stress increases. | Muffled ambient. Crunching footsteps. |
-| Storm | Visibility <100m. Lightning strikes random tall objects (trees, structures). Wind pushes player movement. | Unsecured items blow. Fire extinguished. Trees can break (wind > 25 m/s). | NPCs shelter. Settlement damage possible. | Loud wind, thunder (distance = sound delay). |
-| Fog | Visibility 20-80m. No temperature effect. | Moisture condenses on surfaces. | NPCs navigate slowly. | All sounds muffled, close-range enhanced. |
-| Clear | Full visibility. Sun exposure → sunburn if prolonged. | Materials dry (moisture -0.005/minute). Optimal for fire-making. | Full activity cycle. | Dry acoustics, bird calls. |
-| Hot/dry | Heat stroke risk above 40°C. Thirst drain ×2. | Wood dries fast (fire risk). Mud cracks. Clay unusable (too dry). | NPCs rest midday. Water-seeking behavior. | Dry wind, heat shimmer visual. |
-
-#### Material Moisture Model
-
-Rain and weather directly change material properties in the world:
-
-```
-MaterialMoistureUpdate (per tick, exposed materials only) {
-  if (raining && materialIsExposed) {
-    material.moisture += precipitationRate × 0.001 × dt   // absorbs rain
-    material.moisture = min(material.moisture, material.maxAbsorption)
-    // maxAbsorption depends on material porosity:
-    // wood: 0.8, cloth: 0.9, stone: 0.05, metal: 0.0, soil: 0.6
-  }
-
-  if (!raining && sunExposed) {
-    // Evaporation: rate depends on temperature, wind, humidity
-    evapRate = (1 - humidity) × (T_air / 50) × (1 + windSpeed × 0.1)
-    material.moisture -= evapRate × 0.001 × dt
-    material.moisture = max(material.moisture, 0)
-  }
-
-  // Wet wood can't burn:
-  if (material.moisture > 0.4) material.flammability = 0
-  // Partially wet wood is hard to ignite:
-  else if (material.moisture > 0.1)
-    material.flammability *= (1 - material.moisture × 2)
-}
-```
-
-#### Season System — Orbital Mechanics
-
-#### The Calendar
-
-The planet orbits its star with a tilted axis (23.4° — same as Earth). This tilt causes seasons.
-
-```
-SeasonSystem {
-  // ── Time scale: 4× real life ──────────────────────────────────────────────
-  // 1 real hour = 4 game hours
-  // 6 real hours = 1 game day (24 game hours)
-  // 1 real day = 4 game days
-  // ~91 real days (3 real months) = 1 game year (365 game days)
-  // 1 real year ≈ 4 game years
-  //
-  // This means:
-  //   A 2-hour play session spans 8 game hours — enough to see dawn to afternoon
-  //   A 6-hour session is a full game day — experience day, night, and next dawn
-  //   Seasons change every ~23 real days (~3 weeks)
-  //   A player experiences all 4 seasons in ~3 real months
-  //
-  // Exception: world CREATION (planet formation, organism generation) runs on
-  // a faster timelapse at server startup. Only an admin can change the timescale.
-
-  timeScale: 4                               // game hours per real hour
-  yearLength: 365                            // game days per year
-  dayLength: 21600                           // real seconds per game day (6 real hours)
-  axialTilt: 23.4                            // degrees — determines season intensity
-
-  // Current season determined by day of year:
-  // Day 0-91:    Spring (northern hemisphere) / Autumn (southern)
-  // Day 91-182:  Summer / Winter
-  // Day 182-273: Autumn / Spring
-  // Day 273-365: Winter / Summer
-
-  // Solar declination angle (determines which hemisphere gets more sun):
-  solarDeclination = axialTilt × sin(2π × dayOfYear / yearLength)
-  // +23.4° at summer solstice (day ~172), -23.4° at winter solstice (day ~355)
-}
-```
-
-#### Season Effects
-
-| Season | Temperature Modifier | Daylight Hours | Weather Bias | Gameplay Impact |
-|--------|---------------------|----------------|-------------|-----------------|
-| Spring | +0 to +5°C gradual warming | 12→14 hours | More rain, fog lifting | Snow melts → rivers flood. Plants grow. Animals breed. Soil workable. |
-| Summer | +8 to +12°C | 14→16 hours | Clear/hot dominant, afternoon storms | Peak farming. Fire risk (dry materials). Long work days. Heat stroke risk. |
-| Autumn | -2 to -5°C cooling | 12→10 hours | Increasing rain, wind | Harvest season. Leaves change. Animals fatten. Days shorten. |
-| Winter | -10 to -15°C | 8→10 hours | Snow, ice, fog | Hypothermia danger. Rivers freeze (walkable). Food scarce. Short days → limited activity. |
-
-```
-Season effects on systems:
-  // Organism energy budgets (§2):
-  autotroph.photosynthesisRate *= daylightHours / 12    // more light = more energy
-  heterotroph.metabolicRate *= 1 + (30 - T_air) × 0.01  // cold = higher metabolism to stay warm
-
-  // Farming:
-  cropGrowthRate = baseRate × seasonGrowthMultiplier × soilQuality × waterAvailability
-  // Spring: ×0.5 (starting), Summer: ×1.0 (peak), Autumn: ×0.3 (slowing), Winter: ×0.0 (dormant)
-
-  // Water state:
-  if (T_air < 0) {
-    // Rivers freeze: surface becomes walkable solid (ice hardness ~1.5 Mohs)
-    // Lakes freeze: fishing through ice holes possible
-    // Ocean edges freeze: extends walkable coastline
-    // Snow accumulates: 1cm per hour of snowfall, compacts over time
-    // Ice thickens: ~2cm per day below 0°C (Stefan's law of ice growth)
-  }
-
-  // Day/night cycle:
-  sunriseHour = 6 - (daylightHours - 12) / 2
-  sunsetHour = 18 + (daylightHours - 12) / 2
-  // In summer: sunrise at 5:00, sunset at 21:00 (16h daylight)
-  // In winter: sunrise at 8:00, sunset at 16:00 (8h daylight)
-```
-
-
-### 3.4 Sound Engine — Physics-Driven Audio
+### 3.3 Sound Engine — Physics-Driven Audio
 
 #### The Principle
 
@@ -1350,11 +1088,11 @@ The audio system must stay within strict CPU limits:
 **Voice limiting:** Maximum 16 simultaneous sounds. When a new sound would exceed the limit, the quietest (lowest gain after distance attenuation) sound is dropped. Continuous sounds (fire, river, wind) have reserved slots (max 4) and compete separately from transient sounds (impacts, footsteps).
 
 
-### 3.5 Structural Physics — How Buildings Stand or Fall
+### 3.4 Structural Physics — How Buildings Stand or Fall
 
 Every structure is made of MaterialPackets (§3.1). Whether it stands or falls is determined by the same material properties that determine melting point and hardness: compressive strength, tensile strength, and shear strength. Gravity loads propagate downward through connections. Where stress exceeds material strength, blocks break and cascade collapse occurs. Arches convert tension to compression, allowing stone to span gaps. Foundations must match terrain bearing capacity. Weather decays materials over time — rain dissolves mud mortar, freeze-thaw cracks stone, fire destroys wood. See the full internal specification for force propagation algorithms, span limit formulas, and performance budgets.
 
-### 3.6 Networking & Hybrid Rendering
+### 3.5 Networking & Hybrid Rendering
 
 #### The Principle
 
@@ -3046,6 +2784,266 @@ All resource node placement derives from these formation rules. The game runs a 
 5. **Player exploration signal** — each resource node has visible surface expression matching its real-world signal: green malachite staining, rusty gossan, white salt crust, black coal seam in cliff, volcanic fumarole with yellow sulfur ring. A player who has read this section can locate resources systematically.
 
 Settlement specialties are assigned by querying what resource nodes fall within 200 meters of the settlement seed point. The most abundant or highest-value node determines the specialty. A settlement seeded near a copper porphyry becomes a copper mining town. A settlement seeded in a sedimentary basin near limestone and clay becomes a pottery and masonry town. A settlement near a forest biome boundary with good clay soil becomes a farming and charcoal settlement. No designer places these — the geology places them.
+
+
+### 4.4 Atmospheric Model — Weather and Seasons
+
+#### The Principle
+
+Weather in reality is not random — it is the result of thermodynamics applied to a rotating sphere with uneven heating. The sun heats the equator more than the poles. Hot air rises, cold air sinks. Moisture evaporates from oceans, condenses when it cools, and falls as rain. Mountains force air upward, creating rain on the windward side and dry conditions on the leeward side (rain shadow). All of this is computable from terrain + solar angle + ocean position.
+
+#### Atmospheric Model (Server-Side, 1 Hz Tick)
+
+The server divides the planet into an **atmospheric grid** — one cell per terrain chunk (~64m resolution). Each cell tracks physical quantities that drive weather.
+
+```
+AtmosphereCell {
+  // ── Thermodynamics ────────────────────────────────────────────────────────
+  airTemperature: number             // °C — the temperature a player feels at this location
+  surfaceTemperature: number         // °C — ground/water surface temp (drives convection)
+  humidity: number                   // 0.0–1.0 — mass ratio of water vapor to dry air
+  pressure: number                   // Pa — barometric pressure
+
+  // ── Wind ──────────────────────────────────────────────────────────────────
+  windVelocity: Vec2                 // m/s — horizontal wind vector (drives clouds, affects player)
+  verticalAirSpeed: number           // m/s — updraft (+) or downdraft (-) (drives cloud formation)
+
+  // ── Cloud and Precipitation ───────────────────────────────────────────────
+  cloudCover: number                 // 0.0–1.0 — fraction of sky covered
+  cloudWaterContent: number          // kg/m³ — liquid water in clouds (when > threshold → rain)
+  precipitationType: 'none' | 'rain' | 'snow' | 'hail' | 'sleet'
+  precipitationRate: number          // mm/hour
+  snowDepth: number                  // meters of accumulated snow on ground
+
+  // ── Derived (computed per tick) ───────────────────────────────────────────
+  visibility: number                 // meters — reduced by fog, rain, snow, dust
+  uvIndex: number                    // 0–11+ — affects sunburn, vitamin D, material degradation
+}
+```
+
+#### Temperature Calculation
+
+Temperature at any point is computed from first principles, not from a lookup table:
+
+```
+T_air(position) = T_base(latitude, season)
+                  + ΔT_altitude(elevation)
+                  + ΔT_ocean(distanceToOcean)
+                  + ΔT_time(hourOfDay)
+                  + ΔT_cloud(cloudCover)
+                  + ΔT_wind(windChill)
+
+Where:
+  T_base(lat, season):
+    // Solar angle determines base temperature
+    // At equator, noon sun is nearly vertical → max heating
+    // At poles, sun is always low → minimal heating
+    // Season shifts the solar declination angle
+    solarAngle = 90° - |latitude - solarDeclination|
+    T_base = -20 + 50 × sin(solarAngle × π/180)    // -20°C at poles to +30°C at equator
+
+  ΔT_altitude(elevation):
+    // Lapse rate: temperature drops ~6.5°C per 1000m altitude
+    // This is the International Standard Atmosphere lapse rate
+    ΔT = -6.5 × (elevation / 1000)
+
+  ΔT_ocean(distance):
+    // Ocean moderates temperature (maritime vs continental climate)
+    // Near ocean: smaller temperature swings. Inland: larger swings.
+    maritimeFactor = 1.0 / (1.0 + distance / 500)    // 500m halflife
+    ΔT = maritimeFactor × (oceanSurfaceTemp - T_base) × 0.3
+
+  ΔT_time(hour):
+    // Diurnal cycle: coldest at dawn (06:00), warmest in afternoon (14:00)
+    // Amplitude depends on cloud cover (clouds insulate → smaller swing)
+    diurnalAmplitude = 8 × (1 - cloudCover × 0.5)    // ±8°C clear, ±4°C overcast
+    ΔT = diurnalAmplitude × sin((hour - 6) × π / 12)
+
+  ΔT_cloud(cloudCover):
+    // Clouds trap heat at night, block sun during day
+    if (isDaytime) ΔT = -cloudCover × 5              // cooler during day
+    else           ΔT = +cloudCover × 3              // warmer at night
+
+  ΔT_wind(windSpeed):
+    // Wind chill: effective temperature drop from wind
+    // Uses the NWS wind chill formula (simplified):
+    if (T_air < 10 && windSpeed > 1.3)
+      ΔT = 13.12 + 0.6215 × T_air - 11.37 × windSpeed^0.16 + 0.3965 × T_air × windSpeed^0.16 - T_air
+    else ΔT = 0
+```
+
+#### Pressure and Wind
+
+```
+Pressure at altitude:
+  // Barometric formula: P = P₀ × exp(-Mgh/RT)
+  P(h) = 101325 × exp(-0.0289644 × 9.81 × h / (8.314 × (T + 273.15)))
+
+Wind generation:
+  // Wind flows from high pressure to low pressure (pressure gradient force)
+  // Modified by Coriolis effect (planet rotation)
+  pressureGradient = (P_neighbor - P_cell) / cellDistance
+  coriolisForce = 2 × ω × sin(latitude) × windSpeed    // ω = planet angular velocity
+
+  // Mountains block and redirect wind:
+  if (terrainHeight > airLayerHeight)
+    windVelocity = deflect(windVelocity, terrainNormal)
+    // Windward side: forced uplift → condensation → rain
+    verticalAirSpeed += windSpeed × sin(terrainSlope)
+```
+
+#### Cloud Formation and Precipitation
+
+```
+Cloud formation process:
+  1. Air rises (updraft from heating, terrain uplift, or pressure convergence)
+  2. Rising air cools at the adiabatic lapse rate (9.8°C/km dry, 6.5°C/km wet)
+  3. When air cools below dew point → water vapor condenses → cloud forms
+     dewPoint = T - (100 - humidity × 100) / 5    // simplified Magnus formula
+     if (T_air < dewPoint) → cloudCover increases, cloudWaterContent increases
+
+  4. When cloudWaterContent exceeds threshold → precipitation begins
+     precipThreshold = 0.3    // g/m³ — typical for real clouds
+     if (cloudWaterContent > precipThreshold)
+       precipitationRate = (cloudWaterContent - precipThreshold) × 10    // mm/hour
+
+  5. Precipitation type depends on air temperature at ground level:
+     if (T_ground > 2°C)   → rain
+     if (T_ground ∈ [-2, 2]) → sleet (mixed)
+     if (T_ground < -2°C)  → snow
+     if (updraft > 10 m/s && T_cloud < -20°C) → hail (strong thunderstorm)
+```
+
+#### Rain Shadow Effect
+
+Mountains create wet windward sides and dry leeward sides:
+
+```
+When wind hits a mountain:
+  1. Air forced upward on windward side → cools → condenses → rain on windward slope
+  2. Air crosses the ridge → descends on leeward side → warms (adiabatic) → humidity drops
+  3. Leeward side receives much less precipitation → dry biome (desert, steppe)
+
+  // This is why the eastern side of the Cascade Range in Washington is dry
+  // while the western side gets 2000mm+ of rain per year.
+  // The game replicates this from terrain + wind direction alone — no biome painting needed.
+```
+
+#### Effects on Game Systems
+
+| Weather State | Effect on Player | Effect on Materials | Effect on NPCs | Effect on Sound |
+|---------------|-----------------|--------------------|-----------------|-----------------|
+| Rain | Visibility reduced to 200-500m. Body temperature drops faster. Clothing gets wet (weight increase). | Wood moisture increases (+0.01/minute exposed). Flammability drops. Metal surfaces oxidize faster. Clay becomes workable. | NPCs seek shelter. Gathering pauses. | Rain ambient noise. Footstep sounds become wet/splashy. |
+| Snow | Visibility 100-300m. Hypothermia risk. Movement speed -30% in deep snow. | All moisture increases. Snow accumulates on surfaces. Melts above 0°C → water. | NPCs stay indoors. Population stress increases. | Muffled ambient. Crunching footsteps. |
+| Storm | Visibility <100m. Lightning strikes random tall objects (trees, structures). Wind pushes player movement. | Unsecured items blow. Fire extinguished. Trees can break (wind > 25 m/s). | NPCs shelter. Settlement damage possible. | Loud wind, thunder (distance = sound delay). |
+| Fog | Visibility 20-80m. No temperature effect. | Moisture condenses on surfaces. | NPCs navigate slowly. | All sounds muffled, close-range enhanced. |
+| Clear | Full visibility. Sun exposure → sunburn if prolonged. | Materials dry (moisture -0.005/minute). Optimal for fire-making. | Full activity cycle. | Dry acoustics, bird calls. |
+| Hot/dry | Heat stroke risk above 40°C. Thirst drain ×2. | Wood dries fast (fire risk). Mud cracks. Clay unusable (too dry). | NPCs rest midday. Water-seeking behavior. | Dry wind, heat shimmer visual. |
+
+#### Material Moisture Model
+
+Rain and weather directly change material properties in the world:
+
+```
+MaterialMoistureUpdate (per tick, exposed materials only) {
+  if (raining && materialIsExposed) {
+    material.moisture += precipitationRate × 0.001 × dt   // absorbs rain
+    material.moisture = min(material.moisture, material.maxAbsorption)
+    // maxAbsorption depends on material porosity:
+    // wood: 0.8, cloth: 0.9, stone: 0.05, metal: 0.0, soil: 0.6
+  }
+
+  if (!raining && sunExposed) {
+    // Evaporation: rate depends on temperature, wind, humidity
+    evapRate = (1 - humidity) × (T_air / 50) × (1 + windSpeed × 0.1)
+    material.moisture -= evapRate × 0.001 × dt
+    material.moisture = max(material.moisture, 0)
+  }
+
+  // Wet wood can't burn:
+  if (material.moisture > 0.4) material.flammability = 0
+  // Partially wet wood is hard to ignite:
+  else if (material.moisture > 0.1)
+    material.flammability *= (1 - material.moisture × 2)
+}
+```
+
+#### Season System — Orbital Mechanics
+
+#### The Calendar
+
+The planet orbits its star with a tilted axis (23.4° — same as Earth). This tilt causes seasons.
+
+```
+SeasonSystem {
+  // ── Time scale: 4× real life ──────────────────────────────────────────────
+  // 1 real hour = 4 game hours
+  // 6 real hours = 1 game day (24 game hours)
+  // 1 real day = 4 game days
+  // ~91 real days (3 real months) = 1 game year (365 game days)
+  // 1 real year ≈ 4 game years
+  //
+  // This means:
+  //   A 2-hour play session spans 8 game hours — enough to see dawn to afternoon
+  //   A 6-hour session is a full game day — experience day, night, and next dawn
+  //   Seasons change every ~23 real days (~3 weeks)
+  //   A player experiences all 4 seasons in ~3 real months
+  //
+  // Exception: world CREATION (planet formation, organism generation) runs on
+  // a faster timelapse at server startup. Only an admin can change the timescale.
+
+  timeScale: 4                               // game hours per real hour
+  yearLength: 365                            // game days per year
+  dayLength: 21600                           // real seconds per game day (6 real hours)
+  axialTilt: 23.4                            // degrees — determines season intensity
+
+  // Current season determined by day of year:
+  // Day 0-91:    Spring (northern hemisphere) / Autumn (southern)
+  // Day 91-182:  Summer / Winter
+  // Day 182-273: Autumn / Spring
+  // Day 273-365: Winter / Summer
+
+  // Solar declination angle (determines which hemisphere gets more sun):
+  solarDeclination = axialTilt × sin(2π × dayOfYear / yearLength)
+  // +23.4° at summer solstice (day ~172), -23.4° at winter solstice (day ~355)
+}
+```
+
+#### Season Effects
+
+| Season | Temperature Modifier | Daylight Hours | Weather Bias | Gameplay Impact |
+|--------|---------------------|----------------|-------------|-----------------|
+| Spring | +0 to +5°C gradual warming | 12→14 hours | More rain, fog lifting | Snow melts → rivers flood. Plants grow. Animals breed. Soil workable. |
+| Summer | +8 to +12°C | 14→16 hours | Clear/hot dominant, afternoon storms | Peak farming. Fire risk (dry materials). Long work days. Heat stroke risk. |
+| Autumn | -2 to -5°C cooling | 12→10 hours | Increasing rain, wind | Harvest season. Leaves change. Animals fatten. Days shorten. |
+| Winter | -10 to -15°C | 8→10 hours | Snow, ice, fog | Hypothermia danger. Rivers freeze (walkable). Food scarce. Short days → limited activity. |
+
+```
+Season effects on systems:
+  // Organism energy budgets (§2):
+  autotroph.photosynthesisRate *= daylightHours / 12    // more light = more energy
+  heterotroph.metabolicRate *= 1 + (30 - T_air) × 0.01  // cold = higher metabolism to stay warm
+
+  // Farming:
+  cropGrowthRate = baseRate × seasonGrowthMultiplier × soilQuality × waterAvailability
+  // Spring: ×0.5 (starting), Summer: ×1.0 (peak), Autumn: ×0.3 (slowing), Winter: ×0.0 (dormant)
+
+  // Water state:
+  if (T_air < 0) {
+    // Rivers freeze: surface becomes walkable solid (ice hardness ~1.5 Mohs)
+    // Lakes freeze: fishing through ice holes possible
+    // Ocean edges freeze: extends walkable coastline
+    // Snow accumulates: 1cm per hour of snowfall, compacts over time
+    // Ice thickens: ~2cm per day below 0°C (Stefan's law of ice growth)
+  }
+
+  // Day/night cycle:
+  sunriseHour = 6 - (daylightHours - 12) / 2
+  sunsetHour = 18 + (daylightHours - 12) / 2
+  // In summer: sunrise at 5:00, sunset at 21:00 (16h daylight)
+  // In winter: sunrise at 8:00, sunset at 16:00 (8h daylight)
+```
+
 
 
 ## 5. Civilization

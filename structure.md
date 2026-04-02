@@ -781,7 +781,7 @@ NPCCraftingAPI {
   // Server function:
   //   function attemptCraft(
   //     actorId: string,             // player userId OR npc ID
-  //     workstationId: string,       // which workstation
+  //     craftLocationId: string,     // interaction point where materials are placed
   //     inputMaterials: MaterialPacket[],  // materials to process
   //     action: string               // 'smelt' | 'grind' | 'fire' | 'shape' | 'weave'
   //   ): CraftResult
@@ -796,35 +796,35 @@ NPCCraftingAPI {
   }
 
   // PLAYER PATH:
-  //   1. Player walks within 5m of workstation → "Press F" appears
-  //   2. Client sends WORKSTATION_USE { playerId, workstationId }
-  //   3. Server sets workstation.state = 'occupied', workstation.operator = playerId
-  //   4. Client shows WorkstationPanel → player selects materials from inventory
-  //   5. Client sends CRAFT_REQUEST { playerId, workstationId, materials[], action }
-  //   6. Server calls attemptCraft(playerId, workstationId, materials, action)
-  //   7. Server runs reaction engine (§3.1) on inputs at workstation temperature
+  //   1. Player walks within 5m of a craft arrangement → "Press F" appears
+  //   2. Client sends CRAFT_INTERACT { playerId, craftLocationId }
+  //   3. Server sets craftLocation.state = 'occupied', craftLocation.operator = playerId
+  //   4. Client enters precision craft mode → player selects materials from inventory
+  //   5. Client sends CRAFT_REQUEST { playerId, craftLocationId, materials[], action }
+  //   6. Server calls attemptCraft(playerId, craftLocationId, materials, action)
+  //   7. Server runs reaction engine (§3.1) on inputs at the location's sampled temperature
   //   8. Server returns CraftResult to client
   //   9. If success: output MaterialPacket added to player inventory
   //   10. If failure: materials returned + failureReason shown as text feedback
 
   // NPC PATH:
-  //   1. SLM outputs action: "use_workstation:bloomery" with materials from NPC inventory
-  //   2. NPC pathfinds to bloomery
-  //   3. NPC arrives → server checks: is workstation vacant?
+  //   1. SLM outputs action: "craft_at:smelting_arrangement" with materials from NPC inventory
+  //   2. NPC pathfinds to the arrangement
+  //   3. NPC arrives → server checks: is the interaction point occupied?
   //      If occupied: NPC waits nearby (SLM re-evaluates in 30 game-seconds)
-  //      If vacant: server sets workstation.operator = npcId
+  //      If available: server sets craftLocation.operator = npcId
   //   4. NPC's brain selects materials from what it's carrying:
   //      Based on knownProcesses: if NPC knows 'copper_smelting', it selects copper ore + charcoal
   //      If NPC is experimenting (curiosity-driven): selects novel combination
-  //   5. Server calls attemptCraft(npcId, workstationId, materials, action)
+  //   5. Server calls attemptCraft(npcId, craftLocationId, materials, action)
   //   6. SAME reaction engine runs. SAME physics. SAME result.
   //   7. If success: output goes to NPC's carried items
-  //      NPC stores discovery in memory: "malachite + charcoal at bloomery → copper"
+  //      NPC stores discovery in memory: "malachite + charcoal in clay enclosure → copper"
   //      NPC's settlement.knownProcesses updated if this is a new discovery
   //   8. If failure: materials consumed or returned based on failure type
   //      NPC stores memory: "malachite + charcoal at campfire → nothing (too cold)"
   //      This memory prevents the NPC from repeating the exact same mistake
-  //      But a curious NPC might try the same materials at a DIFFERENT workstation
+  //      But a curious NPC might try the same materials under DIFFERENT conditions
 
   // KEY INSIGHT: the function is identical. The only difference is the caller.
   // This means: every crafting discovery possible for a player is also possible for an NPC.
@@ -891,8 +891,8 @@ NPCBuildingPlacement {
     //       // but not TOO close (fire safety, walkability)
     //     + 2 if facing_nearest_path
     //       // door faces toward the main walkway
-    //     + 3 if near_workstation
-    //       // storage near bloomery, shelter near campfire
+    //     + 3 if near_craft_arrangement
+    //       // storage near smelting enclosure, shelter near campfire
     //     - 5 if blocks_river_access
     //       // don't build between settlement and water source
     //
@@ -1295,7 +1295,7 @@ SharpnessSystem {
   //     8% chance of chipping per strike. Copper tools break easily on hard targets.
 
   // RE-SHARPENING:
-  //   Player uses a grinding stone (workstation) in precision craft mode
+  //   Player uses a grinding stone in precision craft mode
   //   The tool's strike point zone is displayed close-up
   //   Player drags/grinds to reduce edge radius
   //   edgeRadius decreases toward material's minimum achievable edge:
@@ -2080,15 +2080,15 @@ VideoModeTrigger {
   //       2. Send MODE_SWITCH { mode: 'video' } to client
   //       3. Client crossfades from 3D canvas to video element (0.4s)
 
-  //   if count < 50 AND player IS in video mode AND not at workstation:
+  //   if count < 50 AND player IS in video mode AND not in precision craft mode:
   //     server exits video mode:
   //       1. Send MODE_SWITCH { mode: 'state' }
   //       2. Stop GPU rendering for this player
   //       3. Client crossfades back to 3D canvas
 
-  // WORKSTATION OVERRIDE:
-  //   Player at a workstation (precision craft mode): ALWAYS in video mode
-  //   regardless of particle count. Video mode persists until player exits workstation.
+  // PRECISION CRAFT OVERRIDE:
+  //   Player in precision craft mode (close-up interaction): ALWAYS in video mode
+  //   regardless of particle count. Video mode persists until player exits precision craft mode.
 
   // COST: one spatial query per player per second.
   //   50 players × 1 query/sec = 50 queries/sec
@@ -2319,7 +2319,7 @@ CookingSystem {
   //       > 0.8: safe
 
   // IMPLEMENTATION:
-  //   When food MaterialPacket is near a fire or in a workstation above 50°C:
+  //   When food MaterialPacket is near a fire or near a heat source above 50°C:
   //     food.temperature increases (heat transfer from fire → food)
   //     cookingProgress += dt if food.temperature > 50°C
   //     When cookingProgress > requiredDuration at reached temperature:
@@ -3003,7 +3003,7 @@ The visual representation of fluid is NOT hardcoded per material. In the real wo
 
 **Tier 1: Marching Cubes — Crafting Scale (100–5,000 particles)**
 
-When a player is melting, pouring, or mixing at a workstation, they are close. Quality matters. Particle count is low enough for real mesh extraction.
+When a player is melting, pouring, or mixing at a craft arrangement, they are close. Quality matters. Particle count is low enough for real mesh extraction.
 
 ```
 How it works:
@@ -3102,7 +3102,7 @@ Tiers are assigned per fluid body (connected component of particles), not per pa
 
 ```
 TierSelection (per fluid body, per frame):
-  if body.context == WORKSTATION:
+  if body.context == PRECISION_CRAFT:
     tier = MARCHING_CUBES    // player is crafting, close up, small count
   else if body.particleCount <= 5000 AND body.closestDistanceToCamera < 3.0m:
     tier = MARCHING_CUBES    // small body AND player is very close
@@ -3114,7 +3114,7 @@ TierSelection (per fluid body, per frame):
 
 **Tier Transition — Smooth Crossfade**
 
-When a fluid body changes tier (player walks away from workstation, approaches a puddle), a 20-frame crossfade prevents visual popping:
+When a fluid body changes tier (player walks away from a craft arrangement, approaches a puddle), a 20-frame crossfade prevents visual popping:
 
 ```
 TierTransition:
@@ -4648,7 +4648,7 @@ This is a real-world online simulation. The server is the world. The client is a
 │  │   ├── Weather visuals (rain particles, snow, fog, clouds, lightning)      │
 │  │   ├── Lighting (sun position from season/time, torches, campfires)        │
 │  │   ├── Ocean shader (Gerstner waves — visual only, no physics)            │
-│  │   └── UI panels (inventory, workstation, map)                             │
+│  │   └── UI panels (inventory, craft, map)                                   │
 │  ├── Sound generation (§3.3)                                               │
 │  │   ├── Receives SOUND_EVENT from server                                    │
 │  │   ├── Computes audio parameters locally (pitch, volume, timbre)           │
@@ -4839,8 +4839,8 @@ The switch between modes is triggered by **the player's actions**, not by scene 
 Mode Switch Triggers {
   // ── State → Video (player enters a physics-heavy context) ─────────────────
 
-  trigger_1: "Player presses F at a workstation"
-    // Camera zooms into the workstation (§6.4 precision craft mode)
+  trigger_1: "Player initiates precision interaction with materials/arrangements"
+    // Camera zooms into the craft arrangement (§6.4 precision craft mode)
     // During the zoom animation (0.5s), the server:
     //   1. Starts rendering this player's view on the GPU
     //   2. Begins encoding H.264 frames
@@ -4864,7 +4864,7 @@ Mode Switch Triggers {
 
   // ── Video → State (physics event ends) ────────────────────────────────────
 
-  trigger_4: "Player exits workstation (ESC or walks away)"
+  trigger_4: "Player exits precision craft mode (ESC or walks away)"
     // Camera zooms out
     // During zoom out (0.5s), server:
     //   1. Sends final state update (what changed: new items, terrain mods)
@@ -4958,7 +4958,7 @@ Server Side (Node.js + headless-gl + NVENC):
   }
 
   // Server cost: rendering ONLY happens for players in video mode
-  // If 50 players are online but only 3 are at workstations, only 3 get rendered
+  // If 50 players are online but only 3 are in precision craft mode, only 3 get rendered
   // GTX 5070 can handle ~8-10 simultaneous 720p renders at 30fps
 ```
 
@@ -5036,9 +5036,9 @@ Client Side (Browser):
 | Concern | Answer |
 |---------|--------|
 | "How does the client show SPH particles?" | It doesn't. When physics is active, the server renders it and streams video. The client sees pixel-perfect fluid. |
-| "Doesn't video streaming need an expensive GPU server?" | Only for the ~10% of time when players are at workstations or near active physics. The GTX 5070 you already have handles ~8-10 concurrent video streams. |
+| "Doesn't video streaming need an expensive GPU server?" | Only for the ~10% of time when players are in precision craft mode or near active physics. The GTX 5070 you already have handles ~8-10 concurrent video streams. |
 | "What about latency in video mode?" | NVENC encoding: ~3-8ms. Network: ~20-50ms. MSE decode: ~5ms. Total: ~30-60ms. For precision crafting (slow, deliberate actions), this is imperceptible. |
-| "What if 50 players all use workstations at once?" | The server queues rendering. At 30fps each, 10 players max at 720p on a single GPU. Beyond that: lower resolution, lower framerate, or add a second GPU. In practice, most players are walking around (state mode = zero GPU cost). |
+| "What if 50 players all enter precision craft mode at once?" | The server queues rendering. At 30fps each, 10 players max at 720p on a single GPU. Beyond that: lower resolution, lower framerate, or add a second GPU. In practice, most players are walking around (state mode = zero GPU cost). |
 | "What does the transition look like?" | Player presses F at bloomery → camera zooms in → 0.4s blur/fade → video appears. The zoom motion and blur hide the switch. Looks intentional, not glitchy. |
 | "Can the 3D scene get out of sync during video mode?" | No — state data (WORLD_SNAPSHOT, CHUNK_UPDATE, ENTITY_UPDATE) continues flowing during video mode. The 3D scene updates silently in the background. When switching back, it's already current. |
 | "What if the player has no GPU at all?" | They can stay in video mode permanently — the server renders everything. This is the full cloud gaming fallback. Bandwidth cost: ~750 KB/s constant. Playable on a Chromebook. |
@@ -5059,8 +5059,8 @@ For hybrid mode (state + video):
     720p @ 15fps: ~15-20 concurrent video streams (lower framerate for less intense moments)
 
   Scaling:
-    50 players, 5 at workstations → 5 video streams → 1 GPU handles it easily
-    50 players, 15 at workstations → need 2 GPUs or lower resolution
+    50 players, 5 in precision craft mode → 5 video streams → 1 GPU handles it easily
+    50 players, 15 in precision craft mode → need 2 GPUs or lower resolution
     100 players → dedicated GPU server (AWS g5.xlarge or similar)
 ```
 
@@ -7008,13 +7008,13 @@ FarmingActions {
 
   // ── 7. Process ────────────────────────────────────────────────────────
   //
-  // Raw harvest → usable food/material (uses existing workstation system §6.8.1):
+  // Raw harvest → usable food/material (uses existing crafting system §6.3):
   //
   //   Grain processing chain:
   //     Harvest stalks → thresh (beat with flail at threshing floor → separates grain from straw)
   //     → winnow (toss in air, wind removes chaff) → clean grain
   //     → grind (grinding stone → flour) → mix with water → bake (fire/oven → bread)
-  //   Each step is a physical action at a workstation or by hand
+  //   Each step is a physical action at a craft arrangement or by hand
   //
   //   Potato: dig from soil → wash → cook (boil, roast, or dry for storage)
   //   Flax: pull → ret (soak in water 7-14 days) → dry → break → scutch → hackle → spin → weave
@@ -7997,15 +7997,15 @@ Settlement {
   // e.g., "34kg of Cu₀.₈₅Fe₀.₁₀S₀.₀₅ (impure copper)" and "12kg of charcoal"
 
   // ── Built Infrastructure (what NPCs have physically constructed) ──────────
-  structures: WorldObject[]                  // every building, wall, path, workstation that exists
-  // A settlement with 3 huts and a campfire is different from one with stone walls and a bloomery
+  structures: WorldObject[]                  // every building, wall, path, craft arrangement that exists
+  // A settlement with 3 huts and a campfire is different from one with stone walls and a smelting enclosure
   // These are actual world objects — players can see and interact with them
 
-  // ── Workstations (what machines the settlement has built) ─────────────────
-  workstations: Workstation[]                // campfire, grinding stone, bloomery, kiln, forge, etc.
-  // NPCs build workstations when they have the materials and knowledge
-  // A settlement can only smelt copper IF it has built a bloomery
-  // A settlement cannot "unlock" smelting — it must physically construct the machine
+  // ── Built Arrangements (what physical conditions the settlement can create) ──
+  // There is no Workstation[] array. Craft capability is derived from what structures exist.
+  // NPCs build arrangements when they have the materials and knowledge.
+  // A settlement can only smelt copper IF it has built an enclosure that reaches ~1100°C.
+  // A settlement cannot "unlock" smelting — it must physically construct the arrangement.
 
   // ── Knowledge (what processes NPCs have discovered through practice) ──────
   knownProcesses: Set<string>                // 'fire_starting', 'copper_smelting', 'pottery', etc.
@@ -8040,8 +8040,8 @@ function assessSettlement(s: Settlement): SettlementAssessment {
   const hasFireMaking    = s.knownProcesses.has('fire_starting')
   const hasPottery       = s.knownProcesses.has('pottery')
   const hasMetalSmelting = [...s.knownProcesses].some(p => p.includes('smelting'))
-  const hasForge         = s.workstations.some(w => w.type === 'forge')
-  const hasBlastFurnace  = s.workstations.some(w => w.type === 'blast_furnace')
+  const canReach1300C    = s.structures.some(st => getMaxTemperature(st) >= 1300)  // e.g., a forced-draft enclosure
+  const canReach1500C    = s.structures.some(st => getMaxTemperature(st) >= 1500)  // e.g., a tall-stack enclosure with coke
   const stoneBuildings   = s.structures.filter(st => st.material.hardness > 4).length
   const hasWalls         = s.structures.some(st => st.subtype === 'wall' && st.material.hardness > 3)
   const tradeRoutes      = s.tradePartners.size
@@ -8052,11 +8052,11 @@ function assessSettlement(s: Settlement): SettlementAssessment {
     return { label: 'Camp', description: 'A handful of people around a fire' }
   if (!hasMetalSmelting && populationSize < 20)
     return { label: 'Hamlet', description: 'Small group with basic tools and shelter' }
-  if (hasMetalSmelting && !hasForge && populationSize < 50)
+  if (hasMetalSmelting && !canReach1300C && populationSize < 50)
     return { label: 'Village', description: 'Settled community with early metalwork' }
-  if (hasForge && stoneBuildings > 5 && populationSize < 150)
-    return { label: 'Town', description: 'Established settlement with smithing and stone construction' }
-  if (hasBlastFurnace && hasWalls && tradeRoutes > 2 && populationSize >= 150)
+  if (canReach1300C && stoneBuildings > 5 && populationSize < 150)
+    return { label: 'Town', description: 'Established settlement with high-temperature crafting and stone construction' }
+  if (canReach1500C && hasWalls && tradeRoutes > 2 && populationSize >= 150)
     return { label: 'City', description: 'Fortified center with advanced industry and trade networks' }
 
   // ... and so on. These are OBSERVATIONS, not levels.
@@ -8201,7 +8201,7 @@ NPC Brain Architecture {
       temperature: number            // °C at NPC's position
       nearbyEntities: string[]       // ["player:John (trusted)", "wolf (dangerous)", "NPC:Mara (friend)"]
       nearbyResources: string[]      // ["copper_ore (12m)", "river (30m)", "oak_tree (5m)"]
-      nearbyWorkstations: string[]   // ["bloomery (8m, vacant)", "campfire (3m, burning)"]
+      nearbyCraftLocations: string[] // ["smelting enclosure (8m, vacant)", "campfire (3m, burning)"]
       currentLocation: string        // "inside settlement", "forest edge", "riverbank"
     }
 
@@ -8217,7 +8217,7 @@ NPC Brain Architecture {
     currentGoal: string | null       // "bring copper ore to bloomery" or null if undecided
 
     // Settlement context
-    settlementNeeds: string[]        // ["low on food", "need more charcoal", "bloomery is broken"]
+    settlementNeeds: string[]        // ["low on food", "need more charcoal", "smelting enclosure is damaged"]
     socialRelationships: string[]    // ["Mara: close friend", "Boro: rival", "Elder Tain: respected"]
   }
 
@@ -8231,7 +8231,7 @@ NPC Brain Architecture {
     //        hunger AND settlement need AND reduces boredom."
 
     action: string                   // the chosen action
-    // e.g., "walk_to:river" | "gather:oak_tree" | "use_workstation:bloomery" |
+    // e.g., "walk_to:river" | "gather:oak_tree" | "craft_at:smelting_enclosure" |
     //        "talk_to:Mara" | "explore:south" | "sleep" | "eat:stored_fish" |
     //        "teach:player_nearby" | "build:wall_segment" | "trade:offer_copper"
 
@@ -8338,7 +8338,7 @@ PersonalityVector {
   // Low: sticks to known routines, stays close to home, risk-averse
 
   conscientiousness: 0.0–1.0      // organization, reliability, work ethic
-  // High: finishes tasks, maintains workstations, keeps settlement tidy
+  // High: finishes tasks, maintains built structures, keeps settlement tidy
   // Low: abandons tasks mid-way, messy, unreliable but sometimes creative
 
   extraversion: 0.0–1.0           // sociability, talkativeness, energy from others
@@ -8408,7 +8408,7 @@ CuriositySystem {
   // ── How NPCs make discoveries ─────────────────────────────────────────
   //
   // NPCs use the SAME crafting system as players (§6.3, §6.8.1).
-  // When a curious NPC tries a new material combination at a workstation:
+  // When a curious NPC tries a new material combination at a craft arrangement:
   //   1. The reaction engine (§3.1) computes the result
   //   2. If the result is new: NPC stores it as a discovery
   //   3. NPC remembers: "heating malachite with charcoal produced copper"
@@ -8512,7 +8512,7 @@ DailyLifeCycle {
   // Morning (06:00–12:00):
   //   Primary work period — highest energy, best productivity
   //   SLM cycles every ~10-30 game-seconds choosing work tasks:
-  //     Gather resources, process at workstations, build structures
+  //     Gather resources, process at craft arrangements, build structures
   //   Curiosity may divert: "I've gathered wood 30 times. Boredom is high.
   //     I want to explore that hill to the south."
   //
@@ -8650,7 +8650,7 @@ SettlementExpansion {
   //   on the forest-facing side."
   //
   // Building priority emerges from needs, not from a build queue:
-  //   Shelter > food storage > workstations > walls > aesthetic improvements
+  //   Shelter > food storage > craft arrangements > walls > aesthetic improvements
 
   // ── Construction process ──────────────────────────────────────────────
   //
@@ -8684,7 +8684,7 @@ SettlementExpansion {
   // If population drops to 0 (starvation, predators, disease, players):
   //   Structures remain as ruins (permanent terrain objects)
   //   Resources in storage remain (players or NPCs from other settlements can loot)
-  //   Workstations remain functional (anyone can use them)
+  //   Craft arrangements remain functional (anyone can use them)
   //   The settlement is "dead" — no NPC activity, no trade, no growth
   //   Over time: structures decay (durability drops from weather, no maintenance)
   //   A dead settlement with remaining resources may attract NPCs from elsewhere
@@ -8957,7 +8957,7 @@ NPCSpeech {
   //    'greeting': raises open hand
   //    'warning': points away + shakes head
   //    'offer_trade': extends one hand with item, other hand open (receiving)
-  //    'show_process': turns toward workstation and begins working
+  //    'show_process': turns toward craft arrangement and begins working
   //    Gestures are the REAL communication channel. The spoken words are atmosphere.
 }
 ```
@@ -8975,8 +8975,8 @@ DemonstrationSystem {
 
   ProcessDemonstration {
     npcId: string
-    workstationId: string
-    inputMaterials: MaterialPacket[]         // what the NPC puts into the workstation
+    craftLocationId: string
+    inputMaterials: MaterialPacket[]         // what the NPC puts into the arrangement
     action: string                           // 'smelt' | 'grind' | 'shape' | 'fire' | 'weave'
     outputMaterial: MaterialPacket           // what comes out
     duration: number                         // seconds the process takes (visible to the watching player)
@@ -9008,7 +9008,7 @@ DemonstrationSystem {
   // 1. Notice what the NPC is doing (attention)
   // 2. Figure out what materials they used (observation)
   // 3. Find those materials themselves (exploration)
-  // 4. Try the same process at a workstation (experimentation)
+  // 4. Try the same process at an arrangement (experimentation)
   // 5. Fail a few times and adjust (learning)
   // 6. Succeed (discovery — recorded in their discoveries set)
 
@@ -9072,7 +9072,7 @@ The knowledge transfer system works because of the synergy between three other s
 
 1. **Physics-based crafting (§6.3)** — there are no recipes to "teach." The knowledge IS the physical process. Seeing it done IS learning it.
 2. **Emergent materials (§3.1)** — the output isn't a named item. It's whatever physics produces. The NPC doesn't make "copper" — they make "the orange metal that comes from heating green rock." The player figures out the name (or doesn't — names don't matter, properties do).
-3. **Workstation system (§6.8.1)** — the machine is a physical place. The NPC goes there. The player goes there. They're in the same space doing the same thing. No abstract menu bridges them.
+3. **Physics-based crafting (§6.3)** — the arrangement is a physical place. The NPC goes there. The player goes there. They're in the same space doing the same thing. No abstract menu bridges them.
 
 The language barrier is intentional. It forces players to rely on **observation** rather than **instruction**. This is harder, slower, and more frustrating than a tutorial — and that's the point. The satisfaction of figuring out copper smelting by watching an NPC is incomparably greater than reading "combine copper ore + charcoal in bloomery."
 
@@ -10953,7 +10953,7 @@ Some crafting actions require fine motor control — shaping clay on a wheel, kn
 ```
 PrecisionCraftMode {
   // ── Activation ────────────────────────────────────────────────────────────
-  // Triggered when a player interacts with a workstation or material that requires precision:
+  // Triggered when a player initiates close-up interaction with materials that require precision:
   //   - Clay on a pottery wheel
   //   - Stone held for knapping (flint knapping)
   //   - Wood held for carving
@@ -11150,7 +11150,7 @@ FootIK {
 **Hand IK — interaction targeting:**
 ```
 HandIK {
-  // When the player interacts with something (mine, pick up, use workstation),
+  // When the player interacts with something (mine, pick up, craft),
   // the hand reaches toward the interaction point
 
   // Mining: dominant hand grips tool, follows swing arc (pre-authored animation)
@@ -11159,8 +11159,8 @@ HandIK {
   // Picking up: hand reaches down to the item's world position
   //             spine bends forward, knees may flex if item is low
 
-  // Workstation: hands position to the machine's interaction points
-  //              (e.g., hands on bellows handles, or placing ore into furnace opening)
+  // Crafting: hands position to the arrangement's interaction points
+  //           (e.g., hands on bellows handles, or placing ore into furnace opening)
 
   // The IK chain: shoulder → elbow → wrist → hand
   // Solver: FABRIK (Forward And Backward Reaching Inverse Kinematics)
@@ -12812,19 +12812,19 @@ ContainerPhysics {
 }
 ```
 
-#### Workstation Access
+#### Craft Interaction Point Access
 
 ```
-WorkstationAccess {
-  // A workstation has a single operator slot.
+CraftInteractionAccess {
+  // A craft interaction point is occupied by one entity at a time.
   state: 'vacant' | 'occupied'
   operatorId: string | null                  // userId of current operator
 
   // Player presses F within 5m:
   //   If vacant: server sets operatorId = playerId, state = 'occupied'
-  //              client opens WorkstationPanel
-  //   If occupied: client shows "[Workstation in use by another player]"
-  //               player must wait or find another workstation
+  //              client enters precision craft mode
+  //   If occupied: client shows "[In use by another entity]"
+  //               player must wait or find another arrangement
 
   // Operator leaves (walks away >5m, presses Esc, disconnects):
   //   Server sets state = 'vacant', operatorId = null
@@ -12833,7 +12833,7 @@ WorkstationAccess {
   //   But a craft requiring active input (hammering on anvil) pauses.
 
   // No queue system. No reservation. You walk up, if it's free you use it.
-  // Two players approaching at the same time: first WORKSTATION_USE request to reach the server wins.
+  // Two players approaching at the same time: first CRAFT_INTERACT request to reach the server wins.
 }
 ```
 
@@ -13136,8 +13136,8 @@ terrain_modifications {
 world_objects {
   id:           UUID PRIMARY KEY
   world_seed:   BIGINT NOT NULL
-  object_type:  TEXT NOT NULL                 // 'container'|'workstation'|'shelter'|'wall'|'door'|'torch'|...
-  subtype:      TEXT                          // 'bloomery'|'kiln'|'clay_pot'|'stone_wall'|...
+  object_type:  TEXT NOT NULL                 // 'container'|'craft_structure'|'shelter'|'wall'|'door'|'torch'|...
+  subtype:      TEXT                          // 'clay_enclosure'|'stone_lined_pit'|'clay_pot'|'stone_wall'|...
   position:     FLOAT[3] NOT NULL            // world-space [x, y, z]
   rotation:     FLOAT[4] NOT NULL            // quaternion [x, y, z, w]
   placed_by:    TEXT NOT NULL                 // player userId
@@ -13249,7 +13249,7 @@ EphemeralState {
   // a campfire heats nearby objects; when fire dies, they cool back to ambient
 
   // Active crafting: smelting in progress, pottery firing, etc.
-  activeCrafts: Map<CraftId, { workstationId: string, startTime: number, materials: MaterialPacket[], progress: number }>
+  activeCrafts: Map<CraftId, { craftLocationId: string, startTime: number, materials: MaterialPacket[], progress: number }>
 
   // Dropped loot: items on the ground from player death or intentional drop
   groundItems: Map<ItemId, { packet: MaterialPacket, position: Vec3, velocity: Vec3, despawnAt: number }>
@@ -13451,14 +13451,14 @@ Persistent WebSocket between client and game server. All messages are JSON.
 |---------|------|
 | JOIN | Player first connects (sends userId, auth token) |
 | MOVE_INPUT | Player movement (WASD + mouse, sent continuously) |
-| ACTION_REQUEST | Interact (F key at workstation, pick up item, etc.) |
+| ACTION_REQUEST | Interact (F key at craft arrangement, pick up item, etc.) |
 | TOOL_USE | Tool swing (target position, tool ID) |
 | DROP_ITEM | Drop item from inventory to world |
 | POUR_LIQUID | Pour from container (source, target, angle) |
 | PLACE_OBJECT | Place a built object (position, rotation, material) |
 | CHUNK_REQUEST | Request terrain chunk data (chunkX, chunkZ) |
-| WORKSTATION_USE | Start using a workstation |
-| WORKSTATION_EXIT | Stop using a workstation |
+| CRAFT_INTERACT | Start interacting with a craft arrangement |
+| CRAFT_EXIT | Stop interacting with a craft arrangement |
 | CHAT_MESSAGE | Proximity text (500 char max) |
 | PICKUP_REQUEST | Pick up a world item (itemId) |
 | PVP_TOGGLE | Toggle PvP on/off |
@@ -14157,7 +14157,7 @@ The document is the spec. Implementation priority:
 1. **Core engine** (§3): material system, reaction engine, basic physics
 2. **Player fundamentals** (§7.1-7.4): character, movement, inventory, terrain interaction
 3. **Survival loop** (§7.2, §7.6): hunger/thirst/fatigue, death, respawn
-4. **Crafting** (§6): fire-making, tool crafting, workstations
+4. **Crafting** (§6): fire-making, tool crafting, physics-based arrangements
 5. **World** (§4.1-4.2): terrain generation, basic organisms
 6. **NPC** (§5): settlements, NPC brain, knowledge transfer
 7. **Advanced physics** (§3.2, §3.5): fluid simulation, structural integrity

@@ -4060,89 +4060,288 @@ ForceSystem {
   // That force must travel through connected blocks to the ground.
   // If any block in the path receives more force than it can handle → it breaks.
 
-  // ── Gravity load (static) ─────────────────────────────────────────────
-  //
-  // Each block pushes down with its own weight + the weight of everything above it.
-  // Load accumulates downward:
-  //
-  //   [Roof beam: 30kg]      → 300N down
-  //       ↓
-  //   [Wall block: 50kg]     → carries its own 500N + roof's 300N = 800N down
-  //       ↓
-  //   [Wall block: 50kg]     → 500N + 800N from above = 1300N down
-  //       ↓
-  //   [Foundation: 80kg]     → 800N + 1300N from above = 2100N down
-  //       ↓
-  //   [Terrain]              → absorbs 2100N (soil compressive strength must exceed this)
+  // ═══════════════════════════════════════════════════════════════════════
+  // THE LOAD PATH ALGORITHM (4 phases, runs on structural change events)
+  // ═══════════════════════════════════════════════════════════════════════
 
-  // ── Load distribution ─────────────────────────────────────────────────
+  // ── Phase 1: Connectivity — which blocks can reach ground? ─────────────
   //
-  // A block sitting on TWO supports distributes load equally:
-  //   [Beam 30kg on two walls]  →  150N to left wall, 150N to right wall
-  // If off-center: proportional to distance (lever principle)
-  //   [Beam with load at 1/3 from left]  →  200N left, 100N right
+  // BFS flood fill starting from all ground-touching blocks.
+  // A block is "supported" if it can trace a path through face-connected
+  // neighbors (6 directions: ±x, ±y, ±z) to any block on terrain.
+  //
+  // function findSupportedBlocks(grid):
+  //   supported = Set()
+  //   queue = Queue()
+  //
+  //   // Seed: blocks sitting on terrain
+  //   for each block in grid.blocks:
+  //     if terrain.isSolid(block.x, block.y - 1, block.z):
+  //       supported.add(block)
+  //       queue.enqueue(block)
+  //
+  //   // BFS through face-connected neighbors
+  //   while queue not empty:
+  //     current = queue.dequeue()
+  //     for each neighbor in current.connections (6 faces):
+  //       if neighbor != null AND neighbor not in supported:
+  //         supported.add(neighbor)
+  //         queue.enqueue(neighbor)
+  //
+  //   return supported
+  //
+  // Blocks NOT in the supported set are floating → become rigid body debris.
+  // Cost: O(N) where N = number of blocks. For a 200-block house: <0.1ms.
 
-  // ── Stress check (per block, per server tick for modified structures) ──
+  // ── Phase 2: Load computation — top-down gravity accumulation ──────────
   //
-  // For each block:
-  //   compressiveStress = totalVerticalLoad / contactArea
-  //   if (compressiveStress > block.compressiveStrength) → CRUSH FAILURE
-  //     Block shatters. Everything above loses support → cascade collapse.
+  // Process all supported blocks from highest Y to lowest Y.
+  // Each block accumulates its own weight plus load from above,
+  // then distributes that total to blocks below it.
   //
-  //   tensileStress = appliedTension / crossSectionArea
-  //   if (tensileStress > block.tensileStrength) → SNAP FAILURE
-  //     Block breaks in half. Relevant for beams spanning a gap.
+  // function computeLoads(grid):
+  //   sortedBlocks = grid.blocks.sortBy(b => -b.y)  // top-down
   //
-  //   shearStress = lateralForce / contactArea
-  //   if (shearStress > block.shearStrength) → SHEAR FAILURE
-  //     Block slides. Relevant for walls under wind or impact.
+  //   for each block in sortedBlocks:
+  //     block.load = block.weight  // reset to self-weight
+  //
+  //   for each block in sortedBlocks:
+  //     receivers = getLoadReceivers(block, grid)  // blocks below
+  //     for each (receiver, fraction) in receivers:
+  //       receiver.load += block.load × fraction
+  //
+  // Load distribution uses a 1:4 spreading ratio:
+  //   Block directly below (y-1, same x,z): weight factor 4
+  //   Blocks at (y-1, ±1 in x or z): weight factor 1 each
+  //   Normalize by total weight factors.
+  //
+  // Example: block at (5,10,5) weighs 500N, has blocks below at
+  //   (5,9,5) and (6,9,5):
+  //   Direct below gets: 500 × 4/5 = 400N
+  //   Side below gets:   500 × 1/5 = 100N
+  //
+  // This creates a realistic load-spreading pyramid — heavy loads at the top
+  // spread out as they travel down through the structure, just like real masonry.
+  //
+  // Full tower example:
+  //   [Roof beam: 30kg]      → 300N
+  //       ↓
+  //   [Wall block: 50kg]     → 500N own + 300N from above = 800N
+  //       ↓
+  //   [Wall block: 50kg]     → 500N own + 800N from above = 1300N
+  //       ↓
+  //   [Foundation: 80kg]     → 800N own + 1300N from above = 2100N
+  //       ↓
+  //   [Terrain]              → absorbs 2100N
 
-  // ── Span limits (beams and lintels) ───────────────────────────────────
+  // ── Phase 3: Stress checks — does any block exceed capacity? ───────────
   //
-  // A horizontal beam supported at both ends, loaded by its own weight:
-  //   maxSpan = sqrt(8 × tensileStrength × sectionModulus / (density × g × width))
+  // Three failure modes checked per block:
   //
-  // In practice:
-  //   Oak beam (20cm × 20cm):  max span ~5-6m before it snaps from its own weight
-  //   Stone lintel (30cm × 30cm): max span ~2-3m (stone is weak in tension)
-  //   Iron beam (10cm × 10cm):  max span ~8-10m
-  //   Mud brick: max span ~0.5m (essentially no spanning ability — needs full support)
+  //   COMPRESSIVE (crushing):
+  //     σ_c = block.load / contactArea
+  //     For a 1m voxel: contactArea = 1 m²
+  //     if σ_c > block.compressiveStrength → CRUSH FAILURE
+  //     Block shatters. Everything above loses support.
   //
-  // This is why:
-  //   Stone buildings have close-spaced columns (Parthenon columns are 2.5m apart)
-  //   Wood buildings have wider rooms (timber framing spans 5m easily)
+  //   TENSILE (beam snapping):
+  //     Only checked for blocks detected as spanning a gap (see Beam Detection below).
+  //     σ_t = M / S where:
+  //       M = bending moment = w × L² / 8 (uniform load, simply supported)
+  //       S = section modulus = b × h² / 6 (rectangular cross-section)
+  //       w = total distributed load / beam span (N/m)
+  //     Simplified: σ_t = 3 × w × L² / (4 × b × h²)
+  //     if σ_t > block.tensileStrength → SNAP FAILURE at midspan
+  //
+  //   SHEAR (sliding):
+  //     σ_s = lateralForce / contactArea
+  //     lateralForce comes from wind (Connection 16) or player impact (§7.5)
+  //     if σ_s > block.shearStrength → SHEAR FAILURE
+  //     Block slides sideways. Relevant for walls under wind or siege.
+  //
+  //   BOND FAILURE:
+  //     For bonded blocks, also check if the connection can handle the load:
+  //     if block.load > connection.bondStrength × contactArea → BOND BREAKS
+  //     Stacked (unbonded) blocks can slide under lateral force:
+  //       frictionResistance = block.load × frictionCoefficient
+  //       if lateralForce > frictionResistance → block slides off
+
+  // ── Phase 4: Cascade collapse ──────────────────────────────────────────
+  //
+  // When a block fails, process the collapse in batched waves:
+  //
+  // function cascadeCollapse(failedBlock, grid):
+  //   currentFailures = Set(failedBlock)
+  //   wave = 0
+  //
+  //   while currentFailures not empty AND wave < 100:
+  //     wave++
+  //
+  //     // Remove all failed blocks at once
+  //     for each block in currentFailures:
+  //       grid.blocks.remove(block.position)
+  //
+  //     // Find blocks that lost their path to ground
+  //     floating = findFloatingAfterRemoval(currentFailures, grid)
+  //
+  //     // Recompute loads on remaining structure
+  //     computeLoads(grid)
+  //
+  //     // Find new stress failures
+  //     nextFailures = Set(floating)
+  //     for each block in grid.blocks:
+  //       stress = block.load / BLOCK_AREA
+  //       if stress > block.compressiveStrength:
+  //         nextFailures.add(block)
+  //
+  //     currentFailures = nextFailures
+  //
+  //   // Convert all removed blocks to rigid body debris
+  //   // Group adjacent debris into compound rigid bodies (one per cluster)
+  //   // Apply downward velocity + random tumble
+  //   // Cap at 50-100 active debris bodies for performance
+  //
+  // The findFloatingAfterRemoval function uses targeted BFS:
+  //   Only check blocks that were neighbors of removed blocks.
+  //   For each, BFS toward ground. If no path found → floating.
+  //   Blocks already confirmed supported are cached (skip re-check).
+  //   Cost: O(K) where K = neighbors of removed blocks, NOT the full structure.
+  //
+  // Cascade example (removing a load-bearing wall):
+  //   Wave 0: wall block removed (player action or combat)
+  //   Wave 1: blocks directly above lose support → fall
+  //   Wave 2: roof blocks above those lose support → fall
+  //   Wave 3: neighboring wall overloaded by redistributed load → crush failure
+  //   Wave 4: more roof falls → cascade stabilizes when remaining structure is strong enough
+  //
+  // A 1000-block castle losing a load-bearing wall:
+  //   ~500 blocks recalculated → ~5ms → 3-6 waves → spectacular collapse
+  //   Client receives CHUNK_UPDATE with removed blocks + PHYSICS_EVENT with debris bodies
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // BEAM DETECTION AND BENDING ANALYSIS
+  // ═══════════════════════════════════════════════════════════════════════
+
+  // A beam is a horizontal run of blocks with air below and supports at the ends.
+  // The system scans along X and Z axes to find these automatically.
+  //
+  // Detection algorithm:
+  //   Walk along each horizontal row. When a block has a solid block below it,
+  //   it's a potential support. When blocks have air below, they're spanning.
+  //   When air-below blocks are bracketed by supported blocks → beam found.
+  //
+  // Bending stress formula:
+  //   σ = 3 × w × L² / (4 × b × h²)
+  //   where:
+  //     w = (beam self-weight + load from above) / span    (N/m)
+  //     L = span length in meters (number of air-below blocks × BLOCK_SIZE)
+  //     b = beam width = BLOCK_SIZE = 1m
+  //     h = beam height = BLOCK_SIZE = 1m (or count of stacked beam blocks)
+  //
+  // The beam fails in TENSION on the bottom face (not compression).
+  // This is why material tensileStrength determines beam capacity.
+  //
+  // Maximum span for self-weight only (no additional load):
+  //   L_max = √(4 × tensileStrength × h / (3 × density × g))
+  //
+  //   | Material          | Density  | Tensile   | Max self-weight span | With 5× load |
+  //   |-------------------|----------|-----------|---------------------|--------------|
+  //   | Oak wood          | 600      | 40 MPa   | ~95 m (extraordinary)| ~42 m        |
+  //   | Granite           | 2700     | 10 MPa   | ~22 m               | ~10 m        |
+  //   | Limestone         | 2400     | 3 MPa    | ~13 m               | ~6 m         |
+  //   | Mud brick         | 1800     | 0.2 MPa  | ~3.5 m              | ~1.5 m       |
+  //   | Iron              | 7800     | 200 MPa  | ~53 m               | ~24 m        |
+  //   | Steel             | 7800     | 500 MPa  | ~84 m               | ~38 m        |
+  //
+  // These match real-world experience:
+  //   Stone buildings need close-spaced columns (Parthenon: columns 2.5m apart)
+  //   Wood buildings span wide rooms easily (timber framing spans 5-6m with load)
   //   Gothic cathedrals needed flying buttresses (stone can't span the nave)
-  //   Iron revolutionized architecture (long spans without columns)
-
-  // ── The arch solution ─────────────────────────────────────────────────
+  //   Iron/steel revolutionized architecture (long spans without columns)
   //
-  // An arch converts tensile stress (spanning) into compressive stress (pushing down the sides).
-  // Stone is great in compression → arches let stone span much farther than lintels:
+  // Numerical example:
+  //   6 limestone blocks spanning a 4-block gap, 3 floors of load above:
+  //   Beam self-weight: 4 × 23,544N = 94,176N
+  //   Load from above: 300,000N
+  //   Total: 394,176N, w = 98,544 N/m
+  //   M = 98,544 × 16 / 8 = 197,088 N·m
+  //   S = 1 × 1² / 6 = 0.167 m³
+  //   σ = 197,088 / 0.167 = 1.18 MPa < 3 MPa (limestone tensile) → beam holds
+  //
+  //   Same beam at 8-block span:
+  //   M = 98,544 × 64 / 8 = 789,352 N·m
+  //   σ = 789,352 / 0.167 = 4.73 MPa > 3 MPa → beam snaps at midspan
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // ARCH DETECTION AND THRUST ANALYSIS
+  // ═══════════════════════════════════════════════════════════════════════
+
+  // An arch converts tensile stress (spanning) into compressive stress
+  // (pushing down the sides). Stone is great in compression → arches let
+  // stone span much farther than lintels:
   //   Stone lintel: max ~2-3m
   //   Stone arch: max ~30m+ (Roman arches spanned this)
-  //
-  // How arches work in the game:
-  //   Player places wedge-shaped blocks (voussoirs) in a curved arrangement
-  //   Each block pushes sideways against its neighbors (compressive)
-  //   The keystone at the top locks the arch
-  //   The two base blocks push outward (thrust) → need thick walls or buttresses to resist
-  //   If the buttress is removed → arch pushes walls apart → collapse
-  //
-  // The player doesn't need to "know" arch physics. They build a curved shape
-  // from wedge blocks. The force propagation system determines if it stands.
-  // If the curve is right and the supports are strong → it works.
-  // If the curve is wrong → blocks fall during construction.
-  //
-  // The same applies to:
-  //   Barrel vault: arch extended into a tunnel
-  //   Dome: arch rotated into a hemisphere
-  //   Groin vault: two barrel vaults crossing at 90°
-  //   Flying buttress: external arch that carries thrust away from a tall wall
 
-  // ── Wind and lateral loads ────────────────────────────────────────────
+  // Arch detection algorithm:
+  //   1. Find all blocks with air below (spanning blocks)
+  //   2. Cluster them into connected components
+  //   3. For each cluster: find the rise (max Y - min Y) and span (horizontal extent)
+  //   4. If rise ≥ 2 blocks AND both ends connect to grounded blocks → arch found
+  //   5. Find springers (where the arch meets its supports) and crown (highest point)
+
+  // Arch thrust formula (parabolic arch under uniform load):
+  //   T = w × L² / (8 × h)
+  //   where:
+  //     T = horizontal thrust at each springer (N)
+  //     w = total load / span (N/m) — arch weight + anything on top
+  //     L = span (m)
+  //     h = rise (m) — height from springer to crown
   //
+  //   Vertical reaction at each springer: V = totalLoad / 2
+  //   Resultant force: R = √(T² + V²)
+
+  // Abutment checks (the arch pushes its supports outward):
+  //
+  //   SLIDING check:
+  //     frictionResistance = abutmentWeight × μ (stone-on-stone: μ = 0.65)
+  //     if T > frictionResistance → arch pushes supports apart → collapse
+  //
+  //   OVERTURNING check:
+  //     overturningMoment = T × springerHeight
+  //     resistingMoment = abutmentWeight × (abutmentWidth / 2)
+  //     if overturningMoment > resistingMoment → abutment tips over → collapse
+
+  // Numerical example:
+  //   Arch: 20 stone blocks, span = 10m, rise = 4m
+  //   Arch weight: 20 × 23,544N = 470,880N
+  //   Load on top: 100,000N
+  //   Total: 570,880N, w = 57,088 N/m
+  //   T = 57,088 × 100 / 32 = 178,400N (18 tonnes of horizontal push)
+  //
+  //   Abutment: 3 blocks wide, 6 blocks tall = 18 stone blocks
+  //   Abutment weight: 423,792N
+  //   Friction resistance: 423,792 × 0.65 = 275,465N > 178,400N → no sliding ✓
+  //   Springer height: 2m above ground
+  //   Overturning moment: 178,400 × 2 = 356,800 N·m
+  //   Resisting moment: 423,792 × 1.5 = 635,688 N·m → no overturning ✓
+  //
+  // If the player removes the buttress → overturning check fails → arch collapses.
+  // If the player builds a thin buttress (1 block wide instead of 3) → sliding fails.
+  // These failures emerge from physics — no special "arch collapse" code needed.
+
+  // The same analysis applies to:
+  //   Barrel vault: arch extended into a tunnel (thrust per unit length of tunnel)
+  //   Dome: arch rotated into a hemisphere (hoop stress replaces thrust: T = w×R/(2×h))
+  //   Groin vault: two barrel vaults crossing at 90° (thrust at the 4 corner piers)
+  //   Flying buttress: external arch carrying thrust away from a tall wall to a pier
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // WIND AND LATERAL LOADS
+  // ═══════════════════════════════════════════════════════════════════════
+
   // Wind applies lateral (sideways) force to walls:
   //   windForce = 0.5 × airDensity × windSpeed² × wallArea × dragCoefficient
+  //   airDensity ≈ 1.225 kg/m³, dragCoefficient ≈ 1.2 for flat walls
   //   At 15 m/s wind (strong): ~135N per m² of wall area
   //   At 30 m/s wind (storm):  ~540N per m² (can topple unbonded walls)
   //
@@ -4151,6 +4350,11 @@ ForceSystem {
   //   A 3m tall, 0.6m thick bonded wall survives up to ~40 m/s
   //   Cross-bracing (diagonal timber inside walls) resists lateral loads
   //   Buttresses (thick supports on the outside) resist lateral loads
+  //
+  // Wind overturning check for a wall:
+  //   overturningMoment = windForce × wallArea × (wallHeight / 2)
+  //   resistingMoment = wallWeight × (wallThickness / 2)
+  //   if overturning > resisting → wall topples
   //
   // Player impact (§7.5 combat):
   //   Hitting a wall with a tool applies force at the impact point
@@ -4167,39 +4371,78 @@ FoundationSystem {
   // The ground beneath a building must support the building's total weight.
   // Different terrain has different bearing capacity.
 
-  // ── Terrain bearing capacity ──────────────────────────────────────────
+  // ── Terrain bearing capacity (simplified Terzaghi) ─────────────────────
   //
-  // bearingCapacity: maximum pressure (Pa) the ground can support before sinking
+  // q_ult = c × Nc + γ × D × Nq + 0.5 × γ × B × Nγ
+  // where:
+  //   c = soil cohesion (Pa)
+  //   γ = soil unit weight (~18,000 N/m³)
+  //   D = foundation depth below surface (m)
+  //   B = foundation width (m)
+  //   Nc, Nq, Nγ = bearing capacity factors (depend on internal friction angle φ)
   //
-  //   Bedrock (granite, basalt):     10+ MPa (supports anything)
-  //   Dense gravel:                  0.5 MPa
-  //   Compact clay:                  0.2 MPa
-  //   Loose sand:                    0.1 MPa (heavy buildings sink)
-  //   Wet clay/mud:                  0.05 MPa (almost nothing — buildings tilt and sink)
-  //   Peat/swamp:                    0.02 MPa (essentially unbuildable without piling)
+  // Game uses a pre-computed lookup table:
   //
-  // If building pressure > bearingCapacity:
-  //   Building slowly sinks into the ground (rate proportional to excess pressure)
-  //   Uneven sinking → tilting → structural stress → collapse
-  //   This is why the Leaning Tower of Pisa tilts (soft clay on one side)
+  //   | Soil Type         | φ (°) | c (Pa)  | Typical q_ult (Pa) |
+  //   |-------------------|-------|---------|-------------------|
+  //   | Peat/swamp        | 0     | 10,000  | ~50,000           |
+  //   | Wet clay/mud      | 0     | 25,000  | ~130,000          |
+  //   | Loose sand        | 28    | 0       | ~300,000          |
+  //   | Compact clay      | 0     | 50,000  | ~260,000          |
+  //   | Dense gravel      | 40    | 0       | ~1,500,000        |
+  //   | Bedrock           | 45    | 100,000 | 10,000,000+       |
+  //
+  // Building pressure: q = totalWeight / baseFootprintArea
+  // If q > q_ult → building sinks.
+
+  // ── Sinking rate formula ───────────────────────────────────────────────
+  //
+  // When q > q_ult, the building sinks at a rate proportional to overpressure:
+  //
+  //   overpressure = (q - q_ult) / q_ult     // 0 = at limit, 1 = double capacity
+  //   sinkRate = 0.01 × overpressure × (1 + soil.compressibility) meters/second
+  //
+  //   soil.compressibility: peat = 2.0, clay = 1.0, sand = 0.3, gravel = 0.1, rock = 0.01
+  //
+  // Example: 3000 stone blocks (70,632,000N) on 100m² of soft clay (q_ult = 130,000 Pa):
+  //   q = 706,320 Pa, overpressure = 4.43
+  //   sinkRate = 0.01 × 4.43 × 2.0 = 0.089 m/s → building visibly sinks into the mud
+
+  // ── Differential settlement (uneven sinking) ──────────────────────────
+  //
+  // Each block-sized foundation cell computes its own local pressure
+  // from the column of blocks above it. Heavier side sinks more.
+  //
+  // Angular distortion = (maxSink - minSink) / distanceBetweenThem
+  //
+  //   > 1/500 (0.002): cosmetic cracking — visual cracks appear on walls
+  //   > 1/300 (0.0033): structural cracking — bonds start breaking
+  //   > 1/150 (0.0067): severe damage — blocks separate, potential collapse
+  //
+  // This is why the Leaning Tower of Pisa tilts (soft clay on one side).
+  // In-game: a player who builds a heavy tower on one side of a clay foundation
+  // will see it slowly tilt. The structural system detects the angular distortion,
+  // cracks the affected blocks, and eventually triggers cascade collapse.
 
   // ── Foundation solutions ──────────────────────────────────────────────
   //
   // Spread foundation: widen the base of walls → distributes weight over more area
-  //   pressure = weight / area → bigger area = less pressure
+  //   q = weight / area → bigger area = less pressure
   //   A 1m wide wall on soft soil: too much pressure → sinks
   //   Same wall on a 2m wide stone base: half the pressure → stable
   //
   // Deep foundation: dig down to bedrock, fill with stone
-  //   Bypasses weak surface soil entirely
-  //   Expensive but necessary for large buildings on soft ground
+  //   Bypasses weak surface soil entirely. D in Terzaghi's formula increases q_ult.
+  //   Foundation 2m deep in clay: q_ult increases by γ × D × Nq = 18,000 × 2 × 1 = 36,000 Pa
   //
   // Pilings: drive wooden posts into soft ground until they hit a hard layer
   //   Venice is built entirely on wooden pilings driven into lagoon mud
   //   In-game: player drives sharpened logs into mud → builds on top of the log tops
+  //   The pile's bearing capacity = hard layer's q_ult (not the surface soil)
   //
   // Gravel pad: replace soft surface soil with compacted gravel
   //   Better drainage + higher bearing capacity than clay or mud
+  //   q_ult jumps from 130,000 (clay) to 1,500,000 (dense gravel)
 }
 ```
 
@@ -4233,17 +4476,31 @@ StructuralDecay {
   //   In climates with daily freeze-thaw (spring/autumn): significant over a game-year
   //   Prevention: dense stone with few pores (granite > limestone > sandstone)
 
-  // ── Maintenance ───────────────────────────────────────────────────────
+  // ── Maintenance and Repair ──────────────────────────────────────────
   //
   // Players (and NPCs) must maintain structures:
   //   Replace crumbling mortar (repoint walls)
   //   Replace rotting wood beams
-  //   Repair roof leaks (a leaking roof accelerates all interior decay)
+  //   Repair roof leaks (a leaking roof accelerates all interior decay ×3)
   //   Paint/coat exposed wood and metal
   //
-  // A well-maintained stone building lasts effectively forever.
-  // An unmaintained wooden building collapses within ~50-100 game-years.
-  // An unmaintained mud building collapses within ~5-10 game-years.
+  // Repair actions and their effects:
+  //   Repoint mud mortar:    bondStrength restored to 0.08 MPa (80% of fresh 0.1 MPa)
+  //   Repoint lime mortar:   bondStrength restored to 1.8 MPa (90% of fresh 2.0 MPa)
+  //   Replace thatch roof:   durability = 1.0 (fully restored — thatch is replaceable)
+  //   Replace wood beam:     new beam, durability = 1.0 (requires matching wood MaterialPacket)
+  //   Oil/tar coating:       resets rain damage timer, adds 0.95 waterproofing for 30 game-days
+  //   Lime plaster coating:  blocks rain from reaching mud walls, lasts 60 game-days
+  //
+  // Repair CANNOT exceed original values. Damaged stone cannot be "repaired" —
+  // only replaced. A cracked granite block must be removed and a new one placed.
+  //
+  // Building lifespan without maintenance:
+  //   Stone + lime mortar: effectively forever (centuries in real life)
+  //   Stone + mud mortar: ~20-30 game-years (mortar dissolves, blocks shift)
+  //   Wood frame: ~50-100 game-years (rot, insect damage, joint loosening)
+  //   Mud brick: ~5-10 game-years (rain dissolves the blocks themselves)
+  //   Thatch roof: ~3-5 game-years (biodegrades, leaks)
   //
   // NPC settlements maintain their buildings through the SLM:
   //   "The storage hut roof is leaking. I'll repair it with new thatch."
@@ -4289,30 +4546,45 @@ StructuralPerformance {
   //
   // NOT checked: every frame, every tick, or for blocks with no changes
 
-  // ── Propagation algorithm ─────────────────────────────────────────────
+  // ── Propagation algorithm (references Force Propagation above) ───────
   //
-  // When a trigger occurs:
-  //   1. Mark the affected block as "dirty"
-  //   2. Trace all connection paths from dirty block upward → mark those dirty too
-  //   3. For each dirty block, compute: can it trace a load path to ground?
-  //      If yes: compute total load on it, check stress vs strength
-  //      If no: block is unsupported → falls
-  //   4. Falling blocks become rigid body physics objects (§7.4)
-  //      They tumble, bounce, break into pieces on impact
-  //      Each piece is a new MaterialPacket (smaller mass, same composition)
-  //   5. Cascade: if a falling block hits another structure → damage check → may trigger more collapse
+  // When a trigger occurs, run the 4-phase load path algorithm:
+  //   Phase 1: BFS connectivity check from ground — O(N) where N = blocks
+  //   Phase 2: Top-down load accumulation with 1:4 spreading
+  //   Phase 3: Stress checks (compressive, tensile/beam, shear)
+  //   Phase 4: Cascade collapse in batched waves until stable
+  //
+  // For block removal specifically, use targeted BFS:
+  //   Only check neighbors of the removed block, not the whole structure.
+  //   BFS from each neighbor toward ground — if no path → floating.
+  //   Blocks already confirmed supported are cached (skip re-check).
+  //   Cost: O(K) where K = affected neighborhood, NOT the full structure.
+  //
+  // Optimization: precompute articulation points (Tarjan's algorithm).
+  //   An articulation point is a block whose removal disconnects the graph.
+  //   If a removed block was NOT an articulation point → no floating blocks.
+  //   Skip the expensive connectivity re-check entirely.
+  //   Precompute once at structure creation, update incrementally on changes.
 
   // ── Cost ──────────────────────────────────────────────────────────────
   //
+  // Phase 1 (connectivity BFS):     O(N), ~0.02ms per 100 blocks
+  // Phase 2 (load accumulation):    O(N), ~0.03ms per 100 blocks
+  // Phase 3 (stress checks):        O(N + B) where B = detected beams, ~0.05ms per 100 blocks
+  // Phase 4 (cascade per wave):     O(K) per wave, K = neighborhood of failed blocks
+  // Arch detection:                  O(N) once, then cached until structure changes
+  // Beam detection:                  O(N) per axis scan, cached
+  //
   // Typical structure: 50-200 blocks
-  // Recalculation per event: ~0.5-2ms (trace connections, sum loads, check stress)
+  // Full recalculation: ~0.1-0.3ms (all 4 phases)
   // Events per game-day (quiet): ~0 (nothing changes)
   // Events per game-day (construction): ~5-20 (player placing blocks)
   // Events per game-day (siege): ~50-100 (blocks being destroyed, cascading)
   //
   // Maximum cascade: a 1000-block castle losing a load-bearing wall →
-  //   ~500 blocks recalculated → ~5ms → plus physics simulation of falling debris
+  //   ~500 blocks recalculated → ~5ms → 3-6 waves → plus debris rigid bodies
   //   Server handles this in one tick. Client sees a spectacular collapse.
+  //   Debris rigid bodies capped at 50-100 for physics performance.
 }
 ```
 

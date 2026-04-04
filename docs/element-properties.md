@@ -146,7 +146,7 @@ All values at 20-25 deg C and 1 atm unless noted. Where a property has a wide ra
 | Sn | 115           | 3320        | -0.130  (Sn2+ + 2e- -> Sn)          |
 | Pb | 208           | 2160        | -0.126  (Pb2+ + 2e- -> Pb)          |
 | Ag |  15.87        | 3650        |  0.800  (Ag+ + e- -> Ag)            |
-| Au |  22.14        | 3240        |  1.520  (Au3+ + 3e- -> Au)          |
+| Au |  22.14        | 3240        |  1.520  (Au3+ + 3e- -> Au) — commonly rounded to +1.50V |
 | W  |  52.8         | 5220        | -0.120  (WO2 + 4H+ + 4e- -> W)     |
 
 **Sources:** Resistivity: Wikipedia Electrical Resistivities data page (CRC, 20 deg C). Speed of sound: Wikipedia Speeds of Sound data page. Electrode potential: Wikipedia Standard Electrode Potential data page.

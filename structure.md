@@ -165,7 +165,9 @@ PhysicsTick (Rust native addon, called from Node.js game server) {
   // ── Stage 1: Temperature Propagation ──────────────────────────────────────
   // All objects in the world exchange heat with neighbors and environment.
   // Uses: MaterialPacket.thermalConductivity, specificHeatCapacity, emissivity
-  // Formula: Q = k × A × ΔT / d (Fourier's law) per contact pair
+  // Formulas:
+  //   Conductive: Q = k × A × ΔT / d (Fourier's law) per contact pair
+  //   Radiative:  Q = ε × σ × A × (T₁⁴ - T₂⁴) (Stefan-Boltzmann) — dominates above ~500°C
   // Fire sources add heat. Environment (air temp from §4.6) absorbs/adds heat.
   // Output: updated temperature for every MaterialPacket in the simulation
 
@@ -419,10 +421,10 @@ MaterialPacket {
   specificHeatCapacity: number          // J/(kg·K) — energy needed to raise 1kg by 1°C
                                         // Used by: temperature propagation, cooling rate
                                         // Water: 4186, iron: 449, granite: 790
-  //   Wood: C_p ≈ 1100 + 4.5 × T (J/(kg·K)) for dry wood, where T in °C
-  //     At 20°C: C_p ≈ 1190 J/(kg·K)
+  //   Wood: C_p ≈ 1160 + 3.9 × T (J/(kg·K)) for oven-dry wood, where T in °C (per USDA FPL)
+  //     At 20°C: C_p ≈ 1238 J/(kg·K)
   //     At 100°C: C_p ≈ 1550 J/(kg·K)
-  //     At 200°C: C_p ≈ 2000 J/(kg·K)
+  //     At 200°C: C_p ≈ 1940 J/(kg·K)
   //     Moisture increases C_p significantly (wet wood → C_p approaches water's 4186)
   thermalExpansion: number              // 1/K — how much material expands when heated
                                         // Used by: structural stress from temperature changes
@@ -539,12 +541,12 @@ MaterialPacket {
 }
 ```
 
-**Total: 44 derived properties**, all computed from composition using real formulas. Every physics equation in the document can find the variable it needs in this struct. No property is hardcoded per material — they all emerge from what elements the material is made of.
+**Total: 51 derived properties**, all computed from composition using real formulas. Every physics equation in the document can find the variable it needs in this struct. No property is hardcoded per material — they all emerge from what elements the material is made of.
 
-  // NOTE: "44 properties" counts each named property as one, regardless of components.
+  // NOTE: "51 properties" counts each named property as one, regardless of components.
   // color (RGB), absorptionRGB, scatteringRGB, permanentMagnetization (Vec3), and
   // nutrientContent (N,P,K) each count as one property but store multiple scalars.
-  // The SoA binary format uses ~53 Float32Arrays (splitting vectors into components)
+  // The SoA binary format uses ~60 Float32Arrays (splitting vectors into components)
   // plus ~5 Uint8Arrays for flags. The "44" count is the logical property count.
 
   // ── Element Property Reference Table ───────────────────────────────────
@@ -594,7 +596,7 @@ Every derived property is **calculated**, not looked up. The calculation uses re
 | Viscosity | Andrade equation (metals), Arrhenius (general): `μ = A·e^(Ea/RT)` | Fluid mechanics | §3.2 SPH flow resistance |
 | Non-Newtonian viscosity | Cross model: `μ = μ_∞ + (μ₀ - μ_∞) / (1 + (K × γ̇)^n)` | Rheology | §3.2 clay, mud, blood |
 | Non-Newtonian params | Cross model fit: μ₀, μ_∞, K, n from molecular structure + concentration | Rheology | §3.2 SPH viscosity |
-| Surface tension | Eötvös rule: `γ = k(Tc - T - 6)/V^(2/3)` | Surface physics | §3.2 SPH droplets, meniscus |
+| Surface tension | Eötvös rule: `γ = k(Tc - T - 6)/V^(2/3)`, where k ≈ 2.1×10⁻⁷ J/(K·mol^(2/3)), Tc = critical temperature from composition, V = molar volume (m³/mol) | Surface physics | §3.2 SPH droplets, meniscus |
 | Acoustic efficiency | Empirical: crystal structure → radiation efficiency | Acoustics | §3.3 sound volume |
 | Damping loss tangent | Material-dependent: metals from electron scattering, polymers from chain relaxation | Vibration theory | §3.3 Sound Q factor |
 | Standard enthalpy | Tabulated per element, computed for compounds via Hess's law | Thermochemistry | Reaction engine ΔG |
@@ -605,6 +607,10 @@ Every derived property is **calculated**, not looked up. The calculation uses re
 | Color | Drude model (metals), band gap absorption (non-metals) | Optical physics | Rendering |
 | Crystal structure | Hume-Rothery rules: size ratio, electronegativity, valence | Crystallography | Many properties depend on this |
 | Opacity | Band gap energy → photon absorption spectrum | Optical physics | Rendering transparency |
+| Poisson ratio | Empirical: ν ≈ 0.5 - E/(6K) from bulk modulus K and Young's modulus E; metals ~0.27-0.33, ceramics ~0.2, rubber ~0.5 | Elasticity theory | §3.4 structural, §3.3 plate modes |
+| Fracture toughness | Empirical from bond strength and crystal structure: K_IC ∝ √(E × γ_s) where γ_s = surface energy from composition | Fracture mechanics | §3.4 brittle fracture, fatigue |
+| Ductility | From crystal structure + bond type: FCC metals high (0.3-0.6), BCC moderate (0.1-0.3), ceramics low (<0.01) | Materials science | §3.4 failure mode selection |
+| Refractive index | Lorentz-Lorenz: `(n²-1)/(n²+2) = (4π/3) × N × α`, with N = number density, α = atomic polarizability from element table | Optical physics | §3.12 Snell's law, lensmaker |
 | Reflectivity | Fresnel equations from refractive index | Optical physics | Rendering, mirror surfaces |
 | Calorie content | Combustion energy × digestibility factor (organic only) | Nutrition science | §7.2 food, §4.4 farming |
 | Nutrient content | Element composition → N/P/K extraction | Soil science | §4.4 fertilizer value |
@@ -697,9 +703,13 @@ computed from the element property table, NOT from a material-name lookup:
 When metals are plastically deformed (hammered, bent, drawn through a die), dislocations in the crystal lattice multiply and tangle, resisting further deformation. The Hollomon equation describes this:
 
 ```
-σ = K × ε^n
-where ε is the accumulated plastic strain (tracked as workHardeningState 0→1),
+σ_yield = σ_0 × (1 + K × ε^n)
+where σ_0 is the base yield strength (from composition),
+ε is the accumulated plastic strain (tracked as workHardeningState 0→1),
 K is the strength coefficient, n is the strain hardening exponent.
+// Note: this is adapted from Hollomon (σ = K × ε^n) but includes
+// the base yield strength σ_0 so that unhardened metal (ε=0) retains
+// its composition-derived strength rather than dropping to zero.
 ```
 
 Cold-worked copper (workHardeningState = 0.8) has ~2× the yield strength of annealed copper (0.0). This is the foundation of blacksmithing: hammer a blade to harden it.
@@ -1154,7 +1164,7 @@ SPH handles all of these because the particles move with the fluid — they go w
 
 ```
 SPHParticle {
-  // An SPH particle IS a MaterialPacket fragment. It inherits all 44 properties.
+  // An SPH particle IS a MaterialPacket fragment. It inherits all 51 properties.
   packet: MaterialPacket               // composition, mass, temperature, and ALL derived properties
                                         // viscosity, surfaceTension, density etc. come from packet
 
@@ -1198,7 +1208,9 @@ Formula: `F_viscosity = μ · ∇²v` (Laplacian of velocity field, scaled by dy
 **The viscosity comes from the material's composition** via the Andrade/Arrhenius equation in the property calculator (§3.1). These are **expected computed results**, not hardcoded values — the property calculator should produce these when given the correct composition:
 - Water (H₂O): expected μ ≈ 0.001 Pa·s at 20°C — hydrogen bonds are weak
 - Molten copper: expected μ ≈ 0.004 Pa·s at 1100°C — metallic bonds broken by heat
-- Molten glass (SiO₂): expected μ ≈ 10⁶ Pa·s at 1000°C — silicon-oxygen network barely broken
+- Molten glass (SiO₂): expected μ ≈ 10⁶ Pa·s at ~2000°C — silicon-oxygen network partially broken
+  //     At 1000°C: μ ≈ 10¹⁵-10¹⁷ Pa·s (effectively rigid solid — network intact)
+  //     Soda-lime glass (SiO₂ + Na₂O + CaO): μ ≈ 10²-10³ Pa·s at 1000°C (workable)
 - Honey: μ varies enormously with temperature and water content
   //     At 20°C (room temp): μ ≈ 10-100 Pa·s (thick paste — barely flows)
   //     At 30°C: μ ≈ 5-30 Pa·s (flows slowly)
@@ -3093,20 +3105,24 @@ A cavity with a narrow opening acts as a resonator, amplifying a specific freque
 
 Examples in gameplay:
   Bottle (V=0.001m³, A=0.0003m², L=0.05m):
-    f = 343/(2π) × √(0.0003 / (0.001 × 0.08)) = 106 Hz — low hum when wind blows across
+    L_eff = 0.05 + 0.6×√(0.0003/π) = 0.056m
+    f = 343/(2π) × √(0.0003 / (0.001 × 0.056)) = 126 Hz — low hum when wind blows across
 
   Furnace chimney (V=0.5m³, A=0.04m², L=0.3m):
-    f = 343/(2π) × √(0.04 / (0.5 × 0.42)) = 30 Hz — deep rumble felt more than heard
+    L_eff = 0.3 + 0.6×√(0.04/π) = 0.368m
+    f = 343/(2π) × √(0.04 / (0.5 × 0.368)) = 25 Hz — deep rumble felt more than heard
     Hot gas RAISES the resonant frequency (speed of sound increases with √T,
     and lower gas density means less inertia in the neck — both effects push f upward).
     At 1000°C furnace gas: v_sound ≈ 700 m/s, so f roughly doubles to ~60 Hz.
 
   Small room (V=27m³, door opening A=2m², L=0.3m):
-    f = 343/(2π) × √(2 / (27 × 0.6)) = 18 Hz — infrasonic, creates unease
+    L_eff = 0.3 + 0.6×√(2/π) = 0.779m
+    f = 343/(2π) × √(2 / (27 × 0.779)) = 12 Hz — infrasonic, creates unease
     This is why small enclosed rooms with one door feel oppressive — Helmholtz infrasound.
 
   Ocarina/whistle (V=0.00005m³, A=0.00002m², L=0.005m):
-    f = 343/(2π) × √(0.00002 / (0.00005 × 0.008)) = 2070 Hz — a clear musical note
+    L_eff = 0.005 + 0.6×√(0.00002/π) = 0.0065m
+    f = 343/(2π) × √(0.00002 / (0.00005 × 0.0065)) = 2410 Hz — a clear musical note
 
 Implementation: when wind blows across an opening of an enclosed space
 (detected from structural connectivity — a sealed volume with one or few openings),
@@ -3276,7 +3292,7 @@ StructuralBlock {
   // Additional per-block state (NOT from the property calculator):
   //
   //   StructuralBlock {
-  //     packet: MaterialPacket          // composition + all 44 derived properties
+  //     packet: MaterialPacket          // composition + all 51 derived properties
   //     position: Vec3                  // grid position (integer coordinates)
   //     connections: Connection[]       // bonds to adjacent blocks (up to 6 faces)
   //     load: number                    // accumulated gravity load from above (N)
@@ -5179,7 +5195,7 @@ OrganismDeathSystem {
   // │ Bone           │ 15%          │ { calcium_phosphate:0.70, collagen:0.20, water:0.10 } │
   // │ Fat (tallow)   │ 10%          │ { fatty_acids:0.85, water:0.10, protein:0.05 }   │
   // │ Sinew (tendon) │ 3%           │ { collagen:0.85, water:0.10, elastin:0.05 }      │
-  // │ Blood          │ 7%           │ { water:0.80, protein:0.18, iron:0.01, min:0.01 }│
+  // │ Blood          │ 7%           │ { water:0.80, protein:0.19, minerals:0.01 }      │
   // │ Organs         │ 7%           │ { protein:0.18, fat:0.08, water:0.70, min:0.04 } │
   // │ Waste          │ 10%          │ (not harvestable — remains in corpse)             │
   // └────────────────┴──────────────┴──────────────────────────────────────────────────┘
@@ -7253,7 +7269,7 @@ Trigger: continuous — rotating joints generate sound proportional to their ang
 
 ### 3.7 System-Wide Optimization — Making It All Run in Real-Time
 
-The physics systems described in §3.1–3.5 are correct but expensive. Running them naively would consume multiple CPU cores and gigabytes of RAM. This section specifies the optimization strategies that make the simulation fit within real-time budgets on a single server machine.
+The physics systems described in §3.1–3.5 are mostly correct but expensive. Running them naively would consume multiple CPU cores and gigabytes of RAM. This section specifies the optimization strategies that make the simulation fit within real-time budgets on a single server machine.
 
 #### Tick Scheduling — What Runs When
 
@@ -7381,7 +7397,7 @@ PropertyCache {
   //   if compositionHash == lastComputedHash AND temperature == lastComputedTemp:
   //     return cached properties (0 cost)
   //   else:
-  //     recompute all 44 properties (~0.005ms per packet)
+  //     recompute all 51 properties (~0.005ms per packet)
   //     store in cache, update hash
   //
   // In practice: 95%+ of packets have stable composition.
@@ -7411,7 +7427,7 @@ PropertyCache {
   //   | Trigger                         | Threshold          | Properties affected |
   //   |--------------------------------|-------------------|-------------------|
   //   | Temperature change              | > 5C since last   | Viscosity, ductility, specific heat, thermal conductivity |
-  //   | Composition change              | Any change at all  | ALL 44 properties |
+  //   | Composition change              | Any change at all  | ALL 51 properties |
   //   | workHardeningState change        | > 0.01 since last | Tensile/compressive strength, hardness |
   //   | fatigueAccumulation change       | > 0.01 since last | Effective strength (reduced by damage) |
   //   | crackLength change               | Any change        | Effective strength (fracture toughness) |
@@ -7582,8 +7598,8 @@ MaterialPacketFormat {
   // NOT all properties of one packet together.
   //
   //   AoS (Array of Structs — the slow way):
-  //     Packet 0: [density, meltingPt, boilingPt, ..., 44 properties, composition, state]
-  //     Packet 1: [density, meltingPt, boilingPt, ..., 44 properties, composition, state]
+  //     Packet 0: [density, meltingPt, boilingPt, ..., 51 properties, composition, state]
+  //     Packet 1: [density, meltingPt, boilingPt, ..., 51 properties, composition, state]
   //     Reading all meltingPoints: jump 352 bytes between each one → cache misses
   //
   //   SoA (Structure of Arrays — the fast way):
@@ -7601,7 +7617,7 @@ MaterialPacketFormat {
 
   // ── Complete property arrays ──────────────────────────────────────────
   //
-  // 44 derived properties (each is a Float32Array of MAX_PACKETS elements):
+  // 51 derived properties (each is a Float32Array of MAX_PACKETS elements):
   //
   //   // Thermal properties
   //   densities:              Float32Array    // kg/m³
@@ -7676,8 +7692,10 @@ MaterialPacketFormat {
   //   nutrientP:              Float32Array    // kg/kg (phosphorus fraction)
   //   nutrientK:              Float32Array    // kg/kg (potassium fraction)
   //
-  // Total arrays: ~53 (44 logical properties + 9 extra for Vec3/RGB components split into x/y/z)
-  // Total memory: 53 × MAX_PACKETS × 4 bytes = 53 × 500,000 × 4 = 106 MB
+  // Total arrays: ~60 (51 logical properties + 9 extra for Vec3/RGB components split into x/y/z)
+  //   Missing from above list (add these): opacities, reflectivities, colorR/G/B,
+  //   waterAbsorptions, crystalStructures (Uint8Array: 0=FCC, 1=BCC, 2=HCP, 3=amorphous)
+  // Total memory: 60 × MAX_PACKETS × 4 bytes = 60 × 500,000 × 4 = 120 MB
 
   // ── Composition storage ───────────────────────────────────────────────
   //
@@ -7740,7 +7758,7 @@ MaterialPacketFormat {
   // Writing (property recomputation):
   //   densities[N] = computeDensity(compositions, N × 25)
   //   meltingPoints[N] = computeMeltingPoint(compositions, N × 25)
-  //   ...etc for all 44 properties...
+  //   ...etc for all 51 properties...
   //   // One write per property per dirty packet. Amortized cost: negligible.
 
   // ── Zero-copy sharing ─────────────────────────────────────────────────
@@ -7790,7 +7808,7 @@ MaterialPacketFormat {
   //   ─────────────────────────────────────────
   //   TOTAL:                              ~238 MB (see full MemoryBudget below for ~280 MB with all subsystems)
   //
-  //   This is higher than the previous estimate because the SoA layout with 44 logical properties (53 arrays)
+  //   This is higher than the previous estimate because the SoA layout with 51 logical properties (~60 arrays)
   //   trades memory for speed. The increase buys 50× faster property access.
   //   Still well under the 2 GB target.
 }
@@ -10328,7 +10346,7 @@ Magnetism {
 
 **Worked Example — Electromagnet Picks Up Iron:**
 
-A player winds 200 turns of copper wire around an iron rod (μ_r = 2000, length 0.15m). They connect it to a 5-cell voltaic pile (5.5V). Wire resistance: 10m of copper wire at 1mm² = 10 × 0.0168 = 0.168 Ω. Battery R_internal = 2.5 Ω. Total R = 2.668 Ω. Current: I = 5.5 / 2.668 = 2.06 A. Solenoid field: B = 4π×10⁻⁷ × 2000 × 200 × 2.06 / 0.15 = 6.90 T. This is unrealistically high because the formula assumes unsaturated iron. Iron saturates at ~2.0 T (B_sat). Clamping: B = min(6.90, 2.0) = 2.0 T. Lifting force at the pole face (area = π × 0.01² = 3.14×10⁻⁴ m²): F = (2.0² × 3.14e-4) / (2 × 4π×10⁻⁷) = 1,000 N ≈ lifting 100 kg. A small electromagnet powered by a primitive battery can lift heavy iron objects. Disconnect the battery → field collapses → iron drops. This is how magnetic cranes work, and the player discovers it through physics.
+A player winds 200 turns of copper wire around an iron rod (μ_r = 2000, length 0.15m). They connect it to a 5-cell voltaic pile (5.5V). Wire resistance: 10m of copper wire at 1mm² = 10 × 0.0168 = 0.168 Ω. Battery R_internal = 2.5 Ω. Total R = 2.668 Ω. Current: I = 5.5 / 2.668 = 2.06 A. Solenoid field: B = 4π×10⁻⁷ × 2000 × 200 × 2.06 / 0.15 = 6.90 T. This is unrealistically high because the formula assumes unsaturated iron. Iron saturates at ~2.0 T (B_sat). Clamping: B = min(6.90, 2.0) = 2.0 T. Lifting force at the pole face (area = π × 0.01² = 3.14×10⁻⁴ m²): F_per_pole = (2.0² × 3.14e-4) / (2 × 4π×10⁻⁷) = 500 N. With two pole faces (horseshoe configuration): F_total = 1,000 N ≈ lifting 100 kg. A small electromagnet powered by a primitive battery can lift heavy iron objects. Disconnect the battery → field collapses → iron drops. This is how magnetic cranes work, and the player discovers it through physics.
 
 **Pseudocode — Magnetic Field Computation:**
 
@@ -11285,7 +11303,7 @@ Trigger: any rigid body collision with a character
 
 Fall damage (§7.1) chains two Ch3 systems. First, §3.9 aerodynamic drag determines
 actual impact velocity: v_terminal = sqrt(2mg / (rho x C_d x A)). A spread-eagle player
-(C_d ~ 1.0, A ~ 0.7 m2) has v_terminal ~ 56 m/s; a streamlined dive reduces drag area.
+(C_d ~ 0.8, A ~ 0.5 m2) has v_terminal ~ 53 m/s; a streamlined dive reduces drag area.
 For short falls (< 20m), drag barely matters, but for cliff falls it caps damage. Second,
 §3.4 bone strength sets the fracture threshold — leg bones fail at ~7,500 N, spine at
 ~5,000 N. The stopping distance depends on surface material (§3.1): rock d_stop = 0.01m,
@@ -14209,14 +14227,14 @@ These are addressed with their minerals above (salt, gypsum, potash). See entrie
   // | Cowhide    | collagen 0.70, water 0.15, fat 0.15 | 20-30        | 1100           | 0.14             | Good leather, moderate warmth |
   // | Sheepskin  | collagen 0.55, keratin 0.25, fat 0.20| 10-15       | 900            | 0.08             | Excellent insulation (wool fibers trap air) |
   // | Bone       | calcium_phosphate 0.70, collagen 0.20, water 0.10 | 130-180 | 1900 | 0.32 | Hard, brittle. Tools, needles, buttons |
-  // | Sinew      | collagen 0.85, water 0.15           | 50-100       | 1100           | 0.20             | Strongest natural fiber. Bowstrings, lashing |
+  // | Sinew      | collagen 0.85, water 0.10, elastin 0.05 | 50-100   | 1100           | 0.20             | Strongest natural fiber. Bowstrings, lashing |
   // | Fat/tallow | triglycerides 0.95, water 0.05      | ~0 (liquid)  | 920            | 0.17             | Fuel, waterproofing, soap, candles |
   // | Wool       | keratin 0.90, lanolin 0.05, water 0.05 | 1-2       | 1300           | 0.04             | Best insulator. Retains warmth when wet |
   // | Feathers   | keratin 0.95, air 0.05              | 2-5          | 8 (with air)   | 0.025            | Lightest insulator. Fletching for arrows |
   // | Horn/antler| keratin 0.60, calcium_phosphate 0.30, water 0.10 | 80-120 | 1800 | 0.40 | Hard, workable. Tool handles, vessels |
   //
   // These compositions are set when the animal dies (§3.6 Connection 3: Death → MaterialPacket).
-  // The property calculator (§3.1) computes all 44 properties from these compositions.
+  // The property calculator (§3.1) computes all 51 properties from these compositions.
   // A player who skins a deer gets a MaterialPacket with the cowhide composition,
   // and the physics determines its behavior — not a lookup table.
 ```
@@ -20181,12 +20199,12 @@ The system has five runtime components that work together. The server is the sin
 │ │   ├── Material reaction engine (§3.1 Gibbs free energy, stoichiometry)   │
 │ │   ├── SPH fluid simulation (§3.2 — on demand for active physics)         │
 │ │   ├── Temperature propagation, rigid body, terrain collision             │
-│ │   └── Structural integrity (§3.5 force propagation)                      │
+│ │   └── Structural integrity (§3.4 force propagation)                      │
 │ │                                                                           │
 │ ├── World Simulation                                                        │
 │ │   ├── WorldClock — authoritative time (4× real, admin-adjustable)        │
-│ │   ├── AtmosphereSystem — weather, wind, temperature per cell (§3.3)      │
-│ │   ├── SeasonSystem — orbital mechanics, solar declination (§3.3)         │
+│ │   ├── AtmosphereSystem — weather, wind, temperature per cell (§4.6)      │
+│ │   ├── SeasonSystem — orbital mechanics, solar declination (§4.6)         │
 │ │   ├── OrganismManager — ecosystem at 6 Hz (§4.2)                         │
 │ │   ├── SoilSystem — nutrients, moisture, erosion per cell (§4.4)          │
 │ │   └── TerrainServer — generates + serves chunks on request               │
@@ -20222,7 +20240,7 @@ The system has five runtime components that work together. The server is the sin
 │   ├── Receives CHUNK_DATA, WORLD_SNAPSHOT, ENVIRONMENT_STATE, SOUND_EVENT  │
 │   ├── Renders 3D scene with GPU shaders (Mode 1 — 90% of time)            │
 │   ├── Displays video stream (Mode 2 — precision crafting)                  │
-│   ├── Generates audio from SOUND_EVENTs via WebAudio (§3.4)               │
+│   ├── Generates audio from SOUND_EVENTs via WebAudio (§3.3)               │
 │   ├── Captures input → sends to server                                     │
 │   └── Client-side prediction for movement (server corrects)               │
 │                                                                             │
@@ -20283,7 +20301,7 @@ Persistent WebSocket between client and game server. All messages are JSON.
 | Vite | Bundler and dev server |
 | TypeScript | Type-safe client code |
 | Zustand | Client state management |
-| WebAudio API | Sound generation from physics descriptors (§3.4) |
+| WebAudio API | Sound generation from physics descriptors (§3.3) |
 | Clerk | Authentication (login, sessions) |
 | MSE (MediaSource Extensions) | H.264 video decode for streaming mode |
 
@@ -20821,7 +20839,7 @@ The organism system uses instanced rendering — all organisms are drawn in a si
 
 | System                   | Tick Rate               | Notes                                   |
 | ------------------------ | ----------------------- | --------------------------------------- |
-| World snapshot broadcast | 10 Hz                   | Player positions, world state           |
+| World snapshot broadcast | 6 Hz                    | Player positions, world state           |
 | Organism simulation      | 6 Hz                    | Energy, reproduction, death, movement   |
 | Settlement simulation    | Real-time (1 Hz approx) | Crafting, research, population          |
 | Weather                  | Event-driven            | State transitions on Markov probability |
@@ -20951,10 +20969,10 @@ The document is the spec. Implementation priority:
 4. **Crafting** (§6): fire-making, tool crafting, physics-based arrangements
 5. **World** (§4.1-4.2): terrain generation, basic organisms
 6. **NPC** (§5): settlements, NPC brain, knowledge transfer
-7. **Advanced physics** (§3.2, §3.5): fluid simulation, structural integrity
+7. **Advanced physics** (§3.2, §3.4): fluid simulation, structural integrity
 8. **Farming + animals** (§4.3-4.4): domestication, agriculture
 9. **Networking polish** (§3.6): hybrid video streaming, optimization
-10. **Sound** (§3.4): physics-driven audio
+10. **Sound** (§3.3): physics-driven audio
 
 
 ---

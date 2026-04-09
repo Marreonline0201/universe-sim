@@ -5,7 +5,5 @@ dist/
 rust/*/target/
 .vercel
 *.tsbuildinfo
-
-.env*.local
-
-.env*.local
+*.log
+.claude/

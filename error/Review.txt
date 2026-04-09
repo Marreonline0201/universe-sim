@@ -1,3 +1,0 @@
-
-4. Companion system — Mentioned several times ("companion can provide hints") but never specified. Is this an NPC that follows you? How does it decide what hints to give? Does it use the same brain as settlement NPCs?
-5. The SLM training data — We specified the architecture but not the actual scenario templates. The 200 scenario templates that seed the training data are the most important part — they define what the NPCs can think about.

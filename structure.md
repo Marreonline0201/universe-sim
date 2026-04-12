@@ -203,9 +203,10 @@ PhysicsTick (Rust native addon, called from Node.js game server) {
   // Only pairs in the same cell or the 26 adjacent cells are checked.
   //
   // Contact definition:
-  //   Solid blocks: "in contact" = sharing a face (distance between centers <= 1.0 x BLOCK_SIZE)
+  //   Solid packets: "in contact" = surfaces touching (distance between centers <= sum of radii)
+  //     Radius of a packet = (3 × mass / (4π × density))^(1/3) — derived from volume
   //   Fluid particles: "in contact" = within SPH kernel radius h (already computed by neighbor search)
-  //   Solid-fluid: fluid particle within 0.5 x BLOCK_SIZE of a solid block surface
+  //   Solid-fluid: fluid particle within packet radius of a solid packet surface
   //
   // Dirty-flag optimization:
   //   Only check pairs where at least ONE member changed this tick:
@@ -3214,18 +3215,20 @@ This reuses the structural connection data already tracked by §3.4. No new comp
 
 ##### The Principle
 
-Every structure in the game is made of MaterialPackets (§3.1). A wall is not a "wall object" — it is a collection of MaterialPackets (stone blocks, mud bricks, wooden beams) placed in the world and optionally bonded together. Whether that wall stands or falls is determined by the **same material properties** that determine melting point, hardness, and conductivity: compressive strength, tensile strength, shear strength, density. There is no separate "structural integrity" system — there is physics applied to materials.
+Every structure in the game is made of MaterialPackets (§3.1). A wall is not a "wall object" — it is a collection of MaterialPackets (stone, mud, wood) placed in the world at free positions and bonded together. Whether that wall stands or falls is determined by the **same material properties** that determine melting point, hardness, and conductivity: compressive strength, tensile strength, shear strength, density. There is no separate "structural integrity" system — there is physics applied to materials.
 
-##### Every Block Is a MaterialPacket
+**There are no "blocks" and no grid.** Packets exist at arbitrary 3D positions with arbitrary sizes. A packet's volume is determined by its mass and density (V = mass / density). Its visual shape comes from its mesh — how it was formed (carved, cast, broken, natural). The physics engine sees packets as volumes with material properties. The renderer draws triangle meshes with material-derived surface properties.
+
+##### Every Placed Object Is a MaterialPacket
 
 ```
-StructuralBlock {
-  // A placed building block IS a MaterialPacket. It has:
+StructuralPacket {
+  // A placed object IS a MaterialPacket at a free position. It has:
   packet: MaterialPacket             // composition, mass, density, temperature, phase
   // ALL structural properties come directly from the packet:
   //   packet.compressiveStrength, packet.tensileStrength, packet.shearStrength,
   //   packet.youngsModulus, packet.frictionCoefficient, packet.density
-  // No structural properties are stored on the block — they are read from the
+  // No structural properties are stored separately — they are read from the
   // MaterialPacket's property calculator (§3.1). Same system as melting point.
 
   // Real material values (computed by property calculator from composition):
@@ -3246,23 +3249,27 @@ StructuralBlock {
   //   Steel (iron + carbon alloy):
   //     compressive: ~400 MPa, tensile: ~500 MPa, shear: ~200 MPa
 
-  // An impure copper block (Cu₀.₈₅Fe₀.₁₀S₀.₀₅) has DIFFERENT structural properties
+  // An impure copper packet (Cu₀.₈₅Fe₀.₁₀S₀.₀₅) has DIFFERENT structural properties
   // than pure copper — because the property calculator accounts for impurities.
   // A player who smelts cleaner copper gets stronger building material.
   // This is emergent — not coded as a "building material quality" stat.
 
   // ── Connection state ──────────────────────────────────────────────────
-  connections: Connection[]          // bonds to adjacent blocks
+  connections: Connection[]          // bonds to neighboring packets
   grounded: boolean                  // can trace a connection path to terrain?
 
   Connection {
-    targetBlock: StructuralBlock
-    bondType: 'stacked' | 'mortared' | 'joinery' | 'fastened'
+    targetPacket: StructuralPacket
+    bondType: 'solidified' | 'stacked' | 'mortared' | 'joinery' | 'fastened'
     bondStrength: number             // Pa — force to break this connection
+    restDistance: number             // m — natural distance between bonded packet centers
+    // solidified (cooled together from liquid — atomic/metallic bonds):
+    //   bondStrength = material tensile strength (strongest possible bond)
+    //   Forms when liquid packets solidify in contact
     // stacked (no bond, gravity only): bondStrength = friction force = weight × μ
     //   μ (friction coefficient): stone-on-stone = 0.6, wood-on-wood = 0.4, mud = 0.3
-    //   Stacked blocks can slide off each other under lateral force (wind, impact)
-    // mortared (mud/lime/concrete between blocks):
+    //   Stacked packets can slide off each other under lateral force (wind, impact)
+    // mortared (mud/lime/concrete between packets):
     //   mud mortar: bondStrength = 0.1 MPa (weak, dissolves in rain)
     //   lime mortar: bondStrength = 2.0 MPa (strong, waterproof)
     //   concrete: bondStrength = 5.0 MPa (very strong)
@@ -3278,31 +3285,37 @@ StructuralBlock {
 }
 ```
 
-  // -- Block-Packet Relationship --------------------------------------
+  // -- Packet Positioning & Shape ------------------------------------
   //
-  // A structural block IS a single MaterialPacket. One block = one composition.
-  // A block cannot be made of mixed materials (e.g., half stone, half wood).
+  // Packets exist at FREE POSITIONS in continuous 3D space (Vec3 float).
+  // There is NO grid, NO fixed block size. A packet can be any mass/volume.
+  // Volume = mass / density. Visual shape = triangle mesh (see rendering).
+  //
+  // A structural packet IS a single MaterialPacket. One packet = one composition.
+  // A packet cannot be made of mixed materials (e.g., half stone, half wood).
   //
   // If a player places two different materials adjacent to each other
-  // (stone block next to wood beam), they are TWO separate blocks with
+  // (stone next to wood), they are TWO separate packets with
   // TWO separate MaterialPackets, connected by a bond (Connection).
   //
   // The structural properties (strength, density, Young modulus) come from
-  // the block single MaterialPacket via the property calculator (S3.1).
-  // Additional per-block state (NOT from the property calculator):
+  // the packet's MaterialPacket via the property calculator (S3.1).
+  // Additional per-packet state (NOT from the property calculator):
   //
-  //   StructuralBlock {
+  //   StructuralPacket {
   //     packet: MaterialPacket          // composition + all 51 derived properties
-  //     position: Vec3                  // grid position (integer coordinates)
-  //     connections: Connection[]       // bonds to adjacent blocks (up to 6 faces)
+  //     position: Vec3                  // free position in world space (meters, continuous)
+  //     orientation: Quat               // rotation (packets can be oriented arbitrarily)
+  //     connections: Connection[]       // bonds to neighboring packets
   //     load: number                    // accumulated gravity load from above (N)
   //     supported: boolean              // can trace path to ground (from BFS)
-  //     // -- Per-block accumulated damage state: --
+  //     mesh: TriangleMesh              // visual/collision shape (triangles)
+  //     // -- Per-packet accumulated damage state: --
   //     fatigueAccumulation: number     // 0->1 from cyclic loading (Basquin). Irreversible.
   //     crackLength: number             // m, from fatigue + freeze-thaw. Grows over time.
   //     creepStrain: number             // accumulated from Norton creep law. Permanent.
-  //     // -- These are block-specific, NOT from composition. Two identical-composition
-  //     //   blocks can have different damage levels based on their loading history.
+  //     // -- These are packet-specific, NOT from composition. Two identical-composition
+  //     //   packets can have different damage levels based on their loading history.
   //   }
   //
   // When a block becomes debris (cascade collapse, player action):
@@ -3316,40 +3329,41 @@ StructuralBlock {
 
 ```
 ForceSystem {
-  // Every block has weight. Weight is a downward force.
-  // That force must travel through connected blocks to the ground.
-  // If any block in the path receives more force than it can handle → it breaks.
+  // Every packet has weight. Weight is a downward force.
+  // That force must travel through bonded packets to the ground.
+  // If any packet in the path receives more force than it can handle → it breaks.
 
   // ═══════════════════════════════════════════════════════════════════════
   // THE LOAD PATH ALGORITHM (4 phases, runs on structural change events)
   // ═══════════════════════════════════════════════════════════════════════
 
-  // In plain English: gravity pulls every block downward. The weight of the roof
+  // In plain English: gravity pulls every packet downward. The weight of the roof
   // pushes down on the walls. The walls push down on the foundation. The foundation
   // pushes down on the ground. If any link in this chain is too weak — it breaks,
   // and everything above falls. The algorithm traces this chain from top to bottom.
 
-  // ── Phase 1: Connectivity — which blocks can reach ground? ─────────────
+  // ── Phase 1: Connectivity — which packets can reach ground? ─────────────
   //
-  // BFS flood fill starting from all ground-touching blocks.
-  // A block is "supported" if it can trace a path through face-connected
-  // neighbors (6 directions: ±x, ±y, ±z) to any block on terrain.
+  // BFS flood fill starting from all ground-touching packets.
+  // A packet is "supported" if it can trace a path through bonded
+  // neighbors (via the bond graph) to any packet resting on terrain.
   //
-  // function findSupportedBlocks(grid):
+  // function findSupportedPackets(world):
   //   supported = Set()
   //   queue = Queue()
   //
-  //   // Seed: blocks sitting on terrain
-  //   for each block in grid.blocks:
-  //     if terrain.isSolid(block.x, block.y - 1, block.z):
-  //       supported.add(block)
-  //       queue.enqueue(block)
+  //   // Seed: packets resting on terrain
+  //   for each packet in world.packets:
+  //     if packet.position.y - packet.radius <= terrain.getHeight(packet.position.xz):
+  //       supported.add(packet)
+  //       queue.enqueue(packet)
   //
-  //   // BFS through face-connected neighbors
+  //   // BFS through bonded neighbors
   //   while queue not empty:
   //     current = queue.dequeue()
-  //     for each neighbor in current.connections (6 faces):
-  //       if neighbor != null AND neighbor not in supported:
+  //     for each bond in current.connections:
+  //       neighbor = bond.targetPacket
+  //       if neighbor not in supported:
   //         supported.add(neighbor)
   //         queue.enqueue(neighbor)
   //
@@ -3718,21 +3732,21 @@ ForceSystem {
   // Wood is great — it bends a lot before breaking. This is why stone buildings
   // have lots of pillars and wood buildings have wide open rooms.
 
-  // A beam is a horizontal run of blocks with air below and supports at the ends.
-  // The system scans along X and Z axes to find these automatically.
+  // A beam is a horizontal run of bonded packets with air below and supports at the ends.
+  // The system detects beams by tracing connections in the bond graph.
   //
   // Detection algorithm:
-  //   Walk along each horizontal row. When a block has a solid block below it,
-  //   it's a potential support. When blocks have air below, they're spanning.
-  //   When air-below blocks are bracketed by supported blocks → beam found.
+  //   Trace horizontal chains of bonded packets. When a packet has support below
+  //   (another packet or terrain), it's a potential support point. When packets have
+  //   air below, they're spanning. Packets bracketed by supported packets → beam found.
   //
   // Bending stress formula:
   //   σ = 3 × w × L² / (4 × b × h²)
   //   where:
   //     w = (beam self-weight + load from above) / span    (N/m)
-  //     L = span length in meters (number of air-below blocks × BLOCK_SIZE)
-  //     b = beam width = BLOCK_SIZE = 1m
-  //     h = beam height = BLOCK_SIZE = 1m (or count of stacked beam blocks)
+  //     L = span length in meters (distance between support points)
+  //     b = beam width in meters (from packet dimensions)
+  //     h = beam height in meters (from packet dimensions or stacked packets)
   //
   // The beam fails in TENSION on the bottom face (not compression).
   // This is why material tensileStrength determines beam capacity.

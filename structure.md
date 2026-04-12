@@ -249,10 +249,10 @@ PhysicsTick (Rust native addon, called from Node.js game server) {
 
   // ── Stage 5: Structural Integrity ─────────────────────────────────────────
   // Only runs when a structural change event occurred this tick:
-  //   Block placed, block removed, block damaged, bond broken by weather
-  // Traces load paths from affected block to ground.
+  //   Packet placed, packet removed, packet damaged, bond broken by weather
+  // Traces load paths from affected packet to ground.
   // Checks stress vs MaterialPacket.compressiveStrength/tensileStrength/shearStrength
-  // If exceeded: block breaks → becomes rigid body debris → cascade check
+  // If exceeded: packet breaks → becomes rigid body debris → cascade check
   // Output: broken blocks, debris spawned
 
   // ── Stage 6: Rigid Body Physics ───────────────────────────────────────────
@@ -3369,32 +3369,32 @@ ForceSystem {
   //
   //   return supported
   //
-  // Blocks NOT in the supported set are floating → become rigid body debris.
-  // Cost: O(N) where N = number of blocks. For a 200-block house: <0.1ms.
+  // Packets NOT in the supported set are floating → become rigid body debris.
+  // Cost: O(N) where N = number of packets. For a 200-packet house: <0.1ms.
 
   // ── Phase 2: Load computation — top-down gravity accumulation ──────────
   //
-  // Process all supported blocks from highest Y to lowest Y.
-  // Each block accumulates its own weight plus load from above,
-  // then distributes that total to blocks below it.
+  // Process all supported packets from highest Y to lowest Y.
+  // Each packet accumulates its own weight plus load from above,
+  // then distributes that total to packets below it.
   //
-  // function computeLoads(grid):
-  //   sortedBlocks = grid.blocks.sortBy(b => -b.y)  // top-down
+  // function computeLoads(world):
+  //   sortedBlocks = world.packets.sortBy(b => -b.y)  // top-down
   //
-  //   for each block in sortedBlocks:
-  //     block.load = block.weight  // reset to self-weight
+  //   for each packet in sortedBlocks:
+  //     packet.load = packet.weight  // reset to self-weight
   //
-  //   for each block in sortedBlocks:
-  //     receivers = getLoadReceivers(block, grid)  // blocks below
+  //   for each packet in sortedBlocks:
+  //     receivers = getLoadReceivers(packet, world)  // packets below
   //     for each (receiver, fraction) in receivers:
-  //       receiver.load += block.load × fraction
+  //       receiver.load += packet.load × fraction
   //
   // Load distribution uses a 1:4 spreading ratio:
-  //   Block directly below (y-1, same x,z): weight factor 4
-  //   Blocks at (y-1, ±1 in x or z): weight factor 1 each
+  //   Packet directly below (y-1, same x,z): weight factor 4
+  //   Packets at (y-1, ±1 in x or z): weight factor 1 each
   //   Normalize by total weight factors.
   //
-  // Example: block at (5,10,5) weighs 500N, has blocks below at
+  // Example: packet at (5,10,5) weighs 500N, has packets below at
   //   (5,9,5) and (6,9,5):
   //   Direct below gets: 500 × 4/5 = 400N
   //   Side below gets:   500 × 1/5 = 100N
@@ -3404,19 +3404,19 @@ ForceSystem {
 
   // -- Load Redistribution When Support Is Missing --------------------
   //
-  // If a block has NO block directly below it (air beneath):
+  // If a packet has NO packet directly below it (air beneath):
   //
-  //   Case 1: Block has lateral neighbors that ARE supported -> beam behavior.
-  //     The block acts as a beam spanning between its lateral supports.
+  //   Case 1: Packet has lateral neighbors that ARE supported -> beam behavior.
+  //     The packet acts as a beam spanning between its lateral supports.
   //     Load transfers laterally (not downward) to the nearest supported neighbors.
   //     The beam bending analysis (S3.4) determines if the span is within limits.
-  //     If span exceeds max: block fails in tension -> becomes debris.
+  //     If span exceeds max: packet fails in tension -> becomes debris.
   //
-  //   Case 2: Block has no lateral support either -> floating.
-  //     The BFS connectivity check catches this: block cannot reach ground.
-  //     Block becomes debris immediately (converted to rigid body, falls).
+  //   Case 2: Packet has no lateral support either -> floating.
+  //     The BFS connectivity check catches this: packet cannot reach ground.
+  //     Packet becomes debris immediately (converted to rigid body, falls).
   //
-  //   Case 3: Block is part of an arch -> arch behavior.
+  //   Case 3: Packet is part of an arch -> arch behavior.
   //     Load transfers through compression along the arch curve to the springers.
   //     The arch analysis determines if thrust is within abutment capacity.
   //
@@ -3425,54 +3425,54 @@ ForceSystem {
   //     2. No direct below -> check if part of detected beam or arch -> lateral transfer.
   //     3. Not beam or arch -> check BFS connectivity -> floating if no path to ground.
   //
-  //   Load is NEVER lost. If it cannot go down or sideways, the block fails.
-  //   Conservation: total load at terrain level = total weight of all supported blocks.
+  //   Load is NEVER lost. If it cannot go down or sideways, the packet fails.
+  //   Conservation: total load at terrain level = total weight of all supported packets.
 
   //
   // Full tower example:
   //   [Roof beam: 30kg]      → 300N
   //       ↓
-  //   [Wall block: 50kg]     → 500N own + 300N from above = 800N
+  //   [Wall packet: 50kg]     → 500N own + 300N from above = 800N
   //       ↓
-  //   [Wall block: 50kg]     → 500N own + 800N from above = 1300N
+  //   [Wall packet: 50kg]     → 500N own + 800N from above = 1300N
   //       ↓
   //   [Foundation: 80kg]     → 800N own + 1300N from above = 2100N
   //       ↓
   //   [Terrain]              → absorbs 2100N
 
-  // ── Phase 3: Stress checks — does any block exceed capacity? ───────────
+  // ── Phase 3: Stress checks — does any packet exceed capacity? ───────────
   //
-  // Three failure modes checked per block:
+  // Three failure modes checked per packet:
   //
   //   COMPRESSIVE (crushing):
-  //     σ_c = block.load / contactArea
+  //     σ_c = packet.load / contactArea
   //     For a 1m voxel: contactArea = 1 m²
-  //     if σ_c > block.compressiveStrength → CRUSH FAILURE
-  //     Block shatters. Everything above loses support.
+  //     if σ_c > packet.compressiveStrength → CRUSH FAILURE
+  //     Packet shatters. Everything above loses support.
   //
   //   TENSILE (beam snapping):
-  //     Only checked for blocks detected as spanning a gap.
+  //     Only checked for packets detected as spanning a gap.
   //     Beam detection runs BEFORE stress checks (it's a pre-pass that identifies
-  //     which blocks are beams — see Beam Detection and Bending Analysis section below).
+  //     which packets are beams — see Beam Detection and Bending Analysis section below).
   //     σ_t = M / S where:
   //       M = bending moment = w × L² / 8 (uniform load, simply supported)
   //       S = section modulus = b × h² / 6 (rectangular cross-section)
   //       w = total distributed load / beam span (N/m)
   //     Simplified: σ_t = 3 × w × L² / (4 × b × h²)
-  //     if σ_t > block.tensileStrength → SNAP FAILURE at midspan
+  //     if σ_t > packet.tensileStrength → SNAP FAILURE at midspan
   //
   //   SHEAR (sliding):
   //     σ_s = lateralForce / contactArea
   //     lateralForce comes from wind (Connection 16) or player impact (§7.5)
-  //     if σ_s > block.shearStrength → SHEAR FAILURE
-  //     Block slides sideways. Relevant for walls under wind or siege.
+  //     if σ_s > packet.shearStrength → SHEAR FAILURE
+  //     Packet slides sideways. Relevant for walls under wind or siege.
   //
   //   BOND FAILURE:
-  //     For bonded blocks, also check if the connection can handle the load:
-  //     if block.load > connection.bondStrength × contactArea → BOND BREAKS
-  //     Stacked (unbonded) blocks can slide under lateral force:
-  //       frictionResistance = block.load × frictionCoefficient
-  //       if lateralForce > frictionResistance → block slides off
+  //     For bonded packets, also check if the connection can handle the load:
+  //     if packet.load > connection.bondStrength × contactArea → BOND BREAKS
+  //     Stacked (unbonded) packets can slide under lateral force:
+  //       frictionResistance = packet.load × frictionCoefficient
+  //       if lateralForce > frictionResistance → packet slides off
   //
   //   BUCKLING (slender column failure):
   //     In plain English: a tall thin column doesn't get crushed from the top —
@@ -3508,15 +3508,15 @@ ForceSystem {
   //     This is why real buildings use wide bases and why Gothic cathedrals
   //     need flying buttresses — tall stone columns buckle before they crush.
   //
-  //     Implementation: for each column (vertical run of blocks with no lateral support),
+  //     Implementation: for each column (vertical run of packets with no lateral support),
   //     compute λ. If λ > 30, also check Euler. Take the lower of P_crush and P_euler.
 
   //   COMBINED STRESS (interaction check):
   //     Real materials can fail under combined loading even if each individual
-  //     stress is below its respective limit. A block at 80% compressive AND
+  //     stress is below its respective limit. A packet at 80% compressive AND
   //     80% tensile capacity is more likely to fail than one at 80% of just one.
   //
-  //     Interaction formula (simplified Mohr-Coulomb for voxel blocks):
+  //     Interaction formula (simplified Mohr-Coulomb for voxel packets):
   //       utilization = (σ_c / compressiveStrength)² + (σ_t / tensileStrength)² + (σ_s / shearStrength)²
   //       if utilization > 1.0 → COMBINED FAILURE
   //
@@ -3525,86 +3525,86 @@ ForceSystem {
   //     At 70% of each: utilization = 0.49 + 0.49 + 0.49 = 1.47 → fails.
   //     At 50% of each: utilization = 0.25 + 0.25 + 0.25 = 0.75 → safe.
   //
-  //     This catches arch corner blocks (compression + tension), wall corners
+  //     This catches arch corner packets (compression + tension), wall corners
   //     under wind (compression + shear), and loaded beams (tension + shear).
   //     Individual checks still run first — they catch the obvious cases.
   //     The interaction check catches the subtle combined cases.
 
   // ── Phase 4: Cascade collapse ──────────────────────────────────────────
   //
-  // In plain English: when one block breaks, the blocks above it lose support and fall.
-  // The falling blocks hit the floor below with much MORE force than their own weight
+  // In plain English: when one packet breaks, the packets above it lose support and fall.
+  // The falling packets hit the floor below with much MORE force than their own weight
   // (because they're falling, not just sitting). So the floor breaks too. And THAT
   // falls onto the next floor. This domino effect is how real buildings collapse.
   //
-  // When a block fails, process the collapse in batched waves:
+  // When a packet fails, process the collapse in batched waves:
   //
-  // function cascadeCollapse(failedBlock, grid):
+  // function cascadeCollapse(failedBlock, world):
   //   currentFailures = Set(failedBlock)
   //   wave = 0
   //
   //   while currentFailures not empty AND wave < 100:
   //     wave++
   //
-  //     // Remove all failed blocks at once
-  //     for each block in currentFailures:
-  //       grid.blocks.remove(block.position)
+  //     // Remove all failed packets at once
+  //     for each packet in currentFailures:
+  //       world.packets.remove(packet.position)
   //
-  //     // Find blocks that lost their path to ground
-  //     floating = findFloatingAfterRemoval(currentFailures, grid)
+  //     // Find packets that lost their path to ground
+  //     floating = findFloatingAfterRemoval(currentFailures, world)
   //
   //     // Recompute loads on remaining structure
-  //     computeLoads(grid)
+  //     computeLoads(world)
   //
   //     // Find new stress failures
   //     nextFailures = Set(floating)
-  //     for each block in grid.blocks:
-  //       stress = block.load / BLOCK_AREA
-  //       if stress > block.compressiveStrength:
-  //         nextFailures.add(block)
+  //     for each packet in world.packets:
+  //       stress = packet.load / BLOCK_AREA
+  //       if stress > packet.compressiveStrength:
+  //         nextFailures.add(packet)
   //
   //     currentFailures = nextFailures
   //
-  //   // Convert all removed blocks to rigid body debris
+  //   // Convert all removed packets to rigid body debris
   //   // Group adjacent debris into compound rigid bodies (one per cluster)
   //   // Apply downward velocity + random tumble
   //   // Cap at 50-100 active debris bodies for performance
   //
   // The findFloatingAfterRemoval function uses targeted BFS:
-  //   Only check blocks that were neighbors of removed blocks.
+  //   Only check packets that were neighbors of removed packets.
   //   For each, BFS toward ground. If no path found → floating.
-  //   Blocks already confirmed supported are cached (skip re-check).
-  //   Cost: O(K) where K = neighbors of removed blocks, NOT the full structure.
+  //   Packets already confirmed supported are cached (skip re-check).
+  //   Cost: O(K) where K = neighbors of removed packets, NOT the full structure.
   //
   // Cascade example (removing a load-bearing wall):
-  //   Wave 0: wall block removed (player action or combat)
-  //   Wave 1: blocks directly above lose support → fall
-  //   Wave 2: roof blocks above those lose support → fall
+  //   Wave 0: wall packet removed (player action or combat)
+  //   Wave 1: packets directly above lose support → fall
+  //   Wave 2: roof packets above those lose support → fall
   //   Wave 3: neighboring wall overloaded by redistributed load → crush failure
   //   Wave 4: more roof falls → cascade stabilizes when remaining structure is strong enough
   //
-  // A 1000-block castle losing a load-bearing wall:
-  //   ~500 blocks recalculated → ~5ms → 3-6 waves → spectacular collapse
-  //   Client receives CHUNK_UPDATE with removed blocks + PHYSICS_EVENT with debris bodies
+  // A 1000-packet castle losing a load-bearing wall:
+  //   ~500 packets recalculated → ~5ms → 3-6 waves → spectacular collapse
+  //   Client receives CHUNK_UPDATE with removed packets + PHYSICS_EVENT with debris bodies
 
   // ── Dynamic impact in cascade collapse ─────────────────────────────────
   //
-  // When a block or floor falls and hits the structure below, the impact force
+  // When a packet or floor falls and hits the structure below, the impact force
   // is MUCH greater than the static weight. This is what causes "pancake collapse"
   // in real building failures.
   //
   //   F_impact = m × g × (1 + √(1 + 2h/δ_static))
   //   where:
   //     m = mass of falling object (kg)
-  //     h = fall height (m) — distance the block fell before impact
+  //     h = fall height (m) — distance the packet fell before impact
   //     δ_static = static deflection of the receiving structure under load m×g
   //       For a rigid floor: δ_static ≈ 0.001m → F_impact ≈ m×g × (1 + √(1 + 2000h))
   //
-  //   A 1000 kg block falling just 1m onto a rigid floor:
+  //   A 1000 kg packet falling just 1m onto a rigid floor:
   //     F_impact = 1000 × 9.81 × (1 + √(1 + 2000)) = 9810 × 45.7 = 448,000 N
   //     That's 45× the static weight!
   //
-  //   Even a 0.1m fall (one block falling onto the next):
+  //   Even a 0.1m fall (one packet falling onto the next):
   //     F_impact = 9810 × (1 + √(1 + 200)) = 9810 × 15.2 = 149,000 N
   //     About 15× the static weight.
   //
@@ -3614,18 +3614,18 @@ ForceSystem {
   //   that destroyed the World Trade Center towers.
   //
   //   Implementation: in the cascade algorithm, when debris from wave N hits the
-  //   remaining structure, apply F_impact (not just static weight) to the impacted blocks.
-  //   If F_impact / contactArea > block.compressiveStrength → block also fails.
+  //   remaining structure, apply F_impact (not just static weight) to the impacted packets.
+  //   If F_impact / contactArea > packet.compressiveStrength → packet also fails.
 
-  // -- Cascade Collapse: Blocks Become Debris, Never Disappear -------
+  // -- Cascade Collapse: Packets Become Debris, Never Disappear -------
   //
-  // IMPORTANT: Broken blocks are NOT removed from the world. They are converted
-  // from structural blocks into rigid body debris objects. The material stays.
+  // IMPORTANT: Broken packets are NOT removed from the world. They are converted
+  // from structural packets into rigid body debris objects. The material stays.
   // A collapsed stone wall becomes a pile of stone rubble on the ground.
   //
   // The cascade runs as BATCHED WAVES within a single tick:
   //
-  //   function cascadeCollapse(failedBlock, grid):
+  //   function cascadeCollapse(failedBlock, world):
   //     currentFailures = [failedBlock]
   //     allDebris = []
   //     wave = 0
@@ -3633,43 +3633,43 @@ ForceSystem {
   //     while currentFailures.length > 0 AND wave < 100:
   //       wave++
   //
-  //       // STEP A: Convert failed blocks to debris (NOT delete)
-  //       for each block in currentFailures:
-  //         debris = convertToDebris(block)
+  //       // STEP A: Convert failed packets to debris (NOT delete)
+  //       for each packet in currentFailures:
+  //         debris = convertToDebris(packet)
   //         // debris inherits: position, mass, composition, temperature
   //         // debris gets: initial velocity = (0, -0.1, 0) (slight downward nudge)
   //         // debris is now a rigid body -- will be processed in Stage 6
   //         allDebris.push(debris)
-  //         grid.removeStructuralBlock(block.position)
-  //         // The block is gone from the STRUCTURE but exists as a PHYSICS OBJECT
+  //         grid.removeStructuralBlock(packet.position)
+  //         // The packet is gone from the STRUCTURE but exists as a PHYSICS OBJECT
   //
-  //       // STEP B: Find blocks that lost their path to ground
-  //       floating = findFloatingBlocks(grid)
-  //       // Floating blocks also become debris (they fall)
-  //       for each block in floating:
-  //         debris = convertToDebris(block)
+  //       // STEP B: Find packets that lost their path to ground
+  //       floating = findFloatingBlocks(world)
+  //       // Floating packets also become debris (they fall)
+  //       for each packet in floating:
+  //         debris = convertToDebris(packet)
   //         debris.velocity = (0, 0, 0)  // starts at rest, gravity accelerates it
   //         allDebris.push(debris)
-  //         grid.removeStructuralBlock(block.position)
+  //         grid.removeStructuralBlock(packet.position)
   //
   //       // STEP C: Recompute loads on remaining structure
-  //       recomputeLoads(grid)  // top-down load accumulation
+  //       recomputeLoads(world)  // top-down load accumulation
   //
   //       // STEP D: Check for NEW failures from redistributed STATIC load
   //       nextFailures = []
-  //       for each block in grid.allStructuralBlocks():
-  //         staticStress = block.load / BLOCK_AREA
-  //         if staticStress > block.compressiveStrength:
-  //           nextFailures.push(block)
+  //       for each packet in grid.allStructuralBlocks():
+  //         staticStress = packet.load / BLOCK_AREA
+  //         if staticStress > packet.compressiveStrength:
+  //           nextFailures.push(packet)
   //
   //       // STEP E: Apply dynamic impact from falling debris
   //       // NOTE: Impact forces are checked SEPARATELY from static load.
-  //       // Static load (Step D) catches overloaded blocks from redistributed weight.
-  //       // Dynamic impact (Step E) catches blocks hit by falling debris.
-  //       // A block can survive static load but fail from impact (or vice versa).
+  //       // Static load (Step D) catches overloaded packets from redistributed weight.
+  //       // Dynamic impact (Step E) catches packets hit by falling debris.
+  //       // A packet can survive static load but fail from impact (or vice versa).
   //       // Debris from previous waves that hit the structure this tick:
   //       for each d in allDebris:
-  //         if d.isResting:  // landed on a structural block
+  //         if d.isResting:  // landed on a structural packet
   //           impactedBlock = grid.getBlock(d.restingPosition)
   //           if impactedBlock:
   //             fallHeight = d.originalPosition.y - d.restingPosition.y
@@ -3691,8 +3691,8 @@ ForceSystem {
   //     // - NOTHING DISAPPEARS. The mass is conserved.
   //
   //   // Debris grouping for performance:
-  //   // Adjacent debris blocks are merged into compound rigid bodies (one body per cluster).
-  //   // A 20-block wall section becomes ~3-5 compound bodies, not 20 individual ones.
+  //   // Adjacent debris packets are merged into compound rigid bodies (one body per cluster).
+  //   // A 20-packet wall section becomes ~3-5 compound bodies, not 20 individual ones.
   //   // Cap at 100 active debris bodies per event. Oldest/farthest debris is converted
   //   // to static rubble early if the cap is exceeded.
 
@@ -3712,7 +3712,7 @@ ForceSystem {
   //          it as terrain, not as a rigid body.
   //
   //     The result: a collapsing building produces a heap of rubble, not a flat
-  //     layer of blocks. The heap has structure — larger blocks settle first,
+  //     layer of packets. The heap has structure — larger packets settle first,
   //     smaller debris fills gaps. This is physically correct and visually dramatic.
 
   //   The debris mass accumulates as floors collect falling material.
@@ -3770,7 +3770,7 @@ ForceSystem {
   //   Iron/steel revolutionized architecture (long spans without columns)
   //
   // Numerical example:
-  //   6 limestone blocks spanning a 4-block gap, 3 floors of load above:
+  //   6 limestone packets spanning a 4-packet gap, 3 floors of load above:
   //   Beam self-weight: 4 × 23,544N = 94,176N
   //   Load from above: 300,000N
   //   Total: 394,176N, w = 98,544 N/m
@@ -3778,7 +3778,7 @@ ForceSystem {
   //   S = 1 × 1² / 6 = 0.167 m³
   //   σ = 197,088 / 0.167 = 1.18 MPa < 3 MPa (limestone tensile) → beam holds
   //
-  //   Same beam at 8-block span:
+  //   Same beam at 8-packet span:
   //   M = 98,544 × 64 / 8 = 789,352 N·m
   //   σ = 789,352 / 0.167 = 4.73 MPa > 3 MPa → beam snaps at midspan
 
@@ -3791,7 +3791,7 @@ ForceSystem {
   //     w = distributed load (N/m)
   //     L = span (m)
   //     E = Young's modulus (Pa)
-  //     I = second moment of area (m⁴) — for 1m×1m block: I = 1/12
+  //     I = second moment of area (m⁴) — for 1m×1m packet: I = 1/12
   //
   //   Serviceability limits (from real structural engineering):
   //     δ < L/360: acceptable for floors (no cracking of finishes)
@@ -3834,7 +3834,7 @@ ForceSystem {
 
   // In plain English: an arch is a clever trick — it turns the stretching problem
   // into a squeezing problem. Instead of the bottom stretching (which stone can't do),
-  // each block pushes SIDEWAYS against its neighbors (compression, which stone is great at).
+  // each packet pushes SIDEWAYS against its neighbors (compression, which stone is great at).
   // But that sideways push goes all the way to the base — you need thick walls or
   // buttresses to stop the arch from pushing its supports apart.
 
@@ -3845,10 +3845,10 @@ ForceSystem {
   //   Stone arch: max ~30m+ (Roman arches spanned this)
 
   // Arch detection algorithm:
-  //   1. Find all blocks with air below (spanning blocks)
+  //   1. Find all packets with air below (spanning packets)
   //   2. Cluster them into connected components
   //   3. For each cluster: find the rise (max Y - min Y) and span (horizontal extent)
-  //   4. If rise ≥ 2 blocks AND both ends connect to grounded blocks → arch found
+  //   4. If rise ≥ 2 packets AND both ends connect to grounded packets → arch found
   //   5. Find springers (where the arch meets its supports) and crown (highest point)
 
   // Arch thrust formula (parabolic arch under uniform load):
@@ -3874,13 +3874,13 @@ ForceSystem {
   //     if overturningMoment > resistingMoment → abutment tips over → collapse
 
   // Numerical example:
-  //   Arch: 20 stone blocks, span = 10m, rise = 4m
+  //   Arch: 20 stone packets, span = 10m, rise = 4m
   //   Arch weight: 20 × 23,544N = 470,880N
   //   Load on top: 100,000N
   //   Total: 570,880N, w = 57,088 N/m
   //   T = 57,088 × 100 / 32 = 178,400N (18 tonnes of horizontal push)
   //
-  //   Abutment: 3 blocks wide, 6 blocks tall = 18 stone blocks
+  //   Abutment: 3 packets wide, 6 packets tall = 18 stone packets
   //   Abutment weight: 423,792N
   //   Friction resistance: 423,792 × 0.65 = 275,465N > 178,400N → no sliding ✓
   //   Springer height: 2m above ground
@@ -3888,7 +3888,7 @@ ForceSystem {
   //   Resisting moment: 423,792 × 1.5 = 635,688 N·m → no overturning ✓
   //
   // If the player removes the buttress → overturning check fails → arch collapses.
-  // If the player builds a thin buttress (1 block wide instead of 3) → sliding fails.
+  // If the player builds a thin buttress (1 packet wide instead of 3) → sliding fails.
   // These failures emerge from physics — no special "arch collapse" code needed.
 
   // The same analysis applies to:
@@ -3907,7 +3907,7 @@ ForceSystem {
   //
   // Kinematic criterion (2D):
   //   m = b + r - 2j
-  //   where b = bars (blocks acting as beams), r = support reactions, j = joints
+  //   where b = bars (packets acting as beams), r = support reactions, j = joints
   //   m < 0: mechanism (collapses)
   //   m = 0: statically determinate (stable, no redundancy)
   //   m > 0: indeterminate (stable with redundant members)
@@ -3924,7 +3924,7 @@ ForceSystem {
   //   Steel frames use X-bracing or moment connections
   //   A-frame shelters are inherently stable (they ARE triangles)
   //
-  // In the game: a player who builds a rectangular doorway with stacked blocks
+  // In the game: a player who builds a rectangular doorway with stacked packets
   //   (no mortar) should see it rack under lateral load (wind, impact).
   //   Adding a diagonal timber brace should stabilize it.
   //   Mortared joints resist rotation (act as rigid, not pinned) — so mortared
@@ -3967,9 +3967,9 @@ ForceSystem {
   //
   // Player impact (§7.5 combat):
   //   Hitting a wall with a tool applies force at the impact point
-  //   If force > bond strength at that block → block breaks free
-  //   If that block was load-bearing → cascade above it
-  //   Siege warfare: ram a wall until blocks break → roof collapses on defenders
+  //   If force > bond strength at that packet → packet breaks free
+  //   If that packet was load-bearing → cascade above it
+  //   Siege warfare: ram a wall until packets break → roof collapses on defenders
 
   // ── Lateral earth pressure (retaining walls, basements, mine tunnels) ──
   //
@@ -3995,14 +3995,14 @@ ForceSystem {
   //   | Stiff clay   | 25    | 0.41 | 22,140              |
   //
   //   At 3m depth in loose sand: ~19 kPa = ~2 tonnes/m² pushing sideways.
-  //   A single-block-thick stone wall (compressive only, no bending capacity)
+  //   A single-packet-thick stone wall (compressive only, no bending capacity)
   //   would be pushed over by this force unless buttressed.
   //
   //   When groundwater is present: add hydrostatic water pressure
   //     σ_total = K_a × γ_soil × z + ρ_water × g × z_water
   //     Saturated soil pushes MUCH harder — this is why mines flood AND collapse.
   //
-  //   Implementation: for blocks that have terrain/soil on one side and air on the other,
+  //   Implementation: for packets that have terrain/soil on one side and air on the other,
   //   apply lateral earth pressure as a horizontal force to the structural system.
   //   Check: can the wall resist this as a shear force? Does it overturn?
   //
@@ -4057,25 +4057,25 @@ FoundationSystem {
   //
   //   soil.compressibility: peat = 2.0, clay = 1.0, sand = 0.3, gravel = 0.1, rock = 0.01
   //
-  // Example: 3000 stone blocks (70,632,000N) on 100m² of soft clay (q_ult = 130,000 Pa):
+  // Example: 3000 stone packets (70,632,000N) on 100m² of soft clay (q_ult = 130,000 Pa):
   //   q = 706,320 Pa, overpressure = 4.43
   //   sinkRate = 0.01 × 4.43 × 2.0 = 0.089 m/s → building visibly sinks into the mud
 
   // ── Differential settlement (uneven sinking) ──────────────────────────
   //
-  // Each block-sized foundation cell computes its own local pressure
-  // from the column of blocks above it. Heavier side sinks more.
+  // Each packet-sized foundation cell computes its own local pressure
+  // from the column of packets above it. Heavier side sinks more.
   //
   // Angular distortion = (maxSink - minSink) / distanceBetweenThem
   //
   //   > 1/500 (0.002): cosmetic cracking — visual cracks appear on walls
   //   > 1/300 (0.0033): structural cracking — bonds start breaking
-  //   > 1/150 (0.0067): severe damage — blocks separate, potential collapse
+  //   > 1/150 (0.0067): severe damage — packets separate, potential collapse
   //
   // This is why the Leaning Tower of Pisa tilts (soft clay on one side).
   // In-game: a player who builds a heavy tower on one side of a clay foundation
   // will see it slowly tilt. The structural system detects the angular distortion,
-  // cracks the affected blocks, and eventually triggers cascade collapse.
+  // cracks the affected packets, and eventually triggers cascade collapse.
 
   // ── Foundation solutions ──────────────────────────────────────────────
   //
@@ -4110,7 +4110,7 @@ StructuralDecay {
   //
   // Water weakens certain materials:
   //   Mud brick: bondStrength decreases by 5% per game-day of rain exposure
-  //     Sustained rain for 20 game-days: mud mortar dissolves → blocks fall apart
+  //     Sustained rain for 20 game-days: mud mortar dissolves → packets fall apart
   //     Prevention: roof overhang (keeps rain off walls), lime plaster coating
   //   Wood: moisture absorption → swelling → warping → joint loosening
   //     bondStrength decreases by 0.5% per game-day of wet exposure
@@ -4164,7 +4164,7 @@ StructuralDecay {
   // ── Freeze-thaw damage ────────────────────────────────────────────────
   //
   // Water in cracks freezes → expands 9% → widens cracks → thaws → refreezes
-  // Over many cycles: stone blocks crack and crumble
+  // Over many cycles: stone packets crack and crumble
   //   damagePerCycle = 0.1% of compressiveStrength
   //   In climates with daily freeze-thaw (spring/autumn): significant over a game-year
   //   Prevention: dense stone with few pores (granite > limestone > sandstone)
@@ -4183,16 +4183,16 @@ StructuralDecay {
   //   Replace thatch roof:   durability = 1.0 (fully restored — thatch is replaceable)
   //   Replace wood beam:     new beam, durability = 1.0 (requires matching wood MaterialPacket)
   //   Oil/tar coating:       resets rain damage timer, adds 0.95 waterproofing for 30 game-days
-  //   Lime plaster coating:  blocks rain from reaching mud walls, lasts 60 game-days
+  //   Lime plaster coating:  packets rain from reaching mud walls, lasts 60 game-days
   //
   // Repair CANNOT exceed original values. Damaged stone cannot be "repaired" —
-  // only replaced. A cracked granite block must be removed and a new one placed.
+  // only replaced. A cracked granite packet must be removed and a new one placed.
   //
   // Building lifespan without maintenance:
   //   Stone + lime mortar: effectively forever (centuries in real life)
-  //   Stone + mud mortar: ~20-30 game-years (mortar dissolves, blocks shift)
+  //   Stone + mud mortar: ~20-30 game-years (mortar dissolves, packets shift)
   //   Wood frame: ~50-100 game-years (rot, insect damage, joint loosening)
-  //   Mud brick: ~5-10 game-years (rain dissolves the blocks themselves)
+  //   Mud brick: ~5-10 game-years (rain dissolves the packets themselves)
   //   Thatch roof: ~3-5 game-years (biodegrades, leaks)
   //
   // NPC settlements maintain their buildings through the SLM:

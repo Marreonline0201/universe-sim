@@ -434,7 +434,7 @@ MaterialPacket {
                                         // Wood: ~300°C, paper: ~230°C, coal: ~450°C, metal: N/A
   combustionEnergy: number              // J/kg — energy released when burned
                                         // Used by: fire system, furnace temperature calculation
-                                        // Wood: ~15 MJ/kg, charcoal: ~30 MJ/kg, coal: ~25 MJ/kg
+                                        // Wood: ~16 MJ/kg, charcoal: ~30 MJ/kg, coal: ~25 MJ/kg
   flammability: number                  // 0-1 — ease of ignition (modified by moisture)
                                         // Used by: fire starting success rate
 
@@ -448,7 +448,7 @@ MaterialPacket {
                                         // Temperature-dependent: Arrhenius model μ = A·e^(Ea/RT)
   surfaceTension: number                // N/m — surface cohesion
                                         // Used by: §3.2 SPH (surface tension force, droplet formation)
-                                        // Water: 0.072, mercury: 0.49
+                                        // Water: 0.073, mercury: 0.49
   //   Molten iron: σ ≈ 1.87 - 0.0003 × (T - 1538) N/m (decreases with temperature)
   //     At melting point (1538°C): σ ≈ 1.87 N/m  
   //     At 1600°C: σ ≈ 1.85 N/m
@@ -3236,13 +3236,13 @@ StructuralBlock {
   //   Mud brick (clay + straw + water, dried):
   //     compressive: ~2 MPa, tensile: ~0.2 MPa, shear: ~0.5 MPa
   //   Oak wood (cellulose + lignin):
-  //     compressive: ~50 MPa (along grain), tensile: ~100 MPa (along grain!)
-  //     Wood is STRONGER in tension than compression — opposite of stone
-  //     This is why wood beams span gaps but stone beams don't
+  //     compressive: ~50 MPa (along grain), tensile: ~40 MPa (along grain)
+  //     Note: real oak tensile is ~40-60 MPa. Consistent with beam span table below.
   //   Copper:
   //     compressive: ~250 MPa, tensile: ~210 MPa, shear: ~150 MPa
-  //   Iron:
-  //     compressive: ~350 MPa, tensile: ~400 MPa, shear: ~170 MPa
+  //   Wrought iron:
+  //     compressive: ~350 MPa, tensile: ~250 MPa, shear: ~170 MPa
+  //     Note: 250 MPa matches real wrought iron (~200-300 MPa). 400 MPa is steel territory.
   //   Steel (iron + carbon alloy):
   //     compressive: ~400 MPa, tensile: ~500 MPa, shear: ~200 MPa
 
@@ -4595,7 +4595,7 @@ Mode Switch Triggers {
 
 ##### Implementation — How It Actually Works
 
-The technology already exists in the codebase (§13.6). The hybrid system connects it:
+The technology already exists in the codebase. The hybrid system connects it:
 
 ```
 Server Side (Node.js + headless-gl + NVENC):
@@ -4762,7 +4762,7 @@ For state mode only (no video):
 
 For hybrid mode (state + video):
   GPU server with NVIDIA card + NVENC
-  Already have: GTX 5070 (local) — see §13.4
+  Already have: GTX 5070 (local)
   Capacity per GPU:
     720p @ 30fps: ~8-10 concurrent video streams
     480p @ 30fps: ~15-20 concurrent video streams
@@ -11197,7 +11197,7 @@ When autotrophs (prey) are abundant, heterotrophs (predators) reproduce faster t
   //   E_plant = solarIrradiance × leafArea × photosyntheticEfficiency × dayLength
   //   solarIrradiance: ~1000 W/m² (peak), varies with latitude/season/clouds
   //   leafArea: proportional to organism size (allometric: A ∝ mass^(2/3))
-  //   photosyntheticEfficiency: 1-2% for most plants (max theoretical ~11%)
+  //   photosyntheticEfficiency: 1-2% for most plants (max theoretical ~6% for C4 plants)
   //   dayLength: hours of sunlight per game-day (from §4.6 season system)
   //
   //   A 1m² plant in full sun: 1000 × 1 × 0.015 × 12 = 180 Wh/day = 155 kcal/day
@@ -11263,7 +11263,12 @@ Plants do not move. They occupy a fixed grid cell. A cell can hold one large pla
   - Acorn (sapling+): food for wildlife (pigs, deer, wild boar), bitter without leaching — not directly edible by humans
   - Bark (juvenile+): tannin content ~10–15% tannic acid — primary tanning agent for leather production; also used in dyeing as mordant
   - Timber (mature): hardwood, Janka hardness ~6,000 N — shipbuilding, construction, barrel staves, furniture
+    // NOTE: Janka hardness (N) is a different measurement from §3.1's Mohs scale.
+    // Conversion: Janka values here are VALIDATION TARGETs — the property calculator
+    // should derive hardness from the wood's cellulose/lignin composition via §3.1.
   - Charcoal (mature timber burned in pit): high fixed-carbon (~82%), low ash — best charcoal for smelting; superior to pine or softwood charcoal
+    // VALIDATION TARGET: 82% fixed-carbon should emerge from §3.1 reaction engine
+    // pyrolysis of oak wood composition (cellulose + lignin → char + volatiles)
   - Galls (infected by Cynips gall wasps): high tannin concentration — ink production (iron gall ink), extra tannin source
 - Ecological role: Primary autotroph of temperate biome; host for gall wasps (organism dependency); acorns support wild boar and deer populations
 - Threats: Logging (player harvest), wildfire, drought (moisture falls below threshold for 3+ seasons)
@@ -11272,13 +11277,15 @@ Plants do not move. They occupy a fixed grid cell. A cell can hold one large pla
 **Ash** (*Fraxinus* spp.)
 
 - Biome: Temperate deciduous forest, riverine woodland
-- Products: Timber (excellent tool handles — high shock resistance, Janka ~5,700 N), charcoal (good quality, ~78% fixed carbon), bark (mild tannins)
+- Products: Timber (excellent tool handles — high shock resistance, Janka ~5,700 N), charcoal (good quality, ~78% fixed carbon — VALIDATION TARGET for §3.1 pyrolysis), bark (mild tannins)
+  // NOTE: Janka values are VALIDATION TARGETs — see oak entry above for details.
 - Ecological role: Fast-growing pioneer on disturbed ground — colonizes cleared areas before oak returns; provides early timber after deforestation
 
 **Hickory** (*Carya* spp.)
 
 - Biome: Temperate deciduous forest (continental)
-- Products: Timber (hardest North American wood, Janka ~8,100 N — hammer handles, axe hafts), charcoal (highest fixed-carbon of any temperate hardwood, ~85% — optimal for high-temperature smelting), nuts (calorie-dense wild food)
+- Products: Timber (hardest North American wood, Janka ~8,100 N — hammer handles, axe hafts), charcoal (highest fixed-carbon of any temperate hardwood, ~85% — VALIDATION TARGET for §3.1 pyrolysis — optimal for high-temperature smelting), nuts (calorie-dense wild food)
+  // NOTE: Janka values are VALIDATION TARGETs — see oak entry above for details.
 - Note: Charcoal made from hickory reaches higher sustained temperatures than oak charcoal — meaningful for iron smelting vs. copper smelting distinction
 
 **Beech** (*Fagus* spp.)
@@ -11293,7 +11300,7 @@ Plants do not move. They occupy a fixed grid cell. A cell can hold one large pla
   - Timber (softwood — construction, paper pulp precursor, fuel)
   - Resin (tapped from bark wounds): pine resin collected raw, heated to produce pitch, distilled to produce turpentine — waterproofing, adhesive, caulking
   - Tar (destructive distillation of pine wood and roots): wood tar preserves wood and rope; pine tar is antiseptic
-  - Charcoal (poor quality, ~65% fixed carbon, high resin — produces sooty flame; unsuitable for metal smelting but adequate for cooking)
+  - Charcoal (poor quality, ~65% fixed carbon — VALIDATION TARGET for §3.1 pyrolysis — high resin produces sooty flame; unsuitable for metal smelting but adequate for cooking)
   - Pine nuts (certain species): edible seed
 - Ecological role: Dominant autotroph of boreal biome; much lower tannin than hardwoods; primary source of resin chemistry
 
@@ -11465,7 +11472,7 @@ Each grain species is modeled as a patch organism occupying agricultural land. N
 
 **Tannin-bearing trees** (*Quercus*, *Castanea*, *Acacia* — oak, chestnut, mimosa/wattle)
 
-- Bark tannin content by species:
+- Bark tannin content by species (VALIDATION TARGETs — should emerge from §3.1 MaterialPacket bark compositions):
   - Oak bark: 10–15% tannic acid
   - Chestnut bark: 6–9% tannic acid
   - Mimosa/wattle bark: 25–40% tannic acid (highest of any bark — explains why Australia's wattle became the global leather industry's primary tannin source by the 19th century)
@@ -17442,9 +17449,11 @@ CraftEnvironment {
   airflow: {
     natural: number             // m/s — from wind + chimney effect (stack height × temperature diff)
     forced: number              // m/s — from bellows or trompe (water-powered air pump)
-                                // Single bellows: ~2 m/s → +300°C over natural draft
-                                // Double bellows: ~4 m/s → +600°C (continuous airflow)
+                                // Single bellows: ~2 m/s airflow
+                                // Double bellows: ~4 m/s airflow (continuous)
                                 // Trompe: ~3 m/s (hands-free, requires running water)
+                                // NOTE: Temperature increase is NOT a flat bonus — it emerges
+                                // from the maxTemp formula below (fuel × airflow × insulation).
     total: number               // natural + forced → determines oxygen supply rate
   }
 
@@ -18644,13 +18653,13 @@ HumanBodyState {
   //   Well-cooked (100-150°C): 1.8×
   //   Baked/roasted (150-200°C): 2.0×
   //
-  // | Food item          | Base kcal/kg (raw) | Cooked (×1.8) | Spoilage time (game-days) |
+  // | Food item          | Base kcal/kg (raw) | Well-cooked (×1.8) | Spoilage time (game-days) |
   // |-------------------|--------------------|---------------|--------------------------|
   // | Red meat (venison)  | 1500               | 2700          | 3 (raw), 7 (cooked), 30 (salted) |
-  // | Fish                | 800                | 1440          | 1 (raw), 5 (cooked), 20 (smoked) |
-  // | Berries/fruit       | 400                | —             | 5 (fresh), 60 (dried) |
-  // | Nuts/seeds          | 5500               | —             | 90 (shelled), 365 (whole) |
-  // | Root vegetables     | 600                | 1080          | 30 (raw), 14 (cooked) |
+  // | Fish                | 1000               | 1800          | 1 (raw), 5 (cooked), 20 (smoked) |
+  // | Berries/fruit       | 500                | —             | 5 (fresh), 60 (dried) |
+  // | Nuts/seeds          | 6000               | —             | 90 (shelled), 365 (whole) |
+  // | Root vegetables     | 770                | 1386          | 30 (raw), 14 (cooked) |
   // | Grain (wheat/barley)| 3400               | —             | 365 (dry grain) |
   // | Bread (baked grain) | —                  | 2500          | 5 |
   // | Eggs                | 1500               | 2700          | 14 (raw), 7 (cooked) |
@@ -18817,9 +18826,9 @@ FoodSystem {
   //   Cooked meat: ~2700 kcal/kg (cooking breaks down proteins → more digestible)
   //   Raw fish: ~1000 kcal/kg
   //   Berries: ~500 kcal/kg
-  //   Grain: ~3500 kcal/kg (very calorie-dense when processed)
+  //   Grain: ~3400 kcal/kg (very calorie-dense when processed)
   //   Nuts: ~6000 kcal/kg (highest calorie density)
-  //   Root vegetables: ~800 kcal/kg
+  //   Root vegetables: ~770 kcal/kg
 
   // Cooking effect:
   //   Heating food above 70°C for sufficient time:
@@ -19197,13 +19206,15 @@ DigSystem {
   // digVolume = (toolEfficiency × playerStrength × swingEnergy) / terrainResistance
   //
   // Where:
-  //   toolEfficiency: depends on tool type × terrain type match
-  //     bare hands on dirt: 0.3
-  //     bare hands on rock: 0.001 (nearly impossible)
-  //     wooden shovel on dirt: 0.8
-  //     stone pickaxe on rock: 0.15
-  //     iron pickaxe on rock: 0.4
-  //     iron shovel on dirt: 1.0
+  //   toolEfficiency: derived from tool hardness vs terrain hardness (§3.6 Connection)
+  //     toolEfficiency = f(toolHardness / terrainHardness) — computed by §3.1 property calculator
+  //     VALIDATION TARGETs (expected computed results):
+  //       bare hands on dirt: ~0.3
+  //       bare hands on rock: ~0.001 (nearly impossible)
+  //       wooden shovel on dirt: ~0.8
+  //       stone pickaxe on rock: ~0.15
+  //       iron pickaxe on rock: ~0.4
+  //       iron shovel on dirt: ~1.0
   //
   //   playerStrength: 0.5–1.0 based on character fitness (see §7.2)
   //     newPlayer: 0.5, trained player: 0.8, maximum human: 1.0

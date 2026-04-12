@@ -5146,327 +5146,31 @@ ShelterDetectionSystem {
 
 ---
 
-##### Connection 3: Organism/Animal Death → MaterialPacket Conversion
+##### Connection 3: Organism/Animal Death → MaterialPacket Conversion (high)
 
-```
-OrganismDeathSystem {
-  // Step 1: DEATH EVENT
-  // Organism health → 0. Causes: starvation, predation, player combat, old age, disease, environment.
-  // Server removes from active simulation. Spawns CorpseEntity:
-
-  CorpseEntity {
-    id: string
-    species: string
-    bodyMass: number                 // kg at death
-    position: Vec3
-    rotation: Quaternion             // fell in direction of last movement
-    deathTime: number
-    causeOfDeath: string
-    harvestable: boolean             // true until depleted or decomposed
-    remainingMass: number            // starts at bodyMass, decreases with harvest
-    decompositionProgress: number    // 0.0 → 1.0 over 7 game-days
-    temperature: number              // °C — cools after death:
-    //   T(t) = T_ambient + (37 - T_ambient) × e^(-0.05 × t_hours)
-    //   4 hours: near ambient. Relevant for meat spoilage (warm = faster).
-  }
-
-  // Step 2: PLAYER HARVESTING
-  // Interact within 1.5m. Duration depends on tool:
-  //   Bare hands: 45 game-seconds (rough, hide damaged)
-  //   Flint knife: 25 game-seconds
-  //   Copper knife: 18 game-seconds
-  //   Iron knife: 12 game-seconds
-  //   Modified by sharpness: harvestTime = baseTime × (1 + edgeRadius × 5)
-  //   Dull iron knife slower than sharp flint knife.
-  //
-  // Player is in kneeling animation, vulnerable, interruptible.
-  //
-  // Yield: yieldMultiplier = toolSharpness × (toolHardness / targetHardness)
-  //   Good tool: 0.9. Bad tool: 0.5. Bare hands: 0.3.
-
-  // Step 3: PRODUCTS — real MaterialPackets
-  //
-  // Universal product table (all animals):
-  // ┌────────────────┬──────────────┬──────────────────────────────────────────────────┐
-  // │ Product        │ % of bodyMass│ Composition                                      │
-  // ├────────────────┼──────────────┼──────────────────────────────────────────────────┤
-  // │ Meat (muscle)  │ 40%          │ { protein:0.22, fat:0.05, water:0.72, min:0.01 } │
-  // │ Hide/skin      │ 8%           │ { collagen:0.65, water:0.15, fat:0.10, min:0.10 }│
-  // │ Bone           │ 15%          │ { calcium_phosphate:0.70, collagen:0.20, water:0.10 } │
-  // │ Fat (tallow)   │ 10%          │ { fatty_acids:0.85, water:0.10, protein:0.05 }   │
-  // │ Sinew (tendon) │ 3%           │ { collagen:0.85, water:0.10, elastin:0.05 }      │
-  // │ Blood          │ 7%           │ { water:0.80, protein:0.19, minerals:0.01 }      │
-  // │ Organs         │ 7%           │ { protein:0.18, fat:0.08, water:0.70, min:0.04 } │
-  // │ Waste          │ 10%          │ (not harvestable — remains in corpse)             │
-  // └────────────────┴──────────────┴──────────────────────────────────────────────────┘
-  //
-  // Species-specific additions:
-  //   Deer: +antler (2%, { calcium_phosphate:0.55, collagen:0.35, water:0.10 })
-  //   Sheep: +wool (5%, { keratin:0.90, lanolin:0.05, water:0.05 })
-  //   Bird: +feathers (6%, { keratin:0.95, water:0.05 })
-  //   Fish: +scales (2%), +oil (15% for fatty species)
-  //   Bee colony: honey + beeswax + propolis (stored in hive, not body)
-  //
-  // Example: 80kg deer with iron knife (yield 0.9):
-  //   Meat: 80 × 0.40 × 0.9 = 28.8 kg
-  //   Hide: 80 × 0.08 × 0.9 = 5.76 kg (~2.5 m²)
-  //   Bone: 80 × 0.15 × 0.9 = 10.8 kg
-  //   Fat: 80 × 0.10 × 0.9 = 7.2 kg
-  //   Antler: 80 × 0.02 × 0.9 = 1.44 kg
-  //   Sinew: 80 × 0.03 × 0.9 = 2.16 kg
-  //   Total: ~56 kg harvested
-
-  // Step 4: DECOMPOSITION (if unharvested or partially harvested)
-  //   decompRate = baseRate × tempFactor × moistFactor × fungiFactor
-  //
-  //   baseRate: progress += 0.006 per game-hour (full in 7 game-days)
-  //   tempFactor: <0°C: 0.01 (frozen). 0-10: 0.2. 10-25: 1.0. 25-35: 2.0. >35: 3.0.
-  //   moistFactor: dry(<0.3): 0.5. normal: 1.0. wet(>0.7): 1.5.
-  //   fungiFactor: fungi present in soil: 1.5. absent: 1.0.
-  //
-  //   At progress = 1.0: corpse removed. Nutrients to soil:
-  //     soil.nitrogen += remainingMass × 0.003
-  //     soil.phosphorus += remainingMass × 0.001
-  //     soil.organicMatter += remainingMass × 0.0001
-  //
-  //   Visual stages: 0-0.2 fresh, 0.2-0.5 bloating, 0.5-0.8 deflated, 0.8-1.0 skeletal → removed.
-  //
-  //   Scavengers: wolves/birds harvest meat (yield 0.3 bare "hands") — reduces remainingMass.
-  //   A wolf pack at a deer corpse consumes most meat within 1 game-day.
-}
-```
+- MOVED TO §4.3 — See organism death and harvest system in Chapter 4.
+- Data flow: §4.2 organism death event → §4.3 OrganismDeathSystem → §3.1 MaterialPacket outputs
 
 ---
 
-##### Connection 4: Animal Manure Production
+##### Connection 4: Animal Manure Production (high)
 
-```
-ManureSystem {
-  // Every animal that has eaten produces dung at species-specific intervals.
-
-  AnimalDigestion {
-    lastFed: number                  // tick of last food consumption
-    digestingMass: number            // kg being digested
-    digestionProgress: number        // 0.0 → 1.0
-
-    // Digestion time by species:
-    //   Chicken: 4 game-hours
-    //   Pig: 6 game-hours
-    //   Sheep/goat: 8 game-hours (ruminant — slow)
-    //   Horse: 8 game-hours
-    //   Cattle: 12 game-hours (ruminant — very slow)
-
-    // When progress = 1.0: spawn DungPacket, reset.
-  }
-
-  DungPacket {
-    // IS a MaterialPacket. Composition per species:
-    //
-    // ┌──────────┬────────┬──────────────────────────────────────────────────────────┐
-    // │ Species  │ Mass/  │ Composition                                              │
-    // │          │ deposit│                                                          │
-    // ├──────────┼────────┼──────────────────────────────────────────────────────────┤
-    // │ Cattle   │ 12.5kg │ { organic:0.40, water:0.45, N:0.006, P:0.003, K:0.004 } │
-    // │ Pig      │ 1.5kg  │ { organic:0.35, water:0.50, N:0.008, P:0.004, K:0.003 } │
-    // │ Chicken  │ 0.09kg │ { organic:0.30, water:0.40, N:0.015, P:0.010, K:0.005 } │
-    // │ Sheep    │ 0.6kg  │ { organic:0.45, water:0.40, N:0.007, P:0.003, K:0.003 } │
-    // │ Horse    │ 9.0kg  │ { organic:0.50, water:0.35, N:0.005, P:0.002, K:0.004 } │
-    // └──────────┴────────┴──────────────────────────────────────────────────────────┘
-    //
-    // Mass = bodyMass × fraction (cattle 0.025, pig 0.015, chicken 0.03, sheep 0.01, horse 0.02)
-    // Position: animal's feet + random offset ±0.5m
-    // Is a world entity — visible, pickable.
-
-    // WHAT HAPPENS TO DUNG:
-    //   A) Player picks up → inventory → drops on tilled soil → nutrients absorbed:
-    //      soil.nitrogen += dung.N × dung.mass
-    //      soil.phosphorus += dung.P × dung.mass
-    //      soil.potassium += dung.K × dung.mass
-    //      soil.organicMatter += dung.mass × 0.0005
-    //
-    //   B) NPC with farming knowledge collects and spreads (same as A but automated)
-    //
-    //   C) Uncollected: decomposes in 14 game-days → nutrients to local soil cell only
-    //
-    //   D) Dried as fuel: leave in sun 3 game-days → moisture < 0.1 → dried dung
-    //      combustionEnergy = 12 MJ/kg. Historically: primary cooking fuel across Asia/Africa.
-
-    // ENCLOSURE ACCUMULATION:
-    //   dungDensity = totalDungMass / enclosureArea (kg/m²)
-    //   >5.0 kg/m²: diseaseProbability = (density - 5.0) × 0.01 per game-day
-    //   >10.0 kg/m²: animal stress → reduced productivity (less milk, wool, slower growth)
-    //   Creates maintenance loop: animals → dung → clean pen → fertilize fields → grow food → feed animals
-  }
-}
-```
+- MOVED TO §4.3 — See animal manure production system in Chapter 4.
+- Data flow: §4.3 AnimalDigestion → DungPacket (§3.1 MaterialPacket) → soil nutrient absorption
 
 ---
 
-##### Connection 5: NPC Crafting API
+##### Connection 5: NPC Decision → Crafting System (high)
 
-```
-NPCCraftingAPI {
-  // The crafting interaction is a SERVER-SIDE FUNCTION.
-  // The F-key UI is the player's INTERFACE to that function.
-  // NPCs call the same function directly.
-
-  // Server function:
-  //   function attemptCraft(
-  //     actorId: string,             // player userId OR npc ID
-  //     craftLocationId: string,     // interaction point where materials are placed
-  //     inputMaterials: MaterialPacket[],  // materials to process
-  //     action: string               // 'smelt' | 'grind' | 'fire' | 'shape' | 'weave'
-  //   ): CraftResult
-
-  CraftResult {
-    success: boolean
-    output: MaterialPacket | null    // the product (if successful)
-    byproducts: MaterialPacket[]     // slag, ash, steam, etc.
-    energyConsumed: number           // J — fuel consumed
-    timeRequired: number             // game-seconds the process takes
-    failureReason?: string           // 'temperature_too_low' | 'wrong_materials' | 'no_fuel' | ...
-  }
-
-  // PLAYER PATH:
-  //   1. Player walks within 5m of a craft arrangement → "Press F" appears
-  //   2. Client sends CRAFT_INTERACT { playerId, craftLocationId }
-  //   3. Server sets craftLocation.state = 'occupied', craftLocation.operator = playerId
-  //   4. Client enters precision craft mode → player selects materials from inventory
-  //   5. Client sends CRAFT_REQUEST { playerId, craftLocationId, materials[], action }
-  //   6. Server calls attemptCraft(playerId, craftLocationId, materials, action)
-  //   7. Server runs reaction engine (§3.1) on inputs at the location's sampled temperature
-  //   8. Server returns CraftResult to client
-  //   9. If success: output MaterialPacket added to player inventory
-  //   10. If failure: materials returned + failureReason shown as text feedback
-
-  // NPC PATH:
-  //   1. SLM outputs action: "craft_at:smelting_arrangement" with materials from NPC inventory
-  //   2. NPC pathfinds to the arrangement
-  //   3. NPC arrives → server checks: is the interaction point occupied?
-  //      If occupied: NPC waits nearby (SLM re-evaluates in 30 game-seconds)
-  //      If available: server sets craftLocation.operator = npcId
-  //   4. NPC's brain selects materials from what it's carrying:
-  //      Based on knownProcesses: if NPC knows 'copper_smelting', it selects copper ore + charcoal
-  //      If NPC is experimenting (curiosity-driven): selects novel combination
-  //   5. Server calls attemptCraft(npcId, craftLocationId, materials, action)
-  //   6. SAME reaction engine runs. SAME physics. SAME result.
-  //   7. If success: output goes to NPC's carried items
-  //      NPC stores discovery in memory: "malachite + charcoal in clay enclosure → copper"
-  //      NPC's settlement.knownProcesses updated if this is a new discovery
-  //   8. If failure: materials consumed or returned based on failure type
-  //      NPC stores memory: "malachite + charcoal at campfire → nothing (too cold)"
-  //      This memory prevents the NPC from repeating the exact same mistake
-  //      But a curious NPC might try the same materials under DIFFERENT conditions
-
-  // KEY INSIGHT: the function is identical. The only difference is the caller.
-  // This means: every crafting discovery possible for a player is also possible for an NPC.
-  // An NPC that puts random materials in a furnace out of curiosity can discover steel.
-}
-```
+- MOVED TO §5.2 — See NPC crafting behavior in Chapter 5.
+- Data flow: §5.2 NPC brain → §6.1 attemptCraft(actorId, craftLocationId, inputMaterials, action) → §3.1 MaterialPacket output
 
 ---
 
-##### Connection 6: NPC Building Placement
+##### Connection 6: NPC Decision → Building Placement (high)
 
-```
-NPCBuildingPlacement {
-  // SLM decides WHAT to build. BuildingTemplate defines the shape.
-  // PlacementAlgorithm finds WHERE. NPC physically builds block by block.
-
-  BuildingTemplate {
-    type: string                     // 'shelter_hut' | 'storage_hut' | 'wall_segment' | ...
-    footprint: [number, number]      // meters (width × depth)
-    height: number                   // meters
-    wallCount: number                // number of walls (4 for hut, 1 for wall segment)
-    hasRoof: boolean
-    hasDoor: boolean
-    // Templates are minimal descriptions, not blueprints.
-    // The NPC adapts the template to available materials and terrain.
-
-    // Material requirements (approximate — NPC gathers until sufficient):
-    //   shelter_hut (3×3×2.5m): ~80 blocks of wall material + ~20 blocks roof + 1 door frame
-    //   storage_hut (2×2×2m): ~50 blocks wall + ~10 roof
-    //   wall_segment (3×0.3×2m): ~30 blocks
-    //   Block size: ~0.3×0.3×0.3m each (roughly a large stone or clay brick)
-    //   Material: whatever the NPC has access to. Mud brick for early settlements.
-    //   Stone if available. Wood logs for structures near forests.
-  }
-
-  PlacementAlgorithm {
-    // Input: building template, settlement center, existing structures
-    // Output: position (Vec3) and rotation (Quaternion) for the building
-    //
-    // function findBuildPosition(template, settlement):
-    //
-    //   Step 1: Generate candidate positions
-    //     Create a grid of potential positions within settlement territory
-    //     spacing = max(template.footprint) + 2m (gap between buildings)
-    //     candidates = all grid points within territory radius
-    //
-    //   Step 2: Filter invalid positions
-    //     For each candidate, check:
-    //       terrain slope < 15° across the footprint area
-    //         (measure: max height difference across footprint < tan(15°) × footprint width)
-    //       not overlapping any existing world_object (check bounding boxes + 1m margin)
-    //       not overlapping water (grid cells with waterVolume > 0)
-    //       not on a cliff edge (terrain drops > 2m within 3m of any footprint edge)
-    //       ground bearing capacity > estimated building weight / footprint area
-    //         (from §3.4 foundation system — mud can't support heavy stone buildings)
-    //
-    //   Step 3: Score remaining candidates
-    //     score = 0
-    //     + 10 × (1 - distance_to_settlement_center / territory_radius)
-    //       // closer to center is better (cluster, don't scatter)
-    //     + 5 × count_of_nearby_structures_within_10m
-    //       // near other buildings (community feel)
-    //     - 3 × count_of_nearby_structures_within_3m
-    //       // but not TOO close (fire safety, walkability)
-    //     + 2 if facing_nearest_path
-    //       // door faces toward the main walkway
-    //     + 3 if near_craft_arrangement
-    //       // storage near smelting enclosure, shelter near campfire
-    //     - 5 if blocks_river_access
-    //       // don't build between settlement and water source
-    //
-    //   Step 4: Pick highest-scoring candidate
-    //     position = candidate.position
-    //     rotation = face door toward settlement center (or toward nearest path)
-    //
-    //   Return { position, rotation }
-
-    // NPC CONSTRUCTION PROCESS (over multiple game-hours):
-    //
-    //   1. NPC goes to material source (stone pile, clay deposit, forest)
-    //   2. NPC gathers materials: carry capacity limits → multiple trips
-    //      Per trip: NPC carries ~10-20kg of material (depends on strength)
-    //      A shelter hut needs ~2000kg of material → ~100-200 trips
-    //      At ~5 game-minutes per trip → ~8-16 game-hours of gathering
-    //
-    //   3. NPC places blocks using server-side placeObject():
-    //      Same function as player building (§7.4)
-    //      NPC places one block every ~5 game-seconds
-    //      Position: computed from template + current build progress
-    //      Walls first (bottom row → top row), then roof, then door frame
-    //
-    //   4. NPC bonds blocks with available mortar:
-    //      If settlement knows mud mortar: use mud (cheap but weak, rain-vulnerable)
-    //      If settlement knows lime mortar: use lime (strong, waterproof — requires kiln)
-    //      If no mortar knowledge: dry-stack only (fragile, topples in storms)
-    //
-    //   5. Construction takes breaks: NPC eats, sleeps, does other tasks
-    //      A shelter hut takes ~2-4 game-days of intermittent work
-    //      Multiple NPCs can work on the same building (each places blocks)
-    //
-    //   6. Completed structure is added to settlement.structures
-    //      Becomes a real world_object: persistent, shelters from weather, usable by all
-
-    // VARIATION: two NPCs building the same template produce different results.
-    // Different stone sizes (from different quarries), different mortar quality,
-    // different terrain adaptation (one building is level, another follows a slope).
-    // Buildings are not prefabs — they are assembled from individual MaterialPackets.
-  }
-}
-```
+- MOVED TO §5.2 — See NPC building placement behavior in Chapter 5.
+- Data flow: §5.2 NPC brain → §7.4 placeObject() → §3.4 structural integrity check
 
 ---
 
@@ -6546,128 +6250,17 @@ SoilErosionSystem {
 
 ---
 
-##### Connection 22: Clothing Warmth Combination (moderate)
+##### Connection 22: Material Thermal Conductivity → Clothing Warmth (moderate)
 
-```
-ClothingWarmthSystem {
-  // Multiple clothing items combine to insulate the player.
-  // Insulation uses the CLO system (see Clothing Insulation Values below).
-
-  // Each ClothingItem has insulation: number (CLO units)
-  // CLO values per slot (example materials):
-  //   head (hat/helmet):        wool 0.8 CLO, leather 0.5 CLO, linen 0.3 CLO
-  //   torso (shirt):            wool 0.8 CLO, leather 0.5 CLO, linen 0.3 CLO
-  //   outerLayer (jacket/cloak): fur 1.5 CLO, sheepskin 1.2 CLO, wool 0.8 CLO
-  //   legs (pants):             wool 0.8 CLO, leather 0.5 CLO, linen 0.3 CLO
-  //   feet (boots):             leather 0.5 CLO, fur 1.5 CLO
-  //   gloves:                   wool 0.8 CLO, leather 0.5 CLO
-  //   No insulation from: belt, necklace, bracelet, ring, backpack
-
-  // COMBINATION FORMULA (CLO system):
-  //   totalCLO = sum of CLO values for all worn clothing layers
-  //   heatLoss = baseHeatLoss / (1 + totalCLO × 0.155)
-  //   CLO values per material are derived from thermal conductivity (§3.1):
-  //     CLO = thickness(m) / (0.155 × thermalConductivity)
-  //   totalCLO 0 (naked): heatLoss = baseHeatLoss (full exposure)
-  //   totalCLO 1 (light suit): heatLoss = baseHeatLoss / 1.155 (13% reduction)
-  //   totalCLO 4 (full wool): heatLoss = baseHeatLoss / 1.62 (38% reduction)
-  //
-  //   Full wool outfit: 0.8 + 0.8 + 0.8 + 0.8 + 0.5 + 0.8 = 4.5 CLO
-  //   Bare (no clothes): 0 CLO
-  //
-  // WET CLOTHING:
-  //   If raining AND exposed (shelter map) AND clothing.waterResistance < 1.0:
-  //     clothing.moisture increases over time
-  //     wetCLOMultiplier = 1.0 - clothing.moisture × 0.8
-  //     Wet wool retains 75% CLO (wool is remarkable this way)
-  //     Wet cotton retains 17% CLO (cotton is terrible when wet)
-  //     effectiveCLO = item.insulation × wetCLOMultiplier
-  //   Drying: when not raining and near fire or in sun:
-  //     clothing.moisture decreases based on temperature and wind
-
-  // ── Clothing Insulation Values ─────────────────────────────────────────
-  //
-  // In plain English: clothing reduces heat loss. Wool is the best because 
-  // it traps air and works even when wet. Leather blocks wind. Linen barely helps.
-  //
-  // Insulation is measured in CLO units (1 CLO = enough for comfort at 21°C sitting):
-  //   heatLossReduction = 1 / (1 + totalCLO × 0.155)
-  //   At 0 CLO (naked): heatLossReduction = 1.0 (full heat loss)
-  //   At 1 CLO (light suit): heatLossReduction = 0.87 (13% reduction)
-  //   At 4 CLO (heavy winter): heatLossReduction = 0.62 (38% reduction)
-  //
-  // | Material        | CLO per layer | Wet CLO | Notes |
-  // |----------------|--------------|---------|-------|
-  // | Linen/cotton    | 0.3          | 0.05    | Useless when wet — loses 83% insulation |
-  // | Wool            | 0.8          | 0.6     | Retains 75% insulation when wet |
-  // | Leather         | 0.5          | 0.4     | Wind-blocking but moderate warmth |
-  // | Fur (animal)    | 1.5          | 0.8     | Best insulation — air trapped in fur |
-  // | Sheepskin       | 1.2          | 0.9     | Excellent — wool still attached to hide |
-  // | Feather-filled  | 2.0          | 0.3     | Best dry insulation, terrible when wet |
-  // | Bark/grass      | 0.2          | 0.1     | Emergency only |
-  //
-  // Layers stack: wearing wool (0.8) + leather (0.5) = 1.3 CLO total
-  // Each body region contributes proportionally:
-  //   Head: 10% of body heat (high priority to cover)
-  //   Torso: 40%
-  //   Legs: 30%
-  //   Hands/feet: 20%
-  //
-  // CLO values are derived from the material's thermal conductivity (§3.1):
-  //   CLO ≈ thickness(m) / (0.155 × thermalConductivity(W/mK))
-  //   Wool: 0.005m thick, κ=0.04 → CLO = 0.005/(0.155×0.04) = 0.81 ✓
-
-  // BODY REGION COVERAGE:
-  //   Injury from hot inventory items maps to clothing slot:
-  //     Item in pants pocket → leg region
-  //     Item in torso (jacket pocket) → torso region
-  //     Item in backpack → torso region (backpack sits on back/torso)
-  //     Item in hand → arm region of that hand
-}
-```
+- MOVED TO §7.3 — See clothing warmth system (CLO) in Chapter 7.
+- Data flow: §3.1 thermalConductivity → §7.3 CLO calculation → §3.0 body temperature
 
 ---
 
-##### Connection 23: Swimming Buoyancy Formula (moderate)
+##### Connection 23: Body Composition → Swimming Buoyancy (moderate)
 
-```
-SwimmingBuoyancySystem {
-  // Buoyancy depends on: body fat, carried weight, and clothing.
-
-  // BASE BUOYANCY (from character creation §7.1):
-  //   baseBuoyancy = 0.5 + bodyFat × 0.3 - muscularity × 0.1
-  //   Thin (fat 0.1, muscle 0.2): 0.5 + 0.03 - 0.02 = 0.51 (barely floats)
-  //   Average (fat 0.3, muscle 0.3): 0.5 + 0.09 - 0.03 = 0.56 (floats comfortably)
-  //   Fat (fat 0.7, muscle 0.2): 0.5 + 0.21 - 0.02 = 0.69 (very buoyant)
-  //   Muscular (fat 0.1, muscle 0.8): 0.5 + 0.03 - 0.08 = 0.45 (sinks without effort)
-  //
-  //   buoyancy > 0.5: player floats naturally (treading water uses less stamina)
-  //   buoyancy < 0.5: player sinks slowly (must actively swim to stay afloat)
-
-  // CARRIED WEIGHT EFFECT:
-  //   effectiveBuoyancy = baseBuoyancy - (totalCarriedWeight / maxCarryWeight) × 0.4
-  //
-  //   Naked (0kg): effectiveBuoyancy = baseBuoyancy (full float)
-  //   Light gear (10kg carried, max 60kg): effectiveBuoyancy = base - 0.067 (slight reduction)
-  //   Heavy gear (40kg): effectiveBuoyancy = base - 0.267 (significant sinking)
-  //   Full load (60kg): effectiveBuoyancy = base - 0.4 (probably sinking)
-  //
-  //   Average person (baseBuoyancy 0.56) carrying 40kg of stone:
-  //     effectiveBuoyancy = 0.56 - 0.267 = 0.293 → SINKS. Must drop items or drown.
-
-  // DROWNING THRESHOLD:
-  //   if effectiveBuoyancy < 0.3: player CANNOT stay afloat without constant swimming
-  //     stamina drain while treading water: base × (0.5 - effectiveBuoyancy) × 10
-  //     At buoyancy 0.2: stamina drain = base × 3.0 (exhaustion in ~30 seconds)
-  //   if effectiveBuoyancy < 0.1: player sinks immediately regardless of stamina
-  //     Must drop items NOW or die
-  //
-  //   Player can voluntarily drop items while in water:
-  //     Metal items sink (density > 1000 kg/m³) → lost to the bottom
-  //     Wood items float (density < 1000 kg/m³) → recoverable from surface
-  //     This creates a real risk/reward: carry heavy tools across a river? Risk drowning.
-}
-```
+- MOVED TO §7.2 — See swimming buoyancy system in Chapter 7.
+- Data flow: §7.1 bodyFat/muscularity → §7.2 buoyancy calculation → §7.3 carried weight effect
 
 ---
 
@@ -6984,91 +6577,15 @@ CookingSystem {
 
 ##### Connection 30: NPC Fitness Changes (moderate)
 
-```
-NPCFitnessSystem {
-  // NPCs have the same body stats as players (§7.2). Their fitness changes from activity.
-
-  // NPCs use the SAME fitness training system as players (§7.2):
-  //   strength increases from: mining, carrying heavy loads, building
-  //   endurance increases from: running, swimming, sustained work
-  //   speed increases from: sprinting, fleeing from danger
-  //
-  //   Training rate (same as player): +0.0001 per relevant action
-  //   Decay rate: -0.00005 per game-day for unused attributes
-  //   Range: 0.5 (baseline) to 1.0 (peak)
-
-  // PRACTICAL EFFECT:
-  //   An NPC that mines copper ore every day gradually gets stronger
-  //     strength increases from 0.5 to ~0.65 over 2000 mining actions (~months of play)
-  //     This means: the NPC can carry more ore per trip, swings the pick faster
-  //   An NPC that runs messages between settlements gets faster
-  //   An NPC that sits idle all day slowly loses fitness
-  //
-  //   Old NPCs (age > 50): fitness caps decrease (see §7.1 aging system)
-  //     Even a hard-working old NPC can't maintain peak fitness
-  //   Young NPCs (age 15-35): peak cap = 1.0, can reach maximum with enough training
-
-  // NPC APPEARANCE:
-  //   Fitness affects the NPC's body morph (same as player):
-  //     High strength → muscularity morph increases slightly over time
-  //     Low activity → bodyFat morph may increase slightly
-  //     Very slow change: noticeable only over game-years
-  //
-  // This means: players who visit a settlement repeatedly over game-months
-  // will notice NPCs who mine a lot have bulkier arms. Emergent, not scripted.
-}
-```
+- MOVED TO §5.2 — See NPC fitness behavior in Chapter 5.
+- Data flow: §5.2 NPC activity → §7.2 fitness training system (same rates as player)
 
 ---
 
 ##### Connection 31: NPC Structural Decay Detection (moderate)
 
-```
-NPCMaintenanceSystem {
-  // NPCs need to detect and repair decaying structures.
-
-  // DETECTION:
-  //   The server tracks durability per world_object (§7.12 persistence).
-  //   Per settlement, per game-day:
-  //     Scan all structures within settlement territory
-  //     For each structure where ANY block has durability < 0.7:
-  //       Add to settlement.maintenanceNeeds list:
-  //         { structureId, lowestDurability, blockCount, materialNeeded }
-  //
-  //   This list is included in the SLM input as part of settlementNeeds:
-  //     "storage_hut_3: roof leaking (durability 0.45), needs thatch repair"
-  //     "wall_section_7: mud mortar dissolving (durability 0.3), needs repointing"
-
-  // NPC RESPONSE:
-  //   When an NPC's SLM sees a maintenance need AND the NPC has relevant skills:
-  //     SLM output: "repair:storage_hut_3_roof"
-  //     NPC gathers repair materials (thatch, mortar, stone — whatever the structure needs)
-  //     NPC pathfinds to the damaged structure
-  //     NPC performs repair action (similar to building: place new material, apply mortar)
-  //     Duration: 5-30 game-minutes depending on damage extent
-  //     Result: durability of repaired blocks increases
-  //       New mortar: block.bondStrength reset to fresh value
-  //       New thatch: block.durability = 1.0
-  //       Patch repair: block.durability += 0.3 (partial, not full)
-
-  // PRIORITY:
-  //   NPCs prioritize maintenance by impact:
-  //     Shelter roof leaking → high priority (occupants get wet → health risk)
-  //     Storage hut wall cracking → high priority (stored food at risk)
-  //     Decorative wall crumbling → low priority (aesthetic, not functional)
-  //     Wall segment on perimeter → medium priority (security)
-  //
-  //   If no NPC has maintenance skills → structures decay without repair
-  //   A settlement's sophistication partly depends on whether it can maintain what it built
-
-  // IF MAINTENANCE FAILS (no materials, no skilled NPC):
-  //   Structure continues decaying
-  //   At durability 0: blocks fail → structural collapse (§3.4)
-  //   Collapsed structure becomes rubble (loose MaterialPackets on ground)
-  //   The settlement's assessSettlement() rating drops (fewer structures = lower assessment)
-  //   This is how abandoned settlements become ruins naturally
-}
-```
+- MOVED TO §5.2 — See NPC maintenance behavior in Chapter 5.
+- Data flow: §7.12 durability tracking → §5.2 SLM settlementNeeds input → NPC repair action → §3.4 structural integrity
 
 ##### Connection 32: Work Hardening → Tool Quality (moderate)
 
@@ -12894,6 +12411,167 @@ AnimalPlayerInteraction {
 ```
 
 
+---
+
+#### 4.3.1 Organism/Animal Death and Harvest System
+
+// [Moved from §3.6 Connection 3 — this is the authoritative definition]
+
+```
+OrganismDeathSystem {
+  // Step 1: DEATH EVENT
+  // Organism health → 0. Causes: starvation, predation, player combat, old age, disease, environment.
+  // Server removes from active simulation. Spawns CorpseEntity:
+
+  CorpseEntity {
+    id: string
+    species: string
+    bodyMass: number                 // kg at death
+    position: Vec3
+    rotation: Quaternion             // fell in direction of last movement
+    deathTime: number
+    causeOfDeath: string
+    harvestable: boolean             // true until depleted or decomposed
+    remainingMass: number            // starts at bodyMass, decreases with harvest
+    decompositionProgress: number    // 0.0 → 1.0 over 7 game-days
+    temperature: number              // °C — cools after death:
+    //   T(t) = T_ambient + (37 - T_ambient) × e^(-0.05 × t_hours)
+    //   4 hours: near ambient. Relevant for meat spoilage (warm = faster).
+  }
+
+  // Step 2: PLAYER HARVESTING
+  // Interact within 1.5m. Duration depends on tool:
+  //   Bare hands: 45 game-seconds (rough, hide damaged)
+  //   Flint knife: 25 game-seconds
+  //   Copper knife: 18 game-seconds
+  //   Iron knife: 12 game-seconds
+  //   Modified by sharpness: harvestTime = baseTime × (1 + edgeRadius × 5)
+  //   Dull iron knife slower than sharp flint knife.
+  //
+  // Player is in kneeling animation, vulnerable, interruptible.
+  //
+  // Yield: yieldMultiplier = toolSharpness × (toolHardness / targetHardness)
+  //   Good tool: 0.9. Bad tool: 0.5. Bare hands: 0.3.
+
+  // Step 3: PRODUCTS — real MaterialPackets
+  //
+  // Universal product table (all animals):
+  // ┌────────────────┬──────────────┬──────────────────────────────────────────────────┐
+  // │ Product        │ % of bodyMass│ Composition                                      │
+  // ├────────────────┼──────────────┼──────────────────────────────────────────────────┤
+  // │ Meat (muscle)  │ 40%          │ { protein:0.22, fat:0.05, water:0.72, min:0.01 } │
+  // │ Hide/skin      │ 8%           │ { collagen:0.65, water:0.15, fat:0.10, min:0.10 }│
+  // │ Bone           │ 15%          │ { calcium_phosphate:0.70, collagen:0.20, water:0.10 } │
+  // │ Fat (tallow)   │ 10%          │ { fatty_acids:0.85, water:0.10, protein:0.05 }   │
+  // │ Sinew (tendon) │ 3%           │ { collagen:0.85, water:0.10, elastin:0.05 }      │
+  // │ Blood          │ 7%           │ { water:0.80, protein:0.19, minerals:0.01 }      │
+  // │ Organs         │ 7%           │ { protein:0.18, fat:0.08, water:0.70, min:0.04 } │
+  // │ Waste          │ 10%          │ (not harvestable — remains in corpse)             │
+  // └────────────────┴──────────────┴──────────────────────────────────────────────────┘
+  //
+  // Species-specific additions:
+  //   Deer: +antler (2%, { calcium_phosphate:0.55, collagen:0.35, water:0.10 })
+  //   Sheep: +wool (5%, { keratin:0.90, lanolin:0.05, water:0.05 })
+  //   Bird: +feathers (6%, { keratin:0.95, water:0.05 })
+  //   Fish: +scales (2%), +oil (15% for fatty species)
+  //   Bee colony: honey + beeswax + propolis (stored in hive, not body)
+  //
+  // Example: 80kg deer with iron knife (yield 0.9):
+  //   Meat: 80 × 0.40 × 0.9 = 28.8 kg
+  //   Hide: 80 × 0.08 × 0.9 = 5.76 kg (~2.5 m²)
+  //   Bone: 80 × 0.15 × 0.9 = 10.8 kg
+  //   Fat: 80 × 0.10 × 0.9 = 7.2 kg
+  //   Antler: 80 × 0.02 × 0.9 = 1.44 kg
+  //   Sinew: 80 × 0.03 × 0.9 = 2.16 kg
+  //   Total: ~56 kg harvested
+
+  // Step 4: DECOMPOSITION (if unharvested or partially harvested)
+  //   decompRate = baseRate × tempFactor × moistFactor × fungiFactor
+  //
+  //   baseRate: progress += 0.006 per game-hour (full in 7 game-days)
+  //   tempFactor: <0°C: 0.01 (frozen). 0-10: 0.2. 10-25: 1.0. 25-35: 2.0. >35: 3.0.
+  //   moistFactor: dry(<0.3): 0.5. normal: 1.0. wet(>0.7): 1.5.
+  //   fungiFactor: fungi present in soil: 1.5. absent: 1.0.
+  //
+  //   At progress = 1.0: corpse removed. Nutrients to soil:
+  //     soil.nitrogen += remainingMass × 0.003
+  //     soil.phosphorus += remainingMass × 0.001
+  //     soil.organicMatter += remainingMass × 0.0001
+  //
+  //   Visual stages: 0-0.2 fresh, 0.2-0.5 bloating, 0.5-0.8 deflated, 0.8-1.0 skeletal → removed.
+  //
+  //   Scavengers: wolves/birds harvest meat (yield 0.3 bare "hands") — reduces remainingMass.
+  //   A wolf pack at a deer corpse consumes most meat within 1 game-day.
+}
+```
+
+---
+
+#### 4.3.2 Animal Manure Production
+
+// [Moved from §3.6 Connection 4 — this is the authoritative definition]
+
+```
+ManureSystem {
+  // Every animal that has eaten produces dung at species-specific intervals.
+
+  AnimalDigestion {
+    lastFed: number                  // tick of last food consumption
+    digestingMass: number            // kg being digested
+    digestionProgress: number        // 0.0 → 1.0
+
+    // Digestion time by species:
+    //   Chicken: 4 game-hours
+    //   Pig: 6 game-hours
+    //   Sheep/goat: 8 game-hours (ruminant — slow)
+    //   Horse: 8 game-hours
+    //   Cattle: 12 game-hours (ruminant — very slow)
+
+    // When progress = 1.0: spawn DungPacket, reset.
+  }
+
+  DungPacket {
+    // IS a MaterialPacket. Composition per species:
+    //
+    // ┌──────────┬────────┬──────────────────────────────────────────────────────────┐
+    // │ Species  │ Mass/  │ Composition                                              │
+    // │          │ deposit│                                                          │
+    // ├──────────┼────────┼──────────────────────────────────────────────────────────┤
+    // │ Cattle   │ 12.5kg │ { organic:0.40, water:0.45, N:0.006, P:0.003, K:0.004 } │
+    // │ Pig      │ 1.5kg  │ { organic:0.35, water:0.50, N:0.008, P:0.004, K:0.003 } │
+    // │ Chicken  │ 0.09kg │ { organic:0.30, water:0.40, N:0.015, P:0.010, K:0.005 } │
+    // │ Sheep    │ 0.6kg  │ { organic:0.45, water:0.40, N:0.007, P:0.003, K:0.003 } │
+    // │ Horse    │ 9.0kg  │ { organic:0.50, water:0.35, N:0.005, P:0.002, K:0.004 } │
+    // └──────────┴────────┴──────────────────────────────────────────────────────────┘
+    //
+    // Mass = bodyMass × fraction (cattle 0.025, pig 0.015, chicken 0.03, sheep 0.01, horse 0.02)
+    // Position: animal's feet + random offset ±0.5m
+    // Is a world entity — visible, pickable.
+
+    // WHAT HAPPENS TO DUNG:
+    //   A) Player picks up → inventory → drops on tilled soil → nutrients absorbed:
+    //      soil.nitrogen += dung.N × dung.mass
+    //      soil.phosphorus += dung.P × dung.mass
+    //      soil.potassium += dung.K × dung.mass
+    //      soil.organicMatter += dung.mass × 0.0005
+    //
+    //   B) NPC with farming knowledge collects and spreads (same as A but automated)
+    //
+    //   C) Uncollected: decomposes in 14 game-days → nutrients to local soil cell only
+    //
+    //   D) Dried as fuel: leave in sun 3 game-days → moisture < 0.1 → dried dung
+    //      combustionEnergy = 12 MJ/kg. Historically: primary cooking fuel across Asia/Africa.
+
+    // ENCLOSURE ACCUMULATION:
+    //   dungDensity = totalDungMass / enclosureArea (kg/m²)
+    //   >5.0 kg/m²: diseaseProbability = (density - 5.0) × 0.01 per game-day
+    //   >10.0 kg/m²: animal stress → reduced productivity (less milk, wool, slower growth)
+    //   Creates maintenance loop: animals → dung → clean pen → fertilize fields → grow food → feed animals
+  }
+}
+```
+
+
 ### 4.4 Farming and Agriculture — Growing Food from Soil
 
 ```
@@ -15525,6 +15203,271 @@ SLMTrainingLoop {
   // Eventually, Tier 3 calls become rare edge cases that only fire for
   // truly unprecedented situations (which means the game is producing
   // genuinely novel emergent behavior — exactly the goal).
+}
+```
+
+
+#### NPC Behavior Systems — Crafting, Building, Fitness, and Maintenance
+
+// [Moved from §3.6 Connection 5, 6, 30, 31 — these are the authoritative definitions]
+
+##### NPC Crafting API (from Connection 5)
+
+
+```
+NPCCraftingAPI {
+  // The crafting interaction is a SERVER-SIDE FUNCTION.
+  // The F-key UI is the player's INTERFACE to that function.
+  // NPCs call the same function directly.
+
+  // Server function:
+  //   function attemptCraft(
+  //     actorId: string,             // player userId OR npc ID
+  //     craftLocationId: string,     // interaction point where materials are placed
+  //     inputMaterials: MaterialPacket[],  // materials to process
+  //     action: string               // 'smelt' | 'grind' | 'fire' | 'shape' | 'weave'
+  //   ): CraftResult
+
+  CraftResult {
+    success: boolean
+    output: MaterialPacket | null    // the product (if successful)
+    byproducts: MaterialPacket[]     // slag, ash, steam, etc.
+    energyConsumed: number           // J — fuel consumed
+    timeRequired: number             // game-seconds the process takes
+    failureReason?: string           // 'temperature_too_low' | 'wrong_materials' | 'no_fuel' | ...
+  }
+
+  // PLAYER PATH:
+  //   1. Player walks within 5m of a craft arrangement → "Press F" appears
+  //   2. Client sends CRAFT_INTERACT { playerId, craftLocationId }
+  //   3. Server sets craftLocation.state = 'occupied', craftLocation.operator = playerId
+  //   4. Client enters precision craft mode → player selects materials from inventory
+  //   5. Client sends CRAFT_REQUEST { playerId, craftLocationId, materials[], action }
+  //   6. Server calls attemptCraft(playerId, craftLocationId, materials, action)
+  //   7. Server runs reaction engine (§3.1) on inputs at the location's sampled temperature
+  //   8. Server returns CraftResult to client
+  //   9. If success: output MaterialPacket added to player inventory
+  //   10. If failure: materials returned + failureReason shown as text feedback
+
+  // NPC PATH:
+  //   1. SLM outputs action: "craft_at:smelting_arrangement" with materials from NPC inventory
+  //   2. NPC pathfinds to the arrangement
+  //   3. NPC arrives → server checks: is the interaction point occupied?
+  //      If occupied: NPC waits nearby (SLM re-evaluates in 30 game-seconds)
+  //      If available: server sets craftLocation.operator = npcId
+  //   4. NPC's brain selects materials from what it's carrying:
+  //      Based on knownProcesses: if NPC knows 'copper_smelting', it selects copper ore + charcoal
+  //      If NPC is experimenting (curiosity-driven): selects novel combination
+  //   5. Server calls attemptCraft(npcId, craftLocationId, materials, action)
+  //   6. SAME reaction engine runs. SAME physics. SAME result.
+  //   7. If success: output goes to NPC's carried items
+  //      NPC stores discovery in memory: "malachite + charcoal in clay enclosure → copper"
+  //      NPC's settlement.knownProcesses updated if this is a new discovery
+  //   8. If failure: materials consumed or returned based on failure type
+  //      NPC stores memory: "malachite + charcoal at campfire → nothing (too cold)"
+  //      This memory prevents the NPC from repeating the exact same mistake
+  //      But a curious NPC might try the same materials under DIFFERENT conditions
+
+  // KEY INSIGHT: the function is identical. The only difference is the caller.
+  // This means: every crafting discovery possible for a player is also possible for an NPC.
+  // An NPC that puts random materials in a furnace out of curiosity can discover steel.
+}
+```
+
+---
+
+##### NPC Building Placement (from Connection 6)
+
+
+```
+NPCBuildingPlacement {
+  // SLM decides WHAT to build. BuildingTemplate defines the shape.
+  // PlacementAlgorithm finds WHERE. NPC physically builds block by block.
+
+  BuildingTemplate {
+    type: string                     // 'shelter_hut' | 'storage_hut' | 'wall_segment' | ...
+    footprint: [number, number]      // meters (width × depth)
+    height: number                   // meters
+    wallCount: number                // number of walls (4 for hut, 1 for wall segment)
+    hasRoof: boolean
+    hasDoor: boolean
+    // Templates are minimal descriptions, not blueprints.
+    // The NPC adapts the template to available materials and terrain.
+
+    // Material requirements (approximate — NPC gathers until sufficient):
+    //   shelter_hut (3×3×2.5m): ~80 blocks of wall material + ~20 blocks roof + 1 door frame
+    //   storage_hut (2×2×2m): ~50 blocks wall + ~10 roof
+    //   wall_segment (3×0.3×2m): ~30 blocks
+    //   Block size: ~0.3×0.3×0.3m each (roughly a large stone or clay brick)
+    //   Material: whatever the NPC has access to. Mud brick for early settlements.
+    //   Stone if available. Wood logs for structures near forests.
+  }
+
+  PlacementAlgorithm {
+    // Input: building template, settlement center, existing structures
+    // Output: position (Vec3) and rotation (Quaternion) for the building
+    //
+    // function findBuildPosition(template, settlement):
+    //
+    //   Step 1: Generate candidate positions
+    //     Create a grid of potential positions within settlement territory
+    //     spacing = max(template.footprint) + 2m (gap between buildings)
+    //     candidates = all grid points within territory radius
+    //
+    //   Step 2: Filter invalid positions
+    //     For each candidate, check:
+    //       terrain slope < 15° across the footprint area
+    //         (measure: max height difference across footprint < tan(15°) × footprint width)
+    //       not overlapping any existing world_object (check bounding boxes + 1m margin)
+    //       not overlapping water (grid cells with waterVolume > 0)
+    //       not on a cliff edge (terrain drops > 2m within 3m of any footprint edge)
+    //       ground bearing capacity > estimated building weight / footprint area
+    //         (from §3.4 foundation system — mud can't support heavy stone buildings)
+    //
+    //   Step 3: Score remaining candidates
+    //     score = 0
+    //     + 10 × (1 - distance_to_settlement_center / territory_radius)
+    //       // closer to center is better (cluster, don't scatter)
+    //     + 5 × count_of_nearby_structures_within_10m
+    //       // near other buildings (community feel)
+    //     - 3 × count_of_nearby_structures_within_3m
+    //       // but not TOO close (fire safety, walkability)
+    //     + 2 if facing_nearest_path
+    //       // door faces toward the main walkway
+    //     + 3 if near_craft_arrangement
+    //       // storage near smelting enclosure, shelter near campfire
+    //     - 5 if blocks_river_access
+    //       // don't build between settlement and water source
+    //
+    //   Step 4: Pick highest-scoring candidate
+    //     position = candidate.position
+    //     rotation = face door toward settlement center (or toward nearest path)
+    //
+    //   Return { position, rotation }
+
+    // NPC CONSTRUCTION PROCESS (over multiple game-hours):
+    //
+    //   1. NPC goes to material source (stone pile, clay deposit, forest)
+    //   2. NPC gathers materials: carry capacity limits → multiple trips
+    //      Per trip: NPC carries ~10-20kg of material (depends on strength)
+    //      A shelter hut needs ~2000kg of material → ~100-200 trips
+    //      At ~5 game-minutes per trip → ~8-16 game-hours of gathering
+    //
+    //   3. NPC places blocks using server-side placeObject():
+    //      Same function as player building (§7.4)
+    //      NPC places one block every ~5 game-seconds
+    //      Position: computed from template + current build progress
+    //      Walls first (bottom row → top row), then roof, then door frame
+    //
+    //   4. NPC bonds blocks with available mortar:
+    //      If settlement knows mud mortar: use mud (cheap but weak, rain-vulnerable)
+    //      If settlement knows lime mortar: use lime (strong, waterproof — requires kiln)
+    //      If no mortar knowledge: dry-stack only (fragile, topples in storms)
+    //
+    //   5. Construction takes breaks: NPC eats, sleeps, does other tasks
+    //      A shelter hut takes ~2-4 game-days of intermittent work
+    //      Multiple NPCs can work on the same building (each places blocks)
+    //
+    //   6. Completed structure is added to settlement.structures
+    //      Becomes a real world_object: persistent, shelters from weather, usable by all
+
+    // VARIATION: two NPCs building the same template produce different results.
+    // Different stone sizes (from different quarries), different mortar quality,
+    // different terrain adaptation (one building is level, another follows a slope).
+    // Buildings are not prefabs — they are assembled from individual MaterialPackets.
+  }
+}
+```
+
+---
+
+##### NPC Fitness Changes (from Connection 30)
+
+
+```
+NPCFitnessSystem {
+  // NPCs have the same body stats as players (§7.2). Their fitness changes from activity.
+
+  // NPCs use the SAME fitness training system as players (§7.2):
+  //   strength increases from: mining, carrying heavy loads, building
+  //   endurance increases from: running, swimming, sustained work
+  //   speed increases from: sprinting, fleeing from danger
+  //
+  //   Training rate (same as player): +0.0001 per relevant action
+  //   Decay rate: -0.00005 per game-day for unused attributes
+  //   Range: 0.5 (baseline) to 1.0 (peak)
+
+  // PRACTICAL EFFECT:
+  //   An NPC that mines copper ore every day gradually gets stronger
+  //     strength increases from 0.5 to ~0.65 over 2000 mining actions (~months of play)
+  //     This means: the NPC can carry more ore per trip, swings the pick faster
+  //   An NPC that runs messages between settlements gets faster
+  //   An NPC that sits idle all day slowly loses fitness
+  //
+  //   Old NPCs (age > 50): fitness caps decrease (see §7.1 aging system)
+  //     Even a hard-working old NPC can't maintain peak fitness
+  //   Young NPCs (age 15-35): peak cap = 1.0, can reach maximum with enough training
+
+  // NPC APPEARANCE:
+  //   Fitness affects the NPC's body morph (same as player):
+  //     High strength → muscularity morph increases slightly over time
+  //     Low activity → bodyFat morph may increase slightly
+  //     Very slow change: noticeable only over game-years
+  //
+  // This means: players who visit a settlement repeatedly over game-months
+  // will notice NPCs who mine a lot have bulkier arms. Emergent, not scripted.
+}
+```
+
+---
+
+##### NPC Structural Decay Detection (from Connection 31)
+
+
+```
+NPCMaintenanceSystem {
+  // NPCs need to detect and repair decaying structures.
+
+  // DETECTION:
+  //   The server tracks durability per world_object (§7.12 persistence).
+  //   Per settlement, per game-day:
+  //     Scan all structures within settlement territory
+  //     For each structure where ANY block has durability < 0.7:
+  //       Add to settlement.maintenanceNeeds list:
+  //         { structureId, lowestDurability, blockCount, materialNeeded }
+  //
+  //   This list is included in the SLM input as part of settlementNeeds:
+  //     "storage_hut_3: roof leaking (durability 0.45), needs thatch repair"
+  //     "wall_section_7: mud mortar dissolving (durability 0.3), needs repointing"
+
+  // NPC RESPONSE:
+  //   When an NPC's SLM sees a maintenance need AND the NPC has relevant skills:
+  //     SLM output: "repair:storage_hut_3_roof"
+  //     NPC gathers repair materials (thatch, mortar, stone — whatever the structure needs)
+  //     NPC pathfinds to the damaged structure
+  //     NPC performs repair action (similar to building: place new material, apply mortar)
+  //     Duration: 5-30 game-minutes depending on damage extent
+  //     Result: durability of repaired blocks increases
+  //       New mortar: block.bondStrength reset to fresh value
+  //       New thatch: block.durability = 1.0
+  //       Patch repair: block.durability += 0.3 (partial, not full)
+
+  // PRIORITY:
+  //   NPCs prioritize maintenance by impact:
+  //     Shelter roof leaking → high priority (occupants get wet → health risk)
+  //     Storage hut wall cracking → high priority (stored food at risk)
+  //     Decorative wall crumbling → low priority (aesthetic, not functional)
+  //     Wall segment on perimeter → medium priority (security)
+  //
+  //   If no NPC has maintenance skills → structures decay without repair
+  //   A settlement's sophistication partly depends on whether it can maintain what it built
+
+  // IF MAINTENANCE FAILS (no materials, no skilled NPC):
+  //   Structure continues decaying
+  //   At durability 0: blocks fail → structural collapse (§3.4)
+  //   Collapsed structure becomes rubble (loose MaterialPackets on ground)
+  //   The settlement's assessSettlement() rating drops (fewer structures = lower assessment)
+  //   This is how abandoned settlements become ruins naturally
 }
 ```
 
@@ -18938,6 +18881,50 @@ CharacterFitness {
 ```
 
 
+#### Swimming Buoyancy System
+
+// [Moved from §3.6 Connection 23 — this is the authoritative definition]
+
+```
+SwimmingBuoyancySystem {
+  // Buoyancy depends on: body fat, carried weight, and clothing.
+
+  // BASE BUOYANCY (from character creation §7.1):
+  //   baseBuoyancy = 0.5 + bodyFat × 0.3 - muscularity × 0.1
+  //   Thin (fat 0.1, muscle 0.2): 0.5 + 0.03 - 0.02 = 0.51 (barely floats)
+  //   Average (fat 0.3, muscle 0.3): 0.5 + 0.09 - 0.03 = 0.56 (floats comfortably)
+  //   Fat (fat 0.7, muscle 0.2): 0.5 + 0.21 - 0.02 = 0.69 (very buoyant)
+  //   Muscular (fat 0.1, muscle 0.8): 0.5 + 0.03 - 0.08 = 0.45 (sinks without effort)
+  //
+  //   buoyancy > 0.5: player floats naturally (treading water uses less stamina)
+  //   buoyancy < 0.5: player sinks slowly (must actively swim to stay afloat)
+
+  // CARRIED WEIGHT EFFECT:
+  //   effectiveBuoyancy = baseBuoyancy - (totalCarriedWeight / maxCarryWeight) × 0.4
+  //
+  //   Naked (0kg): effectiveBuoyancy = baseBuoyancy (full float)
+  //   Light gear (10kg carried, max 60kg): effectiveBuoyancy = base - 0.067 (slight reduction)
+  //   Heavy gear (40kg): effectiveBuoyancy = base - 0.267 (significant sinking)
+  //   Full load (60kg): effectiveBuoyancy = base - 0.4 (probably sinking)
+  //
+  //   Average person (baseBuoyancy 0.56) carrying 40kg of stone:
+  //     effectiveBuoyancy = 0.56 - 0.267 = 0.293 → SINKS. Must drop items or drown.
+
+  // DROWNING THRESHOLD:
+  //   if effectiveBuoyancy < 0.3: player CANNOT stay afloat without constant swimming
+  //     stamina drain while treading water: base × (0.5 - effectiveBuoyancy) × 10
+  //     At buoyancy 0.2: stamina drain = base × 3.0 (exhaustion in ~30 seconds)
+  //   if effectiveBuoyancy < 0.1: player sinks immediately regardless of stamina
+  //     Must drop items NOW or die
+  //
+  //   Player can voluntarily drop items while in water:
+  //     Metal items sink (density > 1000 kg/m³) → lost to the bottom
+  //     Wood items float (density < 1000 kg/m³) → recoverable from surface
+  //     This creates a real risk/reward: carry heavy tools across a river? Risk drowning.
+}
+```
+
+
 ### 7.3 Inventory — Clothing Determines Capacity
 
 #### The Principle
@@ -19107,6 +19094,89 @@ InventoryUI {
   // - Weight in bottom corner
   // - Temperature indicator if not ambient (red = hot, blue = cold)
   // - Fill level bar if it's a container with liquid
+}
+```
+
+
+#### Clothing Warmth System (CLO)
+
+// [Moved from §3.6 Connection 22 — this is the authoritative definition]
+
+```
+ClothingWarmthSystem {
+  // Multiple clothing items combine to insulate the player.
+  // Insulation uses the CLO system (see Clothing Insulation Values below).
+
+  // Each ClothingItem has insulation: number (CLO units)
+  // CLO values per slot (example materials):
+  //   head (hat/helmet):        wool 0.8 CLO, leather 0.5 CLO, linen 0.3 CLO
+  //   torso (shirt):            wool 0.8 CLO, leather 0.5 CLO, linen 0.3 CLO
+  //   outerLayer (jacket/cloak): fur 1.5 CLO, sheepskin 1.2 CLO, wool 0.8 CLO
+  //   legs (pants):             wool 0.8 CLO, leather 0.5 CLO, linen 0.3 CLO
+  //   feet (boots):             leather 0.5 CLO, fur 1.5 CLO
+  //   gloves:                   wool 0.8 CLO, leather 0.5 CLO
+  //   No insulation from: belt, necklace, bracelet, ring, backpack
+
+  // COMBINATION FORMULA (CLO system):
+  //   totalCLO = sum of CLO values for all worn clothing layers
+  //   heatLoss = baseHeatLoss / (1 + totalCLO × 0.155)
+  //   CLO values per material are derived from thermal conductivity (§3.1):
+  //     CLO = thickness(m) / (0.155 × thermalConductivity)
+  //   totalCLO 0 (naked): heatLoss = baseHeatLoss (full exposure)
+  //   totalCLO 1 (light suit): heatLoss = baseHeatLoss / 1.155 (13% reduction)
+  //   totalCLO 4 (full wool): heatLoss = baseHeatLoss / 1.62 (38% reduction)
+  //
+  //   Full wool outfit: 0.8 + 0.8 + 0.8 + 0.8 + 0.5 + 0.8 = 4.5 CLO
+  //   Bare (no clothes): 0 CLO
+  //
+  // WET CLOTHING:
+  //   If raining AND exposed (shelter map) AND clothing.waterResistance < 1.0:
+  //     clothing.moisture increases over time
+  //     wetCLOMultiplier = 1.0 - clothing.moisture × 0.8
+  //     Wet wool retains 75% CLO (wool is remarkable this way)
+  //     Wet cotton retains 17% CLO (cotton is terrible when wet)
+  //     effectiveCLO = item.insulation × wetCLOMultiplier
+  //   Drying: when not raining and near fire or in sun:
+  //     clothing.moisture decreases based on temperature and wind
+
+  // ── Clothing Insulation Values ─────────────────────────────────────────
+  //
+  // In plain English: clothing reduces heat loss. Wool is the best because 
+  // it traps air and works even when wet. Leather blocks wind. Linen barely helps.
+  //
+  // Insulation is measured in CLO units (1 CLO = enough for comfort at 21°C sitting):
+  //   heatLossReduction = 1 / (1 + totalCLO × 0.155)
+  //   At 0 CLO (naked): heatLossReduction = 1.0 (full heat loss)
+  //   At 1 CLO (light suit): heatLossReduction = 0.87 (13% reduction)
+  //   At 4 CLO (heavy winter): heatLossReduction = 0.62 (38% reduction)
+  //
+  // | Material        | CLO per layer | Wet CLO | Notes |
+  // |----------------|--------------|---------|-------|
+  // | Linen/cotton    | 0.3          | 0.05    | Useless when wet — loses 83% insulation |
+  // | Wool            | 0.8          | 0.6     | Retains 75% insulation when wet |
+  // | Leather         | 0.5          | 0.4     | Wind-blocking but moderate warmth |
+  // | Fur (animal)    | 1.5          | 0.8     | Best insulation — air trapped in fur |
+  // | Sheepskin       | 1.2          | 0.9     | Excellent — wool still attached to hide |
+  // | Feather-filled  | 2.0          | 0.3     | Best dry insulation, terrible when wet |
+  // | Bark/grass      | 0.2          | 0.1     | Emergency only |
+  //
+  // Layers stack: wearing wool (0.8) + leather (0.5) = 1.3 CLO total
+  // Each body region contributes proportionally:
+  //   Head: 10% of body heat (high priority to cover)
+  //   Torso: 40%
+  //   Legs: 30%
+  //   Hands/feet: 20%
+  //
+  // CLO values are derived from the material's thermal conductivity (§3.1):
+  //   CLO ≈ thickness(m) / (0.155 × thermalConductivity(W/mK))
+  //   Wool: 0.005m thick, κ=0.04 → CLO = 0.005/(0.155×0.04) = 0.81 ✓
+
+  // BODY REGION COVERAGE:
+  //   Injury from hot inventory items maps to clothing slot:
+  //     Item in pants pocket → leg region
+  //     Item in torso (jacket pocket) → torso region
+  //     Item in backpack → torso region (backpack sits on back/torso)
+  //     Item in hand → arm region of that hand
 }
 ```
 

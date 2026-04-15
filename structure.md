@@ -124,7 +124,7 @@ This approach has precedent. *Dwarf Fortress* (Tarn Adams, ongoing) demonstrated
 
 ## 3. Core Simulation Engine
 
-These are the foundational physics systems that power every other system in the game. They are NOT independent modules — they are **stages of a single physics tick loop** that runs in a Rust native process on the server. Each stage feeds into the next: temperature changes trigger phase transitions, phase transitions spawn fluid particles, fluid particles interact via forces that depend on material properties, structural blocks break when forces exceed material strength, and every physical event emits a sound descriptor.
+These are the foundational physics systems that power every other system in the game. They are NOT independent modules — they are **stages of a single physics tick loop** that runs in a native Rust Bevy desktop application. Each stage feeds into the next: temperature changes trigger phase transitions, phase transitions spawn fluid particles, fluid particles interact via forces that depend on material properties, structural blocks break when forces exceed material strength, and every physical event emits a sound descriptor.
 
 #### Recommended Reading Order
 

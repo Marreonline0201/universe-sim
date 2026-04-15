@@ -14,10 +14,10 @@
 ### PART II — CORE ENGINE
 3. [Core Simulation Engine](#3-core-simulation-engine) — Unified Rust physics tick (8 stages)
     - 3.1 Emergent Material System (Stage 3: Reactions)
-    - 3.2 Fluid Simulation — SPH + MPM hybrid (Stage 4: Fluid)
+    - 3.2 Fluid Simulation — MLS-MPM (Stage 4: Fluid)
     - 3.3 Sound Engine — Synthesized from physics (Stage 7: Sound Events)
     - 3.4 Structural Physics (Stage 5: Integrity)
-    - 3.5 Networking & Hybrid Rendering (Stage 8: Broadcast)
+    - 3.5 Networking & Hybrid Rendering (Stage 8: Stats Update)
     - 3.6 Cross-System Connections — Complete Data Flow Map (99 connections)
     - 3.7 System-Wide Optimization — Tick scheduling, caching, memory, threading
     - 3.8 Rotational Mechanics & Mechanical Joints — Wheels, gears, engines, all machines
@@ -134,7 +134,7 @@ For understanding the physics engine, read them in this dependency order:
 **Foundation (read first — everything depends on these):**
 1. §3.1 Material System — composition to properties. Every other system reads from this.
 2. Physics Tick intro (below) — the 8-stage pipeline that runs every tick.
-3. §3.2 Fluid Simulation — SPH/MPM particles, phase transitions, rendering.
+3. §3.2 Fluid Simulation — MLS-MPM particles, phase transitions, rendering.
 4. §3.4 Structural Physics — load paths, beams, arches, cascades.
 
 **Mechanics (read second — these enable machines and motion):**
@@ -157,17 +157,10 @@ For understanding the physics engine, read them in this dependency order:
 
 #### The Unified Physics Tick (Rust Core)
 
-> **Implementation Note (2026-04-15):** The engine was rebuilt as a standalone
-> Bevy desktop application with wgpu GPU compute shaders. The napi-rs/Node.js
-> architecture described below is the original design. The current implementation
-> uses: Bevy 0.15 for rendering/ECS, wgpu for GPU compute (6 shaders: properties,
-> temperature, phase_transition, collision, reactions, rigid_body), and runs as
-> a native desktop app (universe-app.exe). GPU is required (Vulkan backend).
-
-Every server tick (60 Hz for crafting, 30 Hz for environment), the physics engine runs one pipeline:
+Every tick (64 Hz fixed timestep), the physics engine runs one pipeline:
 
 ```
-PhysicsTick (Rust native addon, called from Node.js game server) {
+PhysicsTick (Rust Bevy desktop application, wgpu GPU compute) {
 
   // ── Stage 1: Temperature Propagation ──────────────────────────────────────
   // All objects in the world exchange heat with neighbors and environment.
@@ -187,7 +180,7 @@ PhysicsTick (Rust native addon, called from Node.js game server) {
   // ── Stage 2: Phase Transitions ────────────────────────────────────────────
   // Check every packet: has temperature crossed melting/boiling point?
   // Uses: MaterialPacket.meltingPoint, boilingPoint (computed from composition)
-  // If solid → liquid: fragment packet into SPH/MPM particles (§3.2)
+  // If solid → liquid: fragment packet into MPM particles (§3.2)
   // If liquid → solid: merge particles back into solid packet (§3.2)
   // If liquid → gas: expand particles, add buoyancy (§3.2)
   // Output: new particles spawned or merged
@@ -243,10 +236,9 @@ PhysicsTick (Rust native addon, called from Node.js game server) {
 
   // ── Stage 4: Fluid Simulation ─────────────────────────────────────────────
   // Active fluid particles (from Stage 2 or existing):
-  //   Scale 1 (crafting, 100-5000): SPH at 60 Hz — pressure, viscosity, gravity,
-  //     surface tension, terrain collision, mesh collision (SDF). Uses material-dependent properties.
-  //   Scale 2 (environment, 5000-200000): MLS-MPM at 30 Hz — particle-to-grid,
-  //     grid force solve, grid-to-particle. No neighbor search needed. 3× faster than SPH.
+  //   MLS-MPM at 64 Hz — particle-to-grid, grid force solve, grid-to-particle
+  //   Handles all scales (100-200,000 particles) on GPU compute
+  //   No neighbor search needed — grid-based, 3× faster than former SPH
   //   Scale 3 (regional): Grid solver at 1 Hz — Manning's equation flow
   //   Max total particles: 400,000 (typical active: 20,000-60,000)
   //   Sleep system: settled particles skip computation (80-95% sleeping at any time)
@@ -284,63 +276,55 @@ PhysicsTick (Rust native addon, called from Node.js game server) {
   // Sent to client as SOUND_EVENTs — client synthesizes audio (§3.3)
   // Output: array of SoundEvent descriptors
 
-  // ── Stage 8: Broadcast to Clients ─────────────────────────────────────────
-  // Package results and send via WebSocket (§3.5):
-  //   Particle positions → PHYSICS_EVENT
-  //   Sound descriptors → SOUND_EVENT
-  //   Entity state changes → ENTITY_UPDATE
-  //   Structural changes → CHUNK_UPDATE
+  // ── Stage 8: Update Stats ──────────────────────────────────────────────────
+  // Update local simulation statistics and debug counters:
+  //   Particle positions → update Bevy transforms
+  //   Sound descriptors → queue for audio playback
+  //   Entity state changes → update ECS components
+  //   Structural changes → update chunk meshes
 }
 ```
 
-#### Implementation: Rust Native Addon
+#### Implementation: Rust Bevy Desktop Application
 
-The physics engine is written in **Rust** and compiled to a native Node.js addon via **napi-rs**. This is not WebAssembly — it is native machine code running at full CPU speed with SIMD auto-vectorization.
+The physics engine is written in **Rust** and compiles to a native desktop application (universe-app.exe). It uses Bevy 0.15 for ECS and rendering, and wgpu for GPU compute shaders (Vulkan backend).
 
 ```
-Why Rust (not JavaScript, not C++, not WASM):
+Why Rust:
   - 10-50× faster than JavaScript for tight numerical loops (no type checks, no GC)
   - Memory-safe unlike C++ (no segfaults, no buffer overflows)
   - SIMD auto-vectorization (compiler processes 4-8 particles per instruction)
-  - Zero-copy data sharing with Node.js via napi-rs (Float32Array shared memory)
+  - GPU compute via wgpu Vulkan backend
   - No garbage collection pauses (predictable frame timing)
-  - Compiles to native .node binary — loaded by Node.js like any npm module
+  - Bevy 0.15 for ECS/rendering, wgpu for GPU compute shaders
+  - Compiles to native desktop application (universe-app.exe)
 
-Data sharing (zero-copy):
-  // Node.js creates Float32Array buffers for particle data
-  // Passes buffer references to Rust via napi-rs
-  // Rust reads and writes directly into the same memory
-  // No serialization, no copying, no message passing
-  // Node.js sees updated particle positions immediately after Rust returns
+GPU compute pipeline (wgpu, 6 shaders per tick):
+  // 1. properties.wgsl — composition → 8 material properties (weighted averages, Debye specific heat)
+  // 2. temperature.wgsl — Fourier conduction + Stefan-Boltzmann radiation + combustion heat injection
+  // 3. phase_transition.wgsl — temperature vs melting/boiling point → new phase detection
+  // 4. collision.wgsl — brute-force all-pairs overlap → push vectors
+  // 5. reactions.wgsl — brute-force all-pairs composition check → reaction detection
+  // 6. rigid_body.wgsl — gravity + drag + ground collision for unbonded packets
+  // CPU handles only: bond graph mutations, packet insertion/removal,
+  //   product MaterialPacket creation, bonded group traversal
+  // GPU is required — no CPU fallback
 
-Performance budget (Rust):
-  SPH crafting (5000 particles, 60 Hz):       ~0.5ms per tick  → 3% of one CPU core
-  MPM environment (50k active, 30 Hz):        ~2.0ms per tick  → 6% of one CPU core
-  MPM peak eruption (200k active, 30 Hz):     ~8.0ms per tick  → 24% of one CPU core
+Performance budget (GPU compute at 64 Hz):
+  GPU properties + temperature + phase + collision + reactions + rigid body: ~2-4ms per tick
   Grid regional (10,000-50,000 cells, 1 Hz):   ~2ms per tick    → 0.2% of one CPU core
   Particle redistribution (amortized):        ~0.3ms per tick  → ~1% of one CPU core
   Structural (on-demand):                     ~0.5-2ms per event
-  Rigid body (100 objects, 60 Hz):            ~0.05ms per tick
-  TOTAL PHYSICS (sustained):                  ~10% of one CPU core
-  TOTAL PHYSICS (peak eruption):              ~34% of one CPU core
-
-Compare JavaScript (same sustained workload): ~100%+ of one CPU core (cannot keep up)
-With WebGPU GPU compute: MPM drops from ~2ms to ~0.5ms, freeing CPU entirely.
-Rust gives 3-10× headroom for scaling to more players and more particles.
-Even at peak eruption (200k active particles), a single core handles it with 66% headroom.
+  TOTAL PHYSICS (sustained):                  GPU: ~2-4ms, CPU: minimal (bond graph only)
 ```
 
-#### Fluid Methods: SPH + MPM Hybrid
+#### Fluid Method: MLS-MPM (Material Point Method)
 
-The fluid simulation uses two methods optimized for different scales:
+The fluid simulation uses a single method for all scales:
 
-**SPH (Smoothed Particle Hydrodynamics)** — for crafting scale (100-5,000 particles).
-Each particle checks its neighbors and computes 5 forces. Precise, accurate, good for small interactions where every droplet matters (pouring metal into a mold).
+**MLS-MPM (Moving Least Squares Material Point Method)** — handles all particle counts (100-200,000). Particles transfer data to a background grid (P2G), the grid solves forces, then transfers results back to particles (G2P). No neighbor search is needed — the grid handles all interactions. This is 3x faster than SPH at the same particle count. Used for everything from pouring metal into a mold to rain, puddles, lava flows, and floods. SPH was removed — MPM handles both small-scale crafting interactions and large-scale environment flow in a single unified solver.
 
-**MLS-MPM (Moving Least Squares Material Point Method)** — for environment scale (5,000-200,000 particles).
-Particles transfer data to a background grid, the grid solves forces, then transfers results back to particles. 3× faster than SPH at the same particle count because it avoids the expensive neighbor search. Used for rain, puddles, lava flows, floods — situations where overall flow behavior matters more than individual droplet precision.
-
-Both methods use material properties from the MaterialPacket (viscosity, surface tension, density) — the physics is the same, only the computational method differs.
+MPM uses material properties from the MaterialPacket (viscosity, surface tension, density) — the same physics-driven properties computed from composition.
 
 The sections below describe each stage's physics in detail.
 
@@ -368,16 +352,12 @@ The game builds its material universe the same way the real universe did: from t
 
 The fundamental unit is not an atom (too expensive) or a named material (too rigid). It is a **material packet** — a chunk of matter with a composition, mass, temperature, and phase.
 
-> **Implementation Note (2026-04-15):** `composition` changed from
-> `Map<Element, number>` to `[f64; ELEMENT_COUNT]` (fixed-size array, 25 elements).
-> This enables GPU compute — the array can be uploaded directly to GPU buffers.
-> Element::index() maps each element to its array position (H=0, C=1, ..., W=24).
-
 ```
 MaterialPacket {
   // --- Identity: what is this made of? ---
-  composition: Map<Element, number>    // element → mass fraction (sums to 1.0)
-                                        // e.g., { Cu: 0.88, Sn: 0.12 }
+  composition: [f64; ELEMENT_COUNT]    // mass fraction per element (25 elements, sums to 1.0)
+                                        // Fixed-size array indexed by Element::index()
+                                        // GPU-friendly — uploads directly to compute shader buffers
 
   // --- Physical state ---
   mass: number                          // kg
@@ -1130,12 +1110,7 @@ This is feasible on current hardware because:
 
 ### 3.2 Fluid Simulation — How Liquids Work
 
-> **Implementation Note (2026-04-15):** SPH was deleted. The engine uses MPM only
-> (one unified solver for fluids AND solids). The MPM GPU pipeline (mpm.wgsl +
-> mpm_gpu.rs) exists but is currently disabled because it needs persistent
-> GPU-side particle state (APIC C matrix, deformation gradient F, volume ratio J
-> must carry across ticks). Fluid packets currently use rigid body gravity +
-> ground collision as a fallback.
+The engine uses MLS-MPM only — one unified solver for all particle scales. SPH was removed. The MPM GPU pipeline (mpm.wgsl + mpm_gpu.rs) exists but is currently disabled because it needs persistent GPU-side particle state (APIC C matrix, deformation gradient F, volume ratio J must carry across ticks). Fluid packets currently use rigid body gravity + ground collision as a fallback.
 
 #### Why Liquid Is the Hardest Problem
 
@@ -4334,9 +4309,7 @@ StructuralPerformance {
 
 ### 3.5 Networking & Hybrid Rendering
 
-> **Implementation Note (2026-04-15):** Networking is not implemented in the
-> current engine. The app runs as a standalone desktop application. Stage 8
-> updates local stats instead of broadcasting via WebSocket.
+Note: Networking is not implemented in the current engine build. The application runs as a standalone desktop app. The design below is for future multiplayer support.
 
 #### The Principle
 
@@ -6823,41 +6796,36 @@ Trigger: continuous — rotating joints generate sound proportional to their ang
 
 ### 3.7 System-Wide Optimization — Making It All Run in Real-Time
 
-> **Implementation Note (2026-04-15):** GPU compute is no longer optional — it is
-> the primary compute path. Six wgpu compute shaders run per tick:
-> 1. properties.wgsl — composition to 8 material properties
-> 2. temperature.wgsl — conduction + radiation + combustion heat
-> 3. phase_transition.wgsl — temp vs melting/boiling to new phase
-> 4. collision.wgsl — all-pairs repulsion
-> 5. reactions.wgsl — all-pairs reaction detection
-> 6. rigid_body.wgsl — gravity + drag + ground for solo packets
-> CPU only handles: bond graph mutations, packet insertion/removal, product
-> creation, bonded group traversal.
+GPU compute is the primary compute path (wgpu, Vulkan backend). Six compute shaders run per tick:
+1. properties.wgsl — composition → 8 material properties (weighted averages, Debye specific heat)
+2. temperature.wgsl — Fourier conduction + Stefan-Boltzmann radiation + combustion heat injection
+3. phase_transition.wgsl — temperature vs melting/boiling point → new phase detection
+4. collision.wgsl — brute-force all-pairs overlap → push vectors
+5. reactions.wgsl — brute-force all-pairs composition check → reaction detection
+6. rigid_body.wgsl — gravity + drag + ground collision for unbonded packets
+
+CPU handles only: bond graph mutations, packet insertion/removal, product MaterialPacket creation, bonded group traversal. GPU is required — no CPU fallback.
 
 The physics systems described in §3.1–3.5 are mostly correct but expensive. Running them naively would consume multiple CPU cores and gigabytes of RAM. This section specifies the optimization strategies that make the simulation fit within real-time budgets on a single server machine.
 
 #### Tick Scheduling — What Runs When
 
-Not all physics stages need to run at the same frequency. The unified physics tick (§3.0) is actually a multi-rate pipeline:
+All physics stages run at a fixed 64 Hz timestep (15.625ms per tick). GPU compute shaders handle the heavy work; CPU handles only bond graph mutations and packet management.
 
 ```
 TickScheduler {
-  // ── High frequency (60 Hz) ────────────────────────────────────────────
-  // Only for systems where the player notices per-frame changes:
-  //   Stage 4a: SPH crafting (100-5,000 particles near a craft interaction)
-  //   Stage 6: Rigid body physics (dropped items, debris in flight)
+  // ── Fixed frequency (64 Hz) ───────────────────────────────────────────
+  // All stages run every tick on the GPU compute pipeline:
+  //   Stage 1: Temperature propagation (GPU: temperature.wgsl)
+  //   Stage 2: Phase transitions (GPU: phase_transition.wgsl)
+  //   Stage 3: Reactions (GPU: reactions.wgsl)
+  //   Stage 4: MPM fluid simulation (all scales, GPU compute)
+  //   Stage 5: Structural integrity (on change events)
+  //   Stage 6: Rigid body physics (GPU: rigid_body.wgsl)
   //   Stage 7: Sound events (impacts need immediate audio response)
-  //   Stage 8: Broadcast (client needs smooth position updates)
+  //   Stage 8: Stats update (local ECS component updates)
   //
-  // Budget per tick at 60 Hz: 16.67ms total, physics gets ~8ms max
-
-  // ── Medium frequency (30 Hz) ──────────────────────────────────────────
-  // Systems that change smoothly and tolerate half-rate updates:
-  //   Stage 1: Temperature propagation (heat changes are gradual)
-  //   Stage 4b: MPM environment particles (player sees bulk flow, not individual frames)
-  //   Stage 5: Structural integrity (only on change events, not every tick)
-  //
-  // Budget per tick at 30 Hz: 33.3ms, physics gets ~16ms max
+  // Budget per tick at 64 Hz: 15.625ms total, GPU compute takes ~2-4ms
 
   // ── Low frequency (1-10 Hz) ───────────────────────────────────────────
   // Slow-changing systems where updates are imperceptible per-frame:
@@ -6892,16 +6860,14 @@ TickScheduler {
   //     because collapsed blocks become debris.
   //   All above must finish before Sound (Stage 7)
   //     because sound events are generated from all previous stages.
-  //   Sound finishes before Broadcast (Stage 8).
+  //   Sound finishes before Stats Update (Stage 8).
   //
-  //   HOWEVER: stages at different frequencies can OVERLAP.
-  //   While a 30 Hz MPM tick is computing, the 60 Hz SPH tick can run
-  //   independently (different particle pools, no shared state).
-  //   Temperature propagation (30 Hz) can overlap with rigid body (60 Hz)
-  //   because they operate on different data.
+  //   GPU compute shaders execute sequentially within a tick (dispatch order
+  //   matches the dependency chain). CPU bond-graph work overlaps with GPU
+  //   dispatches where there is no data dependency.
   //
   //   Parallelizable pairs (no data dependency):
-  //     SPH crafting || Rigid body physics (different objects)
+  //     GPU compute || CPU bond graph mutations (different data)
   //     Temperature || Sound synthesis (read-only access to positions)
   //     Grid water || MPM particles (different scales, different data)
   //
@@ -6919,15 +6885,15 @@ TickScheduler {
   //
   // ── Additional systems (§3.8-§3.13) ────────────────────────────────────
   //
-  //   Rotational mechanics (§3.8): runs within Stage 6 at 60 Hz
+  //   Rotational mechanics (§3.8): runs within Stage 6 at 64 Hz
   //     Joint constraint solving: 4-8 iterations per tick
   //     Cost: ~0.06 ms for 6 joints, up to 1 ms for 100 joints
   //
-  //   Projectile aerodynamics (§3.9): runs within Stage 6 at 60 Hz
+  //   Projectile aerodynamics (§3.9): runs within Stage 6 at 64 Hz
   //     One drag force per active rigid body
   //     Cost: negligible (~0.0002 ms for 100 objects)
   //
-  //   Rope/cable physics (§3.10): runs as Stage 6b at 60 Hz
+  //   Rope/cable physics (§3.10): runs as Stage 6b at 64 Hz
   //     Verlet integration + constraint solving, 4-8 iterations
   //     Cost: ~0.2 ms for 100 ropes
   //
@@ -6940,12 +6906,12 @@ TickScheduler {
   //     Solar concentration: computed in Stage 1 (heat injection at focal point)
   //     Cost: < 0.1 ms per frame (client), negligible server-side
   //
-  //   Electromagnetism (§3.13): runs as Stage 1b at 30 Hz
+  //   Electromagnetism (§3.13): runs as Stage 1b at 64 Hz
   //     Circuit graph solving (event-driven rebuild, per-tick current solve)
   //     Magnetic field computation (cached, updated when magnets/current change)
   //     Joule heating feeds into Stage 1 temperature propagation
   //     Cost: 0.2-1.0 ms per tick when electrical systems exist near players
-  //     Fluid → Structural → Rigid body → Sound → Broadcast
+  //     Fluid → Structural → Rigid body → Sound → Stats Update
 }
 ```
 
@@ -10247,7 +10213,7 @@ ElectromagnetismPerformance {
   //   Generator speed changes → update EMF
   //   Circuit graph is cached between events (dirty flag pattern)
   //
-  // Tick rate: 30 Hz (same as environment physics — electrical changes are smooth)
+  // Tick rate: 64 Hz (same as physics tick — electrical changes are smooth)
   // Magnetic field is cached per-frame for each query point (LRU cache, 256 entries)
   //   Recomputed only when magnets/coils move or currents change
 
@@ -20316,14 +20282,7 @@ FirstSpawnDesign {
 
 ### 9.1 System Architecture (Target)
 
-> **Implementation Note (2026-04-15):** The engine was rebuilt as a standalone
-> Bevy desktop application with wgpu GPU compute shaders. The napi-rs/Node.js
-> architecture described below is the original design. The current implementation
-> uses: Bevy 0.15 for rendering/ECS, wgpu for GPU compute (6 shaders: properties,
-> temperature, phase_transition, collision, reactions, rigid_body), and runs as
-> a native desktop app (universe-app.exe). GPU is required (Vulkan backend).
-
-The system has five runtime components that work together. The server is the single authority for all world state. The client is a renderer — eyes and ears only (see §3.6 for full networking spec).
+The current engine is a standalone Rust Bevy desktop application (universe-app.exe) with wgpu GPU compute shaders (Vulkan backend). It uses Bevy 0.15 for ECS/rendering and runs six GPU compute shaders per tick (properties, temperature, phase_transition, collision, reactions, rigid_body). The architecture below describes the target multi-component system for future multiplayer support. The client-server split is not yet implemented — the application currently runs as a single desktop process.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐

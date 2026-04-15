@@ -157,6 +157,13 @@ For understanding the physics engine, read them in this dependency order:
 
 #### The Unified Physics Tick (Rust Core)
 
+> **Implementation Note (2026-04-15):** The engine was rebuilt as a standalone
+> Bevy desktop application with wgpu GPU compute shaders. The napi-rs/Node.js
+> architecture described below is the original design. The current implementation
+> uses: Bevy 0.15 for rendering/ECS, wgpu for GPU compute (6 shaders: properties,
+> temperature, phase_transition, collision, reactions, rigid_body), and runs as
+> a native desktop app (universe-app.exe). GPU is required (Vulkan backend).
+
 Every server tick (60 Hz for crafting, 30 Hz for environment), the physics engine runs one pipeline:
 
 ```
@@ -360,6 +367,11 @@ The game builds its material universe the same way the real universe did: from t
 #### What Is a Material Packet
 
 The fundamental unit is not an atom (too expensive) or a named material (too rigid). It is a **material packet** — a chunk of matter with a composition, mass, temperature, and phase.
+
+> **Implementation Note (2026-04-15):** `composition` changed from
+> `Map<Element, number>` to `[f64; ELEMENT_COUNT]` (fixed-size array, 25 elements).
+> This enables GPU compute — the array can be uploaded directly to GPU buffers.
+> Element::index() maps each element to its array position (H=0, C=1, ..., W=24).
 
 ```
 MaterialPacket {
@@ -1117,6 +1129,13 @@ This is feasible on current hardware because:
 
 
 ### 3.2 Fluid Simulation — How Liquids Work
+
+> **Implementation Note (2026-04-15):** SPH was deleted. The engine uses MPM only
+> (one unified solver for fluids AND solids). The MPM GPU pipeline (mpm.wgsl +
+> mpm_gpu.rs) exists but is currently disabled because it needs persistent
+> GPU-side particle state (APIC C matrix, deformation gradient F, volume ratio J
+> must carry across ticks). Fluid packets currently use rigid body gravity +
+> ground collision as a fallback.
 
 #### Why Liquid Is the Hardest Problem
 
@@ -4315,6 +4334,10 @@ StructuralPerformance {
 
 ### 3.5 Networking & Hybrid Rendering
 
+> **Implementation Note (2026-04-15):** Networking is not implemented in the
+> current engine. The app runs as a standalone desktop application. Stage 8
+> updates local stats instead of broadcasting via WebSocket.
+
 #### The Principle
 
 This is a real-world online simulation. The server is the world. The client is a window into that world — eyes and ears only. If the server doesn't know about it, it didn't happen. This prevents cheating and ensures all players experience the same reality.
@@ -6799,6 +6822,17 @@ Trigger: continuous — rotating joints generate sound proportional to their ang
 
 
 ### 3.7 System-Wide Optimization — Making It All Run in Real-Time
+
+> **Implementation Note (2026-04-15):** GPU compute is no longer optional — it is
+> the primary compute path. Six wgpu compute shaders run per tick:
+> 1. properties.wgsl — composition to 8 material properties
+> 2. temperature.wgsl — conduction + radiation + combustion heat
+> 3. phase_transition.wgsl — temp vs melting/boiling to new phase
+> 4. collision.wgsl — all-pairs repulsion
+> 5. reactions.wgsl — all-pairs reaction detection
+> 6. rigid_body.wgsl — gravity + drag + ground for solo packets
+> CPU only handles: bond graph mutations, packet insertion/removal, product
+> creation, bonded group traversal.
 
 The physics systems described in §3.1–3.5 are mostly correct but expensive. Running them naively would consume multiple CPU cores and gigabytes of RAM. This section specifies the optimization strategies that make the simulation fit within real-time budgets on a single server machine.
 
@@ -20281,6 +20315,13 @@ FirstSpawnDesign {
 ## 9. Technical Architecture
 
 ### 9.1 System Architecture (Target)
+
+> **Implementation Note (2026-04-15):** The engine was rebuilt as a standalone
+> Bevy desktop application with wgpu GPU compute shaders. The napi-rs/Node.js
+> architecture described below is the original design. The current implementation
+> uses: Bevy 0.15 for rendering/ECS, wgpu for GPU compute (6 shaders: properties,
+> temperature, phase_transition, collision, reactions, rigid_body), and runs as
+> a native desktop app (universe-app.exe). GPU is required (Vulkan backend).
 
 The system has five runtime components that work together. The server is the single authority for all world state. The client is a renderer — eyes and ears only (see §3.6 for full networking spec).
 
